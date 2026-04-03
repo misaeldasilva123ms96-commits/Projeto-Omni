@@ -6,13 +6,27 @@ const { act } = require('./executor');
 const { review } = require('./reviewer');
 
 function maybeUseName(thought) {
-  return thought.userName ? `${thought.userName}, ` : '';
+  if (!thought.userName) {
+    return '';
+  }
+
+  if (thought.intent === 'dinheiro' || thought.intent === 'decision' || thought.intent === 'conselho') {
+    return `${thought.userName}, `;
+  }
+
+  return '';
 }
 
 function respond(actionResult, thought, decision, reviewResult, memorySignal) {
   const opener = maybeUseName(thought);
 
   switch (thought.intent) {
+    case 'saudacao':
+      return {
+        response: actionResult.greeting,
+        confidence: Math.min(0.99, decision.confidence * reviewResult.qualityScore),
+        memory: memorySignal,
+      };
     case 'decision':
     case 'conselho':
       return {
@@ -35,20 +49,20 @@ function respond(actionResult, thought, decision, reviewResult, memorySignal) {
     case 'pessoal':
       return {
         response: thought.userName
-          ? `${actionResult.identity} Tambem levo em conta o que voce ja me contou, ${thought.userName}.`
+          ? `${actionResult.identity} Também levo em conta o que você já me contou, ${thought.userName}.`
           : actionResult.identity,
         confidence: Math.min(0.99, decision.confidence * reviewResult.qualityScore),
         memory: memorySignal,
       };
     case 'explicacao':
       return {
-        response: `${opener}eu pensaria assim: ${actionResult.explanation[0]}, depois ${actionResult.explanation[1]} e por fim ${actionResult.explanation[2]}.`,
+        response: `${actionResult.explanation[0]} ${actionResult.explanation[1]} ${actionResult.explanation[2]}`,
         confidence: Math.min(0.99, decision.confidence * reviewResult.qualityScore),
         memory: memorySignal,
       };
     default:
       return {
-        response: `${opener}${actionResult.conversation} Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao.`,
+        response: `${actionResult.conversation} Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao.`,
         confidence: Math.min(0.99, decision.confidence * reviewResult.qualityScore),
         memory: memorySignal,
       };

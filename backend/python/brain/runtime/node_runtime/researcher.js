@@ -6,6 +6,16 @@ function detectIntent(message, recentHistory) {
   const historyText = normalizeText(recentHistory.join(' '));
 
   if (
+    msg === 'ola' ||
+    msg === 'oi' ||
+    msg === 'bom dia' ||
+    msg === 'boa tarde' ||
+    msg === 'boa noite'
+  ) {
+    return 'saudacao';
+  }
+
+  if (
     msg.includes('devo') ||
     msg.includes(' ou ') ||
     msg.includes('qual e melhor') ||
@@ -47,10 +57,12 @@ function detectIntent(message, recentHistory) {
 
   if (
     msg.includes('o que e') ||
+    msg.includes('oque e') ||
     msg.includes('explique') ||
     msg.includes('por que') ||
     msg.includes('porque') ||
-    msg.includes('como funciona')
+    msg.includes('como funciona') ||
+    msg.includes('me diga o que e')
   ) {
     return 'explicacao';
   }

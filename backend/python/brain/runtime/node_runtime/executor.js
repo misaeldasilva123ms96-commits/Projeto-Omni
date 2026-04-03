@@ -1,11 +1,71 @@
 ﻿const { normalizeText } = require('./registry');
 const { hasPreference } = require('./memory');
 
+function extractExplanationTopic(message) {
+  const normalized = normalizeText(message);
+  const patterns = [
+    /^o que e\s+(.+)$/,
+    /^oque e\s+(.+)$/,
+    /^explique\s+(.+)$/,
+    /^como funciona\s+(.+)$/,
+    /^me diga o que e\s+(.+)$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return normalized;
+}
+
+function buildExplanation(topic) {
+  if (topic.includes('criptomoeda')) {
+    return [
+      'Criptomoeda é um tipo de dinheiro digital que funciona pela internet e usa criptografia para registrar e proteger transações.',
+      'Ela é importante porque permite transferências diretas entre pessoas ou empresas sem depender de um banco tradicional em cada operação.',
+      'Um exemplo comum é o bitcoin, que pode ser enviado entre carteiras digitais e tem suas movimentações registradas em uma rede distribuída.',
+    ];
+  }
+
+  if (topic.includes('blockchain')) {
+    return [
+      'Blockchain é um registro digital distribuído que organiza informações em blocos conectados em sequência.',
+      'Ela funciona mantendo cópias sincronizadas do mesmo histórico em vários participantes da rede, o que dificulta alterações indevidas.',
+      'Na prática, isso permite rastrear transações com transparência, como acontece no funcionamento das criptomoedas.',
+    ];
+  }
+
+  if (topic.includes('bitcoin')) {
+    return [
+      'Bitcoin é uma criptomoeda criada para permitir transferências de valor pela internet sem depender de uma autoridade central.',
+      'Ele funciona em uma rede descentralizada, onde as transações são validadas e registradas em blockchain.',
+      'Na prática, ele pode ser usado para transferir valor digitalmente e também como referência no mercado de criptoativos.',
+    ];
+  }
+
+  const capitalizedTopic = topic ? `${topic.charAt(0).toUpperCase()}${topic.slice(1)}` : 'Esse tema';
+  return [
+    `${capitalizedTopic} é um conceito que vale entender pelo que ele é, por como funciona e por onde ele é aplicado.`,
+    'O ponto principal é identificar sua função central e por que isso importa na prática.',
+    'Se você quiser, eu também posso aprofundar com exemplos, vantagens, riscos ou comparação com alternativas.',
+  ];
+}
+
 function act(thought, decision, planResult) {
   const msg = normalizeText(thought.message);
   const likesTech =
     hasPreference(thought.preferences, 'tecnologia') ||
     hasPreference(thought.preferences, 'programacao');
+
+  if (thought.intent === 'saudacao') {
+    return {
+      greeting: 'Olá! Como posso te ajudar hoje?',
+      executionPlan: planResult.executionPlan,
+    };
+  }
 
   if (decision.strategy === 'business_plan') {
     return {
@@ -53,12 +113,10 @@ function act(thought, decision, planResult) {
   }
 
   if (decision.strategy === 'structured_explanation') {
+    const topic = extractExplanationTopic(thought.message);
     return {
-      explanation: [
-        'Definir com clareza o conceito central.',
-        'Mostrar por que isso importa na pratica.',
-        'Traduzir a ideia em exemplo simples e acionavel.',
-      ],
+      explanation: buildExplanation(topic),
+      topic,
       executionPlan: planResult.executionPlan,
     };
   }
