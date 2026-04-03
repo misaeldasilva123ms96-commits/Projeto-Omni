@@ -1,0 +1,10 @@
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+exclude = """
+/(
+    frontend
+  | node_modules
+  | backend/rust/target
+)/
+"""

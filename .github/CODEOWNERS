@@ -1,0 +1,12 @@
+# Default owners
+* @owner
+
+# Python brain
+/backend/python/brain/ @owner
+
+# Node runner and adapter
+/src/ @owner
+/js-runner/ @owner
+
+# Rust bridge
+/backend/rust/ @owner

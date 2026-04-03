@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible defect in the Omini runtime
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: Describe the problem clearly and concisely.
+      placeholder: The runtime returned an empty response after a swarm execution path...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps needed to reproduce the issue.
+      placeholder: |
+        1. Start the Python brain
+        2. Send message "..."
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual behavior
+      description: Explain what should happen and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only the logs or traces that matter.
+      render: shell
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - brain
+        - swarm
+        - evolution
+        - node-runner
+        - rust-bridge
+        - docker
+        - ci-cd
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 22.04 / Windows 11 / macOS 15
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: 3.11.9
+
+  - type: input
+    id: node_version
+    attributes:
+      label: Node.js version
+      placeholder: 20.18.0

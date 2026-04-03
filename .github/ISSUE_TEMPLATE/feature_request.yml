@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose an improvement to Omini
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem would this feature solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the change you want to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List alternatives or tradeoffs already considered.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - brain
+        - swarm
+        - evolution
+        - runner
+        - memory
+        - rust
+        - docs
+        - deploy
+    validations:
+      required: true
