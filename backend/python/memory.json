@@ -1,0 +1,35 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "content": "me de uma ideia de negocio"
+    },
+    {
+      "role": "assistant",
+      "content": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo."
+    },
+    {
+      "role": "user",
+      "content": "me de uma ideia de negocio"
+    },
+    {
+      "role": "assistant",
+      "content": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo."
+    },
+    {
+      "role": "user",
+      "content": "me de uma ideia de negocio"
+    },
+    {
+      "role": "assistant",
+      "content": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo."
+    }
+  ],
+  "user": {
+    "nome": "Misael",
+    "preferencias": [
+      "tecnologia"
+    ]
+  },
+  "long_term": {}
+}

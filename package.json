@@ -1,0 +1,16 @@
+{
+  "name": "omini-runner",
+  "version": "1.0.0",
+  "description": "Production package for the Omini Node runner and schema validation.",
+  "main": "js-runner/queryEngineRunner.js",
+  "scripts": {
+    "runner": "node js-runner/queryEngineRunner.js",
+    "health": "node js-runner/healthcheck.js"
+  },
+  "keywords": ["ai", "agent", "runner"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.17.1"
+  }
+}

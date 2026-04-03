@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  python-brain:
+    build:
+      context: .
+      dockerfile: backend/python/Dockerfile
+    env_file:
+      - .env
+    working_dir: /app/backend/python
+    # Keep the Python entrypoint hot and continuously exercise the compat layer.
+    command: ["sh", "-c", "while true; do python main.py \"healthcheck\" >/tmp/python-brain.out 2>/tmp/python-brain.err; sleep 30; done"]
+    restart: always
+    volumes:
+      - python_memory:/app/backend/python/memory
+      - python_transcripts:/app/backend/python/transcripts
+      - python_sessions:/app/backend/python/brain/runtime/sessions
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths; print('ok')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - omini_net
+
+  node-runner:
+    build:
+      context: .
+      dockerfile: js-runner/Dockerfile
+    env_file:
+      - .env
+    working_dir: /app
+    # Keep the Node runner warm while exposing a tiny health probe command.
+    command: ["sh", "-c", "while true; do node js-runner/healthcheck.js >/tmp/node-runner.out 2>/tmp/node-runner.err; sleep 30; done"]
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "node js-runner/healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - omini_net
+
+networks:
+  omini_net:
+    driver: bridge
+
+volumes:
+  # Persist only the data directories that matter across restarts.
+  python_memory:
+  python_transcripts:
+  python_sessions:

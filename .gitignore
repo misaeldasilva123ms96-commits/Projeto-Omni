@@ -1,0 +1,37 @@
+﻿# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.session.json
+*.log
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build outputs
+dist/
+build/
+target/
+
+# Runtime state
+backend/python/transcripts/
+backend/python/brain/runtime/sessions/
+backend/python/memory/learning.json
+sessions/
+*.session.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.env.production
+brain/runtime/logs/
+brain/evolution/snapshots/
+.logs/
+
