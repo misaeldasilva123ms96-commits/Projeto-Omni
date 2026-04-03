@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -63,7 +63,7 @@ class BrainPaths:
                     str(python_root / "brain" / "runtime" / "sessions"),
                 )
             ),
-            js_runner=project_root / "js-runner" / "queryEngineRunner.js",
+            js_runner=python_root / "js-runner" / "queryEngineRunner.js",
             swarm_log=python_root / "brain" / "runtime" / "swarm_log.json",
         )
 
@@ -366,3 +366,5 @@ class BrainOrchestrator:
         if any(term in lowered for term in ("quem e voce", "quem é você", "como voce responde")):
             return "pessoal"
         return "conversa"
+
+

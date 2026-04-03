@@ -333,6 +333,958 @@
           "summary": "Memoria consolidada para a sessao atual."
         }
       ]
+    },
+    {
+      "session_id": "python-session",
+      "message": "me de uma ideia de negocio",
+      "route": {
+        "agent": "router_agent",
+        "intent": "dinheiro",
+        "complex": true,
+        "delegates": [
+          "planner_agent",
+          "executor_agent",
+          "critic_agent",
+          "memory_agent"
+        ],
+        "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+      },
+      "plan": {
+        "agent": "planner_agent",
+        "intent": "dinheiro",
+        "subtasks": [
+          {
+            "id": "context_alignment",
+            "delegate": "memory_agent",
+            "goal": "alinhar contexto e memoria antes da resposta",
+            "kind": "analysis"
+          },
+          {
+            "id": "plan_outline",
+            "delegate": "planner_agent",
+            "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+            "kind": "planning"
+          },
+          {
+            "id": "response_execution",
+            "delegate": "executor_agent",
+            "goal": "gerar a melhor resposta util para intent=dinheiro",
+            "kind": "execution"
+          },
+          {
+            "id": "quality_review",
+            "delegate": "critic_agent",
+            "goal": "avaliar clareza, utilidade e risco da resposta",
+            "kind": "review"
+          }
+        ],
+        "delegates": [
+          "memory_agent",
+          "planner_agent",
+          "executor_agent",
+          "critic_agent"
+        ],
+        "summary": "Planner gerou 4 subtarefas"
+      },
+      "communication": [
+        {
+          "type": "task",
+          "payload": {
+            "message": "me de uma ideia de negocio"
+          },
+          "timestamp": "2026-04-03T19:43:41.439583+00:00",
+          "session_id": "python-session",
+          "from": "router_agent",
+          "to": "router_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "agent": "router_agent",
+            "intent": "dinheiro",
+            "complex": true,
+            "delegates": [
+              "planner_agent",
+              "executor_agent",
+              "critic_agent",
+              "memory_agent"
+            ],
+            "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+          },
+          "timestamp": "2026-04-03T19:43:41.439762+00:00",
+          "session_id": "python-session",
+          "from": "planner_agent",
+          "to": "planner_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "context_alignment",
+            "delegate": "memory_agent",
+            "goal": "alinhar contexto e memoria antes da resposta",
+            "kind": "analysis"
+          },
+          "timestamp": "2026-04-03T19:43:41.439842+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "memory_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "plan_outline",
+            "delegate": "planner_agent",
+            "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+            "kind": "planning"
+          },
+          "timestamp": "2026-04-03T19:43:41.439876+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "planner_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "response_execution",
+            "delegate": "executor_agent",
+            "goal": "gerar a melhor resposta util para intent=dinheiro",
+            "kind": "execution"
+          },
+          "timestamp": "2026-04-03T19:43:41.439905+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "executor_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "quality_review",
+            "delegate": "critic_agent",
+            "goal": "avaliar clareza, utilidade e risco da resposta",
+            "kind": "review"
+          },
+          "timestamp": "2026-04-03T19:43:41.439934+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "critic_agent"
+        },
+        {
+          "type": "critique",
+          "payload": {
+            "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo."
+          },
+          "timestamp": "2026-04-03T19:43:42.752751+00:00",
+          "session_id": "python-session",
+          "from": "critic_agent",
+          "to": "critic_agent"
+        },
+        {
+          "type": "memory_op",
+          "payload": {
+            "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.",
+            "trace": [
+              {
+                "agent": "router_agent",
+                "intent": "dinheiro",
+                "complex": true,
+                "delegates": [
+                  "planner_agent",
+                  "executor_agent",
+                  "critic_agent",
+                  "memory_agent"
+                ],
+                "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+              },
+              {
+                "agent": "planner_agent",
+                "intent": "dinheiro",
+                "subtasks": [
+                  {
+                    "id": "context_alignment",
+                    "delegate": "memory_agent",
+                    "goal": "alinhar contexto e memoria antes da resposta",
+                    "kind": "analysis"
+                  },
+                  {
+                    "id": "plan_outline",
+                    "delegate": "planner_agent",
+                    "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+                    "kind": "planning"
+                  },
+                  {
+                    "id": "response_execution",
+                    "delegate": "executor_agent",
+                    "goal": "gerar a melhor resposta util para intent=dinheiro",
+                    "kind": "execution"
+                  },
+                  {
+                    "id": "quality_review",
+                    "delegate": "critic_agent",
+                    "goal": "avaliar clareza, utilidade e risco da resposta",
+                    "kind": "review"
+                  }
+                ],
+                "delegates": [
+                  "memory_agent",
+                  "planner_agent",
+                  "executor_agent",
+                  "critic_agent"
+                ],
+                "summary": "Planner gerou 4 subtarefas"
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "memory_agent",
+                "kind": "analysis",
+                "result": "Contexto relevante identificado para 'me de uma ideia de negocio'."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "planner_agent",
+                "kind": "planning",
+                "result": "Plano local: entender 'me de uma ideia de negocio', reduzir escopo e executar a primeira etapa util."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "executor_agent",
+                "kind": "execution",
+                "result": "Execucao preparada para intent=dinheiro."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "critic_agent",
+                "kind": "review",
+                "result": "Revisao preliminar preparada para o objetivo: avaliar clareza, utilidade e risco da resposta."
+              },
+              {
+                "agent": "critic_agent",
+                "approved": true,
+                "score": 0.86,
+                "issues": [],
+                "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.",
+                "summary": "Critic validou resposta com score=0.86"
+              }
+            ]
+          },
+          "timestamp": "2026-04-03T19:43:42.752853+00:00",
+          "session_id": "python-session",
+          "from": "memory_agent",
+          "to": "memory_agent"
+        }
+      ],
+      "trace": [
+        {
+          "agent": "router_agent",
+          "intent": "dinheiro",
+          "complex": true,
+          "delegates": [
+            "planner_agent",
+            "executor_agent",
+            "critic_agent",
+            "memory_agent"
+          ],
+          "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+        },
+        {
+          "agent": "planner_agent",
+          "intent": "dinheiro",
+          "subtasks": [
+            {
+              "id": "context_alignment",
+              "delegate": "memory_agent",
+              "goal": "alinhar contexto e memoria antes da resposta",
+              "kind": "analysis"
+            },
+            {
+              "id": "plan_outline",
+              "delegate": "planner_agent",
+              "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+              "kind": "planning"
+            },
+            {
+              "id": "response_execution",
+              "delegate": "executor_agent",
+              "goal": "gerar a melhor resposta util para intent=dinheiro",
+              "kind": "execution"
+            },
+            {
+              "id": "quality_review",
+              "delegate": "critic_agent",
+              "goal": "avaliar clareza, utilidade e risco da resposta",
+              "kind": "review"
+            }
+          ],
+          "delegates": [
+            "memory_agent",
+            "planner_agent",
+            "executor_agent",
+            "critic_agent"
+          ],
+          "summary": "Planner gerou 4 subtarefas"
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "memory_agent",
+          "kind": "analysis",
+          "result": "Contexto relevante identificado para 'me de uma ideia de negocio'."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "planner_agent",
+          "kind": "planning",
+          "result": "Plano local: entender 'me de uma ideia de negocio', reduzir escopo e executar a primeira etapa util."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "executor_agent",
+          "kind": "execution",
+          "result": "Execucao preparada para intent=dinheiro."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "critic_agent",
+          "kind": "review",
+          "result": "Revisao preliminar preparada para o objetivo: avaliar clareza, utilidade e risco da resposta."
+        },
+        {
+          "agent": "critic_agent",
+          "approved": true,
+          "score": 0.86,
+          "issues": [],
+          "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.",
+          "summary": "Critic validou resposta com score=0.86"
+        },
+        {
+          "agent": "memory_agent",
+          "memory_signal": {
+            "known_name": "Misael",
+            "preferences": [
+              "tecnologia"
+            ],
+            "history_size": 6,
+            "summary": "Assistente: Seu nome é Misael.\nUsuario: me de uma ideia de negocio\nAssistente: Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.\nUsuario: me de uma ideia de negocio"
+          },
+          "summary": "Memoria consolidada para a sessao atual."
+        }
+      ]
+    },
+    {
+      "session_id": "python-session",
+      "message": "meu nome é Misael",
+      "route": {
+        "agent": "router_agent",
+        "intent": "conversa",
+        "complex": false,
+        "delegates": [
+          "executor_agent",
+          "memory_agent",
+          "critic_agent"
+        ],
+        "summary": "Router definiu intent=conversa e delegates=executor_agent,memory_agent,critic_agent"
+      },
+      "plan": {
+        "agent": "planner_agent",
+        "intent": "conversa",
+        "subtasks": [
+          {
+            "id": "context_alignment",
+            "delegate": "memory_agent",
+            "goal": "alinhar contexto e memoria antes da resposta",
+            "kind": "analysis"
+          },
+          {
+            "id": "response_execution",
+            "delegate": "executor_agent",
+            "goal": "gerar a melhor resposta util para intent=conversa",
+            "kind": "execution"
+          },
+          {
+            "id": "quality_review",
+            "delegate": "critic_agent",
+            "goal": "avaliar clareza, utilidade e risco da resposta",
+            "kind": "review"
+          }
+        ],
+        "delegates": [
+          "memory_agent",
+          "executor_agent",
+          "critic_agent"
+        ],
+        "summary": "Planner gerou 3 subtarefas"
+      },
+      "communication": [
+        {
+          "type": "task",
+          "payload": {
+            "message": "meu nome é Misael"
+          },
+          "timestamp": "2026-04-03T19:44:30.860664+00:00",
+          "session_id": "python-session",
+          "from": "router_agent",
+          "to": "router_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "agent": "router_agent",
+            "intent": "conversa",
+            "complex": false,
+            "delegates": [
+              "executor_agent",
+              "memory_agent",
+              "critic_agent"
+            ],
+            "summary": "Router definiu intent=conversa e delegates=executor_agent,memory_agent,critic_agent"
+          },
+          "timestamp": "2026-04-03T19:44:30.877451+00:00",
+          "session_id": "python-session",
+          "from": "planner_agent",
+          "to": "planner_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "context_alignment",
+            "delegate": "memory_agent",
+            "goal": "alinhar contexto e memoria antes da resposta",
+            "kind": "analysis"
+          },
+          "timestamp": "2026-04-03T19:44:30.877526+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "memory_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "response_execution",
+            "delegate": "executor_agent",
+            "goal": "gerar a melhor resposta util para intent=conversa",
+            "kind": "execution"
+          },
+          "timestamp": "2026-04-03T19:44:30.877547+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "executor_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "quality_review",
+            "delegate": "critic_agent",
+            "goal": "avaliar clareza, utilidade e risco da resposta",
+            "kind": "review"
+          },
+          "timestamp": "2026-04-03T19:44:30.877563+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "critic_agent"
+        },
+        {
+          "type": "critique",
+          "payload": {
+            "response": "Misael, Vou continuar a partir do contexto recente e focar no proximo passo mais util. Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao."
+          },
+          "timestamp": "2026-04-03T19:44:31.208937+00:00",
+          "session_id": "python-session",
+          "from": "critic_agent",
+          "to": "critic_agent"
+        },
+        {
+          "type": "memory_op",
+          "payload": {
+            "response": "Misael, Vou continuar a partir do contexto recente e focar no proximo passo mais util. Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao.",
+            "trace": [
+              {
+                "agent": "router_agent",
+                "intent": "conversa",
+                "complex": false,
+                "delegates": [
+                  "executor_agent",
+                  "memory_agent",
+                  "critic_agent"
+                ],
+                "summary": "Router definiu intent=conversa e delegates=executor_agent,memory_agent,critic_agent"
+              },
+              {
+                "agent": "planner_agent",
+                "intent": "conversa",
+                "subtasks": [
+                  {
+                    "id": "context_alignment",
+                    "delegate": "memory_agent",
+                    "goal": "alinhar contexto e memoria antes da resposta",
+                    "kind": "analysis"
+                  },
+                  {
+                    "id": "response_execution",
+                    "delegate": "executor_agent",
+                    "goal": "gerar a melhor resposta util para intent=conversa",
+                    "kind": "execution"
+                  },
+                  {
+                    "id": "quality_review",
+                    "delegate": "critic_agent",
+                    "goal": "avaliar clareza, utilidade e risco da resposta",
+                    "kind": "review"
+                  }
+                ],
+                "delegates": [
+                  "memory_agent",
+                  "executor_agent",
+                  "critic_agent"
+                ],
+                "summary": "Planner gerou 3 subtarefas"
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "memory_agent",
+                "kind": "analysis",
+                "result": "Contexto relevante identificado para 'meu nome é Misael'."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "executor_agent",
+                "kind": "execution",
+                "result": "Execucao preparada para intent=conversa."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "critic_agent",
+                "kind": "review",
+                "result": "Revisao preliminar preparada para o objetivo: avaliar clareza, utilidade e risco da resposta."
+              },
+              {
+                "agent": "critic_agent",
+                "approved": true,
+                "score": 0.86,
+                "issues": [],
+                "response": "Misael, Vou continuar a partir do contexto recente e focar no proximo passo mais util. Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao.",
+                "summary": "Critic validou resposta com score=0.86"
+              }
+            ]
+          },
+          "timestamp": "2026-04-03T19:44:31.208998+00:00",
+          "session_id": "python-session",
+          "from": "memory_agent",
+          "to": "memory_agent"
+        }
+      ],
+      "trace": [
+        {
+          "agent": "router_agent",
+          "intent": "conversa",
+          "complex": false,
+          "delegates": [
+            "executor_agent",
+            "memory_agent",
+            "critic_agent"
+          ],
+          "summary": "Router definiu intent=conversa e delegates=executor_agent,memory_agent,critic_agent"
+        },
+        {
+          "agent": "planner_agent",
+          "intent": "conversa",
+          "subtasks": [
+            {
+              "id": "context_alignment",
+              "delegate": "memory_agent",
+              "goal": "alinhar contexto e memoria antes da resposta",
+              "kind": "analysis"
+            },
+            {
+              "id": "response_execution",
+              "delegate": "executor_agent",
+              "goal": "gerar a melhor resposta util para intent=conversa",
+              "kind": "execution"
+            },
+            {
+              "id": "quality_review",
+              "delegate": "critic_agent",
+              "goal": "avaliar clareza, utilidade e risco da resposta",
+              "kind": "review"
+            }
+          ],
+          "delegates": [
+            "memory_agent",
+            "executor_agent",
+            "critic_agent"
+          ],
+          "summary": "Planner gerou 3 subtarefas"
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "memory_agent",
+          "kind": "analysis",
+          "result": "Contexto relevante identificado para 'meu nome é Misael'."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "executor_agent",
+          "kind": "execution",
+          "result": "Execucao preparada para intent=conversa."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "critic_agent",
+          "kind": "review",
+          "result": "Revisao preliminar preparada para o objetivo: avaliar clareza, utilidade e risco da resposta."
+        },
+        {
+          "agent": "critic_agent",
+          "approved": true,
+          "score": 0.86,
+          "issues": [],
+          "response": "Misael, Vou continuar a partir do contexto recente e focar no proximo passo mais util. Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao.",
+          "summary": "Critic validou resposta com score=0.86"
+        },
+        {
+          "agent": "memory_agent",
+          "memory_signal": {
+            "known_name": "Misael",
+            "preferences": [
+              "tecnologia"
+            ],
+            "history_size": 6,
+            "summary": "Assistente: Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.\nUsuario: me de uma ideia de negocio\nAssistente: Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.\nUsuario: meu nome é Misael"
+          },
+          "summary": "Memoria consolidada para a sessao atual."
+        }
+      ]
+    },
+    {
+      "session_id": "python-session",
+      "message": "me de uma ideia de negocio",
+      "route": {
+        "agent": "router_agent",
+        "intent": "dinheiro",
+        "complex": true,
+        "delegates": [
+          "planner_agent",
+          "executor_agent",
+          "critic_agent",
+          "memory_agent"
+        ],
+        "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+      },
+      "plan": {
+        "agent": "planner_agent",
+        "intent": "dinheiro",
+        "subtasks": [
+          {
+            "id": "context_alignment",
+            "delegate": "memory_agent",
+            "goal": "alinhar contexto e memoria antes da resposta",
+            "kind": "analysis"
+          },
+          {
+            "id": "plan_outline",
+            "delegate": "planner_agent",
+            "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+            "kind": "planning"
+          },
+          {
+            "id": "response_execution",
+            "delegate": "executor_agent",
+            "goal": "gerar a melhor resposta util para intent=dinheiro",
+            "kind": "execution"
+          },
+          {
+            "id": "quality_review",
+            "delegate": "critic_agent",
+            "goal": "avaliar clareza, utilidade e risco da resposta",
+            "kind": "review"
+          }
+        ],
+        "delegates": [
+          "memory_agent",
+          "planner_agent",
+          "executor_agent",
+          "critic_agent"
+        ],
+        "summary": "Planner gerou 4 subtarefas"
+      },
+      "communication": [
+        {
+          "type": "task",
+          "payload": {
+            "message": "me de uma ideia de negocio"
+          },
+          "timestamp": "2026-04-03T19:47:52.707650+00:00",
+          "session_id": "python-session",
+          "from": "router_agent",
+          "to": "router_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "agent": "router_agent",
+            "intent": "dinheiro",
+            "complex": true,
+            "delegates": [
+              "planner_agent",
+              "executor_agent",
+              "critic_agent",
+              "memory_agent"
+            ],
+            "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+          },
+          "timestamp": "2026-04-03T19:47:52.707728+00:00",
+          "session_id": "python-session",
+          "from": "planner_agent",
+          "to": "planner_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "context_alignment",
+            "delegate": "memory_agent",
+            "goal": "alinhar contexto e memoria antes da resposta",
+            "kind": "analysis"
+          },
+          "timestamp": "2026-04-03T19:47:52.707771+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "memory_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "plan_outline",
+            "delegate": "planner_agent",
+            "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+            "kind": "planning"
+          },
+          "timestamp": "2026-04-03T19:47:52.707789+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "planner_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "response_execution",
+            "delegate": "executor_agent",
+            "goal": "gerar a melhor resposta util para intent=dinheiro",
+            "kind": "execution"
+          },
+          "timestamp": "2026-04-03T19:47:52.707803+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "executor_agent"
+        },
+        {
+          "type": "task",
+          "payload": {
+            "id": "quality_review",
+            "delegate": "critic_agent",
+            "goal": "avaliar clareza, utilidade e risco da resposta",
+            "kind": "review"
+          },
+          "timestamp": "2026-04-03T19:47:52.707815+00:00",
+          "session_id": "python-session",
+          "from": "executor_agent",
+          "to": "critic_agent"
+        },
+        {
+          "type": "critique",
+          "payload": {
+            "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo."
+          },
+          "timestamp": "2026-04-03T19:47:53.271458+00:00",
+          "session_id": "python-session",
+          "from": "critic_agent",
+          "to": "critic_agent"
+        },
+        {
+          "type": "memory_op",
+          "payload": {
+            "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.",
+            "trace": [
+              {
+                "agent": "router_agent",
+                "intent": "dinheiro",
+                "complex": true,
+                "delegates": [
+                  "planner_agent",
+                  "executor_agent",
+                  "critic_agent",
+                  "memory_agent"
+                ],
+                "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+              },
+              {
+                "agent": "planner_agent",
+                "intent": "dinheiro",
+                "subtasks": [
+                  {
+                    "id": "context_alignment",
+                    "delegate": "memory_agent",
+                    "goal": "alinhar contexto e memoria antes da resposta",
+                    "kind": "analysis"
+                  },
+                  {
+                    "id": "plan_outline",
+                    "delegate": "planner_agent",
+                    "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+                    "kind": "planning"
+                  },
+                  {
+                    "id": "response_execution",
+                    "delegate": "executor_agent",
+                    "goal": "gerar a melhor resposta util para intent=dinheiro",
+                    "kind": "execution"
+                  },
+                  {
+                    "id": "quality_review",
+                    "delegate": "critic_agent",
+                    "goal": "avaliar clareza, utilidade e risco da resposta",
+                    "kind": "review"
+                  }
+                ],
+                "delegates": [
+                  "memory_agent",
+                  "planner_agent",
+                  "executor_agent",
+                  "critic_agent"
+                ],
+                "summary": "Planner gerou 4 subtarefas"
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "memory_agent",
+                "kind": "analysis",
+                "result": "Contexto relevante identificado para 'me de uma ideia de negocio'."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "planner_agent",
+                "kind": "planning",
+                "result": "Plano local: entender 'me de uma ideia de negocio', reduzir escopo e executar a primeira etapa util."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "executor_agent",
+                "kind": "execution",
+                "result": "Execucao preparada para intent=dinheiro."
+              },
+              {
+                "agent": "executor_agent",
+                "delegate": "critic_agent",
+                "kind": "review",
+                "result": "Revisao preliminar preparada para o objetivo: avaliar clareza, utilidade e risco da resposta."
+              },
+              {
+                "agent": "critic_agent",
+                "approved": true,
+                "score": 0.86,
+                "issues": [],
+                "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.",
+                "summary": "Critic validou resposta com score=0.86"
+              }
+            ]
+          },
+          "timestamp": "2026-04-03T19:47:53.271579+00:00",
+          "session_id": "python-session",
+          "from": "memory_agent",
+          "to": "memory_agent"
+        }
+      ],
+      "trace": [
+        {
+          "agent": "router_agent",
+          "intent": "dinheiro",
+          "complex": true,
+          "delegates": [
+            "planner_agent",
+            "executor_agent",
+            "critic_agent",
+            "memory_agent"
+          ],
+          "summary": "Router definiu intent=dinheiro e delegates=planner_agent,executor_agent,critic_agent,memory_agent"
+        },
+        {
+          "agent": "planner_agent",
+          "intent": "dinheiro",
+          "subtasks": [
+            {
+              "id": "context_alignment",
+              "delegate": "memory_agent",
+              "goal": "alinhar contexto e memoria antes da resposta",
+              "kind": "analysis"
+            },
+            {
+              "id": "plan_outline",
+              "delegate": "planner_agent",
+              "goal": "quebrar a solicitacao 'me de uma ideia de negocio' em passos menores",
+              "kind": "planning"
+            },
+            {
+              "id": "response_execution",
+              "delegate": "executor_agent",
+              "goal": "gerar a melhor resposta util para intent=dinheiro",
+              "kind": "execution"
+            },
+            {
+              "id": "quality_review",
+              "delegate": "critic_agent",
+              "goal": "avaliar clareza, utilidade e risco da resposta",
+              "kind": "review"
+            }
+          ],
+          "delegates": [
+            "memory_agent",
+            "planner_agent",
+            "executor_agent",
+            "critic_agent"
+          ],
+          "summary": "Planner gerou 4 subtarefas"
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "memory_agent",
+          "kind": "analysis",
+          "result": "Contexto relevante identificado para 'me de uma ideia de negocio'."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "planner_agent",
+          "kind": "planning",
+          "result": "Plano local: entender 'me de uma ideia de negocio', reduzir escopo e executar a primeira etapa util."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "executor_agent",
+          "kind": "execution",
+          "result": "Execucao preparada para intent=dinheiro."
+        },
+        {
+          "agent": "executor_agent",
+          "delegate": "critic_agent",
+          "kind": "review",
+          "result": "Revisao preliminar preparada para o objetivo: avaliar clareza, utilidade e risco da resposta."
+        },
+        {
+          "agent": "critic_agent",
+          "approved": true,
+          "score": 0.86,
+          "issues": [],
+          "response": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.",
+          "summary": "Critic validou resposta com score=0.86"
+        },
+        {
+          "agent": "memory_agent",
+          "memory_signal": {
+            "known_name": "Misael",
+            "preferences": [
+              "tecnologia"
+            ],
+            "history_size": 6,
+            "summary": "Assistente: Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo.\nUsuario: meu nome é Misael\nAssistente: Misael, Vou continuar a partir do contexto recente e focar no proximo passo mais util. Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao.\nUsuario: me de uma ideia de negocio"
+          },
+          "summary": "Memoria consolidada para a sessao atual."
+        }
+      ]
     }
   ]
 }

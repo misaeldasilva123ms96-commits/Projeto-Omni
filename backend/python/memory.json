@@ -10,11 +10,11 @@
     },
     {
       "role": "user",
-      "content": "me de uma ideia de negocio"
+      "content": "meu nome é Misael"
     },
     {
       "role": "assistant",
-      "content": "Misael, eu seguiria um caminho realista:\n1. Validar um servico de automacao simples para negocios locais.\n2. Oferecer implantacao rapida com mensalidade leve.\n3. Fechar os primeiros clientes antes de ampliar o escopo."
+      "content": "Misael, Vou continuar a partir do contexto recente e focar no proximo passo mais util. Se quiser, me diga o objetivo principal e eu organizo a resposta com mais precisao."
     },
     {
       "role": "user",
