@@ -1,4 +1,4 @@
-name: Deploy
+﻿name: Frontend Build (Main)
 
 on:
   push:
@@ -6,25 +6,25 @@ on:
       - main
 
 jobs:
-  deploy:
+  frontend-build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          host: ${{ secrets.SERVER_IP }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -euo pipefail
-            # The VPS keeps the checked-out repository in ~/project.
-            cd ~/project
-            # Pull the latest main branch before rebuilding containers.
-            git pull origin main
-            # Recreate the stack so image and env changes are picked up safely.
-            docker compose down
-            docker compose up -d --build
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
