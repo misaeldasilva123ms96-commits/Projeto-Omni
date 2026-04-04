@@ -32,3 +32,23 @@ export type FeedbackApiRequest = {
   user_id?: string
   session_id?: string
 }
+
+export type SessionSummary = {
+  session_id: string
+  user_id?: string
+  title: string
+  preview: string
+  created_at?: string
+  updated_at?: string
+  turn_count: number
+}
+
+export type SessionDetail = {
+  session_id: string
+  user_id?: string
+  title: string
+  summary?: string
+  messages: ChatMessage[]
+  created_at?: string
+  updated_at?: string
+}

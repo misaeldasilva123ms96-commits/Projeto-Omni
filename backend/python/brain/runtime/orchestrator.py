@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
@@ -34,6 +34,7 @@ SAFE_FALLBACK_RESPONSE = "Nao consegui processar isso ainda, mas estou aprendend
 SUBPROCESS_TIMEOUT_SECONDS = 10
 DEFAULT_SESSION_ID = "python-session"
 MAX_TURNS_PER_SESSION = 25
+SESSION_TITLE_LIMIT = 60
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,8 @@ class BrainOrchestrator:
         predicted_intent = self._predict_intent(message)
         summary = self.summarize_history(memory_store.get("history", []))
         session_payload = session_store.load(session_id)
+        existing_created_at = str(session_payload.get("created_at", "")).strip()
+        existing_title = str(session_payload.get("title", "")).strip()
         direct_response = self._answer_from_memory(memory_store, message) or self._acknowledge_user_facts(memory_store, message)
         strategy_name = "memory_recall" if direct_response else predicted_intent
 
@@ -259,10 +262,15 @@ class BrainOrchestrator:
         turns = session_payload.get("turns", []) if isinstance(session_payload.get("turns", []), list) else []
         turns = [item for item in turns if isinstance(item, dict) and item.get("turn_id") != turn_id]
         turns.append(turn_record)
+        session_created_at = existing_created_at or turn_record["created_at"]
+        session_title = existing_title or self._generate_session_title(turns, safe_store.get("history", []))
 
         session_payload = {
             "session_id": session_id,
             "user_id": request.user_id,
+            "title": session_title,
+            "created_at": session_created_at,
+            "updated_at": turn_record["created_at"],
             "turn_id": turn_id,
             "history": safe_store.get("history", []),
             "user": safe_store.get("user", {}),
@@ -666,6 +674,37 @@ class BrainOrchestrator:
             "negocio",
         ]
         return [topic for topic in known_topics if topic in normalized]
+
+    def _generate_session_title(self, turns: list[dict[str, Any]], history: object) -> str:
+        if isinstance(turns, list):
+            for turn in turns:
+                if not isinstance(turn, dict):
+                    continue
+                message = turn.get("message")
+                if isinstance(message, str) and message.strip():
+                    return self._short_session_title(message)
+
+        if isinstance(history, list):
+            for item in history:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("role") != "user":
+                    continue
+                content = item.get("content")
+                if isinstance(content, str) and content.strip():
+                    return self._short_session_title(content)
+
+        return "Nova conversa"
+
+    @staticmethod
+    def _short_session_title(value: str) -> str:
+        cleaned = BrainOrchestrator._repair_text(value).replace("\n", " ")
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+        if not cleaned:
+            return "Nova conversa"
+        if len(cleaned) <= SESSION_TITLE_LIMIT:
+            return cleaned
+        return cleaned[: SESSION_TITLE_LIMIT - 1].rstrip() + "…"
 
     def _ensure_evolution_files(self, scoped_paths: BrainPaths) -> None:
         scoped_paths.evolution_dir.mkdir(parents=True, exist_ok=True)
