@@ -1,7 +1,31 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+
+
+def _repair_text(value: str) -> str:
+    if not value:
+        return ""
+    if any(marker in value for marker in ("Ã", "ï¿½")):
+        try:
+            repaired = value.encode("latin-1", errors="ignore").decode("utf-8", errors="ignore")
+            if repaired:
+                return repaired
+        except Exception:
+            return value
+    return value
+
+
+def _sanitize_payload(value: Any) -> Any:
+    if isinstance(value, str):
+        return _repair_text(value)
+    if isinstance(value, list):
+        return [_sanitize_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _sanitize_payload(item) for key, item in value.items()}
+    return value
 
 
 class SessionStore:
@@ -15,8 +39,11 @@ class SessionStore:
 
     def save(self, session_id: str, payload: dict[str, object]) -> None:
         try:
-            self.path_for(session_id).write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
+            sanitized = _sanitize_payload(payload)
+            path = self.path_for(session_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(sanitized, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         except Exception:
@@ -29,6 +56,11 @@ class SessionStore:
         try:
             raw = path.read_text(encoding="utf-8").strip()
             parsed = json.loads(raw) if raw else {}
-            return parsed if isinstance(parsed, dict) else {}
+            if isinstance(parsed, dict):
+                sanitized = _sanitize_payload(parsed)
+                if sanitized != parsed:
+                    self.save(session_id, sanitized)
+                return sanitized
         except Exception:
             return {}
+        return {}

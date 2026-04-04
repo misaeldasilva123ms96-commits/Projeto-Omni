@@ -1,13 +1,32 @@
 ﻿function getUserMemory(memoryContext) {
   const user = memoryContext?.user;
   if (!user || typeof user !== 'object') {
-    return { nome: '', preferencias: [] };
+    return {
+      id: '',
+      nome: '',
+      trabalho: '',
+      preferencias: [],
+      responseStyle: 'balanced',
+      depthPreference: 'medium',
+      recurringTopics: [],
+      goals: [],
+    };
   }
 
   return {
+    id: typeof user.id === 'string' ? user.id.trim() : '',
     nome: typeof user.nome === 'string' ? user.nome.trim() : '',
+    trabalho: typeof user.trabalho === 'string' ? user.trabalho.trim() : '',
     preferencias: Array.isArray(user.preferencias)
       ? user.preferencias.map(item => String(item).trim()).filter(Boolean)
+      : [],
+    responseStyle: typeof user.response_style === 'string' ? user.response_style.trim() : 'balanced',
+    depthPreference: typeof user.depth_preference === 'string' ? user.depth_preference.trim() : 'medium',
+    recurringTopics: Array.isArray(user.recurring_topics)
+      ? user.recurring_topics.map(item => String(item).trim()).filter(Boolean)
+      : [],
+    goals: Array.isArray(user.goals)
+      ? user.goals.map(item => String(item).trim()).filter(Boolean)
       : [],
   };
 }
@@ -50,13 +69,21 @@ function buildMemorySignal(thought, executionPlan) {
   return {
     intent: thought.intent,
     usedName: Boolean(thought.userName),
+    usedWork: Boolean(thought.work),
     usedPreferences: thought.preferences.length > 0,
+    usedGoals: thought.goals.length > 0,
     executionPlan: executionPlan || [],
     delegates: thought.delegates,
     contextSummary: thought.contextSummary,
     memoryHint: {
+      userId: thought.userId,
       userName: thought.userName,
+      work: thought.work,
       preferences: thought.preferences,
+      responseStyle: thought.responseStyle,
+      depthPreference: thought.depthPreference,
+      recurringTopics: thought.recurringTopics,
+      goals: thought.goals,
       recentHistory: thought.recentHistory,
     },
   };

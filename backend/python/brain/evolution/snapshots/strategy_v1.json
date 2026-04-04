@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "last_update": null,
+  "adjustments": [],
+  "params": {
+    "max_length_threshold": 500,
+    "direct_memory_strictness": 0.5
+  },
+  "registry_overrides": {}
+}

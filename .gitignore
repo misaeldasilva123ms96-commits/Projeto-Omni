@@ -22,6 +22,7 @@ target/
 backend/python/transcripts/
 backend/python/brain/runtime/sessions/
 backend/python/memory/learning.json
+backend/python/users/
 sessions/
 *.session.json
 
@@ -35,3 +36,6 @@ brain/runtime/logs/
 brain/evolution/snapshots/
 .logs/
 
+# runtime state
+backend/python/brain/runtime/swarm_log.json
+backend/python/memory.json

@@ -1,0 +1,17 @@
+{
+  "version": 22,
+  "last_update": "2026-04-03T23:42:34Z",
+  "adjustments": [
+    "rebalance_intent_weights"
+  ],
+  "params": {
+    "max_length_threshold": 500,
+    "direct_memory_strictness": 0.5
+  },
+  "registry_overrides": {
+    "intent_priority": {
+      "decision": 3.100000000000002,
+      "dinheiro": 3.100000000000002
+    }
+  }
+}

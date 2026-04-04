@@ -1,0 +1,594 @@
+[
+  {
+    "timestamp": "2026-04-03T23:12:46.912463+00:00",
+    "evaluation_count": 1,
+    "analysis": {
+      "evaluation_count": 1,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 2
+  },
+  {
+    "timestamp": "2026-04-03T23:12:49.805832+00:00",
+    "evaluation_count": 2,
+    "analysis": {
+      "evaluation_count": 2,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 3
+  },
+  {
+    "timestamp": "2026-04-03T23:12:52.432350+00:00",
+    "evaluation_count": 3,
+    "analysis": {
+      "evaluation_count": 3,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 4
+  },
+  {
+    "timestamp": "2026-04-03T23:13:02.210404+00:00",
+    "evaluation_count": 4,
+    "analysis": {
+      "evaluation_count": 4,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 5
+  },
+  {
+    "timestamp": "2026-04-03T23:14:11.947002+00:00",
+    "evaluation_count": 5,
+    "analysis": {
+      "evaluation_count": 5,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 6
+  },
+  {
+    "timestamp": "2026-04-03T23:14:14.338192+00:00",
+    "evaluation_count": 6,
+    "analysis": {
+      "evaluation_count": 6,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 7
+  },
+  {
+    "timestamp": "2026-04-03T23:14:22.568259+00:00",
+    "evaluation_count": 7,
+    "analysis": {
+      "evaluation_count": 7,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 8
+  },
+  {
+    "timestamp": "2026-04-03T23:21:42.025407+00:00",
+    "evaluation_count": 8,
+    "analysis": {
+      "evaluation_count": 8,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 9
+  },
+  {
+    "timestamp": "2026-04-03T23:21:42.219791+00:00",
+    "evaluation_count": 9,
+    "analysis": {
+      "evaluation_count": 9,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 10
+  },
+  {
+    "timestamp": "2026-04-03T23:22:45.021707+00:00",
+    "evaluation_count": 10,
+    "analysis": {
+      "evaluation_count": 10,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 11
+  },
+  {
+    "timestamp": "2026-04-03T23:25:51.155362+00:00",
+    "evaluation_count": 11,
+    "analysis": {
+      "evaluation_count": 11,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 12
+  },
+  {
+    "timestamp": "2026-04-03T23:29:24.556856+00:00",
+    "evaluation_count": 12,
+    "analysis": {
+      "evaluation_count": 12,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 13
+  },
+  {
+    "timestamp": "2026-04-03T23:34:38.289058+00:00",
+    "evaluation_count": 13,
+    "analysis": {
+      "evaluation_count": 13,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 14
+  },
+  {
+    "timestamp": "2026-04-03T23:34:38.772398+00:00",
+    "evaluation_count": 14,
+    "analysis": {
+      "evaluation_count": 14,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 15
+  },
+  {
+    "timestamp": "2026-04-03T23:34:39.049128+00:00",
+    "evaluation_count": 15,
+    "analysis": {
+      "evaluation_count": 15,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 16
+  },
+  {
+    "timestamp": "2026-04-03T23:34:39.588720+00:00",
+    "evaluation_count": 16,
+    "analysis": {
+      "evaluation_count": 16,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 17
+  },
+  {
+    "timestamp": "2026-04-03T23:34:41.799097+00:00",
+    "evaluation_count": 17,
+    "analysis": {
+      "evaluation_count": 17,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 18
+  },
+  {
+    "timestamp": "2026-04-03T23:34:43.182713+00:00",
+    "evaluation_count": 18,
+    "analysis": {
+      "evaluation_count": 18,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 19
+  },
+  {
+    "timestamp": "2026-04-03T23:34:43.872357+00:00",
+    "evaluation_count": 19,
+    "analysis": {
+      "evaluation_count": 19,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 20
+  },
+  {
+    "timestamp": "2026-04-03T23:42:34.201513+00:00",
+    "evaluation_count": 20,
+    "analysis": {
+      "evaluation_count": 20,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 21
+  },
+  {
+    "timestamp": "2026-04-03T23:42:34.280257+00:00",
+    "evaluation_count": 21,
+    "analysis": {
+      "evaluation_count": 20,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 22
+  },
+  {
+    "timestamp": "2026-04-03T23:42:35.266106+00:00",
+    "evaluation_count": 22,
+    "analysis": {
+      "evaluation_count": 20,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 23
+  },
+  {
+    "timestamp": "2026-04-03T23:42:37.326088+00:00",
+    "evaluation_count": 23,
+    "analysis": {
+      "evaluation_count": 20,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 24
+  },
+  {
+    "timestamp": "2026-04-03T23:44:12.581765+00:00",
+    "evaluation_count": 24,
+    "analysis": {
+      "evaluation_count": 20,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 25
+  },
+  {
+    "timestamp": "2026-04-03T23:44:13.224969+00:00",
+    "evaluation_count": 25,
+    "analysis": {
+      "evaluation_count": 20,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:44:38.487947+00:00",
+    "evaluation_count": 1,
+    "analysis": {
+      "evaluation_count": 1,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:45:09.649804+00:00",
+    "evaluation_count": 2,
+    "analysis": {
+      "evaluation_count": 2,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:46:51.319156+00:00",
+    "evaluation_count": 3,
+    "analysis": {
+      "evaluation_count": 3,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:48:07.279913+00:00",
+    "evaluation_count": 4,
+    "analysis": {
+      "evaluation_count": 4,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:48:08.225643+00:00",
+    "evaluation_count": 5,
+    "analysis": {
+      "evaluation_count": 5,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:50:55.474790+00:00",
+    "evaluation_count": 6,
+    "analysis": {
+      "evaluation_count": 6,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:50:55.518167+00:00",
+    "evaluation_count": 7,
+    "analysis": {
+      "evaluation_count": 7,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:50:56.347151+00:00",
+    "evaluation_count": 8,
+    "analysis": {
+      "evaluation_count": 8,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:51:31.080781+00:00",
+    "evaluation_count": 9,
+    "analysis": {
+      "evaluation_count": 9,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:51:31.154013+00:00",
+    "evaluation_count": 10,
+    "analysis": {
+      "evaluation_count": 10,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:53:19.961932+00:00",
+    "evaluation_count": 11,
+    "analysis": {
+      "evaluation_count": 11,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:53:20.032540+00:00",
+    "evaluation_count": 12,
+    "analysis": {
+      "evaluation_count": 12,
+      "weak_patterns": [],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": []
+    },
+    "strategy_version": 26
+  },
+  {
+    "timestamp": "2026-04-03T23:53:20.525152+00:00",
+    "evaluation_count": 13,
+    "analysis": {
+      "evaluation_count": 13,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 27
+  },
+  {
+    "timestamp": "2026-04-03T23:54:34.151531+00:00",
+    "evaluation_count": 14,
+    "analysis": {
+      "evaluation_count": 14,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 28
+  },
+  {
+    "timestamp": "2026-04-03T23:54:55.702136+00:00",
+    "evaluation_count": 15,
+    "analysis": {
+      "evaluation_count": 15,
+      "weak_patterns": [
+        "off_topic"
+      ],
+      "strong_patterns": [],
+      "underused_capabilities": [],
+      "recommended_adjustments": [
+        "rebalance_intent_weights"
+      ]
+    },
+    "strategy_version": 29
+  }
+]

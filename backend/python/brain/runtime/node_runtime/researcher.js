@@ -1,18 +1,52 @@
 ﻿const { normalizeText, buildCapabilityMap, resolveDelegatesByIntent } = require('./registry');
 const { getUserMemory, getRecentUserMessages, buildContextSummary } = require('./memory');
 
+const GREETING_PATTERN = /^(ola|oi|bom dia|boa tarde|boa noite)(\b|[!,?.\s])/;
+
 function detectIntent(message, recentHistory) {
   const msg = normalizeText(message);
   const historyText = normalizeText(recentHistory.join(' '));
 
-  if (
-    msg === 'ola' ||
-    msg === 'oi' ||
-    msg === 'bom dia' ||
-    msg === 'boa tarde' ||
-    msg === 'boa noite'
-  ) {
+  if (GREETING_PATTERN.test(msg) && /funcionando|esta funcionando|ta funcionando|tudo bem|pode me ajudar/.test(msg)) {
+    return 'pergunta_direta';
+  }
+
+  if (GREETING_PATTERN.test(msg)) {
     return 'saudacao';
+  }
+
+  if (
+    msg.includes('pros e contras') ||
+    msg.includes('vantagens e desvantagens') ||
+    msg.includes('compare') ||
+    msg.includes('comparar') ||
+    msg.includes(' vs ') ||
+    msg.includes(' versus ') ||
+    msg.includes('analise ') ||
+    msg.includes('analisa ')
+  ) {
+    return 'comparativo';
+  }
+
+  if (
+    msg.includes('plano de negocios') ||
+    msg.includes('plano de negocio') ||
+    msg.includes('modelo de negocio') ||
+    msg.includes('crie um plano') ||
+    msg.includes('monte um plano') ||
+    msg.includes('estrategia para')
+  ) {
+    return 'planejamento';
+  }
+
+  if (
+    msg.includes('ideias de startup') ||
+    msg.includes('ideias inovadoras') ||
+    msg.includes('ideia de startup') ||
+    msg.includes('me de 3 ideias') ||
+    msg.includes('gere ideias')
+  ) {
+    return 'ideacao';
   }
 
   if (
@@ -47,11 +81,7 @@ function detectIntent(message, recentHistory) {
     return 'aprendizado';
   }
 
-  if (
-    msg.includes('como melhorar') ||
-    msg.includes('conselho') ||
-    msg.includes('dica')
-  ) {
+  if (msg.includes('como melhorar') || msg.includes('conselho') || msg.includes('dica')) {
     return 'conselho';
   }
 
@@ -75,6 +105,10 @@ function detectIntent(message, recentHistory) {
     return 'pessoal';
   }
 
+  if (msg.includes('?') || msg.includes('voce esta funcionando')) {
+    return 'pergunta_direta';
+  }
+
   return 'conversa';
 }
 
@@ -86,8 +120,14 @@ function think({ message, memoryContext, history, summary, capabilities, session
 
   return {
     intent,
+    userId: userMemory.id,
     userName: userMemory.nome,
+    work: userMemory.trabalho,
     preferences: userMemory.preferencias,
+    responseStyle: userMemory.responseStyle,
+    depthPreference: userMemory.depthPreference,
+    recurringTopics: userMemory.recurringTopics,
+    goals: userMemory.goals,
     contextSummary: buildContextSummary(history, summary, session),
     message,
     recentHistory,

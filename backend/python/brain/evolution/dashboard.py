@@ -1,81 +1,54 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
-def run_dashboard():
-    """
-    CLI para visualizar o status da auto-evolução do Projeto Omini.
-    Uso: python -m brain.evolution.dashboard
-    """
-    # Localização dos arquivos (baseado no diretório atual)
+
+def _load_json(path: Path, fallback):
+    if not path.exists():
+        return fallback
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        parsed = json.loads(raw) if raw else fallback
+        return parsed
+    except Exception:
+        return fallback
+
+
+def run_dashboard() -> None:
     python_root = Path(__file__).resolve().parents[2]
     learning_path = python_root / "memory" / "learning.json"
-    evolution_path = python_root / "brain" / "evolution" / "evolution_history.json"
+    strategy_state_path = python_root / "brain" / "evolution" / "strategy_state.json"
+    loop_log_path = python_root / "brain" / "evolution" / "loop_log.json"
     snapshots_dir = python_root / "brain" / "evolution" / "snapshots"
 
-    print("\n" + "="*50)
-    print("      OMINI AI PLATFORM - EVOLUTION DASHBOARD")
-    print("="*50)
+    learning_data = _load_json(learning_path, {})
+    strategy_state = _load_json(strategy_state_path, {"version": 1})
+    loop_log = _load_json(loop_log_path, [])
+    evaluations = learning_data.get("evaluations", []) if isinstance(learning_data, dict) else []
+    if not isinstance(evaluations, list):
+        evaluations = []
 
-    # 1. Pontuação Média e Últimas Avaliações
-    if learning_path.exists():
-        with open(learning_path, "r", encoding='utf-8') as f:
-            data = json.load(f)
-            evals = data.get("evolution_evals", [])
-            if evals:
-                avg_score = sum(ev.get("overall", 0) for ev in evals) / len(evals)
-                print(f"[*] Score Médio Recente: {avg_score:.2f} ({len(evals)} turnos)")
-                
-                # Top Padrões de Falha (Flags)
-                flags = {}
-                for ev in evals:
-                    for f_item in ev.get("flags", []):
-                        flags[f_item] = flags.get(f_item, 0) + 1
-                
-                sorted_flags = sorted(flags.items(), key=lambda x: x[1], reverse=True)[:3]
-                if sorted_flags:
-                    print(f"[*] Principais Pontos de Melhoria: ")
-                    for f_name, count in sorted_flags:
-                        print(f"   - {f_name}: {count} ocorrências")
-    else:
-        print("[!] Nenhum log de evolução encontrado em learning.json.")
+    avg_score = 0.0
+    if evaluations:
+        avg_score = sum(float(item.get("overall", 0.0)) for item in evaluations) / len(evaluations)
 
-    # 2. Histórico de Estratégias
-    print("\n" + "-"*50)
-    print("  HISTÓRICO DE VERSÕES (SNAPSHOTS)")
-    print("-"*50)
-    
-    if snapshots_dir.exists():
-        snapshots = sorted(list(snapshots_dir.glob("strategy_v*.json")), key=lambda x: x.stat().st_mtime, reverse=True)
-        if snapshots:
-            for s in snapshots[:5]:
-                with open(s, "r", encoding='utf-8') as f:
-                    s_data = json.load(f)
-                    time_upd = s_data.get("last_update", "desconhecido")
-                    ver = s_data.get("version", "?")
-                    adjusts = ", ".join(s_data.get("adjustments", []))
-                    print(f"[v{ver}] Atualizado em: {time_upd}")
-                    print(f"      Ajustes: {adjusts}")
-        else:
-            print("[.] Nenhuma versão de estratégia gerada ainda.")
-    else:
-        print("[!] Diretório de snapshots não existe.")
+    print("Omini Evolution Dashboard")
+    print("=========================")
+    print(f"Current evolution version: {int(strategy_state.get('version', 1))}")
+    print(f"Average score (recent): {avg_score:.3f}")
 
-    # 3. Último Ciclo de Evolução
-    if evolution_path.exists():
-        with open(evolution_path, "r", encoding='utf-8') as f:
-            history = json.load(f)
-            if history:
-                last = history[-1]
-                print("\n" + "-"*50)
-                print(f"  ÚLTIMO CICLO: {last.get('timestamp', 'N/A')}")
-                print(f"  Analise: {last.get('analysis', {}).get('recommended_adjustments', [])}")
-                print("-"*50)
+    if loop_log:
+        latest = loop_log[-1]
+        analysis = latest.get("analysis", {}) if isinstance(latest, dict) else {}
+        weak = analysis.get("weak_patterns", []) if isinstance(analysis, dict) else []
+        recommended = analysis.get("recommended_adjustments", []) if isinstance(analysis, dict) else []
+        print(f"Latest weak patterns: {', '.join(weak[:5]) if weak else 'none'}")
+        print(f"Recommended adjustments: {', '.join(recommended[:5]) if recommended else 'none'}")
 
-    print("\n" + "="*50)
+    snapshots = sorted(snapshots_dir.glob("strategy_v*.json")) if snapshots_dir.exists() else []
+    print(f"Snapshots available: {len(snapshots)}")
+
 
 if __name__ == "__main__":
     run_dashboard()
