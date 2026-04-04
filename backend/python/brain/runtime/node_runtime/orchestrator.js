@@ -21,6 +21,14 @@ function respond(actionResult, thought, decision, reviewResult, memorySignal) {
   const opener = maybeUseName(thought);
   const confidence = Math.min(0.99, decision.confidence * reviewResult.qualityScore);
 
+  if (typeof actionResult?.response === 'string' && actionResult.response.trim()) {
+    return {
+      response: actionResult.response.trim(),
+      confidence,
+      memory: memorySignal,
+    };
+  }
+
   switch (thought.intent) {
     case 'saudacao':
       return { response: actionResult.greeting, confidence, memory: memorySignal };
@@ -110,10 +118,21 @@ async function runMultiAgentRuntime({ message, memoryContext, history, summary, 
   });
   const decision = decide(thought);
   const planResult = plan(thought, decision);
-  const actionResult = act(thought, decision, planResult);
+  const actionResult = await act(thought, decision, planResult);
   const reviewResult = review(thought, decision, actionResult);
   const memorySignal = buildMemorySignal(thought, planResult.executionPlan);
   const response = respond(actionResult, thought, decision, reviewResult, memorySignal);
+  const executorTrace = {
+    agent: 'executor_agent',
+    output: {
+      strategy: decision.strategy,
+      provider: actionResult?.provider || 'unknown',
+      latencyMs: typeof actionResult?.latencyMs === 'number' ? actionResult.latencyMs : 0,
+      fallbackUsed: Boolean(actionResult?.fallbackUsed),
+      confidence: typeof actionResult?.confidence === 'number' ? actionResult.confidence : undefined,
+      planLength: Array.isArray(actionResult?.executionPlan) ? actionResult.executionPlan.length : 0,
+    },
+  };
 
   return {
     ...response,
@@ -122,7 +141,7 @@ async function runMultiAgentRuntime({ message, memoryContext, history, summary, 
     agentTrace: [
       { agent: 'researcher_agent', output: { intent: thought.intent, contextSummary: thought.contextSummary } },
       { agent: 'planner_agent', output: planResult },
-      { agent: 'executor_agent', output: actionResult },
+      executorTrace,
       { agent: 'reviewer_agent', output: reviewResult },
       { agent: 'memory_agent', output: memorySignal },
     ],

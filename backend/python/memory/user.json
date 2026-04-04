@@ -1,0 +1,13 @@
+{
+  "id": "",
+  "nome": "Misael",
+  "trabalho": "IA",
+  "preferencias": [],
+  "response_style": "balanced",
+  "depth_preference": "medium",
+  "recurring_topics": [
+    "delivery",
+    "negocio"
+  ],
+  "goals": []
+}

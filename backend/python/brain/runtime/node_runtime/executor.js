@@ -1,5 +1,6 @@
 ﻿const { normalizeText } = require('./registry');
 const { hasPreference } = require('./memory');
+const { generateResponse } = require('./llm_adapter');
 
 function capitalize(value) {
   if (!value) {
@@ -153,105 +154,137 @@ function buildIdeas(thought) {
   ];
 }
 
-function act(thought, decision, planResult) {
+function buildBusinessPayload(message, thought) {
+  const msg = normalizeText(message);
+  if (msg.includes('ideia de negocio') || msg.includes('ideia de negócio')) {
+    return buildIdeas(thought);
+  }
+
+  return [
+    'Escolha um problema frequente e caro para um público específico.',
+    'Crie uma oferta simples, com implementação rápida e benefício fácil de explicar.',
+    'Valide com clientes reais antes de ampliar equipe, produto ou canais.',
+  ];
+}
+
+function fallbackTextForStrategy(thought, decision) {
   const msg = normalizeText(thought.message);
   const topic = extractExplanationTopic(thought.message);
 
-  if (decision.strategy === 'greeting_reply') {
-    return {
-      greeting: 'Olá! Como posso te ajudar hoje?',
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'direct_answer') {
-    return {
-      answer: msg.includes('funcionando')
+  switch (decision.strategy) {
+    case 'greeting_reply':
+      return 'Olá! Como posso te ajudar hoje?';
+    case 'direct_answer':
+      return msg.includes('funcionando')
         ? 'Olá! Sim, estou funcionando e pronto para te ajudar com explicações, planejamento, análise e ideias práticas.'
-        : 'Sim, estou pronto para te ajudar. Pode me dizer qual objetivo ou dúvida você quer resolver agora?',
-      executionPlan: planResult.executionPlan,
+        : 'Sim, estou pronto para te ajudar. Pode me dizer qual objetivo ou dúvida você quer resolver agora?';
+    case 'comparative_analysis': {
+      const comparison = buildComparativeAnalysis(thought.message);
+      return `${comparison.intro} Prós: ${comparison.pros.join(' ')} Contras: ${comparison.cons.join(' ')} ${comparison.recommendation}`;
+    }
+    case 'specific_plan': {
+      const plan = buildSpecificPlan(thought.message, thought);
+      return `${plan.title}:\n1. ${plan.steps[0]}\n2. ${plan.steps[1]}\n3. ${plan.steps[2]}\n${plan.closing}`;
+    }
+    case 'idea_generation': {
+      const ideas = buildIdeas(thought);
+      return `Aqui vão 3 ideias fortes:\n1. ${ideas[0]}\n2. ${ideas[1]}\n3. ${ideas[2]}`;
+    }
+    case 'business_plan': {
+      const payload = buildBusinessPayload(thought.message, thought);
+      return `Eu seguiria um caminho realista:\n1. ${payload[0]}\n2. ${payload[1]}\n3. ${payload[2]}`;
+    }
+    case 'learning_path':
+      return [
+        'O melhor caminho agora é este:',
+        '1. Comece pelos fundamentos antes de buscar velocidade.',
+        '2. Pratique no mesmo dia com exercícios curtos e feedback rápido.',
+        '3. Transforme o estudo em um projeto pequeno e concluído para consolidar o aprendizado.',
+      ].join('\n');
+    case 'decision_help':
+    case 'practical_advice':
+      return 'A melhor escolha depende do seu estado atual, do custo de energia e do impacto imediato de cada opção. Em geral, vale priorizar a opção que cria progresso real sem gerar desgaste desnecessário ou atrasar o próximo passo importante. Compare as opções pelo ganho prático no curto prazo e pela energia que você ainda tem disponível agora.';
+    case 'structured_explanation':
+      return buildExplanation(topic, thought.depthPreference).join(' ');
+    case 'identity_reply':
+      return thought.userName
+        ? 'Sou uma IA orientada a contexto, memória, decisão prática e aprendizado progressivo. Também levo em conta o que você já me contou.'
+        : 'Sou uma IA orientada a contexto, memória, decisão prática e aprendizado progressivo. Meu trabalho é entender o que você quer e devolver algo útil.';
+    case 'general_answer':
+    case 'contextual_conversation':
+    default:
+      return thought.recentHistory.length > 0
+        ? 'Entendi o contexto recente e posso continuar a conversa com foco no próximo passo útil.'
+        : 'Posso te ajudar com explicações, planos, comparações e ideias práticas.';
+  }
+}
+
+function mapStrategyForAdapter(strategy) {
+  if (!strategy || strategy === 'contextual_conversation') {
+    return 'general_answer';
+  }
+  return strategy;
+}
+
+function shouldUseLlm(strategy) {
+  return [
+    'structured_explanation',
+    'comparative_analysis',
+    'decision_help',
+    'practical_advice',
+    'specific_plan',
+    'idea_generation',
+    'business_plan',
+    'learning_path',
+    'direct_answer',
+    'general_answer',
+    'contextual_conversation',
+  ].includes(strategy);
+}
+
+async function act(thought, decision, planResult) {
+  const executionPlan = Array.isArray(planResult?.executionPlan) ? planResult.executionPlan : [];
+  const fallbackText = fallbackTextForStrategy(thought, decision);
+
+  if (!shouldUseLlm(decision.strategy)) {
+    return {
+      response: fallbackText,
+      confidence: decision.confidence || 0.82,
+      memory: {},
+      provider: 'local',
+      latencyMs: 0,
+      fallbackUsed: true,
+      executionPlan,
     };
   }
 
-  if (decision.strategy === 'comparative_analysis') {
-    return {
-      comparison: buildComparativeAnalysis(thought.message),
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'specific_plan') {
-    return {
-      plan: buildSpecificPlan(thought.message, thought),
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'idea_generation') {
-    return {
-      ideas: buildIdeas(thought),
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'business_plan') {
-    return {
-      payload: msg.includes('ideia de negocio')
-        ? buildIdeas(thought)
-        : [
-            'Escolha um problema frequente e caro para um público específico.',
-            'Crie uma oferta simples, com implementação rápida e benefício fácil de explicar.',
-            'Valide com clientes reais antes de ampliar equipe, produto ou canais.',
-          ],
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'learning_path') {
-    return {
-      steps: [
-        'Comece pelos fundamentos antes de buscar velocidade.',
-        'Pratique no mesmo dia com exercícios curtos e feedback rápido.',
-        'Transforme o estudo em um projeto pequeno e concluído para consolidar o aprendizado.',
-      ],
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'decision_help' || decision.strategy === 'practical_advice') {
-    return {
-      analysis: [
-        'A melhor escolha depende do seu estado atual, do custo de energia e do impacto imediato de cada opção.',
-        'Em geral, vale priorizar a opção que cria progresso real sem gerar desgaste desnecessário ou atrasar o próximo passo importante.',
-      ],
-      recommendation: 'Compare as opções pelo ganho prático no curto prazo e pela energia que você ainda tem disponível agora.',
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'structured_explanation') {
-    return {
-      explanation: buildExplanation(topic, thought.depthPreference),
-      topic,
-      executionPlan: planResult.executionPlan,
-    };
-  }
-
-  if (decision.strategy === 'identity_reply') {
-    return {
-      identity: thought.userName
-        ? 'Sou uma IA orientada a contexto, memória, decisão prática e aprendizado progressivo.'
-        : 'Sou uma IA orientada a contexto, memória, decisão prática e aprendizado progressivo. Meu trabalho é entender o que você quer e devolver algo útil.',
-      executionPlan: planResult.executionPlan,
-    };
-  }
+  const generated = await generateResponse({
+    message: thought.message,
+    strategy: mapStrategyForAdapter(decision.strategy),
+    plan: executionPlan,
+    context: {
+      userId: thought.userId,
+      userName: thought.userName,
+      work: thought.work,
+      preferences: thought.preferences,
+      responseStyle: thought.responseStyle,
+      depthPreference: thought.depthPreference,
+      recurringTopics: thought.recurringTopics,
+      goals: thought.goals,
+      contextSummary: thought.contextSummary,
+      fallbackText,
+      localDraft: fallbackText,
+    },
+  });
 
   return {
-    conversation:
-      thought.recentHistory.length > 0
-        ? 'Entendi o contexto recente e posso continuar a conversa com foco no próximo passo útil.'
-        : 'Posso te ajudar com explicações, planos, comparações e ideias práticas.',
-    executionPlan: planResult.executionPlan,
+    response: generated.text || fallbackText,
+    confidence: decision.confidence || 0.82,
+    memory: {},
+    provider: generated.provider || 'fallback',
+    latencyMs: typeof generated.latencyMs === 'number' ? generated.latencyMs : 0,
+    fallbackUsed: Boolean(generated.fallbackUsed) || !generated.text,
+    executionPlan,
   };
 }
 
