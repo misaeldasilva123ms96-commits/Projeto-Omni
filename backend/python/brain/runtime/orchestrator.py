@@ -130,6 +130,7 @@ class BrainOrchestrator:
         self.paths = paths
         self.evaluator = ResponseEvaluator()
         self.analyzer = PatternAnalyzer()
+        self._runtime_meta_by_turn: dict[str, dict[str, Any]] = {}
 
     def run(self, message: str) -> str:
         return self.run_request(BrainRequest(message=message)).get("response", SAFE_FALLBACK_RESPONSE)
@@ -174,6 +175,7 @@ class BrainOrchestrator:
         available_capabilities = describe_capabilities()
         suggested_capabilities = recommend_capabilities(message)
         predicted_intent = self._predict_intent(message)
+        current_strategy = self._load_strategy_state(scoped_paths)
         summary = self.summarize_history(memory_store.get("history", []))
         session_payload = session_store.load(session_id)
         existing_created_at = str(session_payload.get("created_at", "")).strip()
@@ -211,7 +213,18 @@ class BrainOrchestrator:
                     ),
                 )
             )
-            strategy_name = str(swarm_result.get("intent") or predicted_intent)
+            runtime_meta = self._runtime_meta_by_turn.pop(turn_id, {})
+            strategy_name = str(runtime_meta.get("strategy") or swarm_result.get("strategy") or swarm_result.get("intent") or predicted_intent)
+        else:
+            runtime_meta = {
+                "strategy": strategy_name,
+                "intent": predicted_intent,
+                "provider": "local",
+                "selected_mode": "heuristic",
+                "fallback_used": False,
+                "task_category": "memory" if strategy_name == "memory_recall" else predicted_intent,
+                "latency_ms": 0,
+            }
 
         response = self._repair_text(str(swarm_result.get("response", "")).strip()) or SAFE_FALLBACK_RESPONSE
         append_history(memory_store, "assistant", response, history_limit=DEFAULT_HISTORY_LIMIT)
@@ -227,7 +240,6 @@ class BrainOrchestrator:
             metadata={"intent": strategy_name},
         )
 
-        current_strategy = self._load_strategy_state(scoped_paths)
         evaluation = self.evaluator.evaluate(
             session_id=session_id,
             turn_id=turn_id,
@@ -235,6 +247,14 @@ class BrainOrchestrator:
             output_text=response,
             history=safe_store.get("history", []),
         )
+        evaluation["strategy"] = strategy_name
+        evaluation["intent"] = str(runtime_meta.get("intent") or predicted_intent)
+        evaluation["provider"] = str(runtime_meta.get("provider") or "local")
+        evaluation["selected_mode"] = str(runtime_meta.get("selected_mode") or "heuristic")
+        evaluation["used_fallback"] = bool(runtime_meta.get("fallback_used"))
+        evaluation["latency_ms"] = int(runtime_meta.get("latency_ms", 0) or 0)
+        if runtime_meta.get("task_category"):
+            evaluation["task_category"] = str(runtime_meta.get("task_category"))
         learning_data = hybrid_memory.record_learning(
             message=message,
             response=response,
@@ -247,6 +267,7 @@ class BrainOrchestrator:
             session_id=session_id,
             user_id=request.user_id,
             profile=safe_store.get("user", {}),
+            strategy_meta=runtime_meta,
         )
         strategy_state = self._update_evolution_state(scoped_paths, hybrid_memory, strategy_updater, learning_data)
 
@@ -255,7 +276,13 @@ class BrainOrchestrator:
             "message": message,
             "response": response,
             "intent": strategy_name,
+            "route_intent": str(runtime_meta.get("intent") or predicted_intent),
             "capabilities": suggested_capabilities,
+            "strategy": strategy_name,
+            "provider": str(runtime_meta.get("provider") or "local"),
+            "selected_mode": str(runtime_meta.get("selected_mode") or "heuristic"),
+            "fallback_used": bool(runtime_meta.get("fallback_used")),
+            "task_category": str(runtime_meta.get("task_category") or evaluation.get("task_category") or predicted_intent),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "feedback": None,
         }
@@ -283,6 +310,7 @@ class BrainOrchestrator:
             "turns": turns[-MAX_TURNS_PER_SESSION:],
             "swarm": {
                 "intent": swarm_result.get("intent", predicted_intent),
+                "strategy": strategy_name,
                 "delegates": swarm_result.get("delegates", []),
                 "memory_signal": swarm_result.get("memory_signal", {}),
             },
@@ -308,7 +336,7 @@ class BrainOrchestrator:
         turns = session_payload.get("turns", []) if isinstance(session_payload.get("turns", []), list) else []
         matched_turn = next((turn for turn in turns if isinstance(turn, dict) and turn.get("turn_id") == request.turn_id), {})
 
-        strategy_name = str(matched_turn.get("intent", "contextual_conversation"))
+        strategy_name = str(matched_turn.get("strategy") or matched_turn.get("intent", "contextual_conversation"))
         capabilities = matched_turn.get("capabilities", []) if isinstance(matched_turn.get("capabilities", []), list) else []
         feedback_entry = hybrid_memory.record_feedback(
             turn_id=request.turn_id,
@@ -328,6 +356,20 @@ class BrainOrchestrator:
         strategy_feedback[strategy_name] = round(float(strategy_feedback.get(strategy_name, 0.0)) + delta, 3)
         strategy_state["feedback_scores"] = strategy_feedback
         strategy_state["last_feedback_at"] = datetime.now(timezone.utc).isoformat()
+        strategies = strategy_state.get("strategies", {})
+        if not isinstance(strategies, dict):
+            strategies = {}
+        strategy_entry = strategies.get(strategy_name, {})
+        if not isinstance(strategy_entry, dict):
+            strategy_entry = {}
+        if request.value == "up":
+            strategy_entry["positive_feedback"] = int(strategy_entry.get("positive_feedback", 0)) + 1
+        else:
+            strategy_entry["negative_feedback"] = int(strategy_entry.get("negative_feedback", 0)) + 1
+        strategy_entry["feedback_score"] = round(float(strategy_entry.get("feedback_score", 0.0)) + delta, 3)
+        strategy_entry["last_feedback_at"] = strategy_state["last_feedback_at"]
+        strategies[strategy_name] = strategy_entry
+        strategy_state["strategies"] = strategies
         scoped_paths.strategy_state_path.write_text(
             json.dumps(strategy_state, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -409,7 +451,21 @@ class BrainOrchestrator:
             return ""
 
         session_payload = session_store.load(session_id)
-        session_payload.update({"turn_id": turn_id, "user_id": user_id})
+        runtime_meta_path = self._runtime_meta_path(scoped_paths, turn_id)
+        self._runtime_meta_by_turn.pop(turn_id, None)
+        try:
+            runtime_meta_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        session_payload.update(
+            {
+                "turn_id": turn_id,
+                "user_id": user_id,
+                "runtime_meta_path": str(runtime_meta_path),
+                "strategy_state": self._load_strategy_state(scoped_paths),
+            }
+        )
         if extra_session:
             session_payload.update(extra_session)
 
@@ -442,6 +498,7 @@ class BrainOrchestrator:
         if completed.returncode != 0:
             return ""
 
+        self._runtime_meta_by_turn[turn_id] = self._read_runtime_meta(runtime_meta_path)
         return self._repair_text(completed.stdout.strip())
 
     @staticmethod
@@ -458,6 +515,23 @@ class BrainOrchestrator:
             if content:
                 summary_parts.append(f"{role}: {content}")
         return " | ".join(summary_parts)
+
+    @staticmethod
+    def _runtime_meta_path(scoped_paths: BrainPaths, turn_id: str) -> Path:
+        runtime_meta_dir = scoped_paths.sessions_dir / ".runtime_meta"
+        runtime_meta_dir.mkdir(parents=True, exist_ok=True)
+        return runtime_meta_dir / f"{turn_id}.json"
+
+    @staticmethod
+    def _read_runtime_meta(meta_path: Path) -> dict[str, Any]:
+        try:
+            if not meta_path.exists():
+                return {}
+            raw = meta_path.read_text(encoding="utf-8").strip()
+            parsed = json.loads(raw) if raw else {}
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
 
     @staticmethod
     def _merge_recent_history(
@@ -717,9 +791,16 @@ class BrainOrchestrator:
             "params": {
                 "max_length_threshold": 500,
                 "direct_memory_strictness": 0.5,
+                "complex_prompt_word_threshold": 20,
+                "heuristic_success_floor": 0.72,
+                "llm_success_floor": 0.68,
+                "prefer_llm_margin": 0.05,
             },
             "registry_overrides": {},
             "feedback_scores": {},
+            "strategies": {},
+            "intent_profiles": {},
+            "category_scores": {},
         }
         if not scoped_paths.strategy_state_path.exists():
             scoped_paths.strategy_state_path.write_text(
@@ -737,21 +818,35 @@ class BrainOrchestrator:
 
     def _load_strategy_state(self, scoped_paths: BrainPaths) -> dict[str, Any]:
         self._ensure_evolution_files(scoped_paths)
+        default_state = {
+            "version": 1,
+            "last_update": None,
+            "adjustments": [],
+            "params": {
+                "max_length_threshold": 500,
+                "direct_memory_strictness": 0.5,
+                "complex_prompt_word_threshold": 20,
+                "heuristic_success_floor": 0.72,
+                "llm_success_floor": 0.68,
+                "prefer_llm_margin": 0.05,
+            },
+            "registry_overrides": {},
+            "feedback_scores": {},
+            "strategies": {},
+            "intent_profiles": {},
+            "category_scores": {},
+        }
         try:
             raw = scoped_paths.strategy_state_path.read_text(encoding="utf-8").strip()
             parsed = json.loads(raw) if raw else {}
             if isinstance(parsed, dict) and parsed:
-                return parsed
+                merged = dict(default_state)
+                merged.update(parsed)
+                merged["params"] = {**default_state["params"], **dict(parsed.get("params", {}))}
+                return merged
         except Exception:
             pass
-        return {
-            "version": 1,
-            "last_update": None,
-            "adjustments": [],
-            "params": {"max_length_threshold": 500, "direct_memory_strictness": 0.5},
-            "registry_overrides": {},
-            "feedback_scores": {},
-        }
+        return default_state
 
     def _update_evolution_state(
         self,
@@ -764,10 +859,15 @@ class BrainOrchestrator:
         evaluations = learning_data.get("evaluations", []) if isinstance(learning_data, dict) else []
         if not isinstance(evaluations, list):
             evaluations = []
-        analysis = self.analyzer.analyze(evaluations[-20:])
+        analysis = self.analyzer.analyze(
+            evaluations[-40:],
+            strategy_stats=learning_data.get("strategy_stats", {}) if isinstance(learning_data, dict) else {},
+            explicit_feedback=learning_data.get("explicit_feedback", []) if isinstance(learning_data, dict) else [],
+        )
         updated_strategy = strategy_updater.update(
             current_strategy=current_strategy,
-            adjustments=analysis.get("recommended_adjustments", []),
+            analysis=analysis,
+            learning_data=learning_data if isinstance(learning_data, dict) else {},
         )
         if not updated_strategy:
             updated_strategy = current_strategy
@@ -793,6 +893,9 @@ class BrainOrchestrator:
                 "evaluation_count": len(evaluations),
                 "analysis": analysis,
                 "strategy_version": int(updated_strategy.get("version", 1)),
+                "strategy_summary": updated_strategy.get("strategies", {}),
+                "intent_profiles": updated_strategy.get("intent_profiles", {}),
+                "category_scores": updated_strategy.get("category_scores", {}),
             }
         )
         scoped_paths.loop_log_path.write_text(

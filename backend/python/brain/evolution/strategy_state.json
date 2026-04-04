@@ -1,11 +1,17 @@
 {
-  "version": 1,
-  "last_update": null,
-  "adjustments": [],
+  "version": 8,
+  "last_update": "2026-04-04T16:51:44Z",
+  "adjustments": [
+    "rebalance_intent_weights"
+  ],
   "params": {
     "max_length_threshold": 500,
     "direct_memory_strictness": 0.5
   },
-  "registry_overrides": {},
-  "feedback_scores": {}
+  "registry_overrides": {
+    "intent_priority": {
+      "decision": 1.7000000000000006,
+      "dinheiro": 1.7000000000000006
+    }
+  }
 }

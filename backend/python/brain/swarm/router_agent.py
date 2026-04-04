@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -14,13 +14,20 @@ class RouterAgent(BaseAgent):
             for item in history
             if isinstance(item, dict)
         )
+        compact_message = raw_message.rstrip("?!., ").strip()
+        short_explanation_keywords = {"btc", "bitcoin", "cripto", "criptomoeda"}
+        greeting_prefixes = ("olá", "ola", "oi", "bom dia", "boa tarde", "boa noite")
 
-        if raw_message.startswith(("olá", "ola", "oi", "bom dia", "boa tarde", "boa noite")) and any(
+        if raw_message.startswith(greeting_prefixes) and any(
             token in raw_message for token in ("funcionando", "tudo bem", "pode me ajudar")
         ):
             intent = "pergunta_direta"
-        elif raw_message.startswith(("olá", "ola", "oi", "bom dia", "boa tarde", "boa noite")):
+        elif raw_message.startswith(greeting_prefixes):
             intent = "saudacao"
+        elif compact_message in short_explanation_keywords:
+            intent = "explicacao"
+        elif compact_message.startswith(("o que btc", "oque btc", "oq btc", "o que e btc", "oque e btc", "oq e btc")):
+            intent = "explicacao"
         elif any(token in raw_message for token in ("prós e contras", "pros e contras", " vs ", " versus ", "compare", "comparar", "analise ", "analisa ")):
             intent = "comparativo"
         elif any(token in raw_message for token in ("plano de negócios", "plano de negocios", "plano de negócio", "plano de negocio", "crie um plano", "modelo de negócio", "modelo de negocio")):
@@ -33,7 +40,7 @@ class RouterAgent(BaseAgent):
             intent = "dinheiro"
         elif any(token in raw_message for token in ("aprender", "programacao", "programação", "por onde comeco")) or "aprender" in history_text:
             intent = "aprendizado"
-        elif any(token in raw_message for token in ("como funciona", "o que e", "o que é", "explique")):
+        elif any(token in raw_message for token in ("como funciona", "o que e", "o que é", "oque e", "oq e", "o que ", "oque ", "oq ", "explique")):
             intent = "explicacao"
         elif any(token in raw_message for token in ("quem e voce", "quem é você", "como voce responde", "como você responde")):
             intent = "pessoal"

@@ -7,7 +7,9 @@
   "depth_preference": "medium",
   "recurring_topics": [
     "delivery",
-    "negocio"
+    "negocio",
+    "bitcoin",
+    "criptomoeda"
   ],
   "goals": []
 }

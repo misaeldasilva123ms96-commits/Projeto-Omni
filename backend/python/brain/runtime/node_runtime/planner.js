@@ -1,4 +1,4 @@
-const { strategyForIntent } = require('./registry');
+﻿const { strategyForIntent } = require('./registry');
 
 function buildExecutionPlan(strategy) {
   switch (strategy) {
@@ -29,10 +29,12 @@ function buildExecutionPlan(strategy) {
 }
 
 function decide(thought) {
-  const decision = strategyForIntent(thought.intent, thought.availableCapabilities);
+  const decision = strategyForIntent(thought.intent, thought.availableCapabilities, thought.strategyState);
   return {
     ...decision,
     intent: thought.intent,
+    taskCategory: thought.taskCategory,
+    promptComplexity: thought.promptComplexity,
   };
 }
 
@@ -40,7 +42,9 @@ function plan(thought, decision) {
   return {
     strategy: decision.strategy,
     executionPlan: buildExecutionPlan(decision.strategy),
-    complexity: thought.recentHistory.length > 2 ? 'medium' : 'normal',
+    complexity: thought.promptComplexity.isComplex ? 'high' : thought.recentHistory.length > 2 ? 'medium' : 'normal',
+    taskCategory: thought.taskCategory,
+    adaptive: decision.adaptive || {},
   };
 }
 

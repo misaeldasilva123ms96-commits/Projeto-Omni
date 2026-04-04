@@ -42,10 +42,7 @@ class HybridMemory:
         for path, content in defaults.items():
             if path.exists():
                 continue
-            path.write_text(
-                json.dumps(content, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
 
         if not self.notes_path.exists():
             self.notes_path.write_text("# User Notes\n", encoding="utf-8")
@@ -55,10 +52,7 @@ class HybridMemory:
         user = normalize_user_profile(memory_store.get("user", {}))
 
         try:
-            self.user_path.write_text(
-                json.dumps(user, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            self.user_path.write_text(json.dumps(user, ensure_ascii=False, indent=2), encoding="utf-8")
             self.preferences_path.write_text(
                 json.dumps({"preferencias": user["preferencias"]}, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -82,7 +76,7 @@ class HybridMemory:
 
     def _default_learning(self) -> dict[str, object]:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "evaluations": [],
             "capability_usage": {},
             "strategy_stats": {
@@ -158,12 +152,15 @@ class HybridMemory:
         session_id: str | None = None,
         user_id: str | None = None,
         profile: dict[str, Any] | None = None,
+        strategy_meta: dict[str, Any] | None = None,
     ) -> dict[str, object]:
         learning = self.load_learning()
         timestamp = datetime.now(timezone.utc).isoformat()
         pattern_key = _repair_text(intent.strip() or "unknown")
         safe_message = _repair_text(message)[:220]
         safe_response = _repair_text(response)[:320]
+        strategy_meta = strategy_meta if isinstance(strategy_meta, dict) else {}
+        task_category = str((evaluation or {}).get("task_category") or strategy_meta.get("task_category") or "explanation")
 
         patterns = learning["patterns"]
         patterns[pattern_key] = int(patterns.get(pattern_key, 0)) + 1
@@ -186,6 +183,9 @@ class HybridMemory:
                 "response": safe_response,
                 "capabilities": capabilities,
                 "strategy": strategy_name,
+                "provider": strategy_meta.get("provider"),
+                "mode": strategy_meta.get("selected_mode"),
+                "task_category": task_category,
                 "timestamp": timestamp,
             }
         )
@@ -193,14 +193,17 @@ class HybridMemory:
 
         capability_usage = learning["capability_usage"]
         for capability in capabilities:
-            record = capability_usage.get(capability, {"count": 0, "positive_feedback": 0, "negative_feedback": 0, "score": 0.0})
+            record = capability_usage.get(
+                capability,
+                {"count": 0, "positive_feedback": 0, "negative_feedback": 0, "score": 0.0},
+            )
             record["count"] = int(record.get("count", 0)) + 1
             capability_usage[capability] = record
 
         if evaluation:
             evaluations = learning["evaluations"]
             evaluations.append(evaluation)
-            learning["evaluations"] = evaluations[-100:]
+            learning["evaluations"] = evaluations[-150:]
 
         strategy_stats = learning["strategy_stats"]
         current_version = int(strategy_stats.get("current_version", 1) or 1)
@@ -213,14 +216,85 @@ class HybridMemory:
             versions.append({"version": current_version, "timestamp": timestamp})
         strategy_stats["current_version"] = current_version
         strategy_stats["versions"] = versions[-30:]
+
         strategies = strategy_stats.get("strategies", {})
         if not isinstance(strategies, dict):
             strategies = {}
+
         if strategy_name:
-            strategy_entry = strategies.get(strategy_name, {"uses": 0, "positive_feedback": 0, "negative_feedback": 0, "feedback_score": 0.0})
-            strategy_entry["uses"] = int(strategy_entry.get("uses", 0)) + 1
+            strategy_entry = strategies.get(
+                strategy_name,
+                {
+                    "total_uses": 0,
+                    "total_score": 0.0,
+                    "average_score": 0.0,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "positive_feedback": 0,
+                    "negative_feedback": 0,
+                    "feedback_score": 0.0,
+                    "llm_uses": 0,
+                    "heuristic_uses": 0,
+                    "fallback_uses": 0,
+                    "execution_modes": {},
+                    "per_intent": {},
+                    "per_category": {},
+                },
+            )
+            strategy_entry["total_uses"] = int(strategy_entry.get("total_uses", 0)) + 1
+            overall = float((evaluation or {}).get("overall", 0.0) or 0.0)
+            strategy_entry["total_score"] = round(float(strategy_entry.get("total_score", 0.0) or 0.0) + overall, 3)
+            strategy_entry["average_score"] = round(strategy_entry["total_score"] / strategy_entry["total_uses"], 3)
+            if (evaluation or {}).get("success"):
+                strategy_entry["success_count"] = int(strategy_entry.get("success_count", 0)) + 1
+            else:
+                strategy_entry["failure_count"] = int(strategy_entry.get("failure_count", 0)) + 1
             strategy_entry["last_used_at"] = timestamp
+
+            selected_mode = str(strategy_meta.get("selected_mode") or ("heuristic" if strategy_meta.get("fallback_used") else "llm"))
+            if selected_mode == "llm":
+                strategy_entry["llm_uses"] = int(strategy_entry.get("llm_uses", 0)) + 1
+            else:
+                strategy_entry["heuristic_uses"] = int(strategy_entry.get("heuristic_uses", 0)) + 1
+            if strategy_meta.get("fallback_used"):
+                strategy_entry["fallback_uses"] = int(strategy_entry.get("fallback_uses", 0)) + 1
+
+            execution_modes = strategy_entry.get("execution_modes", {})
+            if not isinstance(execution_modes, dict):
+                execution_modes = {}
+            mode_entry = execution_modes.get(selected_mode, {"uses": 0, "total_score": 0.0, "average_score": 0.0})
+            mode_entry["uses"] = int(mode_entry.get("uses", 0)) + 1
+            mode_entry["total_score"] = round(float(mode_entry.get("total_score", 0.0) or 0.0) + overall, 3)
+            mode_entry["average_score"] = round(mode_entry["total_score"] / mode_entry["uses"], 3)
+            execution_modes[selected_mode] = mode_entry
+            strategy_entry["execution_modes"] = execution_modes
+
+            per_intent = strategy_entry.get("per_intent", {})
+            if not isinstance(per_intent, dict):
+                per_intent = {}
+            intent_entry = per_intent.get(pattern_key, {"uses": 0, "total_score": 0.0, "average_score": 0.0, "success_count": 0, "failure_count": 0})
+            intent_entry["uses"] = int(intent_entry.get("uses", 0)) + 1
+            intent_entry["total_score"] = round(float(intent_entry.get("total_score", 0.0) or 0.0) + overall, 3)
+            intent_entry["average_score"] = round(intent_entry["total_score"] / intent_entry["uses"], 3)
+            if (evaluation or {}).get("success"):
+                intent_entry["success_count"] = int(intent_entry.get("success_count", 0)) + 1
+            else:
+                intent_entry["failure_count"] = int(intent_entry.get("failure_count", 0)) + 1
+            per_intent[pattern_key] = intent_entry
+            strategy_entry["per_intent"] = per_intent
+
+            per_category = strategy_entry.get("per_category", {})
+            if not isinstance(per_category, dict):
+                per_category = {}
+            category_entry = per_category.get(task_category, {"uses": 0, "total_score": 0.0, "average_score": 0.0})
+            category_entry["uses"] = int(category_entry.get("uses", 0)) + 1
+            category_entry["total_score"] = round(float(category_entry.get("total_score", 0.0) or 0.0) + overall, 3)
+            category_entry["average_score"] = round(category_entry["total_score"] / category_entry["uses"], 3)
+            per_category[task_category] = category_entry
+            strategy_entry["per_category"] = per_category
+
             strategies[strategy_name] = strategy_entry
+
         strategy_stats["strategies"] = strategies
 
         if profile:
@@ -231,10 +305,7 @@ class HybridMemory:
             }
 
         learning["last_updated"] = timestamp
-        self.learning_path.write_text(
-            json.dumps(learning, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self.learning_path.write_text(json.dumps(learning, ensure_ascii=False, indent=2), encoding="utf-8")
         return learning
 
     def record_feedback(
@@ -277,10 +348,7 @@ class HybridMemory:
             "negative": sum(1 for item in feedback_store["items"] if item.get("value") == "down"),
         }
         feedback_store["last_updated"] = timestamp
-        self.feedback_path.write_text(
-            json.dumps(feedback_store, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self.feedback_path.write_text(json.dumps(feedback_store, ensure_ascii=False, indent=2), encoding="utf-8")
 
         explicit_feedback = learning.get("explicit_feedback", [])
         if not isinstance(explicit_feedback, list):
@@ -294,12 +362,30 @@ class HybridMemory:
         if not isinstance(strategies, dict):
             strategies = {}
         if strategy_name:
-            strategy_entry = strategies.get(strategy_name, {"uses": 0, "positive_feedback": 0, "negative_feedback": 0, "feedback_score": 0.0})
+            strategy_entry = strategies.get(
+                strategy_name,
+                {
+                    "total_uses": 0,
+                    "total_score": 0.0,
+                    "average_score": 0.0,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "positive_feedback": 0,
+                    "negative_feedback": 0,
+                    "feedback_score": 0.0,
+                    "llm_uses": 0,
+                    "heuristic_uses": 0,
+                    "fallback_uses": 0,
+                    "execution_modes": {},
+                    "per_intent": {},
+                    "per_category": {},
+                },
+            )
             if normalized_value == "up":
                 strategy_entry["positive_feedback"] = int(strategy_entry.get("positive_feedback", 0)) + 1
             else:
                 strategy_entry["negative_feedback"] = int(strategy_entry.get("negative_feedback", 0)) + 1
-            strategy_entry["feedback_score"] = round(float(strategy_entry.get("feedback_score", 0.0)) + delta, 3)
+            strategy_entry["feedback_score"] = round(float(strategy_entry.get("feedback_score", 0.0) or 0.0) + delta, 3)
             strategy_entry["last_feedback_at"] = timestamp
             strategies[strategy_name] = strategy_entry
         strategy_stats["strategies"] = strategies
@@ -312,12 +398,9 @@ class HybridMemory:
                 record["positive_feedback"] = int(record.get("positive_feedback", 0)) + 1
             else:
                 record["negative_feedback"] = int(record.get("negative_feedback", 0)) + 1
-            record["score"] = round(float(record.get("score", 0.0)) + delta, 3)
+            record["score"] = round(float(record.get("score", 0.0) or 0.0) + delta, 3)
             capability_usage[capability] = record
         learning["capability_usage"] = capability_usage
         learning["last_updated"] = timestamp
-        self.learning_path.write_text(
-            json.dumps(learning, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self.learning_path.write_text(json.dumps(learning, ensure_ascii=False, indent=2), encoding="utf-8")
         return entry

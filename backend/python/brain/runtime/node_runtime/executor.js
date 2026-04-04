@@ -1,4 +1,4 @@
-﻿const { normalizeText } = require('./registry');
+﻿const { normalizeText, normalizeStrategyState, getStrategyEntry } = require('./registry');
 const { hasPreference } = require('./memory');
 const { generateResponse } = require('./llm_adapter');
 
@@ -42,9 +42,7 @@ function extractExplanationTopic(message) {
 
 function buildExplanation(topic, depthPreference) {
   const deep = depthPreference === 'deep';
-  const normalizedTopic = normalizeText(topic)
-    .replace(/\bbtc\b/g, 'bitcoin')
-    .replace(/\bcripto\b/g, 'criptomoeda');
+  const normalizedTopic = normalizeText(topic).replace(/\bbtc\b/g, 'bitcoin').replace(/\bcripto\b/g, 'criptomoeda');
 
   if (normalizedTopic.includes('machine learning')) {
     const parts = [
@@ -311,20 +309,78 @@ function shouldUseLlm(strategy) {
   ].includes(strategy);
 }
 
+function getModeStats(strategyState, strategyName, mode) {
+  const entry = getStrategyEntry(strategyState, strategyName);
+  const executionModes = entry.execution_modes && typeof entry.execution_modes === 'object' ? entry.execution_modes : {};
+  return executionModes[mode] || {};
+}
+
+function chooseExecutionMode(thought, decision) {
+  const strategyState = normalizeStrategyState(thought.strategyState);
+  const strategyEntry = getStrategyEntry(strategyState, decision.strategy);
+  const heuristicStats = getModeStats(strategyState, decision.strategy, 'heuristic');
+  const llmStats = getModeStats(strategyState, decision.strategy, 'llm');
+  const intentProfile = strategyState.intent_profiles[thought.intent] || {};
+  const categoryProfile = strategyState.category_scores[thought.taskCategory] || {};
+  const params = strategyState.params || {};
+  const margin = Number(params.prefer_llm_margin || 0.05);
+  const simplePrompt = isSimpleFastPath(thought, decision);
+  const strictFormat = requiresStrictInstructionFollowing(thought.message) || thought.promptComplexity.requiresStrictFormat;
+  const complexPrompt = thought.promptComplexity.isComplex || Number(thought.promptComplexity.wordCount || 0) > Number(params.complex_prompt_word_threshold || 20);
+  const heuristicAvg = Number(heuristicStats.average_score || 0);
+  const llmAvg = Number(llmStats.average_score || 0);
+  const heuristicUses = Number(heuristicStats.uses || 0);
+  const llmUses = Number(llmStats.uses || 0);
+  const strategyAverage = Number(strategyEntry.average_score || 0.65);
+  const preferredMode = intentProfile.preferred_mode || (categoryProfile.average_score && Number(categoryProfile.average_score) < Number(params.llm_success_floor || 0.68) ? 'llm' : '');
+
+  if (simplePrompt && !strictFormat) {
+    if (llmUses >= 3 && llmAvg > heuristicAvg + margin) {
+      return { mode: 'llm', reason: 'historical_llm_win' };
+    }
+    return { mode: 'heuristic', reason: 'simple_fast_path' };
+  }
+
+  if (preferredMode === 'llm' && shouldUseLlm(decision.strategy)) {
+    return { mode: 'llm', reason: 'intent_preference' };
+  }
+
+  if (strictFormat || complexPrompt) {
+    if (heuristicUses >= 4 && heuristicAvg >= llmAvg + margin && heuristicAvg >= Number(params.heuristic_success_floor || 0.72)) {
+      return { mode: 'heuristic', reason: 'historical_heuristic_win' };
+    }
+    return { mode: 'llm', reason: strictFormat ? 'strict_format' : 'complex_prompt' };
+  }
+
+  if (llmUses >= 3 && llmAvg >= strategyAverage + margin) {
+    return { mode: 'llm', reason: 'llm_outperforming' };
+  }
+
+  if (heuristicUses >= 3 && heuristicAvg >= Number(params.heuristic_success_floor || 0.72)) {
+    return { mode: 'heuristic', reason: 'strong_heuristic_history' };
+  }
+
+  return { mode: shouldUseLlm(decision.strategy) ? 'llm' : 'heuristic', reason: 'default_hybrid' };
+}
+
 async function act(thought, decision, planResult) {
   const executionPlan = Array.isArray(planResult?.executionPlan) ? planResult.executionPlan : [];
   const fallbackText = fallbackTextForStrategy(thought, decision);
-  const forceLlm = requiresStrictInstructionFollowing(thought.message);
   const useFastPath = isSimpleFastPath(thought, decision);
+  const adaptiveMode = chooseExecutionMode(thought, decision);
+  const useLlm = adaptiveMode.mode === 'llm' && shouldUseLlm(decision.strategy);
 
-  if (!forceLlm && (useFastPath || !shouldUseLlm(decision.strategy))) {
+  if (!useLlm || (useFastPath && adaptiveMode.mode === 'heuristic')) {
     return {
       response: fallbackText,
       confidence: decision.confidence || 0.82,
       memory: {},
       provider: 'local',
       latencyMs: 0,
-      fallbackUsed: true,
+      fallbackUsed: adaptiveMode.mode !== 'heuristic',
+      selectedMode: 'heuristic',
+      adaptiveReason: adaptiveMode.reason,
+      taskCategory: thought.taskCategory,
       executionPlan,
     };
   }
@@ -343,7 +399,7 @@ async function act(thought, decision, planResult) {
       recurringTopics: thought.recurringTopics,
       goals: thought.goals,
       contextSummary: thought.contextSummary,
-      forceStrictFormat: forceLlm,
+      forceStrictFormat: thought.promptComplexity.requiresStrictFormat,
       fallbackText,
       localDraft: fallbackText,
     },
@@ -356,6 +412,9 @@ async function act(thought, decision, planResult) {
     provider: generated.provider || 'fallback',
     latencyMs: typeof generated.latencyMs === 'number' ? generated.latencyMs : 0,
     fallbackUsed: Boolean(generated.fallbackUsed) || !generated.text,
+    selectedMode: 'llm',
+    adaptiveReason: adaptiveMode.reason,
+    taskCategory: thought.taskCategory,
     executionPlan,
   };
 }

@@ -1,4 +1,6 @@
-﻿const { listAgents, listCapabilities } = require('./registry');
+﻿const fs = require('fs');
+const path = require('path');
+const { listAgents, listCapabilities } = require('./registry');
 const { buildMemorySignal } = require('./memory');
 const { think } = require('./researcher');
 const { decide, plan } = require('./planner');
@@ -31,7 +33,7 @@ function respond(actionResult, thought, decision, reviewResult, memorySignal) {
 
   switch (thought.intent) {
     case 'saudacao':
-      return { response: actionResult.greeting, confidence, memory: memorySignal };
+      return { response: actionResult.greeting || 'Olá! Como posso te ajudar hoje?', confidence, memory: memorySignal };
     case 'pergunta_direta':
       return { response: actionResult.answer, confidence, memory: memorySignal };
     case 'comparativo':
@@ -42,20 +44,13 @@ function respond(actionResult, thought, decision, reviewResult, memorySignal) {
       };
     case 'planejamento':
       return {
-        response: `${opener}${actionResult.plan.title}:
-1. ${actionResult.plan.steps[0]}
-2. ${actionResult.plan.steps[1]}
-3. ${actionResult.plan.steps[2]}
-${actionResult.plan.closing}`,
+        response: `${opener}${actionResult.plan.title}:\n1. ${actionResult.plan.steps[0]}\n2. ${actionResult.plan.steps[1]}\n3. ${actionResult.plan.steps[2]}\n${actionResult.plan.closing}`,
         confidence,
         memory: memorySignal,
       };
     case 'ideacao':
       return {
-        response: `Aqui vão 3 ideias fortes:
-1. ${actionResult.ideas[0]}
-2. ${actionResult.ideas[1]}
-3. ${actionResult.ideas[2]}`,
+        response: `Aqui vão 3 ideias fortes:\n1. ${actionResult.ideas[0]}\n2. ${actionResult.ideas[1]}\n3. ${actionResult.ideas[2]}`,
         confidence,
         memory: memorySignal,
       };
@@ -68,33 +63,25 @@ ${actionResult.plan.closing}`,
       };
     case 'dinheiro':
       return {
-        response: `${opener}Eu seguiria um caminho realista:
-1. ${actionResult.payload[0]}
-2. ${actionResult.payload[1]}
-3. ${actionResult.payload[2]}`,
+        response: `${opener}Eu seguiria um caminho realista:\n1. ${actionResult.payload[0]}\n2. ${actionResult.payload[1]}\n3. ${actionResult.payload[2]}`,
         confidence,
         memory: memorySignal,
       };
     case 'aprendizado':
       return {
-        response: `${opener}O melhor caminho agora é este:
-1. ${actionResult.steps[0]}
-2. ${actionResult.steps[1]}
-3. ${actionResult.steps[2]}`,
+        response: `${opener}O melhor caminho agora é este:\n1. ${actionResult.steps[0]}\n2. ${actionResult.steps[1]}\n3. ${actionResult.steps[2]}`,
         confidence,
         memory: memorySignal,
       };
     case 'pessoal':
       return {
-        response: thought.userName
-          ? `${actionResult.identity} Também levo em conta o que você já me contou, ${thought.userName}.`
-          : actionResult.identity,
+        response: thought.userName ? `${actionResult.identity} Também levo em conta o que você já me contou, ${thought.userName}.` : actionResult.identity,
         confidence,
         memory: memorySignal,
       };
     case 'explicacao':
       return {
-        response: actionResult.explanation.join(' '),
+        response: Array.isArray(actionResult.explanation) ? actionResult.explanation.join(' ') : 'Posso te explicar esse conceito de forma clara e prática.',
         confidence,
         memory: memorySignal,
       };
@@ -104,6 +91,19 @@ ${actionResult.plan.closing}`,
         confidence,
         memory: memorySignal,
       };
+  }
+}
+
+function persistRuntimeMeta(session, executionMeta) {
+  if (typeof session?.runtime_meta_path !== 'string' || !session.runtime_meta_path.trim()) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(session.runtime_meta_path), { recursive: true });
+    fs.writeFileSync(session.runtime_meta_path, JSON.stringify(executionMeta, null, 2), 'utf8');
+  } catch (_error) {
+    // Keep runtime resilient if metadata persistence fails.
   }
 }
 
@@ -122,24 +122,41 @@ async function runMultiAgentRuntime({ message, memoryContext, history, summary, 
   const reviewResult = review(thought, decision, actionResult);
   const memorySignal = buildMemorySignal(thought, planResult.executionPlan);
   const response = respond(actionResult, thought, decision, reviewResult, memorySignal);
+  const executionMeta = {
+    strategy: decision.strategy,
+    intent: thought.intent,
+    provider: actionResult?.provider || 'unknown',
+    latency_ms: typeof actionResult?.latencyMs === 'number' ? actionResult.latencyMs : 0,
+    fallback_used: Boolean(actionResult?.fallbackUsed),
+    selected_mode: actionResult?.selectedMode || 'heuristic',
+    adaptive_reason: actionResult?.adaptiveReason || 'unknown',
+    task_category: thought.taskCategory,
+    prompt_complexity: thought.promptComplexity,
+  };
   const executorTrace = {
     agent: 'executor_agent',
     output: {
       strategy: decision.strategy,
-      provider: actionResult?.provider || 'unknown',
-      latencyMs: typeof actionResult?.latencyMs === 'number' ? actionResult.latencyMs : 0,
-      fallbackUsed: Boolean(actionResult?.fallbackUsed),
+      provider: executionMeta.provider,
+      latencyMs: executionMeta.latency_ms,
+      fallbackUsed: executionMeta.fallback_used,
+      selectedMode: executionMeta.selected_mode,
+      adaptiveReason: executionMeta.adaptive_reason,
       confidence: typeof actionResult?.confidence === 'number' ? actionResult.confidence : undefined,
       planLength: Array.isArray(actionResult?.executionPlan) ? actionResult.executionPlan.length : 0,
+      taskCategory: thought.taskCategory,
     },
   };
+
+  persistRuntimeMeta(session, executionMeta);
 
   return {
     ...response,
     strategy: decision.strategy,
+    executionMeta,
     delegates: thought.delegates,
     agentTrace: [
-      { agent: 'researcher_agent', output: { intent: thought.intent, contextSummary: thought.contextSummary } },
+      { agent: 'researcher_agent', output: { intent: thought.intent, contextSummary: thought.contextSummary, taskCategory: thought.taskCategory, promptComplexity: thought.promptComplexity } },
       { agent: 'planner_agent', output: planResult },
       executorTrace,
       { agent: 'reviewer_agent', output: reviewResult },
