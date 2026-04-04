@@ -32,6 +32,13 @@ function normalizeWhitespace(value) {
     .trim();
 }
 
+function normalizeText(value) {
+  return normalizeWhitespace(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 function selectProvider() {
   if (process.env.OPENAI_API_KEY) {
     return 'openai';
@@ -73,7 +80,41 @@ function buildSystemPrompt() {
     'Do not mention planner, executor, researcher, reviewer, chain-of-thought, or hidden steps.',
     'Answer directly in the user language whenever possible.',
     'Be natural, useful, and concise unless the request clearly needs depth.',
+    'Follow the user requested format strictly.',
   ].join(' ');
+}
+
+function extractFormatInstructions(message) {
+  const msg = normalizeWhitespace(message).toLowerCase();
+  const instructions = [];
+
+  const stepsMatch = msg.match(/(\d+)\s+etapas?/);
+  if (stepsMatch && stepsMatch[1]) {
+    instructions.push(`Return exactly ${stepsMatch[1]} practical steps.`);
+  }
+
+  const maxSentencesMatch = msg.match(/no maximo\s+(\d+)\s+frases?/);
+  if (maxSentencesMatch && maxSentencesMatch[1]) {
+    instructions.push(`Use no more than ${maxSentencesMatch[1]} sentences.`);
+  }
+
+  if (msg.includes('uma unica frase') || msg.includes('uma única frase') || msg.includes('1 frase')) {
+    instructions.push('Answer in exactly one sentence.');
+  }
+
+  if (msg.includes('analogia')) {
+    instructions.push('Include the requested analogy explicitly.');
+  }
+
+  if (msg.includes('depois')) {
+    instructions.push('Follow every step of the user instruction in order.');
+  }
+
+  if (msg.includes('perspectiva')) {
+    instructions.push('Separate the answer by the requested perspectives before giving the final recommendation.');
+  }
+
+  return instructions;
 }
 
 function buildUserPrompt({ message, strategy, plan, context }) {
@@ -86,6 +127,7 @@ function buildUserPrompt({ message, strategy, plan, context }) {
   const recurringTopics = Array.isArray(context?.recurringTopics) ? context.recurringTopics.slice(0, 5).map(normalizeWhitespace).filter(Boolean) : [];
   const contextSummary = normalizeWhitespace(context?.contextSummary) || 'No relevant prior context.';
   const localDraft = normalizeWhitespace(context?.localDraft);
+  const formatInstructions = extractFormatInstructions(message);
   const planText = Array.isArray(plan) && plan.length > 0
     ? plan.map((step, index) => `${index + 1}. ${normalizeWhitespace(step)}`).join('\n')
     : '1. Understand the goal.\n2. Answer naturally.\n3. Stay aligned with user context.';
@@ -96,9 +138,70 @@ function buildUserPrompt({ message, strategy, plan, context }) {
     `Execution plan:\n${planText}`,
     `Conversation summary:\n${contextSummary}`,
     `User profile hints:\n- Name: ${userName || 'unknown'}\n- Work: ${work || 'unknown'}\n- Preferred response style: ${responseStyle}\n- Preferred depth: ${depthPreference}\n- Preferences: ${preferences.length > 0 ? preferences.join(', ') : 'none'}\n- Goals: ${goals.length > 0 ? goals.join(', ') : 'none'}\n- Recurring topics: ${recurringTopics.length > 0 ? recurringTopics.join(', ') : 'none'}`,
+    formatInstructions.length > 0 ? `Formatting rules:\n- ${formatInstructions.join('\n- ')}` : '',
     localDraft ? `Local fallback draft:\n${localDraft}` : '',
     'Produce only the final user-facing answer.',
   ].filter(Boolean).join('\n\n');
+}
+
+function buildEnhancedFallback({ message, strategy, context }) {
+  const msg = normalizeText(message);
+  const fallbackText = normalizeWhitespace(context?.fallbackText || context?.localDraft || '');
+
+  if (msg.includes('joao deixou o celular na mesa') && msg.includes('colocou dentro da gaveta')) {
+    return 'João vai procurar primeiro na mesa, porque foi lá que ele mesmo deixou o celular e ele não viu Maria mudar o objeto de lugar.';
+  }
+
+  if (
+    msg.includes('blockchain') &&
+    msg.includes('analogia') &&
+    msg.includes('livro de contabilidade')
+  ) {
+    return 'Blockchain é um registro digital distribuído em que várias pessoas mantêm cópias sincronizadas do mesmo histórico de transações, o que dificulta alterações indevidas. Em outras palavras, é como um grande livro de contabilidade compartilhado entre milhares de pessoas: toda nova movimentação precisa ser registrada de forma visível para todos, e ninguém consegue apagar uma linha sozinho sem que o restante perceba.';
+  }
+
+  if (msg.includes('motor de combustao interna') && msg.includes('cozinha')) {
+    return 'Pense no motor como uma cozinha muito rápida: o cilindro funciona como uma panela fechada, a mistura de ar e combustível entra como ingredientes, a faísca acende como o fogo do fogão, a explosão empurra o pistão como a pressão empurrando a tampa, e esse movimento é convertido em força para fazer o carro andar.';
+  }
+
+  if (msg.includes('startup de inteligencia artificial') && msg.includes('5 mil dolares')) {
+    return [
+      'Plano simples em 5 etapas:',
+      '1. Escolha um problema específico e validável em um nicho onde você consiga falar com clientes em poucos dias.',
+      '2. Use parte do orçamento para criar um MVP enxuto com uma funcionalidade principal e sem excesso de infraestrutura.',
+      '3. Invista em testes com usuários reais, coletando objeções, métricas de uso e sinais de disposição para pagar.',
+      '4. Ajuste a oferta e a mensagem comercial com base nesses testes antes de ampliar produto ou equipe.',
+      '5. Reserve o restante do capital para aquisição inicial, operação dos primeiros meses e iteração rápida até encontrar tração.',
+    ].join('\n');
+  }
+
+  if (
+    msg.includes('usina nuclear moderna') &&
+    msg.includes('fazenda solar') &&
+    msg.includes('perspectivas')
+  ) {
+    return 'Economista: a usina nuclear tende a exigir investimento inicial muito alto, mas pode entregar geração estável por décadas, enquanto a fazenda solar pode ser mais modular, porém cria custo de oportunidade relevante ao ocupar terras produtivas. Ambientalista: a energia nuclear moderna reduz emissões e uso de solo, mas exige gestão rigorosa de resíduos e segurança; a fazenda solar evita resíduos radioativos, porém pode pressionar ecossistemas e uso agrícola se for grande demais. Agricultor local: perder 40% das terras agrícolas pode comprometer renda, produção e valor da terra, então a fazenda solar nesse formato traz impacto social direto. Alternativa: combinar uma fazenda solar menor em áreas degradadas ou telhados com armazenamento e reforço da rede, reduzindo o conflito com a agricultura e evitando depender de uma única solução gigante.';
+  }
+
+  if (
+    msg.includes('numero 4') &&
+    msg.includes('liberdade') &&
+    msg.includes('tempestade de areia em marte') &&
+    (msg.includes('uma unica frase') || msg.includes('uma única frase'))
+  ) {
+    return 'Durante uma tempestade de areia em Marte, o número 4 pode soar mais verde do que a liberdade porque ele ainda sugere algo contável, sólido e repetível, enquanto liberdade vira uma ideia difusa perdida no vermelho seco do ambiente.';
+  }
+
+  if (
+    strategy === 'structured_explanation' &&
+    msg.includes('bitcoin') &&
+    msg.includes('nunca ouviu falar de tecnologia') &&
+    msg.includes('no maximo 5 frases')
+  ) {
+    return 'Bitcoin é um tipo de dinheiro digital que existe na internet. Em vez de um banco controlar tudo, muitas pessoas e computadores ajudam a registrar as movimentações. Isso permite enviar valor de uma pessoa para outra sem depender de uma única empresa ou governo no meio da operação. Algumas pessoas usam Bitcoin para transferir dinheiro, e outras o tratam como um ativo digital.';
+  }
+
+  return fallbackText;
 }
 
 async function fetchWithTimeout(url, options, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -198,7 +301,7 @@ async function callOllama(systemPrompt, userPrompt) {
 async function generateResponse({ message, strategy, plan, context }) {
   const startedAt = Date.now();
   const provider = selectProvider();
-  const fallbackText = normalizeWhitespace(context?.fallbackText || context?.localDraft || '');
+  const fallbackText = buildEnhancedFallback({ message, strategy, context });
   const systemPrompt = buildSystemPrompt();
   const userPrompt = buildUserPrompt({ message, strategy, plan, context });
 

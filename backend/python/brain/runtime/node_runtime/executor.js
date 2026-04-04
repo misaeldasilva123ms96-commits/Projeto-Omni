@@ -13,7 +13,11 @@ function extractExplanationTopic(message) {
   const normalized = normalizeText(message);
   const patterns = [
     /^o que e\s+(.+)$/,
+    /^o que\s+(.+)$/,
     /^oque e\s+(.+)$/,
+    /^oque\s+(.+)$/,
+    /^oq e\s+(.+)$/,
+    /^oq\s+(.+)$/,
     /^explique\s+(.+)$/,
     /^como funciona\s+(.+)$/,
     /^me diga o que e\s+(.+)$/,
@@ -26,13 +30,23 @@ function extractExplanationTopic(message) {
     }
   }
 
-  return normalized.replace(/[?!.]+$/g, '').trim();
+  const compact = normalized.replace(/[?!.]+$/g, '').trim();
+  if (compact === 'btc') {
+    return 'bitcoin';
+  }
+  if (compact === 'cripto') {
+    return 'criptomoeda';
+  }
+  return compact;
 }
 
 function buildExplanation(topic, depthPreference) {
   const deep = depthPreference === 'deep';
+  const normalizedTopic = normalizeText(topic)
+    .replace(/\bbtc\b/g, 'bitcoin')
+    .replace(/\bcripto\b/g, 'criptomoeda');
 
-  if (topic.includes('machine learning')) {
+  if (normalizedTopic.includes('machine learning')) {
     const parts = [
       'Machine learning é uma forma de treinar sistemas para reconhecer padrões em dados e melhorar previsões com a experiência.',
       'Na prática, o modelo recebe exemplos, ajusta parâmetros internos e aprende a responder melhor para casos parecidos no futuro.',
@@ -44,7 +58,7 @@ function buildExplanation(topic, depthPreference) {
     return parts;
   }
 
-  if (topic.includes('blockchain')) {
+  if (normalizedTopic.includes('blockchain')) {
     return [
       'Blockchain é um registro digital distribuído que organiza informações em blocos conectados em sequência.',
       'Ela funciona mantendo cópias sincronizadas do mesmo histórico em vários participantes da rede, o que dificulta alterações indevidas.',
@@ -54,7 +68,7 @@ function buildExplanation(topic, depthPreference) {
     ];
   }
 
-  if (topic.includes('bitcoin')) {
+  if (normalizedTopic.includes('bitcoin')) {
     return [
       'Bitcoin é uma criptomoeda criada para permitir transferências de valor pela internet sem depender de uma autoridade central.',
       'Ele funciona em uma rede descentralizada, onde as transações são validadas e registradas em blockchain.',
@@ -62,7 +76,17 @@ function buildExplanation(topic, depthPreference) {
     ];
   }
 
-  const title = capitalize(topic || 'esse tema');
+  if (normalizedTopic.includes('criptomoeda')) {
+    return [
+      'Criptomoeda é um ativo digital que usa criptografia para registrar transferências e proteger a rede contra fraude.',
+      'Em vez de depender de um banco central, ela costuma operar em uma rede distribuída, muitas vezes apoiada por blockchain.',
+      deep
+        ? 'Na prática, criptomoedas podem servir para transferência de valor, reserva especulativa ou infraestrutura financeira programável, mas variam bastante em risco e utilidade.'
+        : 'Na prática, isso permite mover valor digitalmente entre pessoas e sistemas sem depender do modelo bancário tradicional.',
+    ];
+  }
+
+  const title = capitalize(normalizedTopic || 'esse tema');
   const parts = [
     `${title} é um conceito que vale entender pelo que ele é, por como funciona e por onde ele é aplicado.`,
     'O ponto principal é identificar sua função central e por que isso importa na prática.',
@@ -167,6 +191,51 @@ function buildBusinessPayload(message, thought) {
   ];
 }
 
+function wordCount(message) {
+  return normalizeText(message).split(/\s+/).filter(Boolean).length;
+}
+
+function isSimpleFastPath(thought, decision) {
+  const normalizedMessage = normalizeText(thought.message).replace(/[?!.]+$/g, '').trim();
+  const simpleConcepts = new Set(['btc', 'bitcoin', 'cripto', 'criptomoeda', 'blockchain']);
+
+  if (decision.strategy === 'greeting_reply') {
+    return true;
+  }
+
+  if (decision.strategy === 'structured_explanation' && simpleConcepts.has(normalizedMessage)) {
+    return true;
+  }
+
+  return false;
+}
+
+function requiresStrictInstructionFollowing(message) {
+  const normalizedMessage = normalizeText(message);
+  const instructionSignals = [
+    ' depois ',
+    ' analise ',
+    ' perspectiva',
+    ' perspectivas',
+    ' imagine ',
+    ' analogia',
+    ' por que ',
+    ' por quê ',
+    ' use no maximo',
+    ' use no máximo',
+    ' uma unica frase',
+    ' uma única frase',
+    ' etapas praticas',
+    ' etapas práticas',
+  ];
+
+  if (wordCount(message) > 20) {
+    return true;
+  }
+
+  return instructionSignals.some(signal => normalizedMessage.includes(signal.trim()) || normalizedMessage.includes(signal));
+}
+
 function fallbackTextForStrategy(thought, decision) {
   const msg = normalizeText(thought.message);
   const topic = extractExplanationTopic(thought.message);
@@ -245,8 +314,10 @@ function shouldUseLlm(strategy) {
 async function act(thought, decision, planResult) {
   const executionPlan = Array.isArray(planResult?.executionPlan) ? planResult.executionPlan : [];
   const fallbackText = fallbackTextForStrategy(thought, decision);
+  const forceLlm = requiresStrictInstructionFollowing(thought.message);
+  const useFastPath = isSimpleFastPath(thought, decision);
 
-  if (!shouldUseLlm(decision.strategy)) {
+  if (!forceLlm && (useFastPath || !shouldUseLlm(decision.strategy))) {
     return {
       response: fallbackText,
       confidence: decision.confidence || 0.82,
@@ -272,6 +343,7 @@ async function act(thought, decision, planResult) {
       recurringTopics: thought.recurringTopics,
       goals: thought.goals,
       contextSummary: thought.contextSummary,
+      forceStrictFormat: forceLlm,
       fallbackText,
       localDraft: fallbackText,
     },
