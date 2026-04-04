@@ -155,15 +155,17 @@ function strategyScore(strategyName, intent, strategyState) {
   const entry = normalized.strategies[strategyName] || {};
   const perIntent = entry.per_intent && typeof entry.per_intent === 'object' ? entry.per_intent[intent] || {} : {};
   const biasMap = normalized.registry_overrides.strategy_bias || {};
-  const baseAverage = Number(entry.average_score || 0.65);
+  const priorScore = 0.65;
+  const baseAverage = Number(entry.average_score || priorScore);
   const intentAverage = Number(perIntent.average_score || baseAverage);
   const feedbackScore = Number(entry.feedback_score || 0);
   const failures = Number(entry.failure_count || 0);
   const uses = Number(entry.total_uses || 0);
   const bias = Number((biasMap[strategyName] || {}).bias || 0);
-  const sampleBonus = uses >= 3 ? 0.04 : 0;
+  const sampleWeight = Math.min(uses / 8, 1);
+  const blendedScore = priorScore * (1 - sampleWeight) + intentAverage * sampleWeight;
   const failurePenalty = failures >= 3 ? 0.08 : 0;
-  return intentAverage + feedbackScore * 0.08 + bias + sampleBonus - failurePenalty;
+  return blendedScore + feedbackScore * 0.08 + bias - failurePenalty;
 }
 
 function chooseBestStrategy(candidates, intent, strategyState, fallbackStrategy) {
@@ -258,3 +260,4 @@ module.exports = {
   getStrategyEntry,
   strategyForIntent,
 };
+

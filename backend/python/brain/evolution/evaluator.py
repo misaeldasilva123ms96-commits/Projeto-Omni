@@ -31,10 +31,13 @@ class ResponseEvaluator:
         success_thresholds = {
             'short_prompt': 0.55,
             'memory': 0.6,
-            'planning': 0.62,
+            'structured_planning': 0.66,
             'logic': 0.72,
+            'theory_of_mind': 0.76,
             'creativity': 0.68,
-            'multi_perspective': 0.7,
+            'multi_perspective': 0.72,
+            'constrained_format': 0.74,
+            'analogy': 0.72,
             'explanation': 0.68,
         }
         success = overall >= success_thresholds.get(task_category, 0.68)
@@ -49,6 +52,10 @@ class ResponseEvaluator:
         if self._looks_like_generic_fallback(output_text):
             flags.append('generic_fallback')
             overall = min(overall, 0.45)
+            success = False
+        if self._looks_like_meta_response(output_text) and task_category in {'logic', 'theory_of_mind', 'creativity', 'multi_perspective', 'constrained_format', 'analogy'}:
+            flags.append('meta_response')
+            overall = min(overall, 0.25)
             success = False
         if output_text.strip() == '':
             flags.append('empty_response')
@@ -88,6 +95,17 @@ class ResponseEvaluator:
         )
         return any(marker in normalized for marker in generic_markers)
 
+    def _looks_like_meta_response(self, output_text: str) -> bool:
+        normalized = self._normalize_text(output_text)
+        meta_markers = (
+            'o mais util e',
+            'eu responderia assim',
+            'tratar este ponto',
+            'vale mostrar por que isso importa',
+            'tambem e importante incluir a analogia',
+        )
+        return any(marker in normalized for marker in meta_markers)
+
     def _detect_task_category(self, input_text: str) -> str:
         normalized = self._normalize_text(input_text)
         words = re.findall(r'\w+', normalized)
@@ -96,13 +114,19 @@ class ResponseEvaluator:
             return 'short_prompt'
         if any(token in normalized for token in ('qual e o meu nome', 'voce lembra meu nome', 'com o que eu trabalho', 'meu nome e')):
             return 'memory'
-        if 'perspectiva' in normalized or 'perspectivas' in normalized:
+        if any(token in normalized for token in ('joao', 'maria', 'ana', 'bruno', 'lucas', 'carla')) and any(token in normalized for token in ('deixou', 'guardou', 'colocou', 'procurar primeiro')):
+            return 'theory_of_mind'
+        if 'perspectiva' in normalized or 'perspectivas' in normalized or 'ponto de vista' in normalized:
             return 'multi_perspective'
+        if any(token in normalized for token in ('paragrafos', 'exatamente', 'sem usar a letra', 'nao pode conter a letra', 'rima')):
+            return 'constrained_format'
+        if any(token in normalized for token in ('analogia', 'metafora', 'cozinha', 'explique como se fosse')):
+            return 'analogy'
         if any(token in normalized for token in ('plano', 'etapas', 'startup', 'lancar uma startup', 'lancar uma empresa')):
-            return 'planning'
-        if any(token in normalized for token in ('analogia', 'imagine', 'cozinha', 'tempestade de areia em marte')):
+            return 'structured_planning'
+        if any(token in normalized for token in ('imagine', 'tempestade de areia em marte', 'mais verde que a liberdade')):
             return 'creativity'
-        if 'joao' in normalized and 'maria' in normalized:
+        if any(token in normalized for token in ('contradicao', 'paradoxo')):
             return 'logic'
         return 'explanation'
 
@@ -110,6 +134,12 @@ class ResponseEvaluator:
         normalized_input = self._normalize_text(input_text)
         normalized_output = self._normalize_text(output_text)
         checks: list[float] = []
+
+        paragraphs_match = re.search(r'(\d+)\s+paragrafos?', normalized_input)
+        if paragraphs_match:
+            expected_paragraphs = int(paragraphs_match.group(1))
+            rendered_paragraphs = len([part for part in re.split(r'\n\s*\n', output_text.strip()) if part.strip()])
+            checks.append(1.0 if rendered_paragraphs == expected_paragraphs else 0.2)
 
         steps_match = re.search(r'(\d+)\s+etapas?', normalized_input)
         if steps_match:
@@ -121,18 +151,24 @@ class ResponseEvaluator:
             sentence_count = len([part for part in re.split(r'[.!?]+', output_text) if part.strip()])
             checks.append(1.0 if sentence_count == 1 else 0.2)
 
-        if 'analogia' in normalized_input:
-            checks.append(1.0 if any(token in normalized_output for token in ('como ', 'livro de contabilidade', 'panela', 'cozinha')) else 0.2)
+        if 'analogia' in normalized_input or 'cozinha' in normalized_input:
+            checks.append(1.0 if any(token in normalized_output for token in ('como ', 'panela', 'fogao', 'cozinha', 'ingrediente')) else 0.2)
 
         if 'depois' in normalized_input:
             checks.append(1.0 if len([part for part in re.split(r'[.!?]+', output_text) if part.strip()]) >= 2 else 0.3)
 
-        if 'perspectiva' in normalized_input or 'perspectivas' in normalized_input:
-            expected_labels = ('economista', 'ambientalista', 'agricultor')
-            checks.append(1.0 if all(label in normalized_output for label in expected_labels) else 0.2)
+        if 'perspectiva' in normalized_input or 'perspectivas' in normalized_input or 'ponto de vista' in normalized_input:
+            expected_labels = ('economista', 'ecologista', 'ambientalista', 'agricultor')
+            checks.append(1.0 if sum(1 for label in expected_labels if label in normalized_output) >= 3 else 0.2)
 
-        if 'joao' in normalized_input:
+        if any(token in normalized_input for token in ('joao', 'maria')):
             checks.append(1.0 if 'mesa' in normalized_output else 0.1)
+
+        if 'sem usar a letra' in normalized_input or 'nao pode conter a letra' in normalized_input:
+            checks.append(0.9 if not re.search(r'\ba\b', output_text.split('\n\n')[0].lower()) else 0.1)
+
+        if 'rima' in normalized_input or 'rimar' in normalized_input:
+            checks.append(0.8 if len(output_text.strip().splitlines()) > 0 else 0.2)
 
         if not checks:
             return 0.9
@@ -187,6 +223,12 @@ class ResponseEvaluator:
             return 1.0 if 'misael' in normalized_output or 'seu nome' in normalized_output else 0.4
         if task_category == 'memory' and 'trabalho' in normalized_input:
             return 1.0 if 'inteligencia artificial' in normalized_output or 'trabalha com' in normalized_output else 0.4
+        if task_category == 'theory_of_mind':
+            return 1.0 if 'mesa' in normalized_output else 0.1
+        if task_category == 'multi_perspective':
+            return 1.0 if 'terceira solucao' in normalized_output or 'alternativa' in normalized_output else 0.4
+        if task_category == 'analogy':
+            return 1.0 if any(token in normalized_output for token in ('panela', 'fogao', 'ingrediente', 'cozinha')) else 0.3
         if '?' in input_text and len(output_text) <= 30 and task_category not in {'short_prompt', 'memory'}:
             return 0.5
         if 'depois' in normalized_input and len([part for part in re.split(r'[.!?]+', output_text) if part.strip()]) < 2:

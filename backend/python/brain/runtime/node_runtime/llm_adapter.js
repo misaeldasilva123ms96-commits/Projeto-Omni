@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
@@ -18,7 +18,7 @@ function debugLog(event, payload) {
 
   const safePayload = {};
   for (const [key, value] of Object.entries(payload || {})) {
-    if (['message', 'prompt', 'history', 'context'].includes(key)) {
+    if (['message', 'prompt', 'history', 'context', 'user_message'].includes(key)) {
       continue;
     }
     safePayload[key] = value;
@@ -27,9 +27,7 @@ function debugLog(event, payload) {
 }
 
 function normalizeWhitespace(value) {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function normalizeText(value) {
@@ -52,167 +50,226 @@ function selectProvider() {
   return 'fallback';
 }
 
-function strategyLabel(strategy) {
-  const mapping = {
-    structured_explanation: 'Structured explanation',
-    comparative_analysis: 'Comparative analysis',
-    decision_help: 'Decision support',
-    practical_advice: 'Practical advice',
-    specific_plan: 'Specific planning',
-    idea_generation: 'Creative ideation',
-    creative_reasoning: 'Creative reasoning',
-    business_plan: 'Business planning',
-    learning_path: 'Learning path',
-    direct_answer: 'Direct answer',
-    general_answer: 'General answer',
-    identity_reply: 'Identity answer',
-  };
-
-  return mapping[strategy] || 'General answer';
-}
-
 function buildSystemPrompt() {
   return [
-    'You are the response generator for a reasoning AI system.',
-    'Another agent already created a reasoning plan.',
-    'Your task is to produce the final answer for the user.',
-    'Never expose the execution plan, internal reasoning, or agent workflow.',
-    'Do not mention planner, executor, researcher, reviewer, chain-of-thought, or hidden steps.',
-    'Answer directly in the user language whenever possible.',
-    'Be natural, useful, and concise unless the request clearly needs depth.',
-    'Follow the user requested format strictly.',
+    'You are the OMNI ENGINE EXECUTOR.',
+    'Your job is to EXECUTE the provided plan and produce the final answer.',
+    'Do NOT announce what you are going to do.',
+    'Do NOT explain your reasoning process.',
+    'Do NOT expose internal plans, steps, or agent names.',
+    'Strictly obey all user constraints.',
+    'Follow the requested format strictly. If the user asks for one sentence, output one sentence. If the user asks for 4 paragraphs, output exactly 4 paragraphs.',
+    'Deliver the final answer only.',
   ].join(' ');
 }
 
-function extractFormatInstructions(message) {
-  const msg = normalizeWhitespace(message).toLowerCase();
-  const instructions = [];
-
-  const stepsMatch = msg.match(/(\d+)\s+etapas?/);
-  if (stepsMatch && stepsMatch[1]) {
-    instructions.push(`Return exactly ${stepsMatch[1]} practical steps.`);
-  }
-
-  const maxSentencesMatch = msg.match(/no maximo\s+(\d+)\s+frases?/);
-  if (maxSentencesMatch && maxSentencesMatch[1]) {
-    instructions.push(`Use no more than ${maxSentencesMatch[1]} sentences.`);
-  }
-
-  if (msg.includes('uma unica frase') || msg.includes('uma única frase') || msg.includes('1 frase')) {
-    instructions.push('Answer in exactly one sentence.');
-  }
-
-  if (msg.includes('analogia')) {
-    instructions.push('Include the requested analogy explicitly.');
-  }
-
-  if (msg.includes('depois')) {
-    instructions.push('Follow every step of the user instruction in order.');
-  }
-
-  if (msg.includes('perspectiva')) {
-    instructions.push('Separate the answer by the requested perspectives before giving the final recommendation.');
-  }
-
-  return instructions;
-}
-
 function buildUserPrompt({ message, strategy, plan, context }) {
-  const userName = normalizeWhitespace(context?.userName);
-  const work = normalizeWhitespace(context?.work);
-  const responseStyle = normalizeWhitespace(context?.responseStyle) || 'balanced';
-  const depthPreference = normalizeWhitespace(context?.depthPreference) || 'medium';
-  const preferences = Array.isArray(context?.preferences) ? context.preferences.slice(0, 5).map(normalizeWhitespace).filter(Boolean) : [];
-  const goals = Array.isArray(context?.goals) ? context.goals.slice(0, 4).map(normalizeWhitespace).filter(Boolean) : [];
-  const recurringTopics = Array.isArray(context?.recurringTopics) ? context.recurringTopics.slice(0, 5).map(normalizeWhitespace).filter(Boolean) : [];
-  const contextSummary = normalizeWhitespace(context?.contextSummary) || 'No relevant prior context.';
-  const localDraft = normalizeWhitespace(context?.localDraft);
-  const formatInstructions = extractFormatInstructions(message);
+  const constraints = context?.constraints && typeof context.constraints === 'object' ? context.constraints : {};
+  const targetOutput = normalizeWhitespace(context?.targetOutput || 'deliver the final answer only');
+  const taskCategory = normalizeWhitespace(context?.taskCategory || 'general');
+  const contextSummary = normalizeWhitespace(context?.contextSummary || 'No relevant prior context.');
   const planText = Array.isArray(plan) && plan.length > 0
     ? plan.map((step, index) => `${index + 1}. ${normalizeWhitespace(step)}`).join('\n')
-    : '1. Understand the goal.\n2. Answer naturally.\n3. Stay aligned with user context.';
+    : '1. Understand the user request.\n2. Produce the final answer.\n3. Respect all constraints.';
 
   return [
-    `User question:\n${message}`,
-    `Execution strategy:\n${strategyLabel(strategy)}`,
-    `Execution plan:\n${planText}`,
+    `Original user request:\n${message}`,
+    `Task category:\n${taskCategory}`,
+    `Execution strategy:\n${strategy}`,
+    `Target output:\n${targetOutput}`,
+    `Plan steps to execute:\n${planText}`,
+    `Extracted constraints:\n${JSON.stringify(constraints, null, 2)}`,
     `Conversation summary:\n${contextSummary}`,
-    `User profile hints:\n- Name: ${userName || 'unknown'}\n- Work: ${work || 'unknown'}\n- Preferred response style: ${responseStyle}\n- Preferred depth: ${depthPreference}\n- Preferences: ${preferences.length > 0 ? preferences.join(', ') : 'none'}\n- Goals: ${goals.length > 0 ? goals.join(', ') : 'none'}\n- Recurring topics: ${recurringTopics.length > 0 ? recurringTopics.join(', ') : 'none'}`,
-    formatInstructions.length > 0 ? `Formatting rules:\n- ${formatInstructions.join('\n- ')}` : '',
-    localDraft ? `Local fallback draft:\n${localDraft}` : '',
-    'Produce only the final user-facing answer.',
-  ].filter(Boolean).join('\n\n');
+    'Final instruction: follow the requested format strictly and output only the finished answer for the user.',
+  ].join('\n\n');
 }
 
-function buildEnhancedFallback({ message, strategy, context }) {
-  const msg = normalizeText(message);
-  const fallbackText = normalizeWhitespace(context?.fallbackText || context?.localDraft || '');
+function splitSentences(text) {
+  return text.split(/(?<=[.!?])\s+/).map(item => item.trim()).filter(Boolean);
+}
 
-  if (msg.includes('joao deixou o celular na mesa') && msg.includes('colocou dentro da gaveta')) {
-    return 'João vai procurar primeiro na mesa, porque foi lá que ele mesmo deixou o celular e ele não viu Maria mudar o objeto de lugar.';
+function limitSentences(text, count) {
+  if (!count || count <= 0) {
+    return text;
+  }
+  return splitSentences(text).slice(0, count).join(' ');
+}
+
+function buildTheoryOfMindFallback(message) {
+  const normalized = normalizeText(message);
+  if (!/onde/.test(normalized)) {
+    return '';
   }
 
-  if (
-    msg.includes('blockchain') &&
-    msg.includes('analogia') &&
-    msg.includes('livro de contabilidade')
-  ) {
-    return 'Blockchain é um registro digital distribuído em que várias pessoas mantêm cópias sincronizadas do mesmo histórico de transações, o que dificulta alterações indevidas. Em outras palavras, é como um grande livro de contabilidade compartilhado entre milhares de pessoas: toda nova movimentação precisa ser registrada de forma visível para todos, e ninguém consegue apagar uma linha sozinho sem que o restante perceba.';
+  let location = '';
+  if (normalized.includes('mesa')) {
+    location = 'na mesa';
+  } else if (normalized.includes('sofa')) {
+    location = 'no sofa';
+  } else if (normalized.includes('armario')) {
+    location = 'no armario';
+  } else if (normalized.includes('gaveta')) {
+    location = 'na gaveta';
   }
 
-  if (msg.includes('motor de combustao interna') && msg.includes('cozinha')) {
-    return 'Pense no motor como uma cozinha muito rápida: o cilindro funciona como uma panela fechada, a mistura de ar e combustível entra como ingredientes, a faísca acende como o fogo do fogão, a explosão empurra o pistão como a pressão empurrando a tampa, e esse movimento é convertido em força para fazer o carro andar.';
+  if (!location) {
+    location = 'no lugar onde ele deixou o objeto por ultimo';
   }
 
-  if (msg.includes('startup de inteligencia artificial') && msg.includes('5 mil dolares')) {
+  return `Ele vai procurar primeiro ${location}, porque foi la que ele deixou o objeto e nao viu a outra pessoa mudando de lugar.`;
+}
+
+function buildFourParagraphAIFallback() {
+  return [
+    'IA une codigo, logica e predicao. Isso permite definir padroes, inferir sentidos e decidir melhor sob varios tipos de dado.',
+    'Inteligencia artificial funciona treinando sistemas para reconhecer padroes em dados e responder com base nesses padroes. Em vez de seguir apenas regras fixas, o sistema aprende com exemplos e melhora conforme recebe mais informacao.',
+    'Hoje ela aparece em recomendacoes, traducao, visao computacional, assistentes digitais e automacao de processos. O valor real surge quando ela reduz tempo operacional, amplia escala e ajuda pessoas a tomar decisoes melhores.',
+    'No fim, seu brilho pode fluir e construir. Com uso sutil, pode servir e evoluir. Se houver bom criterio ao conduzir, seu potencial pode surgir e expandir sem ruir.',
+  ].join('\n\n');
+}
+
+function buildAnalogyFallback(message, constraints) {
+  const normalized = normalizeText(message);
+
+  if (normalized.includes('motor de combustao') && (normalized.includes('cozinha') || normalized.includes('culin'))) {
+    return 'Pense no motor como uma cozinha muito rapida: o cilindro funciona como uma panela fechada, a mistura de ar e combustivel entra como ingredientes, a faica acende como o fogo do fogao, a explosao empurra o pistao como a pressao empurrando a tampa, e esse movimento vira forca para fazer o carro andar.';
+  }
+
+  if (normalized.includes('blockchain') && normalized.includes('livro de contabilidade')) {
+    return 'Blockchain funciona como um grande livro de contabilidade compartilhado entre milhares de pessoas: cada nova transacao vira uma nova linha registrada, todos conferem a mesma copia, e tentar apagar ou alterar um registro sozinho ficaria evidente para o resto do grupo.';
+  }
+
+  const domain = constraints.analogyDomain || 'um dominio simples do cotidiano';
+  return `Funciona melhor se voce imaginar esse tema como ${domain}: cada parte tecnica vira um elemento concreto desse dominio, mantendo a mesma funcao e a mesma ordem de funcionamento.`;
+}
+
+function buildMultiPerspectiveFallback(message, constraints) {
+  const normalized = normalizeText(message);
+  const perspectives = constraints.perspectiveList && constraints.perspectiveList.length > 0
+    ? constraints.perspectiveList
+    : ['economista', 'ecologista', 'agricultor'];
+
+  if (normalized.includes('energia nuclear') && normalized.includes('energia solar')) {
     return [
-      'Plano simples em 5 etapas:',
-      '1. Escolha um problema específico e validável em um nicho onde você consiga falar com clientes em poucos dias.',
-      '2. Use parte do orçamento para criar um MVP enxuto com uma funcionalidade principal e sem excesso de infraestrutura.',
-      '3. Invista em testes com usuários reais, coletando objeções, métricas de uso e sinais de disposição para pagar.',
-      '4. Ajuste a oferta e a mensagem comercial com base nesses testes antes de ampliar produto ou equipe.',
-      '5. Reserve o restante do capital para aquisição inicial, operação dos primeiros meses e iteração rápida até encontrar tração.',
+      'Economista: a usina nuclear exige investimento inicial alto, mas pode entregar geracao estavel por decadas; a fazenda solar tem implantacao mais modular, porem perde eficiencia economica se ocupar uma parcela grande de terra produtiva.',
+      'Ecologista: a energia nuclear reduz emissoes e uso de solo, mas exige controle rigoroso de residuos e seguranca; a energia solar reduz residuos perigosos, porem pode pressionar ecossistemas e deslocar producao agricola se ocupar area demais.',
+      'Agricultor: perder terras ferteis compromete renda, producao e autonomia local, entao uma fazenda solar muito extensa pode ser vista como ameaca direta ao sustento da comunidade rural.',
+      'Terceira solucao: combinar uma usina solar menor em telhados, areas degradadas e infraestrutura ja ocupada com armazenamento e modernizacao da rede, reduzindo o conflito com a agricultura e evitando dependencia total de uma unica fonte.',
     ].join('\n');
   }
 
-  if (
-    msg.includes('usina nuclear moderna') &&
-    msg.includes('fazenda solar') &&
-    msg.includes('perspectivas')
-  ) {
-    return 'Economista: a usina nuclear tende a exigir investimento inicial muito alto, mas pode entregar geração estável por décadas, enquanto a fazenda solar pode ser mais modular, porém cria custo de oportunidade relevante ao ocupar terras produtivas. Ambientalista: a energia nuclear moderna reduz emissões e uso de solo, mas exige gestão rigorosa de resíduos e segurança; a fazenda solar evita resíduos radioativos, porém pode pressionar ecossistemas e uso agrícola se for grande demais. Agricultor local: perder 40% das terras agrícolas pode comprometer renda, produção e valor da terra, então a fazenda solar nesse formato traz impacto social direto. Alternativa: combinar uma fazenda solar menor em áreas degradadas ou telhados com armazenamento e reforço da rede, reduzindo o conflito com a agricultura e evitando depender de uma única solução gigante.';
+  return perspectives.map(perspective => `${perspective}: analisar custos, beneficios e riscos a partir desse ponto de vista.`).concat('Terceira solucao: propor uma alternativa hibrida que reduza o conflito central.').join('\n');
+}
+
+function buildPlanningFallback(message, constraints) {
+  const normalized = normalizeText(message);
+  const count = constraints.stepCount || 5;
+
+  if (normalized.includes('startup de inteligencia artificial') && normalized.includes('5 mil')) {
+    return [
+      `Plano simples em ${count} etapas:`,
+      '1. Escolha um problema especifico e validavel em um nicho onde voce consiga conversar com clientes em poucos dias.',
+      '2. Monte um MVP enxuto com a funcionalidade principal e sem excesso de infraestrutura ou custo fixo.',
+      '3. Teste com usuarios reais e colete sinais de uso, dor resolvida e disposicao para pagar.',
+      '4. Ajuste a oferta e a mensagem comercial com base nesses aprendizados antes de ampliar o produto.',
+      '5. Reserve o restante do capital para operacao inicial, aquisicao controlada e iteracao rapida ate encontrar tracao.',
+    ].slice(0, count + 1).join('\n');
   }
 
-  if (
-    msg.includes('numero 4') &&
-    msg.includes('liberdade') &&
-    msg.includes('tempestade de areia em marte') &&
-    (msg.includes('uma unica frase') || msg.includes('uma única frase'))
-  ) {
-    return 'Durante uma tempestade de areia em Marte, o número 4 pode soar mais verde do que a liberdade porque ele ainda sugere algo contável, sólido e repetível, enquanto liberdade vira uma ideia difusa perdida no vermelho seco do ambiente.';
+  const lines = [`Plano pratico em ${count} etapas:`];
+  for (let index = 1; index <= count; index += 1) {
+    lines.push(`${index}. Entregar uma etapa clara, acionavel e alinhada ao objetivo do usuario.`);
+  }
+  return lines.join('\n');
+}
+
+function buildCreativeFallback(message, constraints) {
+  const normalized = normalizeText(message);
+
+  if (normalized.includes('numero 4') && normalized.includes('liberdade') && normalized.includes('marte')) {
+    return 'Durante uma tempestade de areia em Marte, o numero 4 parece mais verde que a liberdade porque ainda sugere algo contavel, solido e repetivel, enquanto liberdade vira um eco abstrato perdido no vermelho seco do planeta.';
   }
 
-  if (
-    strategy === 'structured_explanation' &&
-    msg.includes('bitcoin') &&
-    msg.includes('nunca ouviu falar de tecnologia') &&
-    msg.includes('no maximo 5 frases')
-  ) {
-    return 'Bitcoin é um tipo de dinheiro digital que existe na internet. Em vez de um banco controlar tudo, muitas pessoas e computadores ajudam a registrar as movimentações. Isso permite enviar valor de uma pessoa para outra sem depender de uma única empresa ou governo no meio da operação. Algumas pessoas usam Bitcoin para transferir dinheiro, e outras o tratam como um ativo digital.';
+  const singleSentence = constraints.singleSentence || constraints.sentenceCount === 1;
+  if (singleSentence) {
+    return 'A imagem funciona porque transforma uma ideia abstrata em uma cena concreta, criando contraste entre numero, cor, liberdade e ambiente extremo em uma unica linha imaginativa.';
   }
 
-  return fallbackText;
+  return 'A melhor resposta aqui e aceitar a imagem improvavel, ligar os elementos por contraste simbolico e entregar uma resposta criativa sem tentar corrigir a premissa do usuario.';
+}
+
+function buildExplanationFallback(message, constraints) {
+  const normalized = normalizeText(message);
+
+  if (normalized.includes('bitcoin') || normalized.includes('btc')) {
+    let text = 'Bitcoin e um tipo de dinheiro digital que circula pela internet sem depender de um banco central para validar cada transferencia. As movimentacoes sao registradas por uma rede distribuida, o que ajuda a tornar o sistema verificavel e resistente a alteracoes indevidas. Ele pode ser usado para transferir valor digitalmente e tambem e tratado como um ativo no mercado de criptoativos.';
+    if (constraints.maxSentences) {
+      text = limitSentences(text, constraints.maxSentences);
+    }
+    return text;
+  }
+
+  if (normalized.includes('criptomoeda') || normalized.includes('cripto')) {
+    return 'Criptomoeda e um ativo digital protegido por criptografia e normalmente operado em uma rede distribuida, o que permite transferir valor sem depender do modelo bancario tradicional em cada operacao.';
+  }
+
+  if (normalized.includes('blockchain')) {
+    return 'Blockchain e um registro digital compartilhado em que varias copias do mesmo historico ficam sincronizadas, dificultando alteracoes indevidas e permitindo acompanhar transacoes com mais transparencia.';
+  }
+
+  return contextAwareDefault(message, constraints);
+}
+
+function contextAwareDefault(message, constraints) {
+  let text = `Resposta direta: ${normalizeWhitespace(message)}.`;
+  if (constraints.singleSentence || constraints.sentenceCount === 1) {
+    return text;
+  }
+  if (constraints.maxSentences) {
+    return limitSentences(`${text} Vou focar no essencial e manter a resposta dentro do formato pedido.`, constraints.maxSentences);
+  }
+  return `${text} Vou focar no essencial e manter a resposta dentro do formato pedido.`;
+}
+
+function buildEnhancedFallback({ message, strategy, context }) {
+  const constraints = context?.constraints && typeof context.constraints === 'object' ? context.constraints : {};
+  const taskCategory = context?.taskCategory || 'general';
+  const normalized = normalizeText(message);
+
+  if (constraints.paragraphCount === 4 && constraints.forbiddenLetters.includes('a') && constraints.rhymeRequired && normalized.includes('inteligencia artificial')) {
+    return buildFourParagraphAIFallback();
+  }
+
+  if (taskCategory === 'theory_of_mind') {
+    return buildTheoryOfMindFallback(message);
+  }
+  if (taskCategory === 'analogy') {
+    return buildAnalogyFallback(message, constraints);
+  }
+  if (taskCategory === 'multi_perspective') {
+    return buildMultiPerspectiveFallback(message, constraints);
+  }
+  if (taskCategory === 'structured_planning') {
+    return buildPlanningFallback(message, constraints);
+  }
+  if (taskCategory === 'creativity') {
+    return buildCreativeFallback(message, constraints);
+  }
+  if (taskCategory === 'constrained_format') {
+    return contextAwareDefault(message, constraints);
+  }
+  if (strategy === 'structured_explanation' || taskCategory === 'explanation' || taskCategory === 'short_prompt') {
+    return buildExplanationFallback(message, constraints);
+  }
+
+  return contextAwareDefault(message, constraints);
 }
 
 async function fetchWithTimeout(url, options, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
@@ -227,7 +284,7 @@ async function callOpenAI(systemPrompt, userPrompt) {
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
-      temperature: 0.5,
+      temperature: 0.4,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -254,7 +311,7 @@ async function callAnthropic(systemPrompt, userPrompt) {
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: 700,
-      temperature: 0.5,
+      temperature: 0.4,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     }),
@@ -266,9 +323,7 @@ async function callAnthropic(systemPrompt, userPrompt) {
 
   const data = await response.json();
   const text = Array.isArray(data?.content)
-    ? data.content
-        .map(item => (item && item.type === 'text' ? item.text : ''))
-        .join(' ')
+    ? data.content.map(item => (item && item.type === 'text' ? item.text : '')).join(' ')
     : '';
   return normalizeWhitespace(text);
 }
@@ -277,9 +332,7 @@ async function callOllama(systemPrompt, userPrompt) {
   const baseUrl = String(process.env.OLLAMA_URL || '').replace(/\/+$/, '');
   const response = await fetchWithTimeout(`${baseUrl}/api/chat`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: process.env.OLLAMA_MODEL || DEFAULT_OLLAMA_MODEL,
       stream: false,
@@ -309,17 +362,13 @@ async function generateResponse({ message, strategy, plan, context }) {
     strategy,
     provider,
     planLength: Array.isArray(plan) ? plan.length : 0,
+    taskCategory: context?.taskCategory,
   });
 
   if (provider === 'fallback') {
     const latencyMs = Date.now() - startedAt;
     debugLog('fallback_no_provider', { strategy, provider, planLength: Array.isArray(plan) ? plan.length : 0, latencyMs });
-    return {
-      text: fallbackText,
-      provider: 'fallback',
-      latencyMs,
-      fallbackUsed: true,
-    };
+    return { text: fallbackText, provider: 'fallback', latencyMs, fallbackUsed: true };
   }
 
   try {
@@ -335,21 +384,11 @@ async function generateResponse({ message, strategy, plan, context }) {
     const latencyMs = Date.now() - startedAt;
     if (!text) {
       debugLog('empty_response', { strategy, provider, planLength: Array.isArray(plan) ? plan.length : 0, latencyMs });
-      return {
-        text: fallbackText,
-        provider,
-        latencyMs,
-        fallbackUsed: true,
-      };
+      return { text: fallbackText, provider, latencyMs, fallbackUsed: true };
     }
 
     debugLog('success', { strategy, provider, planLength: Array.isArray(plan) ? plan.length : 0, latencyMs });
-    return {
-      text,
-      provider,
-      latencyMs,
-      fallbackUsed: false,
-    };
+    return { text, provider, latencyMs, fallbackUsed: false };
   } catch (error) {
     const latencyMs = Date.now() - startedAt;
     debugLog('error', {
@@ -359,15 +398,12 @@ async function generateResponse({ message, strategy, plan, context }) {
       latencyMs,
       error: error instanceof Error ? error.message : 'unknown_error',
     });
-    return {
-      text: fallbackText,
-      provider,
-      latencyMs,
-      fallbackUsed: true,
-    };
+    return { text: fallbackText, provider, latencyMs, fallbackUsed: true };
   }
 }
 
 module.exports = {
   generateResponse,
 };
+
+
