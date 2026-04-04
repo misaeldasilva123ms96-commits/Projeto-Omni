@@ -287,9 +287,12 @@ export default function App() {
     setSidebarOpen(false)
   }
 
+  const activeSession = sessions.find((session) => session.session_id === activeSessionId)
+
   return (
     <main className="app-shell galaxy-theme">
       <div className="galaxy-overlay" />
+      <div className="starfield" />
 
       <Sidebar
         activeSessionId={activeSessionId}
@@ -312,33 +315,54 @@ export default function App() {
               onClick={() => setSidebarOpen(true)}
               type="button"
             >
-              Menu
+              <span className="icon-line" />
+              <span className="icon-line" />
+              <span className="icon-line" />
             </button>
-            <div>
-              <p className="brand-overline">Omini AI</p>
-              <h1>Assistente universal de inteligência</h1>
+
+            <div className="brand-lockup">
+              <div className="brand-logo" aria-hidden="true">
+                <span className="brand-logo-ring" />
+                <span className="brand-logo-core" />
+              </div>
+              <div>
+                <p className="brand-title">Omini AI</p>
+                <p className="brand-subtitle">Assistente universal de inteligência</p>
+              </div>
             </div>
           </div>
 
-          <button className="ghost-button" onClick={handleNewChat} type="button">
-            Nova conversa
-          </button>
+          <div className="chat-header-right">
+            <div className="status-pill">
+              <span className="status-dot" />
+              <span>Online</span>
+            </div>
+            <button className="ghost-button" onClick={handleNewChat} type="button">
+              Nova conversa
+            </button>
+          </div>
         </header>
 
         <section className="chat-surface">
+          {activeSession?.title ? (
+            <div className="chat-session-banner">
+              <span className="chat-session-label">Sessão ativa</span>
+              <strong>{activeSession.title}</strong>
+            </div>
+          ) : null}
+
           {sessionsLoading ? (
-            <div className="empty-state">
+            <div className="empty-state compact">
               <div className="empty-state-orb" />
               <h2>Carregando conversa</h2>
               <p>Sincronizando histórico da sessão selecionada.</p>
             </div>
           ) : messages.length === 0 ? (
-            <div className="empty-state">
+            <div className="empty-state compact">
               <div className="empty-state-orb" />
               <h2>Bem-vindo ao Omini AI</h2>
               <p>
-                Explore ideias, estratégias, comparações e decisões com uma
-                interface pronta para um SaaS global.
+                Faça perguntas, planeje ideias e transforme cada conversa em uma sessão inteligente.
               </p>
             </div>
           ) : (
