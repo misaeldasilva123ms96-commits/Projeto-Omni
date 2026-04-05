@@ -1,17 +1,23 @@
 {
+  "schema_version": 1,
   "version": 26,
-  "last_update": "2026-04-03T23:44:13Z",
-  "adjustments": [
-    "rebalance_intent_weights"
-  ],
-  "params": {
-    "max_length_threshold": 500,
-    "direct_memory_strictness": 0.5
+  "updated_at": "2026-04-04T01:22:35.137308+00:00",
+  "capability_weights": {
+    "generate_idea": 0.8,
+    "give_advice": 1.52,
+    "create_plan": 2.3
   },
-  "registry_overrides": {
-    "intent_priority": {
-      "decision": 3.500000000000002,
-      "dinheiro": 3.500000000000002
-    }
-  }
+  "decision_thresholds": {
+    "critic_min_score": 0.4,
+    "apply_score_gain": 0.03
+  },
+  "memory_rules": {
+    "history_limit": 10,
+    "consolidate_min_score": 0.55
+  },
+  "orchestrator_hints": {
+    "prefer_planner_for_complex": true,
+    "prefer_memory_when_repeated": true
+  },
+  "justification": "Pattern 'conversa' has low average score 0.369.; Capability 'create_plan' is underused in recent sessions.; Capability 'generate_idea' is underused in recent sessions.; Capability 'give_advice' is underused in recent sessions."
 }

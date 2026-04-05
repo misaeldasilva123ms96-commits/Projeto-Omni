@@ -1,0 +1,37 @@
+{
+  "task_id": "task-8db983a8-bab3-4480-bda6-de6b41fd59bd",
+  "session_id": "phase3-memory-artifact",
+  "message": "leia package.json",
+  "status": "blocked",
+  "next_step_index": 1,
+  "completed_steps": [
+    {
+      "ok": false,
+      "error_payload": {
+        "kind": "rust_bridge_timeout",
+        "message": "Rust bridge timed out after 30 seconds",
+        "runtime_mode": "python-rust-cargo"
+      },
+      "selected_tool": "read_file",
+      "selected_agent": "researcher_agent",
+      "evaluation": {
+        "decision": "stop_failed",
+        "reason_code": "rust_bridge_timeout",
+        "attempt_index": 1,
+        "max_attempts": 1
+      },
+      "correction_events": [
+        {
+          "decision": "stop_failed",
+          "reason_code": "rust_bridge_timeout",
+          "attempt_index": 1,
+          "max_attempts": 1
+        }
+      ]
+    }
+  ],
+  "remaining_actions": [],
+  "total_actions": 1,
+  "run_id": "run-2b1e8169-2695-4eee-aad7-38ff6ad9772b",
+  "updated_at": "2026-04-05T11:37:06.150254+00:00"
+}

@@ -1,186 +1,56 @@
-﻿import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import ChatInput from './components/ChatInput'
-import ChatMessage from './components/ChatMessage'
-import Sidebar from './components/Sidebar'
-import type {
-  ChatApiRequest,
-  ChatApiResponse,
-  ChatMessage as ChatMessageType,
-  FeedbackApiRequest,
-  FeedbackValue,
-  SessionDetail,
-  SessionSummary,
-} from './types'
-import { getBrowserSupabaseClient } from './utils/supabase/client'
+import { FormEvent, useEffect, useState } from 'react'
+import type { ChatApiResponse, ChatMessage } from './types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3001'
+const STORAGE_KEY = 'omini-chat-history'
+const API_URL = 'http://10.0.2.2:3001/chat'
 
-function createMessage(
-  role: ChatMessageType['role'],
-  content: string,
-): ChatMessageType {
+function createMessage(role: ChatMessage['role'], content: string): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role,
     content,
-    feedback: null,
   }
-}
-
-function createSessionId(userId: string) {
-  const token = crypto.randomUUID()
-  if (!userId) {
-    return `session-${token}`
-  }
-  return `session-${userId.replace(/[^a-zA-Z0-9_-]+/g, '-')}-${token}`
-}
-
-function buildSessionQuery(userId: string) {
-  return userId ? `?user_id=${encodeURIComponent(userId)}` : ''
 }
 
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessageType[]>([])
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [activeSessionId, setActiveSessionId] = useState('')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sessionsLoading, setSessionsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [userId, setUserId] = useState('')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
-  const supabase = useMemo(() => {
+  useEffect(() => {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+
     try {
-      return getBrowserSupabaseClient()
+      setMessages(JSON.parse(raw) as ChatMessage[])
     } catch {
-      return null
+      localStorage.removeItem(STORAGE_KEY)
     }
   }, [])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, loading])
-
-  useEffect(() => {
-    if (!supabase) {
-      const fallbackSessionId = createSessionId('')
-      setActiveSessionId(fallbackSessionId)
-      void refreshSessions('', fallbackSessionId)
-      return
-    }
-
-    supabase.auth.getSession().then(({ data }) => {
-      const nextUserId = data.session?.user?.id ?? ''
-      setUserId(nextUserId)
-      const fallbackSessionId = createSessionId(nextUserId)
-      setActiveSessionId(fallbackSessionId)
-      void refreshSessions(nextUserId, fallbackSessionId)
-    })
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const nextUserId = session?.user?.id ?? ''
-      setUserId(nextUserId)
-      const fallbackSessionId = createSessionId(nextUserId)
-      setActiveSessionId(fallbackSessionId)
-      void refreshSessions(nextUserId, fallbackSessionId)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [supabase])
-
-  async function refreshSessions(nextUserId = userId, fallbackSessionId = activeSessionId) {
-    setSessionsLoading(true)
-    try {
-      const response = await fetch(`${API_BASE_URL}/sessions${buildSessionQuery(nextUserId)}`)
-      if (!response.ok) {
-        throw new Error(await response.text())
-      }
-
-      const data = (await response.json()) as SessionSummary[]
-      setSessions(data)
-
-      if (data.length > 0) {
-        const targetSessionId = data.some((session) => session.session_id === fallbackSessionId)
-          ? fallbackSessionId
-          : data[0].session_id
-        await loadSession(targetSessionId, nextUserId, data)
-      } else {
-        setMessages([])
-        setActiveSessionId(fallbackSessionId || createSessionId(nextUserId))
-      }
-    } catch (err) {
-      const messageText = err instanceof Error ? err.message : 'Erro ao carregar sessões'
-      setError(messageText)
-    } finally {
-      setSessionsLoading(false)
-    }
-  }
-
-  async function loadSession(
-    sessionId: string,
-    nextUserId = userId,
-    knownSessions?: SessionSummary[],
-  ) {
-    setSessionsLoading(true)
-    setError(null)
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}${buildSessionQuery(nextUserId)}`,
-      )
-      if (!response.ok) {
-        throw new Error(await response.text())
-      }
-
-      const data = (await response.json()) as SessionDetail
-      setActiveSessionId(data.session_id)
-      setMessages(data.messages)
-      if (knownSessions) {
-        setSessions(knownSessions)
-      }
-      setSidebarOpen(false)
-    } catch (err) {
-      const messageText = err instanceof Error ? err.message : 'Erro ao abrir conversa'
-      setError(messageText)
-    } finally {
-      setSessionsLoading(false)
-    }
-  }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+  }, [messages])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = input.trim()
     if (!trimmed || loading) return
 
-    const sessionId = activeSessionId || createSessionId(userId)
     const userMessage = createMessage('user', trimmed)
-    userMessage.sessionId = sessionId
-
-    if (!activeSessionId) {
-      setActiveSessionId(sessionId)
-    }
-
     setMessages((current) => [...current, userMessage])
     setInput('')
     setLoading(true)
     setError(null)
 
     try {
-      const payload: ChatApiRequest = {
-        message: trimmed,
-        user_id: userId || undefined,
-        session_id: sessionId,
-      }
-
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ message: trimmed }),
       })
 
       if (!response.ok) {
@@ -189,16 +59,10 @@ export default function App() {
       }
 
       const data = (await response.json()) as ChatApiResponse
-      setActiveSessionId(data.session_id)
       setMessages((current) => [
         ...current,
-        {
-          ...createMessage('assistant', data.response),
-          turnId: data.turn_id,
-          sessionId: data.session_id,
-        },
+        createMessage('assistant', data.response),
       ])
-      await refreshSessions(userId, data.session_id)
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Erro inesperado ao enviar mensagem'
@@ -208,194 +72,70 @@ export default function App() {
     }
   }
 
-  async function sendFeedback(
-    message: ChatMessageType,
-    value: FeedbackValue,
-  ) {
-    if (!message.turnId) {
-      return
-    }
-
-    const text =
-      value === 'down'
-        ? window.prompt(
-            'Opcional: diga rapidamente o que faltou nessa resposta.',
-            '',
-          ) ?? ''
-        : ''
-
-    const payload: FeedbackApiRequest = {
-      turn_id: message.turnId,
-      value,
-      text: text.trim() || undefined,
-      user_id: userId || undefined,
-      session_id: message.sessionId || activeSessionId,
-    }
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/feedback`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      })
-
-      if (!response.ok) {
-        throw new Error(await response.text())
-      }
-
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === message.id ? { ...item, feedback: value } : item,
-        ),
-      )
-      await refreshSessions(userId, activeSessionId)
-    } catch (err) {
-      const messageText =
-        err instanceof Error ? err.message : 'Erro ao enviar feedback'
-      setError(messageText)
-    }
-  }
-
-  function handleNewChat() {
-    const nextSessionId = createSessionId(userId)
-    setActiveSessionId(nextSessionId)
+  function handleClear() {
     setMessages([])
+    localStorage.removeItem(STORAGE_KEY)
     setError(null)
-    setSidebarOpen(false)
   }
-
-  async function handleSelectSession(sessionId: string) {
-    if (sessionId === activeSessionId) {
-      setSidebarOpen(false)
-      return
-    }
-    await loadSession(sessionId)
-  }
-
-  async function handleSignOut() {
-    if (!supabase) {
-      return
-    }
-
-    await supabase.auth.signOut()
-    setUserId('')
-    setSessions([])
-    setMessages([])
-    setActiveSessionId(createSessionId(''))
-    setSidebarOpen(false)
-  }
-
-  const activeSession = sessions.find((session) => session.session_id === activeSessionId)
 
   return (
-    <main className="app-shell galaxy-theme">
-      <div className="galaxy-overlay" />
-      <div className="starfield" />
-
-      <Sidebar
-        activeSessionId={activeSessionId}
-        isLoading={sessionsLoading}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onNewChat={handleNewChat}
-        onSelectSession={handleSelectSession}
-        onSignOut={handleSignOut}
-        sessions={sessions}
-        userId={userId}
-      />
-
-      <section className="chat-layout">
-        <header className="chat-header">
-          <div className="chat-header-left">
-            <button
-              aria-label="Abrir menu"
-              className="icon-button mobile-only"
-              onClick={() => setSidebarOpen(true)}
-              type="button"
-            >
-              <span className="icon-line" />
-              <span className="icon-line" />
-              <span className="icon-line" />
-            </button>
-
-            <div className="brand-lockup">
-              <div className="brand-logo" aria-hidden="true">
-                <span className="brand-logo-ring" />
-                <span className="brand-logo-core" />
-              </div>
-              <div>
-                <p className="brand-title">Omini AI</p>
-                <p className="brand-subtitle">Assistente universal de inteligência</p>
-              </div>
-            </div>
+    <main className="app-shell">
+      <section className="chat-card">
+        <header className="hero">
+          <div>
+            <p className="eyebrow">Omni AI Platform</p>
+            <h1>Chat web com backend Rust e engine Python</h1>
+            <p className="subtitle">
+              Base pronta para evoluir para streaming, plugins, voz e APK Android.
+            </p>
           </div>
-
-          <div className="chat-header-right">
-            <div className="status-pill">
-              <span className="status-dot" />
-              <span>Online</span>
-            </div>
-            <button className="ghost-button" onClick={handleNewChat} type="button">
-              Nova conversa
-            </button>
-          </div>
+          <button className="ghost-button" onClick={handleClear} type="button">
+            Limpar historico
+          </button>
         </header>
 
-        <section className="chat-surface">
-          {activeSession?.title ? (
-            <div className="chat-session-banner">
-              <span className="chat-session-label">Sessão ativa</span>
-              <strong>{activeSession.title}</strong>
-            </div>
-          ) : null}
-
-          {sessionsLoading ? (
-            <div className="empty-state compact">
-              <div className="empty-state-orb" />
-              <h2>Carregando conversa</h2>
-              <p>Sincronizando histórico da sessão selecionada.</p>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="empty-state compact">
-              <div className="empty-state-orb" />
-              <h2>Bem-vindo ao Omini AI</h2>
-              <p>
-                Faça perguntas, planeje ideias e transforme cada conversa em uma sessão inteligente.
-              </p>
+        <section className="messages">
+          {messages.length === 0 ? (
+            <div className="empty-state">
+              <h2>Comece a conversa</h2>
+              <p>Envie uma mensagem para testar a integracao completa.</p>
             </div>
           ) : (
             messages.map((message) => (
-              <ChatMessage
+              <article
                 key={message.id}
-                message={message}
-                onFeedback={sendFeedback}
-              />
+                className={`message-bubble ${message.role}`}
+              >
+                <span className="message-role">
+                  {message.role === 'user' ? 'Voce' : 'Assistente'}
+                </span>
+                <p>{message.content}</p>
+              </article>
             ))
           )}
 
           {loading ? (
-            <article className="chat-message assistant">
-              <div className="chat-message-meta">
-                <span className="chat-message-role">Omini AI</span>
-              </div>
-              <div className="message-bubble assistant loading">
-                <p>Processando sua mensagem...</p>
-              </div>
+            <article className="message-bubble assistant loading">
+              <span className="message-role">Assistente</span>
+              <p>Processando sua mensagem...</p>
             </article>
           ) : null}
-
-          <div ref={messagesEndRef} />
         </section>
 
-        <ChatInput
-          error={error}
-          loading={loading}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          value={input}
-        />
+        <form className="composer" onSubmit={handleSubmit}>
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="Digite sua mensagem..."
+            rows={4}
+          />
+          <div className="composer-footer">
+            {error ? <p className="error-text">{error}</p> : <span />}
+            <button className="send-button" disabled={loading} type="submit">
+              {loading ? 'Enviando...' : 'Enviar'}
+            </button>
+          </div>
+        </form>
       </section>
     </main>
   )

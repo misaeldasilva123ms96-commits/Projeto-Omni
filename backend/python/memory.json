@@ -1,0 +1,51 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "content": "leia package.json"
+    },
+    {
+      "role": "assistant",
+      "content": "Nao consegui processar isso ainda, mas estou aprendendo."
+    },
+    {
+      "role": "user",
+      "content": "leia package.json"
+    },
+    {
+      "role": "assistant",
+      "content": "Não consegui concluir a execução porque Rust bridge failed."
+    },
+    {
+      "role": "user",
+      "content": "leia package.json"
+    },
+    {
+      "role": "assistant",
+      "content": "Não consegui concluir a execução porque Rust bridge failed."
+    },
+    {
+      "role": "user",
+      "content": "leia package.json"
+    },
+    {
+      "role": "assistant",
+      "content": "Não consegui concluir a execução porque Rust bridge failed."
+    },
+    {
+      "role": "user",
+      "content": "leia package.json"
+    },
+    {
+      "role": "assistant",
+      "content": "{\n  \"name\": \"omini-runner\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Production package for the Omini Node runner and schema validation.\",\n  \"main\": \"js-runner/queryEngineRunner.js\",\n  \"scripts\": {\n    \"runner\": \"node js-runner/queryEngineRunner.js\",\n    \"health\": \"node js-runner/healthcheck.js\",\n    \"test\": \"node tests/fusion/fusion-brain.test.js && python tests/fusion/phase2_runtime_test.py\"\n  },\n  \"keywords\": [\"ai\", \"agent\", \"runner\"],\n  \"author\": \"\",\n  \"license\": \"MIT\",\n  \"dependencies\": {\n    \"ajv\": \"^8.17.1\"\n  }\n}"
+    }
+  ],
+  "user": {
+    "nome": "Misael",
+    "preferencias": [
+      "tecnologia"
+    ]
+  },
+  "long_term": {}
+}

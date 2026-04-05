@@ -1,277 +1,272 @@
-﻿# Omni Project Integration
+# 🧠 Omini — Hybrid AI Agent Runtime
 
-Este workspace integra:
+> A production-oriented hybrid agent runtime that combines Rust, Python, Node.js, memory, swarm orchestration, and self-evolution into one auditable system.
 
-- backend em Rust para expor a API HTTP
-- engine Python para runtime e tools
-- frontend React para Web App
-- camada mobile com Capacitor para gerar APK Android
+[![CI](https://img.shields.io/github/actions/workflow/status/YOUR_GITHUB_USER_OR_ORG/omini/ci.yml?branch=main&label=CI)](https://github.com/YOUR_GITHUB_USER_OR_ORG/omini/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-## Estrutura
+## What is Omini?
 
-```text
-project/
-â”œâ”€â”€ README.md
-â”œâ”€â”€ backend/
-â”‚   â”œâ”€â”€ python/
-â”‚   â”‚   â”œâ”€â”€ app/
-â”‚   â”‚   â”‚   â”œâ”€â”€ __init__.py
-â”‚   â”‚   â”‚   â”œâ”€â”€ chat_adapter.py
-â”‚   â”‚   â”‚   â””â”€â”€ requirements.txt
-â”‚   â”‚   â””â”€â”€ README.md
-â”‚   â””â”€â”€ rust/
-â”‚       â”œâ”€â”€ Cargo.toml
-â”‚       â”œâ”€â”€ .env.example
-â”‚       â”œâ”€â”€ src/
-â”‚       â”‚   â”œâ”€â”€ error.rs
-â”‚       â”‚   â””â”€â”€ main.rs
-â”‚       â””â”€â”€ README.md
-â””â”€â”€ frontend/
-    â”œâ”€â”€ mobile/
-    â”‚   â”œâ”€â”€ capacitor.config.ts
-    â”‚   â”œâ”€â”€ package.json
-    â”‚   â””â”€â”€ README.md
-    â””â”€â”€ web/
-        â”œâ”€â”€ index.html
-        â”œâ”€â”€ package.json
-        â”œâ”€â”€ tsconfig.json
-        â”œâ”€â”€ tsconfig.node.json
-        â”œâ”€â”€ vite.config.ts
-        â””â”€â”€ src/
-            â”œâ”€â”€ App.tsx
-            â”œâ”€â”€ main.tsx
-            â”œâ”€â”€ styles.css
-            â”œâ”€â”€ types.ts
-            â””â”€â”€ vite-env.d.ts
-```
+Omini is a hybrid AI agent runtime designed for controlled orchestration rather than opaque monolith behavior. It combines a Python cognitive brain, a Node.js reasoning runner, a Rust subprocess bridge, persistent memory, a multi-agent swarm layer, and a heuristic self-evolution loop. The result is a system that can route work across specialized components, track internal decisions, persist traces, and gradually adjust its behavior without changing the Rust-facing stdout contract.
 
-## Arquitetura
-
-Fluxo principal:
+## Architecture Overview
 
 ```text
-React Web / Capacitor Mobile
-        |
-        v
- Rust API (Axum)
-        |
-        v
- Python Adapter
-        |
-        v
- QueryEnginePort + tools/runtime existentes
++-------------------+
+|   Web / Mobile    |
++-------------------+
+          |
+          v
++-------------------+
+| Rust HTTP Bridge  |
+| Axum API          |
++-------------------+
+          |
+          v
++-------------------+
+| Python Brain      |
+| orchestrator.py   |
++-------------------+
+          |
+          v
++-------------------+
+| Swarm Layer       |
+| Router / Planner  |
+| Executor / Critic |
+| Memory            |
++-------------------+
+          |
+          v
++-------------------+
+| Node Runner       |
+| THINK -> DECIDE   |
+| -> ACT -> MEMORY  |
+| -> RESPOND        |
++-------------------+
+          |
+          v
++-------------------+
+| Memory / Sessions |
+| Transcripts /     |
+| Learning /        |
+| Strategy State    |
++-------------------+
 ```
 
-### DecisÃ£o tÃ©cnica
+## Core Components
 
-- `Rust + Axum`: API performÃ¡tica, tipada, com CORS, logs e boa base para streaming.
-- `Python via subprocess`: integraÃ§Ã£o inicial mais simples e estÃ¡vel para tools dinÃ¢micas.
-- `React + Vite`: bootstrap rÃ¡pido para o chat web.
-- `Capacitor`: caminho mais curto para transformar o app web em APK Android.
+| Component | Location | Responsibility |
+| --- | --- | --- |
+| Rust Bridge | `backend/rust` | Exposes HTTP endpoints and calls Python via subprocess while preserving the stdout-only contract |
+| Python Brain | `backend/python/brain/runtime` | Owns orchestration, memory loading, transcript/session persistence, and bridge control |
+| Capability Registry | `backend/python/brain/registry.py` | Defines capabilities and agent profiles used across the runtime |
+| Hybrid Memory | `backend/python/brain/memory` | Persists user data, preferences, notes, learning data, and strategy-linked memory signals |
+| Swarm Layer | `backend/python/brain/swarm` | Routes tasks across specialized internal agents and records agent traces |
+| Evolution Layer | `backend/python/brain/evolution` | Scores responses, finds patterns, versions strategy updates, and supports rollback |
+| Node Runner | `js-runner/queryEngineRunner.js` | Validates the Python-to-Node payload contract and loads the reasoning adapter |
+| Reasoning Adapter | `src/queryEngineRunnerAdapter.js` | Implements the cognitive pipeline and delegate resolution |
+| Contract Schema | `contract/runner-schema.v1.json` | Formal JSON schema for the Python <-> Node payload |
+| Deployment Layer | `docker-compose.yml`, `.github/workflows` | Container orchestration and automation for CI and VPS deployment |
 
-## Etapa 1 â€” Backend Rust
+## Cognitive Pipeline
 
-### 1. Entrar no backend
+Omini uses a deliberately explicit pipeline:
 
-```powershell
-cd "C:\ORÃ‡AMETOS ANUAIS\Projeto omini\project\backend\rust"
+```text
+THINK -> DECIDE -> ACT -> MEMORY -> RESPOND
 ```
 
-### 2. Rodar a API
+- `THINK`: classifies intent, reads memory, inspects recent history, and builds context.
+- `DECIDE`: selects a response strategy and confidence level from available capabilities.
+- `ACT`: prepares the practical answer path, delegate plan, or execution outline.
+- `MEMORY`: stores useful signals about what happened, including traces, evaluations, and usage.
+- `RESPOND`: returns the final user-facing text while preserving a clean Rust-compatible output.
 
-```powershell
+## Multi-Agent Swarm
+
+The swarm layer adds internal specialization without external swarm dependencies.
+
+```text
+Input
+  |
+  v
+RouterAgent
+  |
+  v
+PlannerAgent
+  |
+  v
+ExecutorAgent(s)
+  |
+  v
+CriticAgent
+  |
+  v
+MemoryAgent
+  |
+  v
+Final response
+```
+
+Current swarm agents:
+
+- `RouterAgent`: classifies intent and chooses the internal route.
+- `PlannerAgent`: decomposes complex requests into subtasks.
+- `ExecutorAgent`: produces task outputs and execution fragments.
+- `CriticAgent`: validates response quality before delivery.
+- `MemoryAgent`: consolidates memory signals and persists trace metadata.
+
+## Self-Evolution Loop
+
+Omini includes a heuristic self-evolution layer that does not fine-tune models or require GPUs.
+
+```text
+Response
+  |
+  v
+Evaluator
+  |
+  v
+Pattern Analyzer
+  |
+  v
+Strategy Updater
+  |
+  v
+Versioned snapshot
+  |
+  v
+Future orchestrator reads strategy_state.json
+```
+
+What it currently does:
+
+- scores each response for relevance, coherence, completeness, and efficiency
+- records weak and strong patterns from recent sessions
+- proposes strategy changes and versions them in snapshots
+- supports rollback to previous strategy versions
+
+## Getting Started
+
+### Prerequisites
+
+- Python `3.11+`
+- Node.js `20+`
+- Rust toolchain
+- Docker and Docker Compose
+
+### Installation
+
+```bash
+git clone <your-repo-url>
+cd omini
+cp .env.example .env
+```
+
+Install Node dependencies:
+
+```bash
+npm install
+```
+
+### Running locally
+
+Run the Python brain:
+
+```bash
+cd backend/python
+python main.py "hello"
+```
+
+Run the Rust bridge:
+
+```bash
+cd backend/rust
 cargo run
 ```
 
-API padrÃ£o:
+Run the Node health command:
 
-- `POST http://localhost:3001/chat`
-- `GET http://localhost:3001/health`
-
-### 3. JSON esperado
-
-Request:
-
-```json
-{
-  "message": "Explique esta arquitetura"
-}
+```bash
+npm run health
 ```
 
-Response:
+### Running with Docker
 
-```json
-{
-  "response": "Prompt: Explique esta arquitetura\nMatched commands: none\nMatched tools: none\nPermission denials: 0",
-  "session_id": "abc123",
-  "source": "python-query-engine"
-}
+```bash
+docker compose up -d --build
+docker compose ps
 ```
 
-### 4. VariÃ¡veis de ambiente
+## Environment Variables
 
-Copie `.env.example` para `.env` se quiser customizar:
+| Variable | Layer | Description |
+| --- | --- | --- |
+| `BASE_DIR` | Shared | Base repository path used by the runtime |
+| `PYTHON_BASE_DIR` | Python | Python runtime root |
+| `NODE_RUNNER_BASE_DIR` | Node | Base directory used by the runner |
+| `APP_HOST` | Rust | Host for the Rust API |
+| `APP_PORT` | Rust | Port for the Rust API |
+| `PYTHON_BIN` | Rust | Python executable used by the Rust bridge |
+| `PYTHON_ENTRY` | Rust | Python entrypoint path used by the bridge |
+| `MOCK_CHAT` | Rust | Optional fallback mode for the Rust API |
+| `AI_SESSION_ID` | Python | Session identifier for runtime persistence |
+| `MEMORY_JSON_PATH` | Python | Structured memory store path |
+| `MEMORY_DIR` | Python | Hybrid memory directory |
+| `TRANSCRIPTS_DIR` | Python | Transcript storage directory |
+| `SESSIONS_DIR` | Python | Session snapshot directory |
+| `NODE_BIN` | Python | Node executable used by the Python orchestrator |
+| `RUNNER_SCHEMA_PATH` | Node | JSON schema path for payload validation |
+| `RUNNER_ADAPTER_PATH` | Node | Adapter path used by the runner |
+| `SERVER_IP` | Deploy | VPS address used by GitHub Actions deploy |
+| `SERVER_USER` | Deploy | SSH user used for deploy |
+| `SSH_PRIVATE_KEY` | Deploy | SSH private key stored as a GitHub secret |
 
-```powershell
-Copy-Item .env.example .env
-```
-
-## Etapa 2 â€” Python Engine
-
-### 1. Entrar no adapter Python
-
-```powershell
-cd "C:\ORÃ‡AMETOS ANUAIS\Projeto omini\project\backend\python"
-```
-
-### 2. Testar manualmente o adapter
-
-```powershell
-python -m app.chat_adapter "{\"message\":\"teste de integraÃ§Ã£o\"}"
-```
-
-### 3. O que o adapter faz
-
-- lÃª a mensagem enviada pelo Rust
-- injeta o path do engine Python existente em `claw-code-main/src`
-- instancia `QueryEnginePort`
-- retorna JSON para a API Rust
-
-## Etapa 3 â€” Frontend Web
-
-### 1. Instalar dependÃªncias
-
-```powershell
-cd "C:\ORÃ‡AMETOS ANUAIS\Projeto omini\project\frontend\web"
-npm install
-```
-
-### 2. Rodar em modo dev
-
-```powershell
-npm run dev
-```
-
-### 3. Funcionalidades incluÃ­das
-
-- chat estilo ChatGPT
-- histÃ³rico salvo em `localStorage`
-- indicador de loading
-- mensagens do usuÃ¡rio e do assistente
-- consumo da API Rust em `http://localhost:3001/chat`
-
-## Etapa 4 â€” APK com Capacitor
-
-### 1. Build do React
-
-```powershell
-cd "C:\ORÃ‡AMETOS ANUAIS\Projeto omini\project\frontend\web"
-npm run build
-```
-
-### 2. Instalar dependÃªncias mobile
-
-```powershell
-cd "C:\ORÃ‡AMETOS ANUAIS\Projeto omini\project\frontend\mobile"
-npm install
-```
-
-### 3. Adicionar Android
-
-```powershell
-npx cap add android
-```
-
-### 4. Sincronizar assets do web
-
-```powershell
-npx cap sync android
-```
-
-### 5. Abrir no Android Studio
-
-```powershell
-npx cap open android
-```
-
-### 6. Gerar APK
-
-No Android Studio:
-
-1. `Build`
-2. `Build Bundle(s) / APK(s)`
-3. `Build APK(s)`
-
-## Etapa 5 â€” Deploy
-
-### Frontend na Vercel
-
-```powershell
-cd "C:\ORÃ‡AMETOS ANUAIS\Projeto omini\project\frontend\web"
-vercel
-```
-
-### Backend no Railway ou Render
-
-Use o diretÃ³rio:
+## Project Structure
 
 ```text
-project/backend/rust
+.
+├── .github/                     # GitHub workflows, issue templates, PR template, CODEOWNERS
+├── backend/
+│   ├── python/
+│   │   ├── brain/
+│   │   │   ├── evolution/       # Scoring, analysis, strategy snapshots, dashboard
+│   │   │   ├── memory/          # Hybrid memory primitives and storage helpers
+│   │   │   ├── runtime/         # Main orchestrator, sessions, transcripts, swarm logs
+│   │   │   └── swarm/           # Internal specialized agents and swarm orchestration
+│   │   ├── memory/              # User-facing persisted memory artifacts
+│   │   ├── transcripts/         # Session transcript files
+│   │   ├── main.py              # Python entrypoint used by the Rust bridge
+│   │   └── Dockerfile           # Python production image
+│   └── rust/
+│       └── src/                 # Axum bridge and subprocess integration
+├── contract/                    # Formal payload schemas between runtime layers
+├── frontend/                    # Web and mobile frontends
+├── js-runner/                   # Node runtime entrypoint and health checks
+├── scripts/                     # Server and deployment setup scripts
+├── src/                         # Node reasoning adapter
+├── docker-compose.yml           # Local and server orchestration
+├── ARCHITECTURE.md              # Detailed technical architecture
+├── CONTRIBUTING.md              # Development workflow and contribution guide
+├── CHANGELOG.md                 # Project release history
+└── LICENSE                      # License file
 ```
 
-Comando de start:
+## Roadmap
 
-```powershell
-cargo run --release
-```
+- Improve evaluator heuristics to better separate weak routing from weak answer content
+- Add focused test coverage for orchestrator, swarm, and evolution logic
+- Expand frontend observability for internal traces in a debug mode
+- Add richer capability weighting and intent-specific routing policies
+- Introduce safer production-facing health and metrics endpoints
 
-## Erros comuns e soluÃ§Ãµes
+## Contributing
 
-### Erro: `python not found`
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, commit conventions, PR rules, and how to extend agents and capabilities.
 
-SoluÃ§Ã£o:
+## License
 
-- instalar Python 3.11+
-- validar com `python --version`
-- se necessÃ¡rio, configurar `PYTHON_BIN` no backend Rust
-
-### Erro: `address already in use`
-
-SoluÃ§Ã£o:
-
-- mudar `APP_PORT` no `.env`
-- ou encerrar o processo que jÃ¡ usa a porta `3001`
-
-### Erro: CORS no frontend
-
-SoluÃ§Ã£o:
-
-- conferir se a API Rust estÃ¡ rodando
-- validar se `CorsLayer::permissive()` estÃ¡ ativo
-- manter o frontend chamando exatamente `http://localhost:3001/chat`
-
-### Erro: `npx cap add android` falha
-
-SoluÃ§Ã£o:
-
-- instalar Android Studio
-- instalar Android SDK
-- confirmar `JAVA_HOME`
-- rodar `npx cap doctor`
-
-### Erro: app mobile nÃ£o carrega a API local
-
-SoluÃ§Ã£o:
-
-- em emulador Android, trocar `localhost` por `10.0.2.2`
-- ou expor a API em uma URL de rede local
-
-## PrÃ³ximas melhorias
-
-- autenticaÃ§Ã£o com JWT
-- banco para histÃ³rico e sessÃµes
-- streaming com SSE ou WebSocket
-- voz usando Web Speech API e plugins nativos
-- sistema de plugins carregÃ¡veis no backend
-- troca de `subprocess` por `pyo3` quando a integraÃ§Ã£o estiver mais madura
-
+This project is released under the [MIT License](./LICENSE).

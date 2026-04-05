@@ -1,0 +1,22 @@
+{
+  "main_brain": {
+    "source": "src.zip",
+    "authority": "typescript-query-engine",
+    "status": "selected"
+  },
+  "execution_runtime": {
+    "source": "claw-code-main.zip",
+    "authority": "rust-runtime",
+    "status": "selected"
+  },
+  "provider_layer": {
+    "source": "openclaude-main.zip",
+    "authority": "provider-platform",
+    "status": "selected"
+  },
+  "kairos": {
+    "source": "openclaude-main.zip",
+    "authority": "optional-feature-layer",
+    "status": "deferred"
+  }
+}

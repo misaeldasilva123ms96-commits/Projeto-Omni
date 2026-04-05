@@ -1,4 +1,4 @@
-﻿const { runQueryEngine } = require('../backend/python/brain/runtime/node_runtime');
+const { runQueryEngine } = require('../core/brain/fusionBrain');
 
 module.exports = {
   runQueryEngine,

@@ -28,7 +28,7 @@ class AgentProfile:
 def _generate_idea(input_data: dict[str, Any]) -> str:
     message = str(input_data.get("message", "")).strip().lower()
     preferences = input_data.get("preferences", [])
-    likes_tech = any("tecnologia" in str(item).lower() or "ia" in str(item).lower() for item in preferences)
+    likes_tech = any("tecnologia" in str(item).lower() for item in preferences)
     if "negocio" in message or "ideia" in message:
         if likes_tech:
             return "Voce pode validar um microservico de automacao para pequenos negocios com cobranca recorrente."
@@ -55,13 +55,6 @@ def _create_plan(input_data: dict[str, Any]) -> str:
     )
 
 
-def _compare_options(input_data: dict[str, Any]) -> str:
-    message = str(input_data.get("message", "")).strip().lower()
-    if "python" in message and "rust" in message:
-        return "Python acelera iteracao e ecossistema; Rust ganha em performance, previsibilidade e seguranca de baixo nivel."
-    return "Compare as opcoes por velocidade de entrega, custo operacional, manutencao e risco tecnico."
-
-
 CAPABILITIES: dict[str, Capability] = {
     "generate_idea": Capability(
         name="generate_idea",
@@ -81,12 +74,6 @@ CAPABILITIES: dict[str, Capability] = {
         category="planning",
         handler=_create_plan,
     ),
-    "compare_options": Capability(
-        name="compare_options",
-        description="compara opcoes com pros, contras e recomendacao final",
-        category="analysis",
-        handler=_compare_options,
-    ),
 }
 
 
@@ -95,7 +82,7 @@ AGENTS: dict[str, AgentProfile] = {
         id="router_agent",
         name="RouterAgent",
         specialty="roteamento de intents e definicao de fluxo interno",
-        capabilities=("give_advice", "create_plan", "compare_options"),
+        capabilities=("give_advice", "create_plan"),
         priority=1,
     ),
     "planner_agent": AgentProfile(
@@ -109,7 +96,7 @@ AGENTS: dict[str, AgentProfile] = {
         id="executor_agent",
         name="ExecutorAgent",
         specialty="execucao de tarefas, consolidacao e acao pratica",
-        capabilities=("generate_idea", "give_advice", "create_plan", "compare_options"),
+        capabilities=("generate_idea", "give_advice", "create_plan"),
         priority=3,
     ),
     "critic_agent": AgentProfile(
@@ -147,14 +134,12 @@ def describe_capabilities() -> list[dict[str, str]]:
 def recommend_capabilities(message: str) -> list[str]:
     lowered = message.lower()
     matches: list[str] = []
-    if any(term in lowered for term in ("ideia", "negocio", "negócio", "modelo de negocio", "modelo de negócio")):
+    if any(term in lowered for term in ("ideia", "negocio", "modelo de negocio")):
         matches.append("generate_idea")
     if any(term in lowered for term in ("conselho", "devo", "dica", "melhorar")):
         matches.append("give_advice")
     if any(term in lowered for term in ("plano", "passo", "como comeco", "como começo")):
         matches.append("create_plan")
-    if any(term in lowered for term in ("prós e contras", "pros e contras", " vs ", "comparar", "compare")):
-        matches.append("compare_options")
     return matches
 
 
@@ -197,8 +182,8 @@ def describe_agents(active_only: bool = True) -> list[dict[str, object]]:
 
 def resolve_agent_ids(intent: str) -> list[str]:
     intent_key = intent.strip().lower()
-    if intent_key in {"dinheiro", "decision", "conselho", "comparativo", "planejamento", "ideacao"}:
+    if intent_key in {"dinheiro", "decision", "conselho"}:
         return ["router_agent", "planner_agent", "executor_agent", "critic_agent", "memory_agent"]
-    if intent_key in {"aprendizado", "explicacao", "pergunta_direta", "saudacao"}:
+    if intent_key in {"aprendizado", "explicacao"}:
         return ["router_agent", "planner_agent", "executor_agent", "memory_agent", "critic_agent"]
     return ["router_agent", "executor_agent", "memory_agent", "critic_agent"]

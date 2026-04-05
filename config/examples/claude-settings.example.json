@@ -1,0 +1,23 @@
+{
+  "agentModels": {
+    "gpt-4.1-mini": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "COLOCAR_OPENAI_API_KEY_AQUI"
+    },
+    "gpt-4o": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "COLOCAR_OPENAI_API_KEY_AQUI"
+    },
+    "qwen2.5-coder:7b": {
+      "base_url": "http://localhost:11434/v1",
+      "api_key": ""
+    }
+  },
+  "agentRouting": {
+    "Explore": "gpt-4.1-mini",
+    "Plan": "gpt-4o",
+    "general-purpose": "gpt-4o",
+    "frontend-dev": "gpt-4.1-mini",
+    "default": "gpt-4o"
+  }
+}

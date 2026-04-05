@@ -1,0 +1,38 @@
+{
+  "task_id": "task-658feffd-7026-49ac-b9b3-91fdce11e3ab",
+  "session_id": "phase2-audit",
+  "message": "leia package.json",
+  "status": "blocked",
+  "next_step_index": 1,
+  "completed_steps": [
+    {
+      "ok": false,
+      "error_payload": {
+        "kind": "rust_bridge_failure",
+        "message": "warning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmbgv64a-1nzoxfx-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmbf9y1u-1f5x7ln-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmcutaaf-131585q-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmcwqi2p-1onn540-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmaf9ccj-1s4fgay-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmb4p54h-1sl5eq7-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmcqg6te-1rkflmy-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmcyag5a-1ugarij-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmct3ar0-0eklqg4-working`: Acesso negado. (os error 5)\n\nwarning: failed to garbage collect incremental compilation session directory `\\\\?\\C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\incremental\\runtime-0oyqix2bwkgbn\\s-hhbmcnjrxc-0da70kb-working`: Acesso negado. (os error 5)\n\nerror: failed to write C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\backend\\rust\\target\\x86_64-pc-windows-gnullvm\\debug\\deps\\libruntime-0e3bc4828417172c.rmeta: Acesso negado. (os error 5)\n\nerror: could not compile `runtime` (lib) due to 1 previous error; 10 warnings emitted",
+        "code": 101,
+        "runtime_mode": "python-rust-cargo"
+      },
+      "selected_tool": "read_file",
+      "selected_agent": "researcher_agent",
+      "evaluation": {
+        "decision": "stop_failed",
+        "reason_code": "rust_bridge_failure",
+        "attempt_index": 1,
+        "max_attempts": 1
+      },
+      "correction_events": [
+        {
+          "decision": "stop_failed",
+          "reason_code": "rust_bridge_failure",
+          "attempt_index": 1,
+          "max_attempts": 1
+        }
+      ]
+    }
+  ],
+  "remaining_actions": [],
+  "total_actions": 1,
+  "run_id": "run-ed3ff6f1-96c1-4699-b739-ab2a591358ce",
+  "updated_at": "2026-04-05T11:33:43.005679+00:00"
+}

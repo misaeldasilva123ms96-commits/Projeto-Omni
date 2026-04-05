@@ -1,173 +1,141 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
-import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
-DEFAULT_PARAMS = {
-    "max_length_threshold": 500,
-    "direct_memory_strictness": 0.5,
-    "complex_prompt_word_threshold": 20,
-    "heuristic_success_floor": 0.72,
-    "llm_success_floor": 0.68,
-    "prefer_llm_margin": 0.05,
-}
+STRATEGY_SCHEMA_VERSION = 1
+
+
+def default_strategy_state() -> dict[str, Any]:
+    return {
+        "schema_version": STRATEGY_SCHEMA_VERSION,
+        "version": 0,
+        "updated_at": "",
+        "capability_weights": {
+            "generate_idea": 1.0,
+            "give_advice": 1.0,
+            "create_plan": 1.0,
+        },
+        "decision_thresholds": {
+            "critic_min_score": 0.4,
+            "apply_score_gain": 0.03,
+        },
+        "memory_rules": {
+            "history_limit": 6,
+            "consolidate_min_score": 0.55,
+        },
+        "orchestrator_hints": {
+            "prefer_planner_for_complex": True,
+            "prefer_memory_when_repeated": True,
+        },
+        "justification": "Initial strategy state",
+    }
 
 
 class StrategyUpdater:
-    """
-    Gera novas versoes da estrategia de evolucao com base em recomendacoes,
-    metricas de estrategia e historico de aprendizado.
-    """
-
-    def __init__(self, snapshots_dir: Path):
-        self.snapshots_dir = snapshots_dir
+    def __init__(self, evolution_dir: Path) -> None:
+        self.evolution_dir = evolution_dir
+        self.evolution_dir.mkdir(parents=True, exist_ok=True)
+        self.snapshots_dir = self.evolution_dir / "snapshots"
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        self.state_path = self.evolution_dir / "strategy_state.json"
+        self.log_path = self.evolution_dir / "strategy_log.json"
+        self._ensure_files()
 
-    def update(
-        self,
-        current_strategy: Dict[str, Any],
-        analysis: Dict[str, Any] | None = None,
-        learning_data: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
-        analysis = analysis or {}
-        learning_data = learning_data or {}
+    def _ensure_files(self) -> None:
+        if not self.state_path.exists():
+            self._write_json(self.state_path, default_strategy_state())
+        if not self.log_path.exists():
+            self._write_json(self.log_path, {"changes": []})
 
-        updated = self._normalize_state(current_strategy)
-        previous_signature = self._state_signature(updated)
+    def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        recommended_adjustments = analysis.get("recommended_adjustments", [])
-        updated["adjustments"] = list(dict.fromkeys([*(updated.get("adjustments", [])), *recommended_adjustments]))[-20:]
-        updated["last_update"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        updated["params"] = {**DEFAULT_PARAMS, **dict(updated.get("params", {}))}
-        updated["feedback_scores"] = dict(updated.get("feedback_scores", {}))
-        updated["category_scores"] = dict(analysis.get("category_scores", updated.get("category_scores", {})))
-        updated["intent_profiles"] = dict(analysis.get("intent_preferences", updated.get("intent_profiles", {})))
+    def load_current_state(self) -> dict[str, Any]:
+        self._ensure_files()
+        try:
+            raw = self.state_path.read_text(encoding="utf-8").strip()
+            parsed = json.loads(raw) if raw else {}
+            return parsed if isinstance(parsed, dict) else default_strategy_state()
+        except Exception:
+            return default_strategy_state()
 
-        learning_strategy_stats = learning_data.get("strategy_stats", {}) if isinstance(learning_data, dict) else {}
-        strategies = learning_strategy_stats.get("strategies", {}) if isinstance(learning_strategy_stats, dict) else {}
-        updated["strategies"] = self._normalize_strategies(strategies, updated.get("strategies", {}))
+    def propose_update(self, analysis: dict[str, Any], average_score: float) -> dict[str, Any]:
+        state = self.load_current_state()
+        proposal = json.loads(json.dumps(state))
+        adjustments = analysis.get("recommended_adjustments", [])
+        score_gain = 0.0
 
-        registry_overrides = dict(updated.get("registry_overrides", {}))
-        registry_overrides["strategy_bias"] = analysis.get("strategy_recommendations", registry_overrides.get("strategy_bias", {}))
-        updated["registry_overrides"] = registry_overrides
+        if any(item.get("action") == "raise_priority" for item in adjustments if isinstance(item, dict)):
+            proposal["capability_weights"]["create_plan"] = round(float(proposal["capability_weights"].get("create_plan", 1.0)) + 0.08, 3)
+            proposal["capability_weights"]["give_advice"] = round(float(proposal["capability_weights"].get("give_advice", 1.0)) + 0.05, 3)
+            score_gain += 0.04
 
-        self._apply_adjustments(updated, recommended_adjustments)
+        underused = analysis.get("underused_capabilities", [])
+        if isinstance(underused, list) and underused:
+            for capability in underused:
+                if capability in proposal["capability_weights"]:
+                    proposal["capability_weights"][capability] = round(max(0.8, float(proposal["capability_weights"][capability]) - 0.03), 3)
+            score_gain += 0.01
 
-        new_signature = self._state_signature(updated)
-        if new_signature != previous_signature:
-            updated["version"] = int(updated.get("version", 1) or 1) + 1
-            self._save_snapshot(updated)
-        else:
-            updated["version"] = int(updated.get("version", 1) or 1)
-            snapshot_file = self.snapshots_dir / f"strategy_v{updated['version']}.json"
-            if not snapshot_file.exists():
-                self._save_snapshot(updated)
+        weak_patterns = analysis.get("weak_patterns", [])
+        if isinstance(weak_patterns, list) and weak_patterns:
+            proposal["memory_rules"]["history_limit"] = min(10, int(proposal["memory_rules"].get("history_limit", 6)) + 1)
+            score_gain += 0.015
 
-        return updated
+        proposal["justification"] = "; ".join(
+            str(item.get("reason", "")).strip()
+            for item in adjustments
+            if isinstance(item, dict) and str(item.get("reason", "")).strip()
+        ) or "No significant adjustments proposed"
 
-    def _normalize_state(self, current_strategy: Dict[str, Any]) -> Dict[str, Any]:
-        state = dict(current_strategy or {})
-        state.setdefault("version", 1)
-        state.setdefault("last_update", None)
-        state.setdefault("adjustments", [])
-        state["params"] = {**DEFAULT_PARAMS, **dict(state.get("params", {}))}
-        state.setdefault("registry_overrides", {})
-        state.setdefault("feedback_scores", {})
-        state.setdefault("strategies", {})
-        state.setdefault("intent_profiles", {})
-        state.setdefault("category_scores", {})
-        return state
-
-    def _normalize_strategies(self, latest: Dict[str, Any], previous: Dict[str, Any]) -> Dict[str, Any]:
-        normalized: Dict[str, Any] = {}
-        for strategy_name, raw in {**(previous or {}), **(latest or {})}.items():
-            source = dict(previous.get(strategy_name, {})) if isinstance(previous, dict) and isinstance(previous.get(strategy_name), dict) else {}
-            if isinstance(raw, dict):
-                source.update(raw)
-            total_uses = int(source.get("total_uses", source.get("uses", 0)) or 0)
-            success_count = int(source.get("success_count", 0) or 0)
-            failure_count = int(source.get("failure_count", 0) or 0)
-            total_score = float(source.get("total_score", 0.0) or 0.0)
-            average_score = float(source.get("average_score", 0.0) or 0.0)
-            if total_uses > 0 and average_score == 0.0 and total_score > 0:
-                average_score = total_score / total_uses
-            normalized[strategy_name] = {
-                "total_uses": total_uses,
-                "average_score": round(average_score, 3),
-                "success_count": success_count,
-                "failure_count": failure_count,
-                "last_used_at": source.get("last_used_at"),
-                "feedback_score": round(float(source.get("feedback_score", 0.0) or 0.0), 3),
-                "positive_feedback": int(source.get("positive_feedback", 0) or 0),
-                "negative_feedback": int(source.get("negative_feedback", 0) or 0),
-                "llm_uses": int(source.get("llm_uses", 0) or 0),
-                "heuristic_uses": int(source.get("heuristic_uses", 0) or 0),
-                "fallback_uses": int(source.get("fallback_uses", 0) or 0),
-                "execution_modes": source.get("execution_modes", {}),
-                "per_intent": source.get("per_intent", {}),
-                "per_category": source.get("per_category", {}),
-            }
-        return normalized
-
-    def _apply_adjustments(self, strategy: Dict[str, Any], adjustments: list[str]) -> None:
-        for adjustment in adjustments:
-            if adjustment == "adjust_efficiency_threshold":
-                current_max = int(strategy["params"].get("max_length_threshold", 500))
-                strategy["params"]["max_length_threshold"] = max(220, current_max - 40)
-            elif adjustment == "rebalance_intent_weights":
-                overrides = dict(strategy["registry_overrides"].get("intent_priority", {}))
-                for intent in ("comparativo", "planejamento", "explicacao"):
-                    overrides[intent] = round(float(overrides.get(intent, 1.0) or 1.0) + 0.05, 3)
-                strategy["registry_overrides"]["intent_priority"] = overrides
-            elif adjustment == "reinforce_fallback_strategy":
-                strategy["params"]["direct_memory_strictness"] = 0.8
-                strategy["params"]["prefer_llm_margin"] = max(0.03, float(strategy["params"].get("prefer_llm_margin", 0.05)) - 0.01)
-            elif adjustment == "prefer_llm_for_complex":
-                strategy["params"]["complex_prompt_word_threshold"] = max(14, int(strategy["params"].get("complex_prompt_word_threshold", 20)) - 2)
-                strategy["params"]["llm_success_floor"] = max(0.62, float(strategy["params"].get("llm_success_floor", 0.68)) - 0.02)
-            elif adjustment == "increase_review_strictness":
-                strategy["params"]["heuristic_success_floor"] = min(0.82, float(strategy["params"].get("heuristic_success_floor", 0.72)) + 0.03)
-
-    def _save_snapshot(self, strategy: Dict[str, Any]):
-        version = strategy.get("version", 0)
-        snapshot_file = self.snapshots_dir / f"strategy_v{version}.json"
-        with open(snapshot_file, "w", encoding="utf-8") as file:
-            json.dump(strategy, file, indent=2, ensure_ascii=False)
-
-    def rollback(self, version: int) -> Dict[str, Any]:
-        snapshot_file = self.snapshots_dir / f"strategy_v{version}.json"
-        if not snapshot_file.exists():
-            raise FileNotFoundError(f"Snapshot version {version} not found.")
-
-        with open(snapshot_file, "r", encoding="utf-8") as file:
-            return json.load(file)
-
-    def get_latest_version(self) -> int:
-        snapshots = list(self.snapshots_dir.glob("strategy_v*.json"))
-        if not snapshots:
-            return 0
-
-        versions = []
-        for snapshot in snapshots:
-            try:
-                versions.append(int(snapshot.stem.replace("strategy_v", "")))
-            except ValueError:
-                continue
-
-        return max(versions) if versions else 0
-
-    @staticmethod
-    def _state_signature(strategy: Dict[str, Any]) -> str:
-        comparable = {
-            "params": strategy.get("params", {}),
-            "registry_overrides": strategy.get("registry_overrides", {}),
-            "strategies": strategy.get("strategies", {}),
-            "intent_profiles": strategy.get("intent_profiles", {}),
-            "category_scores": strategy.get("category_scores", {}),
-            "feedback_scores": strategy.get("feedback_scores", {}),
-            "adjustments": strategy.get("adjustments", []),
+        return {
+            "current_state": state,
+            "proposed_state": proposal,
+            "estimated_score_gain": round(score_gain, 3),
+            "baseline_score": average_score,
         }
-        return json.dumps(comparable, ensure_ascii=False, sort_keys=True)
+
+    def apply_update(self, proposal: dict[str, Any]) -> dict[str, Any]:
+        current_state = proposal["current_state"]
+        next_state = proposal["proposed_state"]
+        version = int(current_state.get("version", 0)) + 1
+        next_state["version"] = version
+        next_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        next_state["schema_version"] = STRATEGY_SCHEMA_VERSION
+
+        snapshot_path = self.snapshots_dir / f"strategy_v{version}.json"
+        self._write_json(snapshot_path, next_state)
+        self._write_json(self.state_path, next_state)
+
+        log = self._load_log()
+        log["changes"].append(
+            {
+                "version": version,
+                "timestamp": next_state["updated_at"],
+                "estimated_score_gain": proposal["estimated_score_gain"],
+                "justification": next_state["justification"],
+            }
+        )
+        self._write_json(self.log_path, {"changes": log["changes"][-100:]})
+        return next_state
+
+    def rollback(self, version: int) -> dict[str, Any]:
+        snapshot_path = self.snapshots_dir / f"strategy_v{version}.json"
+        if not snapshot_path.exists():
+            raise FileNotFoundError(f"Strategy version {version} not found")
+        raw = snapshot_path.read_text(encoding="utf-8").strip()
+        snapshot = json.loads(raw) if raw else default_strategy_state()
+        self._write_json(self.state_path, snapshot)
+        return snapshot
+
+    def _load_log(self) -> dict[str, Any]:
+        try:
+            raw = self.log_path.read_text(encoding="utf-8").strip()
+            parsed = json.loads(raw) if raw else {"changes": []}
+            return parsed if isinstance(parsed, dict) else {"changes": []}
+        except Exception:
+            return {"changes": []}

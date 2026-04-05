@@ -1,0 +1,14 @@
+{
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "openclaude.launchCommand": "openclaude",
+  "openclaude.terminalName": "OpenClaude",
+  "openclaude.useOpenAIShim": false,
+  "files.exclude": {
+    "**/vendor/openclaude-upstream/.git": true,
+    "**/vendor/openclaude-upstream/.github": true
+  },
+  "search.exclude": {
+    "**/vendor/openclaude-upstream/**": true
+  }
+}

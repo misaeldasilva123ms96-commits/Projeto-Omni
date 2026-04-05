@@ -1,7 +1,12 @@
-﻿# Environment and secrets
+# Environment and secrets
 .env
 .env.local
 .env.*.local
+.env.openclaude.local
+.env.openclaude.*.local
+.openclaude-profile.json
+.claude/settings.json
+.claude/*.private.json
 
 # Python
 __pycache__/
@@ -22,7 +27,6 @@ target/
 backend/python/transcripts/
 backend/python/brain/runtime/sessions/
 backend/python/memory/learning.json
-backend/python/users/
 sessions/
 *.session.json
 
@@ -30,12 +34,11 @@ sessions/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
-.env.production
-brain/runtime/logs/
-brain/evolution/snapshots/
-.logs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 
-# runtime state
-backend/python/brain/runtime/swarm_log.json
-backend/python/memory.json
+# Local tooling caches
+vendor/openclaude-upstream/
+vendor/**/openclaude-vscode-*.vsix

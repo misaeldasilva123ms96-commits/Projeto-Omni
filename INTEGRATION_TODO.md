@@ -1,0 +1,37 @@
+# Integration TODO
+
+- [x] Define the main architectural ownership across brain, executor, and provider layers
+- [x] Create an explicit brain-to-executor contract
+- [x] Rewire the active runner to a fusion brain facade
+- [x] Add provider abstraction wrapper inspired by OpenClaude
+- [x] Add a JS permission bridge aligned with the Rust runtime policy
+- [x] Add session snapshot and transcript audit persistence
+- [x] Add Kairos as an isolated optional feature manifest
+- [x] Add initial Node test coverage for runner fusion primitives
+- [x] Install an extracted QueryEngine-style authority and demote the heuristic fusion facade
+- [x] Add a real Rust executor bridge using selected `claw-code-main` runtime exports
+- [x] Route live execution requests from Node through Python into the Rust bridge
+- [x] Wire runtime memory retrieval and transcript-linked memory updates into the live path
+- [x] Add specialist delegation for planner, researcher, and memory roles
+- [x] Add end-to-end phase 2 tests for execution, permissions, memory, and audit behavior
+- [x] Emit runtime transcript and audit logs from the active Python->Rust execution path
+- [x] Add explicit runtime mode selection with primary and fallback execution paths
+- [x] Add a bounded multi-step execution loop in the live runtime path
+- [x] Harden specialist roles with scopes and failure policies
+- [x] Professionalize runtime memory into layered envelopes with retrieval hooks
+- [x] Formalize Kairos activation boundaries and contract
+- [x] Stabilize Python entrypoint bootstrap with explicit base-path seeding
+- [x] Introduce real semantic retrieval that affects runtime context selection
+- [x] Add planner/evaluator/synthesizer cognitive control roles in the live system
+- [x] Add bounded self-correction and revision logic with audit visibility
+- [x] Add checkpoint creation and resumable run execution
+- [x] Add task/run identity and task service boundaries for product/API readiness
+- [x] Enrich observability with semantic, correction, and step-level execution metadata
+- [ ] Package or transpile the selected upstream `src.zip` QueryEngine implementation for deeper direct adoption
+- [ ] Replace `cargo run` bridge mode with a stable packaged executor binary for Windows hosts
+- [ ] Expand the Rust bridge tool surface beyond file operations
+- [ ] Deepen final synthesis quality for richer analysis/planning tasks in the Python live path
+- [ ] Remove remaining transitional direct-execution code paths once the packaged bridge is stable
+- [ ] Reduce operational dependence on explicit session isolation for ad hoc smoke validation
+- [ ] Upgrade semantic retrieval from lightweight ranking to embedding-backed retrieval
+- [ ] Add stronger concurrency controls around checkpoint resume for future multi-worker deployment

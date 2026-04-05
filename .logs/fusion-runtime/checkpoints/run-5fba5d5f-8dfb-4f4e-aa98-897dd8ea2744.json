@@ -1,0 +1,38 @@
+{
+  "task_id": "task-584db481-de63-4619-9c55-3f00b8aa4115",
+  "session_id": "phase3-memory-artifact",
+  "message": "leia package.json",
+  "status": "blocked",
+  "next_step_index": 1,
+  "completed_steps": [
+    {
+      "ok": false,
+      "error_payload": {
+        "kind": "rust_bridge_failure",
+        "message": "Rust bridge failed",
+        "code": 3221225781,
+        "runtime_mode": "python-rust-packaged"
+      },
+      "selected_tool": "read_file",
+      "selected_agent": "researcher_agent",
+      "evaluation": {
+        "decision": "stop_failed",
+        "reason_code": "rust_bridge_failure",
+        "attempt_index": 1,
+        "max_attempts": 1
+      },
+      "correction_events": [
+        {
+          "decision": "stop_failed",
+          "reason_code": "rust_bridge_failure",
+          "attempt_index": 1,
+          "max_attempts": 1
+        }
+      ]
+    }
+  ],
+  "remaining_actions": [],
+  "total_actions": 1,
+  "run_id": "run-5fba5d5f-8dfb-4f4e-aa98-897dd8ea2744",
+  "updated_at": "2026-04-05T11:46:49.152681+00:00"
+}

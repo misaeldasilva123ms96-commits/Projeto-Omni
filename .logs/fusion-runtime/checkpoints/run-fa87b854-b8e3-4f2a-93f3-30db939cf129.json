@@ -1,0 +1,38 @@
+{
+  "task_id": "task-fca294aa-09d0-4daf-a897-0a3d247e8742",
+  "session_id": "phase2-read",
+  "message": "leia package.json",
+  "status": "blocked",
+  "next_step_index": 1,
+  "completed_steps": [
+    {
+      "ok": false,
+      "error_payload": {
+        "kind": "rust_bridge_failure",
+        "message": "Rust bridge failed",
+        "code": 3221225781,
+        "runtime_mode": "python-rust-packaged"
+      },
+      "selected_tool": "read_file",
+      "selected_agent": "researcher_agent",
+      "evaluation": {
+        "decision": "stop_failed",
+        "reason_code": "rust_bridge_failure",
+        "attempt_index": 1,
+        "max_attempts": 1
+      },
+      "correction_events": [
+        {
+          "decision": "stop_failed",
+          "reason_code": "rust_bridge_failure",
+          "attempt_index": 1,
+          "max_attempts": 1
+        }
+      ]
+    }
+  ],
+  "remaining_actions": [],
+  "total_actions": 1,
+  "run_id": "run-fa87b854-b8e3-4f2a-93f3-30db939cf129",
+  "updated_at": "2026-04-05T11:45:17.224989+00:00"
+}

@@ -1,114 +1,142 @@
 from __future__ import annotations
 
-import logging
+import json
+import os
 import threading
 import time
-import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
-from .evaluator import ResponseEvaluator
-from .pattern_analyzer import PatternAnalyzer
-from .strategy_updater import StrategyUpdater
+from brain.evolution.pattern_analyzer import PatternAnalyzer
+from brain.evolution.strategy_updater import StrategyUpdater
+from brain.memory.hybrid import HybridMemory
+from brain.runtime.session_store import SessionStore
 
-class EvolutionLoop(threading.Thread):
-    """
-    Loop de auto-evolução real que roda em background (daemon thread).
-    Avalia sessões recentes, analisa padrões de falha e ajusta a estratégia.
-    """
 
-    def __init__(self, brain_paths: Any, interval_minutes: int = 15):
-        super().__init__(name="EvolutionLoop", daemon=True)
-        self.paths = brain_paths
-        self.interval = interval_minutes * 60
-        self.running = True
-        
-        self.evaluator = ResponseEvaluator()
-        self.analyzer = PatternAnalyzer()
-        
-        # Define diretório de snapshots e versão atual
-        self.snapshots_dir = self.paths.python_root / "brain" / "evolution" / "snapshots"
-        self.updater = StrategyUpdater(self.snapshots_dir)
-        
-        # Estratégia padrão inicial
-        self.current_strategy = self._load_current_strategy()
+_LOOP_THREAD: threading.Thread | None = None
+_LOOP_LOCK = threading.Lock()
 
-    def run(self):
-        logging.info(f"Evolution Loop iniciado. Ciclo: {self.interval}s")
-        while self.running:
+
+class EvolutionLoop:
+    def __init__(self, python_root: Path) -> None:
+        self.python_root = python_root
+        self.memory_dir = python_root / "memory"
+        self.sessions_dir = python_root / "brain" / "runtime" / "sessions"
+        self.evolution_dir = python_root / "brain" / "evolution"
+        self.loop_log_path = self.evolution_dir / "loop_log.json"
+        self.hybrid_memory = HybridMemory(self.memory_dir)
+        self.session_store = SessionStore(self.sessions_dir)
+        self.pattern_analyzer = PatternAnalyzer()
+        self.strategy_updater = StrategyUpdater(self.evolution_dir)
+        self._ensure_log()
+
+    def _ensure_log(self) -> None:
+        self.evolution_dir.mkdir(parents=True, exist_ok=True)
+        if not self.loop_log_path.exists():
+            self.loop_log_path.write_text(json.dumps({"runs": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def run_forever(self) -> None:
+        interval_seconds = int(os.getenv("OMINI_EVOLUTION_INTERVAL_SECONDS", "300"))
+        min_sessions = int(os.getenv("OMINI_EVOLUTION_MIN_SESSIONS", "1"))
+
+        while True:
             try:
-                self._evolution_cycle()
-            except Exception as e:
-                logging.error(f"Erro no ciclo de evolução: {str(e)}")
-            
-            time.sleep(self.interval)
+                self.run_cycle(min_sessions=min_sessions)
+            except Exception:
+                pass
+            time.sleep(max(60, interval_seconds))
 
-    def _evolution_cycle(self):
-        # 1. Carrega o learning.json que contém as avaliações acumuladas
-        learning_data = self._load_learning_data()
-        evaluations = learning_data.get("evolution_evals", [])
-        
-        if not evaluations:
-            return
+    def run_cycle(self, *, min_sessions: int = 1) -> dict[str, Any]:
+        learning = self.hybrid_memory.load_learning()
+        evaluations = learning.get("evaluations", [])
+        if not isinstance(evaluations, list):
+            evaluations = []
 
-        # 2. Analisa padrões
-        analysis = self.analyzer.analyze(evaluations)
-        adjustments = analysis.get("recommended_adjustments", [])
-        
-        if not adjustments:
-            return
+        sessions = self._load_sessions()
+        if len(sessions) < min_sessions or not evaluations:
+            result = {
+                "status": "skipped",
+                "reason": "not_enough_data",
+                "sessions": len(sessions),
+                "evaluations": len(evaluations),
+            }
+            self._append_log(result)
+            return result
 
-        # 3. Propõe ajustes e gera nova estratégia se Score Gain > Threshold (heurística)
-        # Por enquanto aplicamos se houver falhas recorrentes
-        new_strategy = self.updater.update(self.current_strategy, adjustments)
-        
-        if new_strategy["version"] > self.current_strategy.get("version", 0):
-            logging.info(f"Nova estratégia gerada: v{new_strategy['version']}")
-            self.current_strategy = new_strategy
-            self._persist_evolution_log(analysis, new_strategy)
+        analysis = self.pattern_analyzer.analyze(
+            evaluations=evaluations[-100:],
+            learning=learning,
+            sessions=sessions[-50:],
+        )
+        average_score = round(
+            sum(float(item.get("overall", 0.0)) for item in evaluations[-100:]) / max(1, len(evaluations[-100:])),
+            3,
+        )
+        proposal = self.strategy_updater.propose_update(analysis, average_score)
+        threshold = float(proposal["current_state"].get("decision_thresholds", {}).get("apply_score_gain", 0.03))
 
-    def _load_current_strategy(self) -> Dict[str, Any]:
-        latest_ver = self.updater.get_latest_version()
-        if latest_ver > 0:
-            return self.updater.rollback(latest_ver)
-            
-        return {
-            "version": 0,
-            "last_update": None,
-            "adjustments": [],
-            "params": {
-                "max_length_threshold": 500,
-                "direct_memory_strictness": 0.5
-            },
-            "registry_overrides": {}
-        }
+        if proposal["estimated_score_gain"] > threshold:
+            new_state = self.strategy_updater.apply_update(proposal)
+            self.hybrid_memory.record_strategy_version(
+                {
+                    "version": new_state["version"],
+                    "justification": new_state.get("justification", ""),
+                    "estimated_score_gain": proposal["estimated_score_gain"],
+                }
+            )
+            result = {
+                "status": "applied",
+                "version": new_state["version"],
+                "estimated_score_gain": proposal["estimated_score_gain"],
+                "average_score": average_score,
+            }
+        else:
+            result = {
+                "status": "rejected",
+                "estimated_score_gain": proposal["estimated_score_gain"],
+                "threshold": threshold,
+                "average_score": average_score,
+            }
 
-    def _load_learning_data(self) -> Dict[str, Any]:
-        if not self.paths.memory_json.exists():
-            return {}
+        self._append_log(result | {"analysis": analysis})
+        return result
+
+    def _load_sessions(self) -> list[dict[str, Any]]:
+        sessions: list[dict[str, Any]] = []
+        if not self.sessions_dir.exists():
+            return sessions
+        for path in sorted(self.sessions_dir.glob("*.json")):
+            session_id = path.stem
+            sessions.append(self.session_store.load(session_id))
+        return sessions
+
+    def _append_log(self, event: dict[str, Any]) -> None:
         try:
-            with open(self.paths.memory_json, "r", encoding='utf-8') as f:
-                return json.load(f)
+            raw = self.loop_log_path.read_text(encoding="utf-8").strip()
+            parsed = json.loads(raw) if raw else {"runs": []}
+            runs = parsed.get("runs", [])
+            if not isinstance(runs, list):
+                runs = []
+            runs.append(event)
+            self.loop_log_path.write_text(
+                json.dumps({"runs": runs[-100:]}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception:
-            return {}
+            return
 
-    def _persist_evolution_log(self, analysis: Dict[str, Any], strategy: Dict[str, Any]):
-        evolution_log_path = self.paths.python_root / "brain" / "evolution" / "evolution_history.json"
-        
-        log_entry = {
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "analysis": analysis,
-            "new_version": strategy["version"]
-        }
-        
-        logs = []
-        if evolution_log_path.exists():
-            with open(evolution_log_path, "r", encoding='utf-8') as f:
-                logs = json.load(f)
-        
-        logs.append(log_entry)
-        with open(evolution_log_path, "w", encoding='utf-8') as f:
-            json.dump(logs, f, indent=2, ensure_ascii=False)
 
-    def stop(self):
-        self.running = False
+def start_evolution_loop(python_root: Path) -> threading.Thread:
+    global _LOOP_THREAD
+    with _LOOP_LOCK:
+        if _LOOP_THREAD is not None and _LOOP_THREAD.is_alive():
+            return _LOOP_THREAD
+
+        loop = EvolutionLoop(python_root)
+        _LOOP_THREAD = threading.Thread(
+            target=loop.run_forever,
+            name="omini-evolution-loop",
+            daemon=True,
+        )
+        _LOOP_THREAD.start()
+        return _LOOP_THREAD

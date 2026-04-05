@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "brain-executor-contract.v1.json",
+  "title": "Omini Brain To Executor Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "action_id",
+    "step_id",
+    "strategy",
+    "step_goal",
+    "dependency_step_ids",
+    "selected_tool",
+    "selected_agent",
+    "permission_requirement",
+    "approval_state",
+    "execution_context",
+    "tool_arguments",
+    "timeout_ms",
+    "retry_policy",
+    "transcript_link",
+    "memory_update_hints",
+    "result_payload",
+    "error_payload",
+    "usage_accounting",
+    "audit"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "action_id": {
+      "type": "string"
+    },
+    "step_id": {
+      "type": "string"
+    },
+    "strategy": {
+      "type": "string"
+    },
+    "step_goal": {
+      "type": "string"
+    },
+    "dependency_step_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "selected_tool": {
+      "type": "string"
+    },
+    "selected_agent": {
+      "type": "string"
+    },
+    "permission_requirement": {
+      "type": "string"
+    },
+    "approval_state": {
+      "type": "string"
+    },
+    "execution_context": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "tool_arguments": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "retry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_attempts",
+        "backoff_ms"
+      ],
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "backoff_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "transcript_link": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "memory_update_hints": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "result_payload": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "error_payload": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "usage_accounting": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
