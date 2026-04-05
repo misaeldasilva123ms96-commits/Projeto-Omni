@@ -44,3 +44,11 @@
 - [ ] Add stronger concurrency controls around checkpoint resume for future multi-worker deployment
 - [ ] Extend graph planning beyond read/search dependency shapes
 - [ ] Add richer task/run inspection endpoints on top of TaskService
+
+## Phase 6 follow-up
+- [ ] Add mid-run reflection triggers for long-running weak-success paths.
+- [ ] Add richer learning-memory ranking and confidence decay.
+- [ ] Add operator endpoints on top of the internal service contracts.
+- [ ] Add explicit human-approval workflow objects for high-risk tasks.
+- [ ] Add hierarchical synthesis formatting for longer analytical answers.
+- [ ] Add dashboard/API consumers for `run-summaries.jsonl` and policy events.

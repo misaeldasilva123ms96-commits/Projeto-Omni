@@ -202,3 +202,38 @@
 - Alternatives: expose raw orchestrator internals externally; defer service boundaries until a full API exists.
 - Decision: define normalized start/status task envelopes in `TaskService` and `service_contracts.py`.
 - Consequences: future API layers can wrap stable contracts instead of binding directly to internal runtime state.
+
+## ADR: Hierarchical Planning Strategy
+- Context: Phase 5 already supported linear and graph planning, but complex tasks needed goal/subgoal grouping.
+- Decision: add `plan_hierarchy` as metadata alongside the existing executable step list and graph.
+- Consequence: the runtime keeps one execution authority while gaining resumable hierarchy lineage.
+
+## ADR: Execution Learning Memory
+- Context: the runtime needed bounded learning without uncontrolled self-training.
+- Decision: store explicit execution lessons in a structured file-backed memory and retrieve them before planning.
+- Consequence: future plans can be shaped by success and failure-avoidance patterns while staying auditable.
+
+## ADR: Reflection Policy
+- Context: post-run quality review was missing from the live path.
+- Decision: add bounded reflection summaries triggered by hierarchy or weak execution outcomes.
+- Consequence: the system gains review and learning updates without introducing hidden self-talk loops.
+
+## ADR: Tool Governance Taxonomy
+- Context: tool safety rules were scattered across permission and runtime logic.
+- Decision: classify tools by category, mutability, privilege level, and specialist scope before execution.
+- Consequence: policy stops become explicit, auditable, and easier to extend.
+
+## ADR: Operational Policy Model
+- Context: operator-facing stop reasons needed to become first-class runtime outputs.
+- Decision: attach structured policy decisions to actions and surface them in status, audit, and reflection.
+- Consequence: debugging and operator supervision become clearer.
+
+## ADR: Telemetry Summary Schema
+- Context: future UI/dashboard work needs correlated run-level summaries.
+- Decision: persist machine-readable run summaries with hierarchy, reflection, and step lineage.
+- Consequence: dashboard/API work can be added later without redesigning runtime telemetry.
+
+## ADR: Operator Contract Boundaries
+- Context: service readiness needed richer inspection paths without exposing a full public API yet.
+- Decision: extend internal task service contracts for hierarchy, reflection, learning, and policy inspection.
+- Consequence: the project is more operator-ready while preserving clean boundaries.

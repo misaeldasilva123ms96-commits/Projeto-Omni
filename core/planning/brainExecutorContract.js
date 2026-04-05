@@ -15,6 +15,7 @@ function buildBrainExecutorAction({
   transcriptLink,
   memoryUpdateHints,
   audit,
+  policyDecision,
 }) {
   return {
     version: '1.0.0',
@@ -36,6 +37,7 @@ function buildBrainExecutorAction({
     },
     transcript_link: transcriptLink || {},
     memory_update_hints: memoryUpdateHints || {},
+    policy_decision: policyDecision || {},
     result_payload: null,
     error_payload: null,
     usage_accounting: null,

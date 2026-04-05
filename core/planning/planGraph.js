@@ -1,4 +1,4 @@
-function buildPlanNode(step, extra = {}) {
+﻿function buildPlanNode(step, extra = {}) {
   return {
     node_id: step.step_id,
     step_id: step.step_id,
@@ -10,6 +10,8 @@ function buildPlanNode(step, extra = {}) {
     parallel_safe: Boolean(extra.parallel_safe),
     retryable: extra.retryable !== false,
     state: extra.state || 'pending',
+    goal_id: extra.goal_id || step.goal_id || null,
+    parent_goal_id: extra.parent_goal_id || step.parent_goal_id || null,
   };
 }
 
@@ -19,6 +21,8 @@ function buildPlanGraph({ steps = [], mode = 'linear' }) {
     retryable: true,
     state: 'pending',
     order: index,
+    goal_id: step.goal_id,
+    parent_goal_id: step.parent_goal_id,
   }));
   return {
     version: 1,
@@ -27,7 +31,18 @@ function buildPlanGraph({ steps = [], mode = 'linear' }) {
   };
 }
 
+function buildHierarchicalPlan({ rootGoal, subgoals = [] }) {
+  return {
+    version: 1,
+    mode: 'hierarchical',
+    root_goal_id: rootGoal.goal_id,
+    root_goal: rootGoal,
+    subgoals,
+  };
+}
+
 module.exports = {
   buildPlanGraph,
+  buildHierarchicalPlan,
   buildPlanNode,
 };

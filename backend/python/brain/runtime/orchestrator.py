@@ -380,6 +380,9 @@ class BrainOrchestrator:
             plan_kind=str(execution_request.get("plan_kind", "linear")),
             plan_graph=execution_request.get("plan_graph"),
             semantic_retrieval=execution_request.get("semantic_retrieval", []),
+            plan_hierarchy=execution_request.get("plan_hierarchy"),
+            learning_guidance=execution_request.get("learning_guidance", []),
+            policy_summary=execution_request.get("policy_summary", []),
         )
         if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
             self._append_runtime_event(
@@ -414,6 +417,9 @@ class BrainOrchestrator:
         plan_kind: str = "linear",
         plan_graph: dict[str, Any] | None = None,
         semantic_retrieval: object = None,
+        plan_hierarchy: dict[str, Any] | None = None,
+        learning_guidance: object = None,
+        policy_summary: object = None,
         start_index: int = 0,
     ) -> list[dict[str, Any]]:
         max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
@@ -443,6 +449,19 @@ class BrainOrchestrator:
                     "node_count": len(graph_state.get("nodes", [])),
                 },
             )
+        if plan_kind == "hierarchical" and isinstance(plan_hierarchy, dict):
+            self._append_runtime_event(
+                event_type="runtime.goal.plan",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "root_goal_id": plan_hierarchy.get("root_goal_id"),
+                    "subgoal_count": len(plan_hierarchy.get("subgoals", []))
+                    if isinstance(plan_hierarchy.get("subgoals", []), list)
+                    else 0,
+                },
+            )
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -452,6 +471,7 @@ class BrainOrchestrator:
             next_step_index=start_index,
             completed_steps=step_results,
             plan_graph=graph_state,
+            plan_hierarchy=plan_hierarchy,
             plan_signature=plan_signature,
             status="running",
         )
@@ -484,6 +504,7 @@ class BrainOrchestrator:
                     actions=[action for action in batch_actions if isinstance(action, dict)],
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
+                    learning_guidance=learning_guidance,
                     allow_parallel=len(batch_actions) > 1,
                 )
 
@@ -504,6 +525,7 @@ class BrainOrchestrator:
                         specialists=delegation.get("specialists", []),
                         plan_kind=plan_kind,
                         semantic_retrieval=semantic_retrieval,
+                        plan_hierarchy=plan_hierarchy,
                     )
                     if not result.get("ok"):
                         break
@@ -517,6 +539,7 @@ class BrainOrchestrator:
                     next_step_index=min(start_index + executed_steps, len(actions)),
                     completed_steps=step_results,
                     plan_graph=graph_state,
+                    plan_hierarchy=plan_hierarchy,
                     plan_signature=plan_signature,
                     status="blocked" if step_results and not step_results[-1].get("ok") else "running",
                 )
@@ -531,6 +554,7 @@ class BrainOrchestrator:
                     action=action,
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
+                    learning_guidance=learning_guidance,
                 )
                 executed_steps += 1
                 step_results.append(result)
@@ -548,6 +572,7 @@ class BrainOrchestrator:
                     specialists=delegation.get("specialists", []),
                     plan_kind=plan_kind,
                     semantic_retrieval=semantic_retrieval,
+                    plan_hierarchy=plan_hierarchy,
                 )
                 self._write_checkpoint(
                     run_id=run_id,
@@ -558,6 +583,7 @@ class BrainOrchestrator:
                     next_step_index=index + 1,
                     completed_steps=step_results,
                     plan_graph=graph_state,
+                    plan_hierarchy=plan_hierarchy,
                     plan_signature=plan_signature,
                     status="blocked" if not result.get("ok") else "running",
                 )
@@ -574,6 +600,7 @@ class BrainOrchestrator:
             next_step_index=min(start_index + len(step_results), len(actions)),
             completed_steps=step_results,
             plan_graph=graph_state,
+            plan_hierarchy=plan_hierarchy,
             plan_signature=plan_signature,
             status="completed"
             if (
@@ -582,6 +609,71 @@ class BrainOrchestrator:
                 and all(item.get("ok") for item in step_results)
             )
             else "blocked",
+        )
+        reflection = self._reflect_on_run(
+            message=message,
+            step_results=step_results,
+            task_id=task_id,
+            run_id=run_id,
+            session_id=session_id,
+            plan_hierarchy=plan_hierarchy,
+            learning_guidance=learning_guidance,
+            policy_summary=policy_summary,
+        )
+        if reflection.get("invoked"):
+            self._append_runtime_event(
+                event_type="runtime.reflection",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=reflection,
+            )
+            if reflection.get("update_learning"):
+                self._record_learning_memory(
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    message=message,
+                    outcome="success" if step_results and all(item.get("ok") for item in step_results) else "failure_avoidance",
+                    tool_family=str(step_results[0].get("selected_tool", "unknown")) if step_results else "unknown",
+                    lesson=str(reflection.get("summary", "")),
+                    trigger=str(reflection.get("reason_code", "")),
+                    metadata={"plan_kind": plan_kind, "hierarchical": bool(plan_hierarchy)},
+                )
+        self.checkpoint_store.save(
+            run_id,
+            {
+                "task_id": task_id,
+                "session_id": session_id,
+                "message": message,
+                "status": (
+                    "completed"
+                    if (
+                        min(start_index + len(step_results), len(actions)) >= len(actions)
+                        and step_results
+                        and all(item.get("ok") for item in step_results)
+                    )
+                    else "blocked"
+                ),
+                "next_step_index": min(start_index + len(step_results), len(actions)),
+                "completed_steps": step_results,
+                "remaining_actions": actions[min(start_index + len(step_results), len(actions)):],
+                "total_actions": len(actions),
+                "plan_graph": graph_state,
+                "plan_hierarchy": plan_hierarchy,
+                "plan_signature": plan_signature,
+                "reflection_summary": reflection,
+            },
+        )
+        self._write_run_summary(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            message=message,
+            step_results=step_results,
+            plan_kind=plan_kind,
+            plan_hierarchy=plan_hierarchy,
+            reflection=reflection,
         )
         return step_results
 
@@ -654,6 +746,7 @@ class BrainOrchestrator:
         actions: list[dict[str, Any]],
         step_results: list[dict[str, Any]],
         semantic_retrieval: object,
+        learning_guidance: object,
         allow_parallel: bool,
     ) -> list[dict[str, Any]]:
         if not allow_parallel or len(actions) <= 1:
@@ -662,6 +755,7 @@ class BrainOrchestrator:
                     action=action,
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
+                    learning_guidance=learning_guidance,
                 )
                 for action in actions
             ]
@@ -674,6 +768,7 @@ class BrainOrchestrator:
                     action=action,
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
+                    learning_guidance=learning_guidance,
                 ): action
                 for action in actions
             }
@@ -689,12 +784,38 @@ class BrainOrchestrator:
         action: dict[str, Any],
         step_results: list[dict[str, Any]],
         semantic_retrieval: object,
+        learning_guidance: object = None,
     ) -> dict[str, Any]:
         attempts = int(action.get("retry_policy", {}).get("max_attempts", 1) or 1)
         attempts = min(attempts, self._runtime_correction_depth() + 1)
         final_result: dict[str, Any] | None = None
         correction_events: list[dict[str, Any]] = []
         current_action = dict(action)
+        policy_decision = dict(current_action.get("policy_decision", {}) or {})
+
+        if policy_decision.get("decision") == "stop":
+            blocked_result = {
+                "ok": False,
+                "error_payload": {
+                    "kind": "policy_stop",
+                    "message": str(policy_decision.get("operator_message", "Execution blocked by runtime policy.")),
+                    "policy": policy_decision,
+                },
+            }
+            blocked_result["selected_tool"] = current_action.get("selected_tool")
+            blocked_result["selected_agent"] = current_action.get("selected_agent")
+            blocked_result["evaluation"] = {
+                "decision": "stop_blocked",
+                "reason_code": str(policy_decision.get("reason_code", "policy_stop")),
+                "critic": {
+                    "invoked": False,
+                    "decision": "stop",
+                    "reason_code": "policy_stop",
+                },
+                "learning_guidance": learning_guidance[0] if isinstance(learning_guidance, list) and learning_guidance else None,
+            }
+            blocked_result["correction_events"] = [blocked_result["evaluation"]]
+            return blocked_result
 
         for attempt_number in range(1, attempts + 1):
             final_result = execute_action(
@@ -716,6 +837,7 @@ class BrainOrchestrator:
                 max_attempts=attempts,
             )
             evaluation["critic"] = critic
+            evaluation["learning_guidance"] = learning_guidance[0] if isinstance(learning_guidance, list) and learning_guidance else None
             correction_events.append(evaluation)
 
             if final_result.get("ok"):
@@ -828,6 +950,129 @@ class BrainOrchestrator:
             **payload,
         }
         self._append_jsonl(log_dir / "execution-audit.jsonl", entry)
+
+    def _record_learning_memory(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        message: str,
+        outcome: str,
+        tool_family: str,
+        lesson: str,
+        trigger: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        learning_path = self.paths.root / ".logs" / "fusion-runtime" / "execution-learning-memory.json"
+        learning_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            current = json.loads(learning_path.read_text(encoding="utf-8"))
+        except Exception:
+            current = {"entries": []}
+        entry = {
+            "entry_id": f"{task_id}:{run_id}:{len(current.get('entries', [])) + 1}",
+            "session_id": session_id,
+            "task_id": task_id,
+            "run_id": run_id,
+            "archetype": self._predict_intent(message),
+            "strategy_type": "execution_review",
+            "outcome": outcome,
+            "lesson": lesson,
+            "confidence": 0.75 if outcome == "success" else 0.9,
+            "tool_family": tool_family,
+            "trigger": trigger,
+            "transcript_ref": {"session_id": session_id, "run_id": run_id},
+            "metadata": metadata,
+            "updated_at": self._utc_now(),
+        }
+        current["entries"] = [entry] + [item for item in current.get("entries", []) if item.get("entry_id") != entry["entry_id"]]
+        learning_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._append_runtime_event(
+            event_type="runtime.learning_memory.updated",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={"entry": entry},
+        )
+
+    def _reflect_on_run(
+        self,
+        *,
+        message: str,
+        step_results: list[dict[str, Any]],
+        task_id: str,
+        run_id: str,
+        session_id: str,
+        plan_hierarchy: dict[str, Any] | None,
+        learning_guidance: object,
+        policy_summary: object,
+    ) -> dict[str, Any]:
+        failures = [item for item in step_results if not item.get("ok")]
+        if not failures and not plan_hierarchy:
+            return {"invoked": False, "reason_code": "reflection_not_required"}
+        summary_parts = []
+        if isinstance(plan_hierarchy, dict):
+            summary_parts.append(
+                f"Executou {len(plan_hierarchy.get('subgoals', []))} subobjetivos sob a meta principal."
+            )
+        if failures:
+            summary_parts.append(
+                f"Falhas observadas em {', '.join(str(item.get('selected_tool', 'tool')) for item in failures)}."
+            )
+        if isinstance(learning_guidance, list) and learning_guidance:
+            summary_parts.append(f"Licao reaproveitada: {learning_guidance[0].get('lesson', '')}")
+        if isinstance(policy_summary, list) and policy_summary:
+            blocked = [item for item in policy_summary if item.get('policy_decision', {}).get('decision') == 'stop']
+            if blocked:
+                summary_parts.append("A politica bloqueou parte da execucao por seguranca.")
+        return {
+            "invoked": True,
+            "reason_code": "hierarchical_review" if plan_hierarchy else "execution_quality_review",
+            "summary": " ".join(part for part in summary_parts if part).strip(),
+            "update_learning": bool(failures or plan_hierarchy),
+            "message_preview": message[:120],
+        }
+
+    def _write_run_summary(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        message: str,
+        step_results: list[dict[str, Any]],
+        plan_kind: str,
+        plan_hierarchy: dict[str, Any] | None,
+        reflection: dict[str, Any],
+    ) -> None:
+        run_summary_path = self.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
+        summary = {
+            "timestamp": self._utc_now(),
+            "event_type": "runtime.run.summary",
+            "session_id": session_id,
+            "task_id": task_id,
+            "run_id": run_id,
+            "message": message,
+            "plan_kind": plan_kind,
+            "hierarchy": plan_hierarchy,
+            "reflection": reflection,
+            "status": "completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
+            "steps": [
+                {
+                    "step_id": item.get("action", {}).get("step_id") if isinstance(item.get("action"), dict) else item.get("step_id"),
+                    "goal_id": (
+                        item.get("action", {}).get("execution_context", {}).get("goal_id")
+                        if isinstance(item.get("action"), dict)
+                        else None
+                    ),
+                    "selected_tool": item.get("selected_tool"),
+                    "ok": bool(item.get("ok")),
+                }
+                for item in step_results
+            ],
+        }
+        self._append_jsonl(run_summary_path, summary)
 
     @staticmethod
     def _synthesize_runtime_response(step_results: list[dict[str, Any]], fallback_response: str) -> str:
@@ -952,6 +1197,7 @@ class BrainOrchestrator:
         specialists: list[Any],
         plan_kind: str,
         semantic_retrieval: object,
+        plan_hierarchy: dict[str, Any] | None = None,
     ) -> None:
         log_dir = self.paths.root / ".logs" / "fusion-runtime"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -966,6 +1212,8 @@ class BrainOrchestrator:
             "step_id": action.get("step_id"),
             "selected_tool": action.get("selected_tool"),
             "selected_agent": action.get("selected_agent"),
+            "goal_id": action.get("execution_context", {}).get("goal_id"),
+            "parent_goal_id": action.get("execution_context", {}).get("parent_goal_id"),
             "ok": bool(result.get("ok")),
             "result": result.get("result_payload"),
             "error": result.get("error_payload"),
@@ -987,6 +1235,7 @@ class BrainOrchestrator:
             "task_id": task_id,
             "run_id": run_id,
             "plan_kind": plan_kind,
+            "plan_hierarchy": plan_hierarchy if isinstance(plan_hierarchy, dict) else None,
             "delegated_specialists": specialists if isinstance(specialists, list) else [],
             "semantic_retrieval": semantic_retrieval if isinstance(semantic_retrieval, list) else [],
             "step_results": [
@@ -995,6 +1244,7 @@ class BrainOrchestrator:
                     "step_id": action.get("step_id"),
                     "selected_tool": action.get("selected_tool"),
                     "selected_agent": action.get("selected_agent"),
+                    "goal_id": action.get("execution_context", {}).get("goal_id"),
                     "evaluation": result.get("evaluation"),
                     "correction_events": result.get("correction_events", []),
                 }
@@ -1112,6 +1362,7 @@ class BrainOrchestrator:
         next_step_index: int,
         completed_steps: list[dict[str, Any]],
         plan_graph: dict[str, Any] | None,
+        plan_hierarchy: dict[str, Any] | None,
         plan_signature: str,
         status: str,
     ) -> None:
@@ -1128,6 +1379,7 @@ class BrainOrchestrator:
                 "remaining_actions": remaining_actions,
                 "total_actions": len(actions),
                 "plan_graph": plan_graph,
+                "plan_hierarchy": plan_hierarchy,
                 "plan_signature": plan_signature,
             },
         )
@@ -1179,6 +1431,9 @@ class BrainOrchestrator:
             plan_kind=str((checkpoint.get("plan_graph") or {}).get("mode", "linear")),
             plan_graph=checkpoint.get("plan_graph"),
             semantic_retrieval=[],
+            plan_hierarchy=checkpoint.get("plan_hierarchy"),
+            learning_guidance=[],
+            policy_summary=[],
             start_index=0,
         )
         return {

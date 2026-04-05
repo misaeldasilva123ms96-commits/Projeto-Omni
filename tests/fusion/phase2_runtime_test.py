@@ -424,6 +424,133 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertIn("runtime.parallel.start", event_types)
         self.assertIn("runtime.step.audit", event_types)
 
+    def test_hierarchical_plan_execution_and_learning_memory(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase6-hierarchy"
+        actions = [
+            {
+                "action_id": "phase6-list",
+                "step_id": "phase6-list",
+                "strategy": "real_execution",
+                "selected_tool": "glob_search",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:inspect", "parent_goal_id": "goal:root"},
+                "tool_arguments": {"pattern": "**/*", "path": "."},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase6-hierarchy"},
+                "memory_update_hints": {},
+            },
+            {
+                "action_id": "phase6-read",
+                "step_id": "phase6-read",
+                "strategy": "real_execution",
+                "selected_tool": "read_file",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:synthesize", "parent_goal_id": "goal:root"},
+                "tool_arguments": {"path": "package.json", "limit": 40},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase6-hierarchy"},
+                "memory_update_hints": {},
+            },
+        ]
+        plan_hierarchy = {
+            "version": 1,
+            "mode": "hierarchical",
+            "root_goal_id": "goal:root",
+            "subgoals": [
+                {"goal_id": "goal:inspect", "parent_goal_id": "goal:root", "step_ids": ["phase6-list"]},
+                {"goal_id": "goal:synthesize", "parent_goal_id": "goal:root", "step_ids": ["phase6-read"]},
+            ],
+        }
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase6-hierarchy",
+            message="liste os arquivos, depois leia package.json e analise por partes",
+            actions=actions,
+            task_id="task-phase6-hierarchy",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="analysis",
+            delegation={"delegates": ["task_planner", "researcher_agent"], "specialists": ["researcher_agent", "reviewer_agent"]},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="hierarchical",
+            plan_graph={"version": 1, "mode": "hierarchical", "nodes": []},
+            plan_hierarchy=plan_hierarchy,
+            semantic_retrieval=[],
+            learning_guidance=[{"lesson": "prefer read-only inspection first"}],
+            policy_summary=[],
+        )
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(item.get("ok") for item in results))
+
+        learning_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-learning-memory.json"
+        self.assertTrue(learning_path.exists())
+        learning_entries = json.loads(learning_path.read_text(encoding="utf-8")).get("entries", [])
+        self.assertTrue(any(entry.get("run_id") == run_id for entry in learning_entries))
+
+        checkpoint = orchestrator.checkpoint_store.load(run_id)
+        self.assertEqual(checkpoint.get("plan_hierarchy", {}).get("root_goal_id"), "goal:root")
+        self.assertIn("reflection_summary", checkpoint)
+
+    def test_policy_stop_and_run_summary_are_operator_visible(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase6-policy"
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase6-policy",
+            message="escreva no arquivo sem aprovacao",
+            actions=[
+                {
+                    "action_id": "phase6-write",
+                    "step_id": "phase6-write",
+                    "strategy": "real_execution",
+                    "selected_tool": "write_file",
+                    "selected_agent": "coder_agent",
+                    "permission_requirement": "explicit_approval_required",
+                    "approval_state": "pending",
+                    "policy_decision": {
+                        "decision": "stop",
+                        "reason_code": "missing_approval",
+                        "operator_message": "A acao exige aprovacao explicita antes da execucao.",
+                    },
+                    "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:root"},
+                    "tool_arguments": {"path": "tests/fusion/blocked-output.txt", "content": "blocked"},
+                    "retry_policy": {"max_attempts": 1},
+                    "transcript_link": {"session_id": "phase6-policy"},
+                    "memory_update_hints": {},
+                }
+            ],
+            task_id="task-phase6-policy",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="execution",
+            delegation={},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="linear",
+            plan_graph=None,
+            plan_hierarchy=None,
+            semantic_retrieval=[],
+            learning_guidance=[],
+            policy_summary=[{"step_id": "phase6-write", "policy_decision": {"decision": "stop", "reason_code": "missing_approval"}}],
+        )
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0].get("ok"))
+        self.assertEqual(results[0].get("error_payload", {}).get("kind"), "policy_stop")
+
+        task_service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")
+        status = task_service.task_status(run_id=run_id)
+        self.assertEqual(status.get("status"), "blocked")
+        self.assertIn("operator_links", status)
+
+        run_summary = PROJECT_ROOT / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
+        self.assertTrue(run_summary.exists())
+        entries = [json.loads(line) for line in run_summary.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertTrue(any(entry.get("run_id") == run_id for entry in entries))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,30 @@ class TaskService:
     def inspect_run(self, *, run_id: str) -> dict[str, Any]:
         return self.orchestrator.checkpoint_store.load(run_id)
 
+    def inspect_plan_hierarchy(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "task_id": checkpoint.get("task_id"),
+            "plan_hierarchy": checkpoint.get("plan_hierarchy"),
+            "plan_graph": checkpoint.get("plan_graph"),
+        }
+
+    def inspect_learning_memory(self) -> dict[str, Any]:
+        learning_path = self.orchestrator.paths.root / ".logs" / "fusion-runtime" / "execution-learning-memory.json"
+        if not learning_path.exists():
+            return {"entries": []}
+        import json
+
+        return json.loads(learning_path.read_text(encoding="utf-8"))
+
+    def inspect_reflection(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "reflection_summary": checkpoint.get("reflection_summary"),
+        }
+
     def task_status(self, *, run_id: str) -> dict[str, Any]:
         checkpoint = self.orchestrator.checkpoint_store.load(run_id)
         return build_task_status(run_id=run_id, checkpoint=checkpoint)

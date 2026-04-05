@@ -1,4 +1,4 @@
-const { buildPlanGraph } = require('../../../core/planning/planGraph');
+﻿const { buildHierarchicalPlan, buildPlanGraph } = require('../../../core/planning/planGraph');
 
 function detectConstraints(message) {
   const text = String(message || '').toLowerCase();
@@ -12,6 +12,9 @@ function detectConstraints(message) {
     wantsGraphPlan: text.includes('depois') || text.includes('entao') || text.includes('então') || text.includes('analise'),
     wantsParallelRead: (text.includes('liste') || text.includes('arquivos')) && (text.includes('busque') || text.includes('procure') || text.includes('grep')),
     wantsMultiStep: /\b(e|depois|entao|então)\b/.test(text),
+    wantsHierarchy:
+      /(depois|entao|então|por partes|primeiro|segundo)/.test(text)
+      && ((text.includes('analise') && text.includes('leia')) || (text.includes('liste') && text.includes('analise'))),
   };
 }
 
@@ -37,17 +40,73 @@ function buildStep(sessionId, suffix, tool, agent, toolArguments, goal, extra = 
   };
 }
 
+function assignHierarchy(constraints, steps) {
+  if (!constraints.wantsHierarchy) return steps;
+  return steps.map(step => {
+    if (['glob_search', 'grep_search'].includes(step.selected_tool)) {
+      return { ...step, goal_id: 'goal:inspect', parent_goal_id: 'goal:root' };
+    }
+    if (step.selected_tool === 'read_file' && constraints.wantsAnalysis) {
+      return { ...step, goal_id: 'goal:synthesize', parent_goal_id: 'goal:root' };
+    }
+    if (step.selected_tool === 'read_file') {
+      return { ...step, goal_id: 'goal:read', parent_goal_id: 'goal:root' };
+    }
+    return { ...step, goal_id: 'goal:root', parent_goal_id: null };
+  });
+}
+
 function buildPlanMetadata(constraints, steps, runtimeConfig) {
-  const planKind = constraints.wantsParallelRead || constraints.wantsGraphPlan || steps.some(step => Array.isArray(step.depends_on) && step.depends_on.length > 0)
-    ? 'graph'
-    : 'linear';
+  const planKind = constraints.wantsHierarchy
+    ? 'hierarchical'
+    : constraints.wantsParallelRead || constraints.wantsGraphPlan || steps.some(step => Array.isArray(step.depends_on) && step.depends_on.length > 0)
+      ? 'graph'
+      : 'linear';
+  const rootGoal = {
+    goal_id: 'goal:root',
+    label: 'Resolver a solicitacao principal',
+    state: 'pending',
+  };
+  const subgoals = planKind === 'hierarchical'
+    ? [
+        {
+          goal_id: 'goal:inspect',
+          parent_goal_id: rootGoal.goal_id,
+          label: 'Inspecionar o workspace e reunir evidencias',
+          state: 'pending',
+          step_ids: steps.filter(step => ['glob_search', 'grep_search'].includes(step.selected_tool)).map(step => step.step_id),
+        },
+        {
+          goal_id: 'goal:read',
+          parent_goal_id: rootGoal.goal_id,
+          label: 'Ler os artefatos principais',
+          state: 'pending',
+          step_ids: steps.filter(step => step.selected_tool === 'read_file').map(step => step.step_id),
+        },
+        {
+          goal_id: 'goal:synthesize',
+          parent_goal_id: rootGoal.goal_id,
+          label: 'Sintetizar os achados por subobjetivo',
+          state: 'pending',
+          step_ids: steps.filter(step => step.selected_tool === 'read_file').map(step => step.step_id),
+        },
+      ].filter(item => item.step_ids.length > 0)
+    : [];
 
   return {
     plan_kind: planKind,
-    plan_graph: planKind === 'graph'
-      ? buildPlanGraph({
+    plan_graph: planKind === 'linear'
+      ? null
+      : buildPlanGraph({
           steps,
-          mode: constraints.wantsParallelRead ? 'parallel-read' : 'dependency-aware',
+          mode: planKind === 'hierarchical'
+            ? (constraints.wantsParallelRead ? 'hierarchical-parallel-read' : 'hierarchical')
+            : (constraints.wantsParallelRead ? 'parallel-read' : 'dependency-aware'),
+        }),
+    plan_hierarchy: planKind === 'hierarchical'
+      ? buildHierarchicalPlan({
+          rootGoal,
+          subgoals,
         })
       : null,
     max_steps: Math.min(runtimeConfig.maxSteps || 6, steps.length || 1),
@@ -58,8 +117,10 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
   const constraints = detectConstraints(message);
   const steps = [];
   const referencedFile = detectReferencedFile(message, retrievalContext);
+  const learningMatches = Array.isArray(retrievalContext.learning_matches) ? retrievalContext.learning_matches : [];
+  const prefersInspectionFirst = learningMatches.some(item => String(item.lesson || '').toLowerCase().includes('read-only') || String(item.lesson || '').toLowerCase().includes('parallel'));
 
-  if (constraints.wantsList) {
+  if (constraints.wantsList || (prefersInspectionFirst && (constraints.wantsRead || constraints.wantsAnalysis))) {
     steps.push(buildStep(
       sessionId,
       'list',
@@ -100,7 +161,7 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
         path: chosenPath,
         limit: constraints.wantsAnalysis ? 160 : 120,
       },
-      'retrieve target file contents',
+      constraints.wantsAnalysis ? 'retrieve source material for hierarchical analysis' : 'retrieve target file contents',
       {
         depends_on: constraints.wantsList ? [`${sessionId}:step:list`] : [],
       },
@@ -116,7 +177,7 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
       'coder_agent',
       {
         path: targetPath,
-        content: 'Generated by Omini Phase 5 runtime.\n',
+        content: 'Generated by Omini Phase 6 runtime.\n',
       },
       'persist requested content',
     ));
@@ -133,7 +194,8 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
     ));
   }
 
-  const planMetadata = buildPlanMetadata(constraints, steps, runtimeConfig);
+  const hierarchicalSteps = assignHierarchy(constraints, steps);
+  const planMetadata = buildPlanMetadata(constraints, hierarchicalSteps, runtimeConfig);
   return {
     constraints,
     ...planMetadata,
@@ -142,11 +204,12 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
       max_attempts: runtimeConfig.maxRetries || 1,
       backoff_ms: 0,
     },
-    requires_review: steps.some(step => step.selected_tool !== 'none'),
-    steps,
+    requires_review: hierarchicalSteps.some(step => step.selected_tool !== 'none'),
+    steps: hierarchicalSteps,
   };
 }
 
 module.exports = {
   planTask,
 };
+

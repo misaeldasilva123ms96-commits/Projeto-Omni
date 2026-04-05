@@ -13,10 +13,12 @@ const { buildMemorySnapshot } = require('../../storage/memory/memoryPersistence'
 const {
   getSessionRuntimeMemory,
   findSemanticMatches,
+  recordSemanticEntry,
   recordRuntimeArtifacts,
   updateSessionRuntimeMemory,
   updateWorkingMemory,
 } = require('../../storage/memory/runtimeMemoryStore');
+const { findLearningMatches } = require('../../storage/memory/executionLearningMemory');
 const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit');
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
 const { planTask } = require('../../features/multiagent/specialists/advancedPlannerSpecialist');
@@ -32,6 +34,7 @@ const { buildRustRuntimeManifest } = require('../../runtime/execution/rustRuntim
 const { getKairosManifest } = require('../../features/kairos/manifest');
 const { getCodexIntegrationStatus } = require('../../platform/integrations/codexIntegration');
 const { getCliPlatformManifest } = require('../../platform/cli/manifest');
+const { buildPolicyDecision, describeTool } = require('../../runtime/tooling/toolGovernance');
 
 function normalizeText(value) {
   return String(value || '')
@@ -141,6 +144,7 @@ class QueryEngineAuthority {
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const semanticMatches = await findSemanticMatches(workspace, sessionId, message, 3);
+    const learningMatches = findLearningMatches(workspace, { message, limit: 3 });
     const memoryHints = enrichWithMemory({
       message,
       memoryLayers,
@@ -161,7 +165,10 @@ class QueryEngineAuthority {
     const plannerResult = planTask({
       message,
       sessionId,
-      retrievalContext,
+      retrievalContext: {
+        ...retrievalContext,
+        learning_matches: learningMatches,
+      },
       runtimeConfig,
     });
     const criticPlanReview = reviewPlan({
@@ -172,7 +179,14 @@ class QueryEngineAuthority {
       runtimeConfig,
     });
 
-    const actions = plannerResult.steps.map((step, index) => buildBrainExecutorAction({
+    const actions = plannerResult.steps.map((step, index) => {
+      const policyDecision = buildPolicyDecision({
+        toolName: step.selected_tool,
+        approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+        parallelSafe: Boolean(step.parallel_safe),
+        specialist: step.selected_agent,
+      });
+      return buildBrainExecutorAction({
       actionId: `${actionIdBase}:${index + 1}`,
       stepId: step.step_id,
       strategy: intent === 'analysis' ? 'comparative_analysis' : intent === 'memory' ? 'memory_recall' : 'real_execution',
@@ -192,6 +206,8 @@ class QueryEngineAuthority {
         runtime_mode: runtimeMode.primary.mode,
         runtime_mode_fallback: runtimeMode.fallback?.mode || null,
         plan_kind: plannerResult.plan_kind || 'linear',
+        goal_id: step.goal_id || null,
+        parent_goal_id: step.parent_goal_id || null,
         available_capabilities: Array.isArray(capabilities) ? capabilities.map(item => item.name) : [],
       },
       toolArguments: absolutizeToolArguments(
@@ -210,10 +226,17 @@ class QueryEngineAuthority {
         turn_index: this.mutableMessages.length + 1,
       },
       memoryUpdateHints: memoryHints,
-      audit: buildActionAudit(workspace, delegation),
-    }));
+      audit: {
+        ...buildActionAudit(workspace, delegation),
+        tool_governance: describeTool(step.selected_tool),
+      },
+      policyDecision,
+    });
+    });
 
-    const allActionsAreDirect = actions.every(action => action.selected_tool === 'none');
+    const actionsWithPolicy = actions;
+
+    const allActionsAreDirect = actionsWithPolicy.every(action => action.selected_tool === 'none');
     if (allActionsAreDirect) {
       const directResponse = synthesizeFinalAnswer({
         intent,
@@ -230,7 +253,7 @@ class QueryEngineAuthority {
         summary: summary || '',
         delegates: delegation.delegates,
         provider,
-        contract: actions[0] || { version: '1.0.0' },
+        contract: actionsWithPolicy[0] || { version: '1.0.0' },
       });
 
       appendExecutionAudit(workspace, {
@@ -240,7 +263,7 @@ class QueryEngineAuthority {
             strategy: intent === 'memory' ? 'memory_recall' : 'direct_answer',
             delegates: delegation.delegates,
           },
-          action: actions[0],
+          action: actionsWithPolicy[0],
           provider,
           sessionSnapshot,
         }),
@@ -249,7 +272,7 @@ class QueryEngineAuthority {
         delegated_specialists: delegation.specialists,
         critic_review: criticPlanReview,
         semantic_retrieval: semanticMatches,
-        step_results: actions.map(action => ({
+        step_results: actionsWithPolicy.map(action => ({
           ok: true,
           step_id: action.step_id,
           selected_tool: action.selected_tool,
@@ -306,14 +329,20 @@ class QueryEngineAuthority {
             get_status: { run_id: runId },
             resume_task: { run_id: runId },
           },
-          actions,
+          actions: actionsWithPolicy,
+          plan_hierarchy: plannerResult.plan_hierarchy || null,
+          learning_guidance: learningMatches,
+          policy_summary: actionsWithPolicy.map(action => ({
+            step_id: action.step_id,
+            policy_decision: action.policy_decision,
+          })),
         },
         confidence: 0.82,
       };
     }
 
     const stepResults = [];
-    for (const action of actions) {
+    for (const action of actionsWithPolicy) {
       if (action.selected_tool === 'none') {
         stepResults.push({
           ok: true,
@@ -373,6 +402,7 @@ class QueryEngineAuthority {
         ok: execution?.ok || false,
         result: execution?.result_payload || null,
         error: execution?.error_payload || execution?.error || null,
+        goal_id: action.execution_context?.goal_id || null,
       });
 
       if (!execution?.ok && plannerResult.stop_on_error) {
@@ -412,7 +442,7 @@ class QueryEngineAuthority {
       summary: summary || '',
       delegates: delegation.delegates,
       provider,
-      contract: actions[0] || { version: '1.0.0' },
+      contract: actionsWithPolicy[0] || { version: '1.0.0' },
     });
 
     const trace = buildRuntimeTrace({
@@ -421,7 +451,7 @@ class QueryEngineAuthority {
         strategy: intent === 'analysis' ? 'comparative_analysis' : 'real_execution',
         delegates: delegation.delegates,
       },
-      action: actions[0] || {
+      action: actionsWithPolicy[0] || {
         selected_tool: 'none',
         permission_requirement: 'none',
       },
@@ -434,19 +464,31 @@ class QueryEngineAuthority {
       fallback_mode: runtimeMode.fallback?.mode || null,
       plan_kind: plannerResult.plan_kind || 'linear',
       plan_graph: plannerResult.plan_graph || null,
+      plan_hierarchy: plannerResult.plan_hierarchy || null,
       critic_review: criticPlanReview,
       delegated_specialists: delegation.specialists,
+        learning_guidance: learningMatches,
         step_results: stepResults.map(item => ({
           ok: item.ok,
           step_id: item.action?.step_id || null,
           selected_tool: item.action?.selected_tool || null,
           selected_agent: item.action?.selected_agent || null,
           correction_attempts: item.correction_attempts || [],
+          goal_id: item.action?.execution_context?.goal_id || null,
+          policy_decision: item.action?.policy_decision || null,
         })),
         task_id: taskId,
         run_id: runId,
         semantic_retrieval: semanticMatches,
       });
+
+    if (stepResults.some(item => item.ok)) {
+      recordSemanticEntry(workspace, sessionId, {
+        path: `run://${runId}`,
+        preview: synthesizedResponse,
+        source: 'phase6-run-summary',
+      });
+    }
 
     return {
       response: synthesizedResponse,
