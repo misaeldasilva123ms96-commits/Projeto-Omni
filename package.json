@@ -8,10 +8,15 @@
     "health": "node js-runner/healthcheck.js",
     "test": "node tests/fusion/fusion-brain.test.js && python tests/fusion/phase2_runtime_test.py"
   },
-  "keywords": ["ai", "agent", "runner"],
+  "keywords": [
+    "ai",
+    "agent",
+    "runner"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
     "ajv": "^8.17.1"
   }
 }

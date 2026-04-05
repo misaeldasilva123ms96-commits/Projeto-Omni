@@ -140,7 +140,7 @@ class QueryEngineAuthority {
     const provider = chooseProvider({ complexity });
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
-    const semanticMatches = findSemanticMatches(workspace, sessionId, message, 3);
+    const semanticMatches = await findSemanticMatches(workspace, sessionId, message, 3);
     const memoryHints = enrichWithMemory({
       message,
       memoryLayers,
