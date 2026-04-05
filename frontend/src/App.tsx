@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { sendOmniMessage } from './lib/api'
 import type { ChatApiResponse, ChatMessage } from './types'
 
 const STORAGE_KEY = 'omini-chat-history'
-const API_URL = 'http://10.0.2.2:3001/chat'
 
 function createMessage(role: ChatMessage['role'], content: string): ChatMessage {
   return {
@@ -45,20 +45,7 @@ export default function App() {
     setError(null)
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: trimmed }),
-      })
-
-      if (!response.ok) {
-        const body = await response.text()
-        throw new Error(body || 'Falha ao consultar a API')
-      }
-
-      const data = (await response.json()) as ChatApiResponse
+      const data = (await sendOmniMessage(trimmed)) as ChatApiResponse
       setMessages((current) => [
         ...current,
         createMessage('assistant', data.response),
