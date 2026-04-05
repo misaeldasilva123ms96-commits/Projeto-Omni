@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { sendOmniMessage } from './lib/api'
+import { API_BASE_URL, API_CONFIGURATION_ERROR, canUseApi } from './lib/env'
 import type { ChatApiResponse, ChatMessage } from './types'
 
 const STORAGE_KEY = 'omini-chat-history'
@@ -17,6 +18,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const apiReady = canUseApi()
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -36,7 +38,15 @@ export default function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = input.trim()
-    if (!trimmed || loading) return
+    if (!trimmed || loading || !apiReady) {
+      if (!apiReady) {
+        setError(
+          API_CONFIGURATION_ERROR
+            || 'A API do Omni nao esta configurada neste ambiente.',
+        )
+      }
+      return
+    }
 
     const userMessage = createMessage('user', trimmed)
     setMessages((current) => [...current, userMessage])
@@ -74,6 +84,9 @@ export default function App() {
             <h1>Chat web com backend Rust e engine Python</h1>
             <p className="subtitle">
               Base pronta para evoluir para streaming, plugins, voz e APK Android.
+            </p>
+            <p className="subtitle">
+              API ativa: {apiReady ? API_BASE_URL : 'nao configurada'}
             </p>
           </div>
           <button className="ghost-button" onClick={handleClear} type="button">
@@ -115,10 +128,11 @@ export default function App() {
             onChange={(event) => setInput(event.target.value)}
             placeholder="Digite sua mensagem..."
             rows={4}
+            disabled={!apiReady}
           />
           <div className="composer-footer">
             {error ? <p className="error-text">{error}</p> : <span />}
-            <button className="send-button" disabled={loading} type="submit">
+            <button className="send-button" disabled={loading || !apiReady} type="submit">
               {loading ? 'Enviando...' : 'Enviar'}
             </button>
           </div>

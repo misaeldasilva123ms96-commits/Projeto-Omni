@@ -1,11 +1,14 @@
-export async function sendOmniMessage(message: string, metadata?: unknown) {
-  const base = import.meta.env.VITE_API_URL
+import { API_BASE_URL, API_CONFIGURATION_ERROR } from './env'
 
-  if (!base) {
-    throw new Error('VITE_API_URL not configured')
+export async function sendOmniMessage(message: string, metadata?: unknown) {
+  if (!API_BASE_URL) {
+    throw new Error(
+      API_CONFIGURATION_ERROR
+        || 'VITE_API_URL not configured for this environment',
+    )
   }
 
-  const res = await fetch(`${base}/api/chat`, {
+  const res = await fetch(`${API_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
