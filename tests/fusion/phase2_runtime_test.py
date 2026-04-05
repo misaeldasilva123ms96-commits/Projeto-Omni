@@ -25,7 +25,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         env["BASE_DIR"] = str(PROJECT_ROOT)
         env["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
         completed = subprocess.run(
-            ["python", "backend\\python\\main.py", prompt],
+            ["python", "backend/python/main.py", prompt],
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,

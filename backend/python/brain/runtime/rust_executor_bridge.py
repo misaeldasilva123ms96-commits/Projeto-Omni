@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import subprocess
 import tempfile
 import ctypes
@@ -20,14 +21,46 @@ def _cargo_target_dir(project_root: Path) -> Path:
 
 
 def _compiled_bridge_path(project_root: Path) -> Path:
-    candidates = [
-        project_root / "backend" / "rust" / "target" / "x86_64-pc-windows-gnullvm" / "debug" / "executor_bridge.exe",
-        project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge.exe",
-    ]
+    system_name = platform.system().lower()
+    if os.name == "nt":
+        candidates = [
+            project_root / "backend" / "rust" / "target" / "x86_64-pc-windows-gnullvm" / "debug" / "executor_bridge.exe",
+            project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge.exe",
+        ]
+    elif system_name == "linux":
+        candidates = [
+            project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge",
+        ]
+    else:
+        candidates = [
+            project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge",
+        ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
     return Path()
+
+
+def _is_ci_environment() -> bool:
+    return str(os.getenv("GITHUB_ACTIONS", "")).lower() == "true" or str(os.getenv("CI", "")).lower() == "true"
+
+
+def _sanitize_rust_environment(command_env: dict[str, str]) -> dict[str, str]:
+    if os.name != "nt" or _is_ci_environment():
+        build_target = command_env.get("CARGO_BUILD_TARGET", "")
+        toolchain = command_env.get("RUSTUP_TOOLCHAIN", "")
+
+        if "windows" in build_target.lower():
+            command_env.pop("CARGO_BUILD_TARGET", None)
+        if "windows" in toolchain.lower():
+            command_env.pop("RUSTUP_TOOLCHAIN", None)
+
+        for key in list(command_env.keys()):
+            upper_key = key.upper()
+            if "WINDOWS_GNULLVM" in upper_key or "WINDOWS_GNU" in upper_key or "WINDOWS_MSVC" in upper_key:
+                command_env.pop(key, None)
+
+    return command_env
 
 
 def _windows_safe_path(raw_path: str) -> str:
@@ -94,6 +127,7 @@ def execute_action(project_root: Path, action: dict[str, Any], timeout_seconds: 
                 if runtime_mode == "python-rust-cargo":
                     command_env["CARGO_TARGET_DIR"] = _windows_safe_path(str(cargo_target_dir))
                     command_env["CARGO_INCREMENTAL"] = "0"
+                command_env = _sanitize_rust_environment(command_env)
                 completed = subprocess.run(
                     command,
                     cwd=command_cwd,
