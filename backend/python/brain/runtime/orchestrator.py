@@ -1122,6 +1122,20 @@ class BrainOrchestrator:
         branches = branch_state.get("branches", []) if isinstance(branch_state, dict) else []
         if not branches:
             return results, executed_ids, branch_state, graph_state, tree_state
+        parallel_branch_mode = len(branches) > 1
+        if parallel_branch_mode:
+            self._append_runtime_event(
+                event_type="runtime.parallel.start",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "branch_ids": [str(branch.get("branch_id", "")) for branch in branches],
+                    "parallel_count": len(branches),
+                    "plan_kind": plan_kind,
+                    "mode": "branch-coordination",
+                },
+            )
 
         branch_scores: dict[str, float] = {}
         for branch in branches[: int(branch_plan.get("max_branches", 2) or 2)]:
@@ -1210,6 +1224,19 @@ class BrainOrchestrator:
                     "winner_branch_id": winner_branch_id,
                     "pruned_branch_ids": pruned,
                     "merge_mode": branch_state.get("merge_mode", "winner-selection"),
+                },
+            )
+        if parallel_branch_mode:
+            self._append_runtime_event(
+                event_type="runtime.parallel.complete",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "branch_ids": [str(branch.get("branch_id", "")) for branch in branches],
+                    "parallel_count": len(branches),
+                    "winner_branch_id": branch_state.get("winner_branch_id"),
+                    "mode": "branch-coordination",
                 },
             )
         return results, executed_ids, branch_state, graph_state, tree_state
