@@ -6,7 +6,9 @@
   "scripts": {
     "runner": "node js-runner/queryEngineRunner.js",
     "health": "node js-runner/healthcheck.js",
-    "test": "node tests/fusion/fusion-brain.test.js && python tests/fusion/phase2_runtime_test.py"
+    "test": "node tests/fusion/fusion-brain.test.js && python tests/fusion/phase2_runtime_test.py",
+    "test:queryengine": "node tests/runtime/queryengine.smoke.test.mjs",
+    "check:queryengine": "node scripts/check-queryengine.mjs"
   },
   "keywords": [
     "ai",

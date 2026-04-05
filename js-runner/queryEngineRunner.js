@@ -174,6 +174,8 @@ function getQueryEngineCandidates() {
     adapterPath,
     path.join(workspaceRoot, 'src', 'QueryEngine.js'),
     path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
+    path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
+    path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
     path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
     path.join(workspaceRoot, 'build', 'QueryEngine.js'),
   ];
