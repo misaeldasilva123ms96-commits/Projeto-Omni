@@ -17,6 +17,8 @@ def build_execution_state(
     policy_summary: list[dict[str, Any]] | None,
     fusion_summary: dict[str, Any] | None,
     supervision: dict[str, Any] | None,
+    repository_analysis: dict[str, Any] | None = None,
+    engineering_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "session_id": session_id,
@@ -30,6 +32,11 @@ def build_execution_state(
         "strategy_usage": strategy_suggestions or [],
         "policy_decisions": policy_summary or [],
         "fusion_outputs": fusion_summary or {},
+        "repository_analysis": repository_analysis or {},
+        "workspace_state": (engineering_data or {}).get("workspace_state", {}),
+        "code_changes": (engineering_data or {}).get("patch_history", []),
+        "test_results": (engineering_data or {}).get("test_results", {}),
+        "debug_iterations": (engineering_data or {}).get("debug_iterations", []),
         "runtime_metrics": (supervision or {}).get("metrics", {}),
         "supervision": supervision or {},
     }

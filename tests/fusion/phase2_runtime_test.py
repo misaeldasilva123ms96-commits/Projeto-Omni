@@ -4,9 +4,11 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -14,8 +16,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.debug_loop_controller import DebugLoopController  # noqa: E402
+from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk  # noqa: E402
 from brain.runtime.rust_executor_bridge import execute_action  # noqa: E402
 from brain.runtime.task_service import TaskService  # noqa: E402
+from brain.runtime.workspace_manager import WorkspaceManager  # noqa: E402
 
 
 class Phase2RuntimeTest(unittest.TestCase):
@@ -40,6 +45,25 @@ class Phase2RuntimeTest(unittest.TestCase):
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)
         os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
         return BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py"))
+
+    def make_temp_python_repo(self) -> Path:
+        base_temp = PROJECT_ROOT / ".phase9-temp"
+        base_temp.mkdir(parents=True, exist_ok=True)
+        temp_root = base_temp / f"omini-phase9-{uuid4().hex[:8]}"
+        shutil.rmtree(temp_root, ignore_errors=True)
+        temp_root.mkdir(parents=True, exist_ok=True)
+        (temp_root / "mathlib").mkdir(parents=True, exist_ok=True)
+        (temp_root / "tests").mkdir(parents=True, exist_ok=True)
+        (temp_root / "mathlib" / "__init__.py").write_text("", encoding="utf-8")
+        (temp_root / "mathlib" / "ops.py").write_text(
+            "def add(a, b):\n    return a - b\n",
+            encoding="utf-8",
+        )
+        (temp_root / "tests" / "test_ops.py").write_text(
+            "import unittest\nfrom mathlib.ops import add\n\n\nclass OpsTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n\n\nif __name__ == '__main__':\n    unittest.main()\n",
+            encoding="utf-8",
+        )
+        return temp_root
 
     def test_real_query_to_execution_path_reads_package(self) -> None:
         output = self.run_main("leia package.json", "phase2-read")
@@ -888,6 +912,135 @@ class Phase2RuntimeTest(unittest.TestCase):
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].get("error_payload", {}).get("kind"), "supervision_stop")
+
+    def test_patch_generation_produces_valid_diff(self) -> None:
+        repo_root = self.make_temp_python_repo()
+        patch = build_patch(
+            workspace_root=repo_root,
+            file_path="mathlib/ops.py",
+            new_content="def add(a, b):\n    return a + b\n",
+            confidence_score=0.91,
+        )
+        self.assertEqual(patch.get("file_path"), "mathlib/ops.py")
+        self.assertIn("--- mathlib/ops.py", patch.get("patch_diff", ""))
+        self.assertIn("+++ mathlib/ops.py", patch.get("patch_diff", ""))
+        self.assertIn("+    return a + b", patch.get("patch_diff", ""))
+        applied = apply_patch(workspace_root=repo_root, patch=patch)
+        self.assertTrue(applied.get("ok"))
+        self.assertIn("return a + b", (repo_root / "mathlib" / "ops.py").read_text(encoding="utf-8"))
+
+    def test_workspace_isolation_snapshot_works(self) -> None:
+        repo_root = self.make_temp_python_repo()
+        manager = WorkspaceManager(repo_root)
+        workspace = manager.create_task_workspace(run_id="phase9-workspace", source_root=repo_root)
+        workspace_root = Path(workspace["workspace_root"])
+        self.assertTrue((workspace_root / "mathlib" / "ops.py").exists())
+        self.assertNotEqual(str(workspace_root), str(repo_root))
+        snapshot = workspace.get("snapshot", {})
+        self.assertGreater(snapshot.get("file_count", 0), 0)
+
+    def test_code_review_detects_risky_patch(self) -> None:
+        repo_root = self.make_temp_python_repo()
+        patch = build_patch(
+            workspace_root=repo_root,
+            file_path=".env",
+            new_content="SECRET=changed\n",
+            confidence_score=0.2,
+        )
+        review = review_patch_risk(patch=patch)
+        self.assertFalse(review.get("accepted"))
+        self.assertIn("sensitive_or_generated_file", review.get("warnings", []))
+
+    def test_autonomous_debug_loop_fixes_failing_test_case(self) -> None:
+        repo_root = self.make_temp_python_repo()
+        controller = DebugLoopController(repo_root)
+        result = controller.run(
+            task_message="corrija os testes com seguranca",
+            test_command=[sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+            max_iterations=2,
+            repository_analysis={
+                "file_index": [
+                    {"path": "mathlib/ops.py", "language": "python"},
+                    {"path": "tests/test_ops.py", "language": "python"},
+                ]
+            },
+        )
+        self.assertEqual(result.get("status"), "success")
+        self.assertGreater(len(result.get("patch_history", [])), 0)
+        self.assertGreater(len(result.get("iterations", [])), 0)
+        self.assertIn("return a + b", (repo_root / "mathlib" / "ops.py").read_text(encoding="utf-8"))
+
+    def test_engineering_workflow_and_operator_inspection_are_persisted(self) -> None:
+        repo_root = self.make_temp_python_repo()
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase9-engineering"
+        repository_analysis = {
+            "root": str(repo_root),
+            "repository_map": {"entry_points": ["mathlib/ops.py"]},
+            "file_index": [
+                {"path": "mathlib/ops.py", "language": "python"},
+                {"path": "tests/test_ops.py", "language": "python"},
+            ],
+        }
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase9-engineering",
+            message="corrija os testes do workspace temporario",
+            actions=[
+                {
+                    "action_id": "phase9-debug",
+                    "step_id": "phase9-debug",
+                    "strategy": "engineering_execution",
+                    "selected_tool": "autonomous_debug_loop",
+                    "selected_agent": "coder_agent",
+                    "permission_requirement": "explicit_approval_required",
+                    "approval_state": "approved",
+                    "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                    "execution_context": {"project_root": str(repo_root), "runtime_mode": "python-rust-cargo", "goal_id": "goal:engineering"},
+                    "tool_arguments": {
+                        "workspace_root": str(repo_root),
+                        "task_message": "corrija os testes do workspace temporario",
+                        "test_command": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+                        "max_iterations": 2,
+                        "repository_analysis": repository_analysis,
+                    },
+                    "retry_policy": {"max_attempts": 1},
+                    "transcript_link": {"session_id": "phase9-engineering"},
+                    "memory_update_hints": {},
+                }
+            ],
+            task_id="task-phase9-engineering",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="engineering",
+            delegation={"delegates": ["task_planner", "coder_agent", "reviewer_agent"], "specialists": ["coder_agent", "reviewer_agent"]},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="hierarchical",
+            plan_graph={"version": 1, "mode": "engineering", "nodes": []},
+            semantic_retrieval=[],
+            plan_hierarchy={"root_goal_id": "goal:engineering", "subgoals": [{"goal_id": "goal:repo"}, {"goal_id": "goal:debug"}]},
+            learning_guidance=[],
+            policy_summary=[],
+            execution_tree={"version": 1, "root_node_id": "tree:root", "nodes": []},
+            negotiation_summary={"invoked": True, "final_decision": "proceed", "turns": []},
+            strategy_optimization={"invoked": True, "preferred_plan_mode": "tree"},
+            repository_analysis=repository_analysis,
+            engineering_review={"invoked": True, "risk_level": "medium"},
+            engineering_workflow={"mode": "autonomous-debug"},
+        )
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].get("ok"))
+        payload = results[0].get("result_payload", {})
+        self.assertEqual(payload.get("status"), "success")
+
+        service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")
+        repo_view = service.inspect_repository_analysis(run_id=run_id)
+        self.assertEqual(repo_view.get("repository_analysis", {}).get("root"), str(repo_root))
+        patch_view = service.inspect_patch_history(run_id=run_id)
+        self.assertGreater(len(patch_view.get("patch_history", [])), 0)
+        debug_view = service.inspect_debug_iterations(run_id=run_id)
+        self.assertGreater(len(debug_view.get("debug_iterations", [])), 0)
+        workspace_view = service.inspect_workspace_state(run_id=run_id)
+        self.assertIn("workspace_state", workspace_view)
 
 
 if __name__ == "__main__":

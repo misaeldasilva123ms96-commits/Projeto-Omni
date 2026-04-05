@@ -314,3 +314,38 @@
 - Alternatives: derive ad hoc UI state later from raw logs; build UI-specific state now.
 - Decision: define a normalized execution state schema inside the runtime.
 - Consequences: operator tooling can consume stable machine-readable state without changing core execution.
+
+## ADR-041: Repository Intelligence Must Precede Autonomous Engineering
+
+- Context: engineering autonomy without repository understanding produces unsafe or low-quality edits.
+- Alternatives: let each engineering tool discover context ad hoc; defer repository analysis to future phases.
+- Decision: add a bounded repository analysis layer and feed it into planning, memory, and operator inspection.
+- Consequences: engineering planning becomes more grounded and auditable before code changes occur.
+
+## ADR-042: Engineering Tools Stay Inside Existing Governance Boundaries
+
+- Context: Phase 9 needs real coding tools, but unrestricted engineering commands would bypass runtime safety.
+- Alternatives: expose raw shell access as the engineering layer; create a separate engineering executor.
+- Decision: implement engineering tools as governed runtime adapters under the same execution authority, policy model, and supervision layer.
+- Consequences: autonomous engineering becomes possible without breaking the single-executor architecture.
+
+## ADR-043: Patch Generation Must Be Structured And Reversible
+
+- Context: software-engineering autonomy needs code mutation, but freeform writes are too risky.
+- Alternatives: mutate files directly with no patch object; require humans to build all patches manually.
+- Decision: generate explicit patch objects with hashes, diffs, confidence, apply, and rollback behavior.
+- Consequences: code mutation becomes inspectable, reviewable, and safer to recover from.
+
+## ADR-044: Debugging Loops Must Stay Narrow And Bounded
+
+- Context: self-directed engineering requires iteration after test failures.
+- Alternatives: stop after the first failure; allow open-ended autonomous repair loops.
+- Decision: add a bounded debug loop with explicit max iterations, patch review, verification, and rollback.
+- Consequences: the runtime gains real repair behavior without pretending to have unlimited autonomy.
+
+## ADR-045: Workspace State Is Part Of Engineering Runtime State
+
+- Context: once the runtime edits code, operator inspection needs to know where and how those changes occurred.
+- Alternatives: treat workspace handling as transient implementation detail; defer workspace modeling entirely.
+- Decision: add explicit workspace creation, snapshot, rollback, and inspection surfaces.
+- Consequences: engineering runs become easier to resume, inspect, and supervise.

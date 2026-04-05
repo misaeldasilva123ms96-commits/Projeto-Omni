@@ -39,6 +39,7 @@ function ensureEnvelope(store, sessionId) {
     working: existing.working || {},
     persistent: existing.persistent || {},
     semantic: existing.semantic || { candidates: [], last_query: '', last_matches: [] },
+    repository: existing.repository || {},
   };
   store.sessions[sessionId] = envelope;
   return envelope;
@@ -52,6 +53,7 @@ function flattenEnvelope(envelope) {
     semantic_last_matches: Array.isArray(envelope.semantic?.last_matches) ? envelope.semantic.last_matches : [],
     vector_mode: envelope.semantic?.vector_mode || describeEmbeddingMode(),
     vector_backend: envelope.semantic?.vector_backend || (isSupabaseConfigured() ? 'supabase' : 'local-file'),
+    repository_analysis: envelope.repository || {},
   };
 }
 
@@ -240,6 +242,18 @@ function updateWorkingMemory(cwd, sessionId, patch) {
   return flattenEnvelope(envelope);
 }
 
+function updateRepositoryAnalysis(cwd, sessionId, repositoryAnalysis = {}) {
+  const store = loadRuntimeMemory(cwd);
+  const envelope = ensureEnvelope(store, sessionId);
+  envelope.repository = {
+    ...(envelope.repository || {}),
+    ...repositoryAnalysis,
+    updated_at: new Date().toISOString(),
+  };
+  saveRuntimeMemory(cwd, store);
+  return flattenEnvelope(envelope);
+}
+
 module.exports = {
   getSessionMemoryEnvelope,
   getSessionRuntimeMemory,
@@ -252,4 +266,5 @@ module.exports = {
   updateWorkingMemory,
   fetchSemanticCandidatesFromSupabase,
   persistSemanticEntryToSupabase,
+  updateRepositoryAnalysis,
 };

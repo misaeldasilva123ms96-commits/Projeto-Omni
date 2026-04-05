@@ -25,6 +25,7 @@ target/
 
 # Runtime state
 .logs/
+.phase9-temp/
 backend/python/transcripts/
 backend/python/brain/runtime/sessions/
 backend/python/brain/evolution/

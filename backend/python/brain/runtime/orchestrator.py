@@ -24,6 +24,7 @@ from brain.memory.store import (
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.execution_state import build_execution_state
+from brain.runtime.engineering_tools import execute_engineering_action, supports_engineering_tool
 from brain.runtime.session_store import SessionStore
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
@@ -393,6 +394,9 @@ class BrainOrchestrator:
             execution_tree=execution_request.get("execution_tree"),
             negotiation_summary=execution_request.get("negotiation_summary"),
             strategy_optimization=execution_request.get("strategy_optimization"),
+            repository_analysis=execution_request.get("repository_analysis"),
+            engineering_review=execution_request.get("engineering_review"),
+            engineering_workflow=execution_request.get("engineering_workflow"),
         )
         if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
             self._append_runtime_event(
@@ -437,6 +441,9 @@ class BrainOrchestrator:
         execution_tree: dict[str, Any] | None = None,
         negotiation_summary: dict[str, Any] | None = None,
         strategy_optimization: dict[str, Any] | None = None,
+        repository_analysis: dict[str, Any] | None = None,
+        engineering_review: dict[str, Any] | None = None,
+        engineering_workflow: dict[str, Any] | None = None,
         start_index: int = 0,
     ) -> list[dict[str, Any]]:
         max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
@@ -446,6 +453,15 @@ class BrainOrchestrator:
         tree_state = self._clone_tree(execution_tree)
         plan_signature = self._plan_signature(actions, graph_state)
         branch_state = self._initial_branch_state(branch_plan)
+        engineering_data: dict[str, Any] = {
+            "repository_analysis": repository_analysis or {},
+            "engineering_review": engineering_review or {},
+            "engineering_workflow": engineering_workflow or {},
+            "workspace_state": {},
+            "patch_history": [],
+            "debug_iterations": [],
+            "test_results": {},
+        }
         supervision = self.supervisor.inspect(
             execution_tree=tree_state,
             branch_plan=branch_plan,
@@ -559,6 +575,8 @@ class BrainOrchestrator:
                 negotiation_summary=negotiation_summary,
                 strategy_optimization=strategy_optimization,
                 supervision=supervision,
+                repository_analysis=repository_analysis,
+                engineering_data=engineering_data,
             )
             return step_results
         if isinstance(simulation_summary, dict) and simulation_summary.get("invoked"):
@@ -605,6 +623,8 @@ class BrainOrchestrator:
                     negotiation_summary=negotiation_summary,
                     strategy_optimization=strategy_optimization,
                     supervision=supervision,
+                    repository_analysis=repository_analysis,
+                    engineering_data=engineering_data,
                 )
                 self._write_run_summary(
                     session_id=session_id,
@@ -626,8 +646,11 @@ class BrainOrchestrator:
                     strategy_optimization=strategy_optimization,
                     supervision=supervision,
                     execution_state=None,
+                    repository_analysis=repository_analysis,
+                    engineering_data=engineering_data,
                 )
                 return step_results
+        engineering_data = self._collect_engineering_data(engineering_data, step_results)
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -649,6 +672,8 @@ class BrainOrchestrator:
             negotiation_summary=negotiation_summary,
             strategy_optimization=strategy_optimization,
             supervision=supervision,
+            repository_analysis=repository_analysis,
+            engineering_data=engineering_data,
         )
         executed_steps = 0
         branch_action_ids: set[str] = set()
@@ -775,6 +800,8 @@ class BrainOrchestrator:
                     negotiation_summary=negotiation_summary,
                     strategy_optimization=strategy_optimization,
                     supervision=supervision,
+                    repository_analysis=repository_analysis,
+                    engineering_data=engineering_data,
                 )
                 if step_results and not step_results[-1].get("ok"):
                     break
@@ -836,6 +863,7 @@ class BrainOrchestrator:
                 if not result.get("ok"):
                     break
 
+        engineering_data = self._collect_engineering_data(engineering_data, step_results)
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -928,6 +956,8 @@ class BrainOrchestrator:
                 "negotiation_summary": negotiation_summary,
                 "strategy_optimization": strategy_optimization,
                 "supervision": supervision,
+                "repository_analysis": repository_analysis,
+                "engineering_data": engineering_data,
             },
         )
         fusion_summary = self._build_fusion_summary(step_results, cooperative_plan, branch_state, strategy_suggestions)
@@ -944,6 +974,8 @@ class BrainOrchestrator:
             policy_summary=policy_summary if isinstance(policy_summary, list) else [],
             fusion_summary=fusion_summary,
             supervision=supervision,
+            repository_analysis=repository_analysis,
+            engineering_data=engineering_data,
         )
         self._write_run_summary(
             session_id=session_id,
@@ -965,6 +997,8 @@ class BrainOrchestrator:
             strategy_optimization=strategy_optimization,
             supervision=supervision,
             execution_state=execution_state,
+            repository_analysis=repository_analysis,
+            engineering_data=engineering_data,
         )
         return step_results
 
@@ -1334,11 +1368,18 @@ class BrainOrchestrator:
             return blocked_result
 
         for attempt_number in range(1, attempts + 1):
-            final_result = execute_action(
-                self.paths.root,
-                current_action,
-                timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
-            )
+            if supports_engineering_tool(str(current_action.get("selected_tool", ""))):
+                final_result = execute_engineering_action(
+                    project_root=self.paths.root,
+                    action=current_action,
+                    timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+                )
+            else:
+                final_result = execute_action(
+                    self.paths.root,
+                    current_action,
+                    timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+                )
             evaluation = self._evaluate_step(
                 current_action,
                 final_result,
@@ -1584,6 +1625,8 @@ class BrainOrchestrator:
         strategy_optimization: dict[str, Any] | None,
         supervision: dict[str, Any] | None,
         execution_state: dict[str, Any] | None,
+        repository_analysis: dict[str, Any] | None = None,
+        engineering_data: dict[str, Any] | None = None,
     ) -> None:
         run_summary_path = self.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
         summary = {
@@ -1603,6 +1646,8 @@ class BrainOrchestrator:
             "simulation": simulation_summary,
             "strategy_usage": strategy_suggestions if isinstance(strategy_suggestions, list) else [],
             "strategy_optimization": strategy_optimization,
+            "repository_analysis": repository_analysis or {},
+            "engineering": engineering_data or {},
             "fusion": fusion_summary,
             "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
             "supervision": supervision,
@@ -1657,6 +1702,29 @@ class BrainOrchestrator:
             "strategy_count": len(strategy_suggestions) if isinstance(strategy_suggestions, list) else 0,
             "cooperative_mode": cooperative_plan.get("mode") if isinstance(cooperative_plan, dict) else "single-specialist",
         }
+
+    @staticmethod
+    def _collect_engineering_data(
+        engineering_data: dict[str, Any],
+        step_results: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        data = dict(engineering_data or {})
+        for item in step_results:
+            payload = item.get("result_payload", {}) if isinstance(item, dict) else {}
+            tool = str(item.get("selected_tool") or "")
+            if tool == "autonomous_debug_loop":
+                data["patch_history"] = payload.get("patch_history", [])
+                data["debug_iterations"] = payload.get("iterations", [])
+                data["test_results"] = payload.get("test_results", {})
+                if isinstance(payload.get("workspace_state"), dict):
+                    data["workspace_state"] = payload.get("workspace_state")
+            elif tool == "filesystem_write" and isinstance(payload.get("patch"), dict):
+                existing = list(data.get("patch_history", []))
+                existing.append({"patch": payload.get("patch"), "review": payload.get("review", {})})
+                data["patch_history"] = existing
+            elif tool == "test_runner" and isinstance(payload, dict):
+                data["test_results"] = payload
+        return data
 
     @staticmethod
     def _synthesize_runtime_response(step_results: list[dict[str, Any]], fallback_response: str) -> str:
@@ -1963,6 +2031,8 @@ class BrainOrchestrator:
         negotiation_summary: dict[str, Any] | None = None,
         strategy_optimization: dict[str, Any] | None = None,
         supervision: dict[str, Any] | None = None,
+        repository_analysis: dict[str, Any] | None = None,
+        engineering_data: dict[str, Any] | None = None,
     ) -> None:
         remaining_actions = actions[next_step_index:] if next_step_index < len(actions) else []
         self.checkpoint_store.save(
@@ -1988,6 +2058,8 @@ class BrainOrchestrator:
                 "negotiation_summary": negotiation_summary,
                 "strategy_optimization": strategy_optimization,
                 "supervision": supervision,
+                "repository_analysis": repository_analysis,
+                "engineering_data": engineering_data,
             },
         )
 
@@ -2048,6 +2120,9 @@ class BrainOrchestrator:
             execution_tree=checkpoint.get("execution_tree"),
             negotiation_summary=checkpoint.get("negotiation_summary"),
             strategy_optimization=checkpoint.get("strategy_optimization"),
+            repository_analysis=checkpoint.get("repository_analysis"),
+            engineering_review=(checkpoint.get("engineering_data") or {}).get("engineering_review"),
+            engineering_workflow=(checkpoint.get("engineering_data") or {}).get("engineering_workflow"),
             start_index=0,
         )
         return {

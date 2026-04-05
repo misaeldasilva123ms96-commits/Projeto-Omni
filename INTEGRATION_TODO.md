@@ -70,3 +70,13 @@
 - [ ] Add cost-aware promotion and decay windows in strategy optimization.
 - [ ] Add operator/API endpoints over execution state and supervision payloads.
 - [ ] Add distributed worker adapters behind the tree execution model.
+
+## Phase 9 follow-up
+- [ ] Expand repository intelligence from manifest/structure analysis into deeper import and symbol relationships.
+- [ ] Add multi-file patch planning and coordinated rollback across several edited files.
+- [ ] Add richer failure diagnosis heuristics beyond simple assertion/operator repair.
+- [ ] Add true workspace branch/worktree isolation for longer engineering tasks.
+- [ ] Add patch approval workflows for human-in-the-loop engineering review.
+- [ ] Persist engineering strategy outcomes back into ranked strategy memory more explicitly.
+- [ ] Add stronger code review heuristics for risky dependency and configuration edits.
+- [ ] Add operator/dashboard consumers for repository analysis, patch history, and debug iteration payloads.

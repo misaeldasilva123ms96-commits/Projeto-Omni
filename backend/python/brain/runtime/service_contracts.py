@@ -39,6 +39,10 @@ def build_task_envelope(*, user_id: str, session_id: str, task_id: str, response
             "inspect_execution_state": {"task_id": task_id, "session_id": session_id},
             "inspect_negotiation": {"task_id": task_id, "session_id": session_id},
             "inspect_supervision": {"task_id": task_id, "session_id": session_id},
+            "inspect_repository_analysis": {"task_id": task_id, "session_id": session_id},
+            "inspect_patch_history": {"task_id": task_id, "session_id": session_id},
+            "inspect_debug_iterations": {"task_id": task_id, "session_id": session_id},
+            "inspect_workspace_state": {"task_id": task_id, "session_id": session_id},
         },
     }
 
@@ -54,6 +58,8 @@ def build_task_status(*, run_id: str, checkpoint: dict[str, Any]) -> dict[str, A
         "plan_hierarchy": checkpoint.get("plan_hierarchy"),
         "branch_state": checkpoint.get("branch_state"),
         "execution_tree": checkpoint.get("execution_tree"),
+        "repository_analysis": checkpoint.get("repository_analysis"),
+        "engineering_data": checkpoint.get("engineering_data"),
         "reflection_available": bool(checkpoint.get("reflection_summary")),
         "operator_links": {
             "inspect_checkpoint": {"run_id": run_id},
@@ -66,5 +72,9 @@ def build_task_status(*, run_id: str, checkpoint: dict[str, Any]) -> dict[str, A
             "inspect_execution_state": {"run_id": run_id},
             "inspect_negotiation": {"run_id": run_id},
             "inspect_supervision": {"run_id": run_id},
+            "inspect_repository_analysis": {"run_id": run_id},
+            "inspect_patch_history": {"run_id": run_id},
+            "inspect_debug_iterations": {"run_id": run_id},
+            "inspect_workspace_state": {"run_id": run_id},
         },
     }

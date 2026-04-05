@@ -46,6 +46,7 @@ class TaskService:
             "plan_graph": checkpoint.get("plan_graph"),
             "branch_state": checkpoint.get("branch_state"),
             "execution_tree": checkpoint.get("execution_tree"),
+            "repository_analysis": checkpoint.get("repository_analysis"),
         }
 
     def inspect_learning_memory(self) -> dict[str, Any]:
@@ -102,6 +103,7 @@ class TaskService:
             "execution_tree": checkpoint.get("execution_tree"),
             "branch_state": checkpoint.get("branch_state"),
             "strategy_optimization": checkpoint.get("strategy_optimization"),
+            "engineering_data": checkpoint.get("engineering_data"),
         }
 
     def inspect_supervision(self, *, run_id: str) -> dict[str, Any]:
@@ -109,6 +111,34 @@ class TaskService:
         return {
             "run_id": run_id,
             "supervision": checkpoint.get("supervision"),
+        }
+
+    def inspect_repository_analysis(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "repository_analysis": checkpoint.get("repository_analysis"),
+        }
+
+    def inspect_patch_history(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "patch_history": (checkpoint.get("engineering_data") or {}).get("patch_history", []),
+        }
+
+    def inspect_debug_iterations(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "debug_iterations": (checkpoint.get("engineering_data") or {}).get("debug_iterations", []),
+        }
+
+    def inspect_workspace_state(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "workspace_state": (checkpoint.get("engineering_data") or {}).get("workspace_state", {}),
         }
 
     def inspect_run_intelligence(self, *, run_id: str) -> dict[str, Any]:

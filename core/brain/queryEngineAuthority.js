@@ -4,6 +4,7 @@ const path = require('path');
 const { loadRuntimeConfig } = require('../../configs/runtimeConfig');
 const { buildBrainExecutorAction } = require('../planning/brainExecutorContract');
 const { buildExecutionTree } = require('../planning/executionTree');
+const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { chooseProvider } = require('../../platform/providers/providerRouter');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
@@ -18,6 +19,7 @@ const {
   recordRuntimeArtifacts,
   updateSessionRuntimeMemory,
   updateWorkingMemory,
+  updateRepositoryAnalysis,
 } = require('../../storage/memory/runtimeMemoryStore');
 const { findLearningMatches, suggestRankedStrategies } = require('../../storage/memory/executionLearningMemory');
 const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit');
@@ -32,6 +34,7 @@ const { reviewPlan } = require('../../features/multiagent/specialists/criticSpec
 const { negotiatePlan } = require('../../features/multiagent/specialists/negotiationSpecialist');
 const { simulatePlan } = require('../../features/multiagent/specialists/simulationSpecialist');
 const { optimizeStrategySelection } = require('../../features/multiagent/specialists/strategyOptimizerSpecialist');
+const { reviewEngineeringPlan } = require('../../features/multiagent/specialists/codeReviewSpecialist');
 const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { fuseResults } = require('../../features/multiagent/specialists/resultFusionSpecialist');
 const { normalizeWriteRequest } = require('../../features/multiagent/specialists/coderSpecialist');
@@ -59,6 +62,7 @@ function inferIntent(message) {
   if (text.includes('busque') || text.includes('procure') || text.includes('grep')) return 'execution';
   if (text.includes('crie o arquivo') || text.includes('escreva no arquivo') || text.includes('salve')) return 'execution';
   if (text.includes('analise') || text.includes('resuma')) return 'analysis';
+  if (/(repositorio|repositório|codigo|código|teste|testes|debug|refator|implemente|corrija|fix)/.test(text)) return 'engineering';
   return 'conversation';
 }
 
@@ -149,6 +153,8 @@ class QueryEngineAuthority {
     const provider = chooseProvider({ complexity });
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
+    const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });
+    updateRepositoryAnalysis(workspace, sessionId, repositoryAnalysis);
     const semanticMatches = await findSemanticMatches(workspace, sessionId, message, 3);
     const learningMatches = findLearningMatches(workspace, { message, limit: 3 });
     const strategySuggestions = suggestRankedStrategies(workspace, { message, limit: 3 });
@@ -157,6 +163,7 @@ class QueryEngineAuthority {
       memoryLayers,
       runtimeMemory,
       semanticMatches,
+      repositoryAnalysis,
     });
     const retrievalContext = memoryHints.retrieval_context || {};
     const mergedMemory = buildMergedMemory(memoryLayers, runtimeMemory);
@@ -178,6 +185,7 @@ class QueryEngineAuthority {
         strategy_suggestions: strategySuggestions,
       },
       runtimeConfig,
+      repositoryAnalysis,
     });
     const criticPlanReview = reviewPlan({
       steps: plannerResult.steps,
@@ -196,6 +204,11 @@ class QueryEngineAuthority {
       message,
       rankedStrategies: strategySuggestions,
       plannerResult,
+    });
+    const engineeringReview = reviewEngineeringPlan({
+      repositoryAnalysis,
+      plannerResult,
+      message,
     });
 
     const simulatedPolicy = plannerResult.steps.map(step => ({
@@ -368,11 +381,14 @@ class QueryEngineAuthority {
           plan_kind: plannerResult.plan_kind || 'linear',
           plan_graph: plannerResult.plan_graph || null,
           execution_tree: executionTree,
+          repository_analysis: repositoryAnalysis,
           branch_plan: plannerResult.branch_plan || null,
           simulation_summary: simulationSummary,
           cooperative_plan: cooperativePlan,
           strategy_suggestions: strategySuggestions,
           strategy_optimization: strategyOptimization,
+          engineering_review: engineeringReview,
+          engineering_workflow: plannerResult.engineering_workflow || null,
           parallelism: {
             enabled: Boolean(plannerResult.plan_graph && plannerResult.plan_graph.mode === 'parallel-read'),
             max_parallel_read_steps: runtimeConfig.maxParallelReadSteps,
@@ -387,6 +403,10 @@ class QueryEngineAuthority {
             start_task: { task_id: taskId, run_id: runId, session_id: sessionId },
             get_status: { run_id: runId },
             resume_task: { run_id: runId },
+            inspect_repository_analysis: { run_id: runId },
+            inspect_patch_history: { run_id: runId },
+            inspect_debug_iterations: { run_id: runId },
+            inspect_workspace_state: { run_id: runId },
             inspect_branches: { run_id: runId },
             inspect_contributions: { run_id: runId },
             inspect_simulation: { run_id: runId },
@@ -542,10 +562,13 @@ class QueryEngineAuthority {
       negotiation_summary: negotiationSummary,
       cooperative_plan: cooperativePlan,
       execution_tree: executionTree,
+      repository_analysis: repositoryAnalysis,
       branch_plan: plannerResult.branch_plan || null,
       simulation_summary: simulationSummary,
       strategy_suggestions: strategySuggestions,
       strategy_optimization: strategyOptimization,
+      engineering_review: engineeringReview,
+      engineering_workflow: plannerResult.engineering_workflow || null,
       result_fusion: fusion,
       delegated_specialists: delegation.specialists,
         learning_guidance: learningMatches,

@@ -22,6 +22,7 @@ function loadRuntimeConfig() {
     supervisionMaxTreeNodes: intEnv('OMINI_SUPERVISION_MAX_TREE_NODES', 24),
     supervisionMaxBranches: intEnv('OMINI_SUPERVISION_MAX_BRANCHES', 2),
     simulationEnabled: String(process.env.OMINI_ENABLE_SIMULATION || 'true').trim().toLowerCase() !== 'false',
+    maxEngineeringIterations: intEnv('OMINI_MAX_ENGINEERING_ITERATIONS', 3),
   };
 }
 

@@ -209,6 +209,26 @@ async function main() {
   assert.ok(coordinated.execution_request.simulation_summary.estimated_cost > 0);
   assert.ok(coordinated.execution_request.simulation_summary.confidence_estimate > 0);
 
+  const engineering = await runQueryEngine({
+    message: 'analise o repositório e corrija os testes com segurança',
+    memoryContext: { user: {} },
+    history: [],
+    summary: '',
+    capabilities: [],
+    session: { session_id: 'phase9-engineering', runtime_mode: EXECUTION_MODES.PYTHON_RUST_CARGO },
+    cwd: process.cwd(),
+  });
+  assert.equal(typeof engineering.execution_request.repository_analysis, 'object');
+  assert.equal(Array.isArray(engineering.execution_request.repository_analysis.file_index), true);
+  assert.ok(engineering.execution_request.repository_analysis.file_index.length > 0);
+  assert.equal(engineering.execution_request.engineering_workflow.mode, 'autonomous-debug');
+  assert.equal(typeof engineering.execution_request.engineering_review, 'object');
+  assert.ok(engineering.execution_request.actions.some(action => action.selected_tool === 'directory_tree'));
+  assert.ok(engineering.execution_request.actions.some(action => action.selected_tool === 'dependency_inspection'));
+  assert.ok(engineering.execution_request.actions.some(action => action.selected_tool === 'test_runner'));
+  assert.ok(engineering.execution_request.actions.some(action => action.selected_tool === 'autonomous_debug_loop'));
+  assert.ok(engineering.execution_request.execution_tree.nodes.some(node => node.owner_agent === 'coder_agent'));
+
   const runtimeMode = resolveExecutionMode({
     cwd: process.cwd(),
     requestedMode: EXECUTION_MODES.PYTHON_RUST_CARGO,

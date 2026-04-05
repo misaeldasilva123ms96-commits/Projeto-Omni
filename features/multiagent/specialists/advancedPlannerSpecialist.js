@@ -27,6 +27,14 @@ function detectConstraints(message) {
     wantsTreeExecution:
       /(arvore|árvore|compare|subobjetivo|subgoal)/.test(text)
       || ((text.includes('analise') || text.includes('analyze')) && (text.includes('busque') || text.includes('liste'))),
+    wantsEngineering:
+      /(repositorio|repositório|codigo|código|teste|testes|patch|diff|debug|refator|implemente|corrija|fix)/.test(text),
+    wantsFixTests:
+      /(corrija os testes|fix failing tests|corrija testes|debug)/.test(text),
+    wantsRepoAnalysis:
+      /(analise o repositorio|analise o repositório|entenda o repositorio|entenda o repositório|mapeie o projeto)/.test(text),
+    wantsGitInspection:
+      /(git status|git diff|commit)/.test(text),
   };
 }
 
@@ -72,7 +80,7 @@ function assignHierarchy(constraints, steps) {
 function buildPlanMetadata(constraints, steps, runtimeConfig) {
   const planKind = constraints.wantsHierarchy
     ? 'hierarchical'
-    : constraints.wantsParallelRead || constraints.wantsGraphPlan || steps.some(step => Array.isArray(step.depends_on) && step.depends_on.length > 0)
+    : constraints.wantsParallelRead || constraints.wantsGraphPlan || constraints.wantsEngineering || steps.some(step => Array.isArray(step.depends_on) && step.depends_on.length > 0)
       ? 'graph'
       : 'linear';
   const rootGoal = {
@@ -127,9 +135,86 @@ function buildPlanMetadata(constraints, steps, runtimeConfig) {
   };
 }
 
-function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {} }) {
+function buildEngineeringSteps({ sessionId, constraints, repositoryAnalysis, runtimeConfig, message }) {
+  const steps = [];
+  const workspaceRoot = '.';
+  steps.push(buildStep(
+    sessionId,
+    'repo-tree',
+    'directory_tree',
+    'researcher_agent',
+    { workspace_root: workspaceRoot, max_depth: 3 },
+    'scan repository structure for engineering planning',
+    { parallel_safe: true, shared_goal_id: 'shared-goal:engineering' },
+  ));
+  steps.push(buildStep(
+    sessionId,
+    'repo-deps',
+    'dependency_inspection',
+    'researcher_agent',
+    { workspace_root: workspaceRoot },
+    'inspect dependency files and framework markers',
+    { parallel_safe: true, shared_goal_id: 'shared-goal:engineering' },
+  ));
+  steps.push(buildStep(
+    sessionId,
+    'repo-git-status',
+    'git_status',
+    'reviewer_agent',
+    { workspace_root: workspaceRoot },
+    'inspect repository cleanliness before autonomous engineering work',
+    { shared_goal_id: 'shared-goal:engineering' },
+  ));
+  if (constraints.wantsFixTests || /teste|testes/.test(String(message || '').toLowerCase())) {
+    steps.push(buildStep(
+      sessionId,
+      'run-tests',
+      'test_runner',
+      'coder_agent',
+      { workspace_root: workspaceRoot },
+      'run repository verification before debugging',
+      { shared_goal_id: 'shared-goal:engineering' },
+    ));
+    steps.push(buildStep(
+      sessionId,
+      'debug-loop',
+      'autonomous_debug_loop',
+      'coder_agent',
+      {
+        workspace_root: workspaceRoot,
+        task_message: message,
+        max_iterations: Math.min(3, runtimeConfig.maxCorrectionDepth || 2),
+        repository_analysis: repositoryAnalysis || {},
+      },
+      'apply bounded autonomous debugging until tests succeed or budget is exhausted',
+      { shared_goal_id: 'shared-goal:engineering' },
+    ));
+  }
+  return steps;
+}
+
+function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {}, repositoryAnalysis = null }) {
   const constraints = detectConstraints(message);
   const steps = [];
+  if (constraints.wantsEngineering) {
+    const engineeringSteps = buildEngineeringSteps({ sessionId, constraints, repositoryAnalysis, runtimeConfig, message });
+    return {
+      constraints,
+      ...buildPlanMetadata(constraints, engineeringSteps, runtimeConfig),
+      branch_plan: null,
+      stop_on_error: true,
+      retry_policy: {
+        max_attempts: runtimeConfig.maxRetries || 1,
+        backoff_ms: 0,
+      },
+      requires_review: true,
+      engineering_workflow: {
+        mode: constraints.wantsFixTests ? 'autonomous-debug' : 'repository-analysis',
+        repository_root: repositoryAnalysis?.root || '.',
+      },
+      steps: assignHierarchy({ ...constraints, wantsHierarchy: true }, engineeringSteps),
+    };
+  }
   const referencedFile = detectReferencedFile(message, retrievalContext);
   const learningMatches = Array.isArray(retrievalContext.learning_matches) ? retrievalContext.learning_matches : [];
   const prefersInspectionFirst = learningMatches.some(item => String(item.lesson || '').toLowerCase().includes('read-only') || String(item.lesson || '').toLowerCase().includes('parallel'));
