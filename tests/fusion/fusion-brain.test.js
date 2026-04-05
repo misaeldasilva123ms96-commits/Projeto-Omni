@@ -165,6 +165,40 @@ async function main() {
   assert.ok(hierarchical.execution_request.plan_hierarchy.subgoals.length >= 2);
   assert.ok(hierarchical.execution_request.actions.some(action => action.execution_context.goal_id));
   assert.ok(hierarchical.execution_request.policy_summary.every(item => typeof item.policy_decision === 'object'));
+  assert.equal(hierarchical.execution_request.cooperative_plan.mode, 'cooperative-shared-goal');
+  assert.ok(hierarchical.execution_request.cooperative_plan.contributions.length >= 2);
+
+  recordLearningEntry(process.cwd(), {
+    session_id: 'phase7-strategy',
+    task_id: 'task-phase7-strategy',
+    run_id: 'run-phase7-strategy',
+    message: 'compare duas abordagens para analisar package.json',
+    archetype: 'analysis',
+    strategy_type: 'parallel_read_branching',
+    outcome: 'success',
+    lesson: 'For package metadata comparison, prefer parallel read-only branches before synthesis.',
+    tool_family: 'read_file',
+    trigger: 'branch_review',
+    confidence: 0.9,
+    success_count: 2,
+    ranking_score: 5,
+  });
+
+  const coordinated = await runQueryEngine({
+    message: 'compare duas abordagens: liste os arquivos, busque "name" e analise package.json',
+    memoryContext: { user: {} },
+    history: [],
+    summary: '',
+    capabilities: [],
+    session: { session_id: 'phase7-strategy', runtime_mode: EXECUTION_MODES.PYTHON_RUST_CARGO },
+    cwd: process.cwd(),
+  });
+  assert.equal(coordinated.execution_request.branch_plan.enabled, true);
+  assert.equal(coordinated.execution_request.branch_plan.branches.length, 2);
+  assert.equal(coordinated.execution_request.simulation_summary.invoked, true);
+  assert.ok(Array.isArray(coordinated.execution_request.ranked_strategy_memory));
+  assert.ok(coordinated.execution_request.ranked_strategy_memory.length > 0);
+  assert.equal(coordinated.execution_request.strategy_suggestions[0].strategy_type, 'parallel_read_branching');
 
   const runtimeMode = resolveExecutionMode({
     cwd: process.cwd(),

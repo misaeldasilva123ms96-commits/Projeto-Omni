@@ -551,6 +551,185 @@ class Phase2RuntimeTest(unittest.TestCase):
         entries = [json.loads(line) for line in run_summary.read_text(encoding="utf-8").splitlines() if line.strip()]
         self.assertTrue(any(entry.get("run_id") == run_id for entry in entries))
 
+    def test_branch_execution_simulation_and_operator_intelligence(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase7-branches"
+        actions = [
+            {
+                "action_id": "phase7-list",
+                "step_id": "phase7-list",
+                "strategy": "real_execution",
+                "selected_tool": "glob_search",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:inspect", "branch_id": "branch:list-first", "shared_goal_id": "shared-goal:root"},
+                "tool_arguments": {"pattern": "**/*", "path": "."},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase7-branches"},
+                "memory_update_hints": {},
+            },
+            {
+                "action_id": "phase7-read-a",
+                "step_id": "phase7-read-a",
+                "strategy": "real_execution",
+                "selected_tool": "read_file",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:synthesize", "branch_id": "branch:list-first", "shared_goal_id": "shared-goal:root"},
+                "tool_arguments": {"path": "package.json", "limit": 40},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase7-branches"},
+                "memory_update_hints": {},
+            },
+            {
+                "action_id": "phase7-grep",
+                "step_id": "phase7-grep",
+                "strategy": "real_execution",
+                "selected_tool": "grep_search",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:inspect", "branch_id": "branch:search-first", "shared_goal_id": "shared-goal:root"},
+                "tool_arguments": {"pattern": "name", "path": ".", "output_mode": "content", "head_limit": 10},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase7-branches"},
+                "memory_update_hints": {},
+            },
+            {
+                "action_id": "phase7-read-b",
+                "step_id": "phase7-read-b",
+                "strategy": "real_execution",
+                "selected_tool": "read_file",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:synthesize", "branch_id": "branch:search-first", "shared_goal_id": "shared-goal:root"},
+                "tool_arguments": {"path": "package.json", "limit": 20},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase7-branches"},
+                "memory_update_hints": {},
+            },
+        ]
+        plan_graph = {
+            "version": 1,
+            "mode": "branch-aware",
+            "nodes": [
+                {"node_id": "phase7-list", "step_id": "phase7-list", "depends_on": [], "parallel_safe": True, "state": "pending", "branch_id": "branch:list-first"},
+                {"node_id": "phase7-read-a", "step_id": "phase7-read-a", "depends_on": [], "parallel_safe": True, "state": "pending", "branch_id": "branch:list-first"},
+                {"node_id": "phase7-grep", "step_id": "phase7-grep", "depends_on": [], "parallel_safe": True, "state": "pending", "branch_id": "branch:search-first"},
+                {"node_id": "phase7-read-b", "step_id": "phase7-read-b", "depends_on": [], "parallel_safe": True, "state": "pending", "branch_id": "branch:search-first"},
+            ],
+        }
+        branch_plan = {
+            "enabled": True,
+            "merge_mode": "winner-selection",
+            "max_branches": 2,
+            "branches": [
+                {"branch_id": "branch:list-first", "safe": True, "step_ids": ["phase7-list", "phase7-read-a"]},
+                {"branch_id": "branch:search-first", "safe": True, "step_ids": ["phase7-grep", "phase7-read-b"]},
+            ],
+        }
+        simulation_summary = {
+            "invoked": True,
+            "recommended_decision": "proceed",
+            "summary": "Simulation approved bounded read-only branch exploration.",
+        }
+        cooperative_plan = {
+            "shared_goal_id": "shared-goal:root",
+            "mode": "cooperative-shared-goal",
+            "contributions": [
+                {"specialist_id": "task_planner", "role": "planner"},
+                {"specialist_id": "researcher_agent", "role": "researcher"},
+                {"specialist_id": "reviewer_agent", "role": "reviewer"},
+            ],
+        }
+        strategy_suggestions = [{"strategy_type": "parallel_read_branching", "lesson": "Prefer safe parallel branches."}]
+
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase7-branches",
+            message='compare duas abordagens: liste os arquivos, busque "name" e analise package.json',
+            actions=actions,
+            task_id="task-phase7-branches",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="analysis",
+            delegation={"delegates": ["task_planner", "researcher_agent", "reviewer_agent"], "specialists": ["researcher_agent", "reviewer_agent"]},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="graph",
+            plan_graph=plan_graph,
+            branch_plan=branch_plan,
+            simulation_summary=simulation_summary,
+            cooperative_plan=cooperative_plan,
+            semantic_retrieval=[],
+            plan_hierarchy={"root_goal_id": "goal:root", "subgoals": [{"goal_id": "goal:inspect"}, {"goal_id": "goal:synthesize"}]},
+            learning_guidance=[],
+            strategy_suggestions=strategy_suggestions,
+            policy_summary=[],
+        )
+        self.assertEqual(len(results), 4)
+        self.assertTrue(all(item.get("ok") for item in results))
+        checkpoint = orchestrator.checkpoint_store.load(run_id)
+        self.assertEqual(checkpoint.get("branch_state", {}).get("winner_branch_id") in {"branch:list-first", "branch:search-first"}, True)
+        self.assertIn("simulation_summary", checkpoint)
+        self.assertIn("cooperative_plan", checkpoint)
+
+        service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")
+        branches = service.inspect_branches(run_id=run_id)
+        self.assertIn("branch_state", branches)
+        contributions = service.inspect_contributions(run_id=run_id)
+        self.assertEqual(contributions.get("cooperative_plan", {}).get("mode"), "cooperative-shared-goal")
+        intelligence = service.inspect_run_intelligence(run_id=run_id)
+        self.assertEqual(intelligence.get("run_summary", {}).get("run_id"), run_id)
+        self.assertIn("fusion", intelligence.get("run_summary", {}))
+
+    def test_simulation_can_stop_execution_before_action(self) -> None:
+        orchestrator = self.build_orchestrator()
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase7-simulation-stop",
+            message="escreva em arquivo sensivel sem aprovacao",
+            actions=[
+                {
+                    "action_id": "phase7-write",
+                    "step_id": "phase7-write",
+                    "strategy": "real_execution",
+                    "selected_tool": "write_file",
+                    "selected_agent": "coder_agent",
+                    "permission_requirement": "explicit_approval_required",
+                    "approval_state": "pending",
+                    "policy_decision": {"decision": "stop", "reason_code": "missing_approval", "operator_message": "Aprovacao necessaria."},
+                    "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo"},
+                    "tool_arguments": {"path": "tests/fusion/blocked-output.txt", "content": "blocked"},
+                    "retry_policy": {"max_attempts": 1},
+                    "transcript_link": {"session_id": "phase7-simulation-stop"},
+                    "memory_update_hints": {},
+                }
+            ],
+            task_id="task-phase7-simulation-stop",
+            run_id="run-phase7-simulation-stop",
+            provider="test-runtime",
+            intent="execution",
+            delegation={},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="linear",
+            plan_graph=None,
+            branch_plan=None,
+            simulation_summary={"invoked": True, "recommended_decision": "stop", "summary": "Simulation found blockers: write_requires_approval."},
+            cooperative_plan=None,
+            semantic_retrieval=[],
+            plan_hierarchy=None,
+            learning_guidance=[],
+            strategy_suggestions=[],
+            policy_summary=[{"step_id": "phase7-write", "policy_decision": {"decision": "stop"}}],
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].get("error_payload", {}).get("kind"), "simulation_stop")
+
 
 if __name__ == "__main__":
     unittest.main()

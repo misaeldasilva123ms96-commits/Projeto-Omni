@@ -32,6 +32,10 @@ def build_task_envelope(*, user_id: str, session_id: str, task_id: str, response
             "latest_transcript": {"session_id": session_id},
             "inspect_hierarchy": {"task_id": task_id, "session_id": session_id},
             "inspect_learning": {"task_id": task_id, "session_id": session_id},
+            "inspect_branches": {"task_id": task_id, "session_id": session_id},
+            "inspect_contributions": {"task_id": task_id, "session_id": session_id},
+            "inspect_simulation": {"task_id": task_id, "session_id": session_id},
+            "inspect_run_intelligence": {"task_id": task_id, "session_id": session_id},
         },
     }
 
@@ -45,10 +49,15 @@ def build_task_status(*, run_id: str, checkpoint: dict[str, Any]) -> dict[str, A
         "next_step_index": checkpoint.get("next_step_index", 0),
         "total_actions": checkpoint.get("total_actions", 0),
         "plan_hierarchy": checkpoint.get("plan_hierarchy"),
+        "branch_state": checkpoint.get("branch_state"),
         "reflection_available": bool(checkpoint.get("reflection_summary")),
         "operator_links": {
             "inspect_checkpoint": {"run_id": run_id},
             "inspect_policy": {"run_id": run_id},
             "inspect_learning": {"run_id": run_id},
+            "inspect_branches": {"run_id": run_id},
+            "inspect_contributions": {"run_id": run_id},
+            "inspect_simulation": {"run_id": run_id},
+            "inspect_run_intelligence": {"run_id": run_id},
         },
     }

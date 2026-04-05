@@ -237,3 +237,45 @@
 - Context: service readiness needed richer inspection paths without exposing a full public API yet.
 - Decision: extend internal task service contracts for hierarchy, reflection, learning, and policy inspection.
 - Consequence: the project is more operator-ready while preserving clean boundaries.
+
+## ADR-030: Cooperative Multi-Agent Coordination Uses Shared Goal Metadata
+
+- Context: Phase 6 had specialist roles, but shared-goal cooperation was still implicit.
+- Alternatives: keep specialists independent; create multiple orchestration authorities.
+- Decision: emit a `cooperative_plan` with contribution lineage under one orchestrator-owned shared goal.
+- Consequences: specialist cooperation becomes auditable without creating competing brains.
+
+## ADR-031: Branch Execution Is Bounded To Two Safe Read-Only Paths
+
+- Context: alternative path exploration is useful, but speculative execution can explode quickly.
+- Alternatives: remain single-path only; allow broad speculative branching.
+- Decision: support at most two read-only branches with explicit winner-selection and pruning.
+- Consequences: the runtime gains comparative execution without uncontrolled branch explosion.
+
+## ADR-032: Simulation Is A Conditional Pre-Execution Gate
+
+- Context: some plans should be reviewed before tool execution.
+- Alternatives: always execute first; simulate every request.
+- Decision: add a bounded simulation stage that can proceed, revise, or stop.
+- Consequences: risky paths become more controllable and operator-visible.
+
+## ADR-033: Strategy Memory Must Be Ranked And Explainable
+
+- Context: flat execution lessons were not enough to guide better coordination decisions.
+- Alternatives: keep unordered lessons; add opaque reinforcement loops.
+- Decision: rank strategy entries by explicit counters and confidence.
+- Consequences: strategy influence becomes auditable and easier to inspect.
+
+## ADR-034: Result Fusion Must Surface Conflicts Instead Of Hiding Them
+
+- Context: multiple specialists and branches can disagree.
+- Alternatives: collapse results into one silent summary; expose raw unmerged traces only.
+- Decision: normalize contributions, compare them explicitly, and expose fusion metadata.
+- Consequences: the final answer stays grounded while operators can inspect why one path won.
+
+## ADR-035: Run Intelligence Becomes The Operator-Facing Coordination Summary
+
+- Context: future dashboards need richer machine-readable data than checkpoints alone.
+- Alternatives: rely only on checkpoint files; build UI-specific projections later.
+- Decision: persist run summaries containing hierarchy, branches, simulation, strategy usage, and fusion.
+- Consequences: future operator tooling can consume stable runtime intelligence without redesigning the execution model.

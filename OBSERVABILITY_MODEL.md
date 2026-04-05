@@ -24,6 +24,10 @@ The live runtime now emits or persists evidence for:
 - run resume
 - final completion
 - blocked or failed completion
+- cooperative planning
+- branch start/complete/decision
+- simulation review
+- run intelligence summaries
 
 ## Correlation Identity
 
@@ -34,6 +38,8 @@ The runtime now correlates activity through:
 - `task_id`
 - `run_id`
 - step/action index
+- `branch_id`
+- `shared_goal_id`
 
 These IDs make it possible to reconstruct what happened during a task instead of relying on a single final answer string.
 
@@ -138,6 +144,15 @@ New Phase 5 event types include:
 - `runtime.graph.plan`
 - `runtime.parallel.start`
 - `runtime.checkpoint.resume_blocked`
+
+## Phase 7 Event Types
+
+- `runtime.cooperation.plan`
+- `runtime.branch.start`
+- `runtime.branch.complete`
+- `runtime.branch.decision`
+- `runtime.simulation.review`
+- `runtime.run.summary`
 
 ## Operational Value
 

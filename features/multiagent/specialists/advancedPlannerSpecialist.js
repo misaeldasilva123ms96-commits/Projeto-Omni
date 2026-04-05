@@ -15,6 +15,15 @@ function detectConstraints(message) {
     wantsHierarchy:
       /(depois|entao|então|por partes|primeiro|segundo)/.test(text)
       && ((text.includes('analise') && text.includes('leia')) || (text.includes('liste') && text.includes('analise'))),
+    wantsCooperation:
+      /(compare|comparar|analise|revis|critique|critica)/.test(text)
+      || ((text.includes('liste') || text.includes('busque')) && text.includes('leia')),
+    wantsBranching:
+      /(compare|comparar|duas abordagens|duas estrategias|duas estratégias)/.test(text)
+      || ((text.includes('liste') || text.includes('busque')) && text.includes('compare')),
+    wantsSimulation:
+      /(arriscado|seguro|simule|antes de executar|compare)/.test(text)
+      || text.includes('escreva'),
   };
 }
 
@@ -36,6 +45,7 @@ function buildStep(sessionId, suffix, tool, agent, toolArguments, goal, extra = 
     selected_agent: agent,
     tool_arguments: toolArguments,
     goal,
+    shared_goal_id: extra.shared_goal_id || 'shared-goal:root',
     ...extra,
   };
 }
@@ -128,7 +138,7 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
       'researcher_agent',
       { pattern: '**/*', path: '.' },
       'inspect workspace structure',
-      { parallel_safe: constraints.wantsParallelRead },
+      { parallel_safe: constraints.wantsParallelRead, branch_id: constraints.wantsBranching ? 'branch:list-first' : null },
     ));
   }
 
@@ -146,7 +156,7 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
         head_limit: 20,
       },
       'search workspace content for requested pattern',
-      { parallel_safe: constraints.wantsParallelRead },
+      { parallel_safe: constraints.wantsParallelRead, branch_id: constraints.wantsBranching ? 'branch:search-first' : null },
     ));
   }
 
@@ -164,6 +174,25 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
       constraints.wantsAnalysis ? 'retrieve source material for hierarchical analysis' : 'retrieve target file contents',
       {
         depends_on: constraints.wantsList ? [`${sessionId}:step:list`] : [],
+        branch_id: constraints.wantsBranching ? 'branch:list-first' : null,
+      },
+    ));
+  }
+
+  if (constraints.wantsBranching && constraints.wantsAnalysis) {
+    steps.push(buildStep(
+      sessionId,
+      'analysis-branch-read',
+      'read_file',
+      'researcher_agent',
+      {
+        path: referencedFile || 'package.json',
+        limit: 80,
+      },
+      'compare alternate analysis branch before synthesis',
+      {
+        branch_id: 'branch:search-first',
+        depends_on: constraints.wantsSearch ? [`${sessionId}:step:grep`] : [],
       },
     ));
   }
@@ -196,9 +225,32 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
 
   const hierarchicalSteps = assignHierarchy(constraints, steps);
   const planMetadata = buildPlanMetadata(constraints, hierarchicalSteps, runtimeConfig);
+  const branchPlan = constraints.wantsBranching
+    ? {
+        enabled: true,
+        strategy: 'bounded-safe-read-branches',
+        max_branches: 2,
+        merge_mode: 'winner-selection',
+        branches: [
+          {
+            branch_id: 'branch:list-first',
+            label: 'Inspecionar estrutura antes da leitura',
+            safe: true,
+            step_ids: hierarchicalSteps.filter(step => step.branch_id === 'branch:list-first' || !step.branch_id).map(step => step.step_id),
+          },
+          {
+            branch_id: 'branch:search-first',
+            label: 'Buscar evidências antes da leitura comparativa',
+            safe: true,
+            step_ids: hierarchicalSteps.filter(step => step.branch_id === 'branch:search-first').map(step => step.step_id),
+          },
+        ].filter(branch => branch.step_ids.length > 0),
+      }
+    : null;
   return {
     constraints,
     ...planMetadata,
+    branch_plan: branchPlan,
     stop_on_error: true,
     retry_policy: {
       max_attempts: runtimeConfig.maxRetries || 1,

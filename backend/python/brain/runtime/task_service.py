@@ -44,6 +44,7 @@ class TaskService:
             "task_id": checkpoint.get("task_id"),
             "plan_hierarchy": checkpoint.get("plan_hierarchy"),
             "plan_graph": checkpoint.get("plan_graph"),
+            "branch_state": checkpoint.get("branch_state"),
         }
 
     def inspect_learning_memory(self) -> dict[str, Any]:
@@ -59,6 +60,50 @@ class TaskService:
         return {
             "run_id": run_id,
             "reflection_summary": checkpoint.get("reflection_summary"),
+        }
+
+    def inspect_branches(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "branch_state": checkpoint.get("branch_state"),
+            "simulation_summary": checkpoint.get("simulation_summary"),
+        }
+
+    def inspect_simulation(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "simulation_summary": checkpoint.get("simulation_summary"),
+            "policy_summary": checkpoint.get("policy_summary"),
+        }
+
+    def inspect_contributions(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "cooperative_plan": checkpoint.get("cooperative_plan"),
+            "strategy_suggestions": checkpoint.get("strategy_suggestions", []),
+        }
+
+    def inspect_run_intelligence(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        run_summary_path = self.orchestrator.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
+        latest_summary = None
+        if run_summary_path.exists():
+            import json
+
+            for line in reversed(run_summary_path.read_text(encoding="utf-8").splitlines()):
+                if not line.strip():
+                    continue
+                candidate = json.loads(line)
+                if candidate.get("run_id") == run_id:
+                    latest_summary = candidate
+                    break
+        return {
+            "run_id": run_id,
+            "checkpoint": checkpoint,
+            "run_summary": latest_summary,
         }
 
     def task_status(self, *, run_id: str) -> dict[str, Any]:

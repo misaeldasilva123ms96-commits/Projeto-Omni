@@ -420,6 +420,10 @@ class BrainOrchestrator:
         plan_hierarchy: dict[str, Any] | None = None,
         learning_guidance: object = None,
         policy_summary: object = None,
+        branch_plan: dict[str, Any] | None = None,
+        simulation_summary: dict[str, Any] | None = None,
+        cooperative_plan: dict[str, Any] | None = None,
+        strategy_suggestions: object = None,
         start_index: int = 0,
     ) -> list[dict[str, Any]]:
         max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
@@ -427,6 +431,7 @@ class BrainOrchestrator:
         critic_review = critic_review or {}
         graph_state = self._clone_plan_graph(plan_graph)
         plan_signature = self._plan_signature(actions, graph_state)
+        branch_state = self._initial_branch_state(branch_plan)
         if critic_review.get("invoked"):
             self._append_runtime_event(
                 event_type="runtime.critic.plan",
@@ -462,6 +467,74 @@ class BrainOrchestrator:
                     else 0,
                 },
             )
+        if isinstance(cooperative_plan, dict):
+            self._append_runtime_event(
+                event_type="runtime.cooperation.plan",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "shared_goal_id": cooperative_plan.get("shared_goal_id"),
+                    "contribution_count": len(cooperative_plan.get("contributions", [])),
+                },
+            )
+        if isinstance(simulation_summary, dict) and simulation_summary.get("invoked"):
+            self._append_runtime_event(
+                event_type="runtime.simulation.review",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=simulation_summary,
+            )
+            if simulation_summary.get("recommended_decision") == "stop":
+                blocked = {
+                    "ok": False,
+                    "selected_tool": "none",
+                    "selected_agent": "critic_agent",
+                    "error_payload": {
+                        "kind": "simulation_stop",
+                        "message": str(simulation_summary.get("summary", "Execution blocked by simulation review.")),
+                    },
+                    "evaluation": {
+                        "decision": "stop_blocked",
+                        "reason_code": "simulation_stop",
+                    },
+                }
+                step_results.append(blocked)
+                self._write_checkpoint(
+                    run_id=run_id,
+                    task_id=task_id,
+                    session_id=session_id,
+                    message=message,
+                    actions=actions,
+                    next_step_index=start_index,
+                    completed_steps=step_results,
+                    plan_graph=graph_state,
+                    plan_hierarchy=plan_hierarchy,
+                    plan_signature=plan_signature,
+                    status="blocked",
+                    branch_state=branch_state,
+                    simulation_summary=simulation_summary,
+                    cooperative_plan=cooperative_plan,
+                    strategy_suggestions=strategy_suggestions,
+                )
+                self._write_run_summary(
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    message=message,
+                    step_results=step_results,
+                    plan_kind=plan_kind,
+                    plan_hierarchy=plan_hierarchy,
+                    reflection={"invoked": False, "reason_code": "simulation_stop"},
+                    branch_state=branch_state,
+                    cooperative_plan=cooperative_plan,
+                    simulation_summary=simulation_summary,
+                    strategy_suggestions=strategy_suggestions,
+                    fusion_summary=None,
+                    policy_summary=policy_summary,
+                )
+                return step_results
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -474,8 +547,51 @@ class BrainOrchestrator:
             plan_hierarchy=plan_hierarchy,
             plan_signature=plan_signature,
             status="running",
+            branch_state=branch_state,
+            simulation_summary=simulation_summary,
+            cooperative_plan=cooperative_plan,
+            strategy_suggestions=strategy_suggestions,
         )
         executed_steps = 0
+        branch_action_ids: set[str] = set()
+        if isinstance(branch_plan, dict) and isinstance(branch_state, dict) and branch_state.get("branches"):
+            branch_results, branch_action_ids, branch_state, graph_state = self._execute_branch_plan(
+                session_id=session_id,
+                message=message,
+                actions=actions,
+                task_id=task_id,
+                run_id=run_id,
+                provider=provider,
+                intent=intent,
+                delegation=delegation,
+                plan_kind=plan_kind,
+                semantic_retrieval=semantic_retrieval,
+                plan_hierarchy=plan_hierarchy,
+                step_results=step_results,
+                branch_plan=branch_plan,
+                branch_state=branch_state,
+                graph_state=graph_state,
+            )
+            executed_steps += len(branch_results)
+            self._write_checkpoint(
+                run_id=run_id,
+                task_id=task_id,
+                session_id=session_id,
+                message=message,
+                actions=actions,
+                next_step_index=min(start_index + executed_steps, len(actions)),
+                completed_steps=step_results,
+                plan_graph=graph_state,
+                plan_hierarchy=plan_hierarchy,
+                plan_signature=plan_signature,
+                status="running" if all(item.get("ok") for item in branch_results) else "blocked",
+                branch_state=branch_state,
+                simulation_summary=simulation_summary,
+                cooperative_plan=cooperative_plan,
+                strategy_suggestions=strategy_suggestions,
+            )
+            if branch_results and not all(item.get("ok") for item in branch_results):
+                return step_results
         if plan_kind == "graph" and isinstance(graph_state, dict):
             while executed_steps < max_steps:
                 ready_parallel, ready_sequential = self._graph_ready_groups(graph_state)
@@ -483,6 +599,9 @@ class BrainOrchestrator:
                     break
 
                 batch_nodes = ready_parallel[: self._runtime_max_parallel_reads()] if ready_parallel else ready_sequential[:1]
+                batch_nodes = [node for node in batch_nodes if str(node.get("step_id", "")) not in branch_action_ids]
+                if not batch_nodes:
+                    break
                 batch_actions = [self._action_for_node(actions, node) for node in batch_nodes]
                 if any(action is None for action in batch_actions):
                     break
@@ -542,12 +661,18 @@ class BrainOrchestrator:
                     plan_hierarchy=plan_hierarchy,
                     plan_signature=plan_signature,
                     status="blocked" if step_results and not step_results[-1].get("ok") else "running",
+                    branch_state=branch_state,
+                    simulation_summary=simulation_summary,
+                    cooperative_plan=cooperative_plan,
+                    strategy_suggestions=strategy_suggestions,
                 )
                 if step_results and not step_results[-1].get("ok"):
                     break
         else:
             for index, action in enumerate(actions[start_index:max_steps], start=start_index):
                 if not isinstance(action, dict):
+                    continue
+                if str(action.get("step_id", "")) in branch_action_ids:
                     continue
 
                 result = self._execute_single_action(
@@ -586,6 +711,10 @@ class BrainOrchestrator:
                     plan_hierarchy=plan_hierarchy,
                     plan_signature=plan_signature,
                     status="blocked" if not result.get("ok") else "running",
+                    branch_state=branch_state,
+                    simulation_summary=simulation_summary,
+                    cooperative_plan=cooperative_plan,
+                    strategy_suggestions=strategy_suggestions,
                 )
 
                 if not result.get("ok"):
@@ -609,6 +738,10 @@ class BrainOrchestrator:
                 and all(item.get("ok") for item in step_results)
             )
             else "blocked",
+            branch_state=branch_state,
+            simulation_summary=simulation_summary,
+            cooperative_plan=cooperative_plan,
+            strategy_suggestions=strategy_suggestions,
         )
         reflection = self._reflect_on_run(
             message=message,
@@ -619,6 +752,8 @@ class BrainOrchestrator:
             plan_hierarchy=plan_hierarchy,
             learning_guidance=learning_guidance,
             policy_summary=policy_summary,
+            branch_state=branch_state,
+            cooperative_plan=cooperative_plan,
         )
         if reflection.get("invoked"):
             self._append_runtime_event(
@@ -663,8 +798,14 @@ class BrainOrchestrator:
                 "plan_hierarchy": plan_hierarchy,
                 "plan_signature": plan_signature,
                 "reflection_summary": reflection,
+                "branch_state": branch_state,
+                "simulation_summary": simulation_summary,
+                "cooperative_plan": cooperative_plan,
+                "strategy_suggestions": strategy_suggestions,
+                "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
             },
         )
+        fusion_summary = self._build_fusion_summary(step_results, cooperative_plan, branch_state, strategy_suggestions)
         self._write_run_summary(
             session_id=session_id,
             task_id=task_id,
@@ -674,6 +815,12 @@ class BrainOrchestrator:
             plan_kind=plan_kind,
             plan_hierarchy=plan_hierarchy,
             reflection=reflection,
+            branch_state=branch_state,
+            cooperative_plan=cooperative_plan,
+            simulation_summary=simulation_summary,
+            strategy_suggestions=strategy_suggestions,
+            fusion_summary=fusion_summary,
+            policy_summary=policy_summary,
         )
         return step_results
 
@@ -724,6 +871,133 @@ class BrainOrchestrator:
             return False
         nodes = plan_graph.get("nodes", [])
         return bool(nodes) and all(str(node.get("state", "")) == "completed" for node in nodes if isinstance(node, dict))
+
+    @staticmethod
+    def _initial_branch_state(branch_plan: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(branch_plan, dict):
+            return None
+        branches = branch_plan.get("branches", [])
+        if not isinstance(branches, list):
+            return None
+        return {
+            "enabled": bool(branch_plan.get("enabled", True)),
+            "merge_mode": str(branch_plan.get("merge_mode", "winner-selection")),
+            "branches": [
+                {
+                    "branch_id": branch.get("branch_id"),
+                    "label": branch.get("label"),
+                    "safe": bool(branch.get("safe", True)),
+                    "state": "pending",
+                    "step_ids": branch.get("step_ids", []),
+                }
+                for branch in branches
+                if isinstance(branch, dict)
+            ],
+            "winner_branch_id": None,
+            "pruned_branch_ids": [],
+        }
+
+    def _execute_branch_plan(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        actions: list[dict[str, Any]],
+        task_id: str,
+        run_id: str,
+        provider: dict[str, Any] | str,
+        intent: str,
+        delegation: dict[str, Any],
+        plan_kind: str,
+        semantic_retrieval: object,
+        plan_hierarchy: dict[str, Any] | None,
+        step_results: list[dict[str, Any]],
+        branch_plan: dict[str, Any],
+        branch_state: dict[str, Any],
+        graph_state: dict[str, Any] | None,
+    ) -> tuple[list[dict[str, Any]], set[str], dict[str, Any], dict[str, Any] | None]:
+        results: list[dict[str, Any]] = []
+        executed_ids: set[str] = set()
+        branches = branch_state.get("branches", []) if isinstance(branch_state, dict) else []
+        if not branches:
+            return results, executed_ids, branch_state, graph_state
+
+        branch_scores: dict[str, float] = {}
+        for branch in branches[: int(branch_plan.get("max_branches", 2) or 2)]:
+            branch_id = str(branch.get("branch_id", ""))
+            branch_actions = [
+                action for action in actions
+                if isinstance(action, dict)
+                and str(action.get("execution_context", {}).get("branch_id", "")) == branch_id
+            ]
+            if not branch_actions:
+                continue
+            self._append_runtime_event(
+                event_type="runtime.branch.start",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={"branch_id": branch_id, "step_count": len(branch_actions)},
+            )
+            batch_results = self._execute_action_batch(
+                actions=branch_actions,
+                step_results=step_results,
+                semantic_retrieval=semantic_retrieval,
+                learning_guidance=[],
+                allow_parallel=all(action.get("selected_tool") != "write_file" for action in branch_actions),
+            )
+            for action, result in zip(branch_actions, batch_results):
+                executed_ids.add(str(action.get("step_id", "")))
+                results.append(result)
+                step_results.append(result)
+                graph_state = self._mark_graph_outcome(graph_state, action, result)
+                self._append_runtime_execution_logs(
+                    session_id=session_id,
+                    message=message,
+                    action=action,
+                    result=result,
+                    task_id=task_id,
+                    run_id=run_id,
+                    provider=provider,
+                    intent=intent,
+                    delegates=delegation.get("delegates", []),
+                    specialists=delegation.get("specialists", []),
+                    plan_kind=plan_kind,
+                    semantic_retrieval=semantic_retrieval,
+                    plan_hierarchy=plan_hierarchy,
+                )
+            branch["state"] = "completed" if batch_results and all(item.get("ok") for item in batch_results) else "failed"
+            branch_scores[branch_id] = sum(1.5 if item.get("ok") else -1 for item in batch_results) + sum(
+                0.4 for item in batch_results if item.get("selected_tool") == "read_file"
+            )
+            self._append_runtime_event(
+                event_type="runtime.branch.complete",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={"branch_id": branch_id, "score": branch_scores[branch_id], "status": branch["state"]},
+            )
+
+        if branch_scores:
+            winner_branch_id = max(branch_scores.items(), key=lambda item: item[1])[0]
+            pruned = [branch_id for branch_id in branch_scores if branch_id != winner_branch_id]
+            branch_state["winner_branch_id"] = winner_branch_id
+            branch_state["pruned_branch_ids"] = pruned
+            for branch in branches:
+                if branch.get("branch_id") in pruned:
+                    branch["state"] = "pruned"
+            self._append_runtime_event(
+                event_type="runtime.branch.decision",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "winner_branch_id": winner_branch_id,
+                    "pruned_branch_ids": pruned,
+                    "merge_mode": branch_state.get("merge_mode", "winner-selection"),
+                },
+            )
+        return results, executed_ids, branch_state, graph_state
 
     @staticmethod
     def _mark_graph_outcome(plan_graph: dict[str, Any] | None, action: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
@@ -984,6 +1258,10 @@ class BrainOrchestrator:
             "trigger": trigger,
             "transcript_ref": {"session_id": session_id, "run_id": run_id},
             "metadata": metadata,
+            "success_count": 1 if outcome == "success" else 0,
+            "failure_count": 1 if outcome == "failure" else 0,
+            "avoidance_count": 1 if outcome == "failure_avoidance" else 0,
+            "ranking_score": 2.5 if outcome == "success" else 1.2 if outcome == "failure_avoidance" else -1.0,
             "updated_at": self._utc_now(),
         }
         current["entries"] = [entry] + [item for item in current.get("entries", []) if item.get("entry_id") != entry["entry_id"]]
@@ -1007,9 +1285,11 @@ class BrainOrchestrator:
         plan_hierarchy: dict[str, Any] | None,
         learning_guidance: object,
         policy_summary: object,
+        branch_state: dict[str, Any] | None,
+        cooperative_plan: dict[str, Any] | None,
     ) -> dict[str, Any]:
         failures = [item for item in step_results if not item.get("ok")]
-        if not failures and not plan_hierarchy:
+        if not failures and not plan_hierarchy and not branch_state:
             return {"invoked": False, "reason_code": "reflection_not_required"}
         summary_parts = []
         if isinstance(plan_hierarchy, dict):
@@ -1026,11 +1306,17 @@ class BrainOrchestrator:
             blocked = [item for item in policy_summary if item.get('policy_decision', {}).get('decision') == 'stop']
             if blocked:
                 summary_parts.append("A politica bloqueou parte da execucao por seguranca.")
+        if isinstance(branch_state, dict) and branch_state.get("winner_branch_id"):
+            summary_parts.append(f"Branch vencedor: {branch_state.get('winner_branch_id')}.")
+        if isinstance(cooperative_plan, dict):
+            summary_parts.append(
+                f"Cooperacao registrada com {len(cooperative_plan.get('contributions', []))} contribuicoes."
+            )
         return {
             "invoked": True,
             "reason_code": "hierarchical_review" if plan_hierarchy else "execution_quality_review",
             "summary": " ".join(part for part in summary_parts if part).strip(),
-            "update_learning": bool(failures or plan_hierarchy),
+            "update_learning": bool(failures or plan_hierarchy or branch_state),
             "message_preview": message[:120],
         }
 
@@ -1045,6 +1331,12 @@ class BrainOrchestrator:
         plan_kind: str,
         plan_hierarchy: dict[str, Any] | None,
         reflection: dict[str, Any],
+        branch_state: dict[str, Any] | None,
+        cooperative_plan: dict[str, Any] | None,
+        simulation_summary: dict[str, Any] | None,
+        strategy_suggestions: object,
+        fusion_summary: dict[str, Any] | None,
+        policy_summary: object,
     ) -> None:
         run_summary_path = self.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
         summary = {
@@ -1057,6 +1349,12 @@ class BrainOrchestrator:
             "plan_kind": plan_kind,
             "hierarchy": plan_hierarchy,
             "reflection": reflection,
+            "branches": branch_state,
+            "cooperation": cooperative_plan,
+            "simulation": simulation_summary,
+            "strategy_usage": strategy_suggestions if isinstance(strategy_suggestions, list) else [],
+            "fusion": fusion_summary,
+            "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
             "status": "completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
             "steps": [
                 {
@@ -1066,6 +1364,11 @@ class BrainOrchestrator:
                         if isinstance(item.get("action"), dict)
                         else None
                     ),
+                    "branch_id": (
+                        item.get("action", {}).get("execution_context", {}).get("branch_id")
+                        if isinstance(item.get("action"), dict)
+                        else item.get("branch_id")
+                    ),
                     "selected_tool": item.get("selected_tool"),
                     "ok": bool(item.get("ok")),
                 }
@@ -1073,6 +1376,35 @@ class BrainOrchestrator:
             ],
         }
         self._append_jsonl(run_summary_path, summary)
+
+    @staticmethod
+    def _build_fusion_summary(
+        step_results: list[dict[str, Any]],
+        cooperative_plan: dict[str, Any] | None,
+        branch_state: dict[str, Any] | None,
+        strategy_suggestions: object,
+    ) -> dict[str, Any]:
+        contributions = []
+        for item in step_results:
+            action = item.get("action", {}) if isinstance(item, dict) else {}
+            contributions.append(
+                {
+                    "step_id": action.get("step_id") or item.get("step_id"),
+                    "specialist_id": action.get("selected_agent") or item.get("selected_agent"),
+                    "branch_id": action.get("execution_context", {}).get("branch_id"),
+                    "goal_id": action.get("execution_context", {}).get("goal_id"),
+                    "ok": bool(item.get("ok")),
+                }
+            )
+        branch_ids = {item.get("branch_id") for item in contributions if item.get("branch_id")}
+        return {
+            "contribution_count": len(contributions),
+            "specialist_ids": sorted({item.get("specialist_id") for item in contributions if item.get("specialist_id")}),
+            "branch_count": len(branch_ids),
+            "winner_branch_id": branch_state.get("winner_branch_id") if isinstance(branch_state, dict) else None,
+            "strategy_count": len(strategy_suggestions) if isinstance(strategy_suggestions, list) else 0,
+            "cooperative_mode": cooperative_plan.get("mode") if isinstance(cooperative_plan, dict) else "single-specialist",
+        }
 
     @staticmethod
     def _synthesize_runtime_response(step_results: list[dict[str, Any]], fallback_response: str) -> str:
@@ -1214,6 +1546,8 @@ class BrainOrchestrator:
             "selected_agent": action.get("selected_agent"),
             "goal_id": action.get("execution_context", {}).get("goal_id"),
             "parent_goal_id": action.get("execution_context", {}).get("parent_goal_id"),
+            "branch_id": action.get("execution_context", {}).get("branch_id"),
+            "shared_goal_id": action.get("execution_context", {}).get("shared_goal_id"),
             "ok": bool(result.get("ok")),
             "result": result.get("result_payload"),
             "error": result.get("error_payload"),
@@ -1238,6 +1572,8 @@ class BrainOrchestrator:
             "plan_hierarchy": plan_hierarchy if isinstance(plan_hierarchy, dict) else None,
             "delegated_specialists": specialists if isinstance(specialists, list) else [],
             "semantic_retrieval": semantic_retrieval if isinstance(semantic_retrieval, list) else [],
+            "branch_id": action.get("execution_context", {}).get("branch_id"),
+            "shared_goal_id": action.get("execution_context", {}).get("shared_goal_id"),
             "step_results": [
                 {
                     "ok": bool(result.get("ok")),
@@ -1245,6 +1581,7 @@ class BrainOrchestrator:
                     "selected_tool": action.get("selected_tool"),
                     "selected_agent": action.get("selected_agent"),
                     "goal_id": action.get("execution_context", {}).get("goal_id"),
+                    "branch_id": action.get("execution_context", {}).get("branch_id"),
                     "evaluation": result.get("evaluation"),
                     "correction_events": result.get("correction_events", []),
                 }
@@ -1365,6 +1702,11 @@ class BrainOrchestrator:
         plan_hierarchy: dict[str, Any] | None,
         plan_signature: str,
         status: str,
+        branch_state: dict[str, Any] | None,
+        simulation_summary: dict[str, Any] | None,
+        cooperative_plan: dict[str, Any] | None,
+        strategy_suggestions: object,
+        policy_summary: object = None,
     ) -> None:
         remaining_actions = actions[next_step_index:] if next_step_index < len(actions) else []
         self.checkpoint_store.save(
@@ -1381,6 +1723,11 @@ class BrainOrchestrator:
                 "plan_graph": plan_graph,
                 "plan_hierarchy": plan_hierarchy,
                 "plan_signature": plan_signature,
+                "branch_state": branch_state,
+                "simulation_summary": simulation_summary,
+                "cooperative_plan": cooperative_plan,
+                "strategy_suggestions": strategy_suggestions if isinstance(strategy_suggestions, list) else [],
+                "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
             },
         )
 
@@ -1434,6 +1781,10 @@ class BrainOrchestrator:
             plan_hierarchy=checkpoint.get("plan_hierarchy"),
             learning_guidance=[],
             policy_summary=[],
+            branch_plan=checkpoint.get("branch_state"),
+            simulation_summary=checkpoint.get("simulation_summary"),
+            cooperative_plan=checkpoint.get("cooperative_plan"),
+            strategy_suggestions=checkpoint.get("strategy_suggestions"),
             start_index=0,
         )
         return {

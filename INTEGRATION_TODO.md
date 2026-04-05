@@ -44,6 +44,11 @@
 - [ ] Add stronger concurrency controls around checkpoint resume for future multi-worker deployment
 - [ ] Extend graph planning beyond read/search dependency shapes
 - [ ] Add richer task/run inspection endpoints on top of TaskService
+- [ ] Add confidence decay and aging windows to ranked strategy memory
+- [ ] Add richer branch merge policies beyond winner-selection
+- [ ] Add explicit approval objects before allowing mutating branch exploration
+- [ ] Add richer cooperative contribution scoring per specialist role
+- [ ] Add operator/dashboard consumers for Phase 7 run intelligence payloads
 
 ## Phase 6 follow-up
 - [ ] Add mid-run reflection triggers for long-running weak-success paths.
@@ -52,3 +57,9 @@
 - [ ] Add explicit human-approval workflow objects for high-risk tasks.
 - [ ] Add hierarchical synthesis formatting for longer analytical answers.
 - [ ] Add dashboard/API consumers for `run-summaries.jsonl` and policy events.
+
+## Phase 7 follow-up
+- [ ] Expand branch execution beyond read-only analysis once rollback/approval models exist.
+- [ ] Add deeper simulation heuristics for dependency and environment blockers.
+- [ ] Add per-strategy decay and promotion thresholds.
+- [ ] Add richer fusion formatting for analytical responses with multiple branches.

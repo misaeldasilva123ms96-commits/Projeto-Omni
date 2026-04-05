@@ -18,16 +18,19 @@ const {
   updateSessionRuntimeMemory,
   updateWorkingMemory,
 } = require('../../storage/memory/runtimeMemoryStore');
-const { findLearningMatches } = require('../../storage/memory/executionLearningMemory');
+const { findLearningMatches, suggestRankedStrategies } = require('../../storage/memory/executionLearningMemory');
 const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit');
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
+const { buildCooperativePlan } = require('../../features/multiagent/cooperativeCoordinator');
 const { planTask } = require('../../features/multiagent/specialists/advancedPlannerSpecialist');
 const { enrichWithMemory } = require('../../features/multiagent/specialists/memorySpecialist');
 const { extractArtifacts, summarizeExecutionResult } = require('../../features/multiagent/specialists/researcherSpecialist');
 const { synthesizeFinalAnswer } = require('../../features/multiagent/specialists/reviewerSpecialist');
 const { evaluateStepResult } = require('../../features/multiagent/specialists/evaluatorSpecialist');
 const { reviewPlan } = require('../../features/multiagent/specialists/criticSpecialist');
+const { simulatePlan } = require('../../features/multiagent/specialists/simulationSpecialist');
 const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
+const { fuseResults } = require('../../features/multiagent/specialists/resultFusionSpecialist');
 const { normalizeWriteRequest } = require('../../features/multiagent/specialists/coderSpecialist');
 const { getFusionSourceMap } = require('./fusedSources');
 const { buildRustRuntimeManifest } = require('../../runtime/execution/rustRuntimeManifest');
@@ -145,6 +148,7 @@ class QueryEngineAuthority {
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const semanticMatches = await findSemanticMatches(workspace, sessionId, message, 3);
     const learningMatches = findLearningMatches(workspace, { message, limit: 3 });
+    const strategySuggestions = suggestRankedStrategies(workspace, { message, limit: 3 });
     const memoryHints = enrichWithMemory({
       message,
       memoryLayers,
@@ -168,6 +172,7 @@ class QueryEngineAuthority {
       retrievalContext: {
         ...retrievalContext,
         learning_matches: learningMatches,
+        strategy_suggestions: strategySuggestions,
       },
       runtimeConfig,
     });
@@ -177,6 +182,29 @@ class QueryEngineAuthority {
       complexity,
       intent,
       runtimeConfig,
+    });
+    const cooperativePlan = buildCooperativePlan({
+      message,
+      plannerResult,
+      delegation,
+      strategySuggestions,
+    });
+
+    const simulatedPolicy = plannerResult.steps.map(step => ({
+      step_id: step.step_id,
+      policy_decision: buildPolicyDecision({
+        toolName: step.selected_tool,
+        approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+        parallelSafe: Boolean(step.parallel_safe),
+        specialist: step.selected_agent,
+      }),
+    }));
+    const simulationSummary = simulatePlan({
+      message,
+      steps: plannerResult.steps,
+      criticReview: criticPlanReview,
+      policySummary: simulatedPolicy,
+      strategySuggestions,
     });
 
     const actions = plannerResult.steps.map((step, index) => {
@@ -208,6 +236,8 @@ class QueryEngineAuthority {
         plan_kind: plannerResult.plan_kind || 'linear',
         goal_id: step.goal_id || null,
         parent_goal_id: step.parent_goal_id || null,
+        branch_id: step.branch_id || null,
+        shared_goal_id: step.shared_goal_id || cooperativePlan.shared_goal_id,
         available_capabilities: Array.isArray(capabilities) ? capabilities.map(item => item.name) : [],
       },
       toolArguments: absolutizeToolArguments(
@@ -314,6 +344,10 @@ class QueryEngineAuthority {
           critic_review: criticPlanReview,
           plan_kind: plannerResult.plan_kind || 'linear',
           plan_graph: plannerResult.plan_graph || null,
+          branch_plan: plannerResult.branch_plan || null,
+          simulation_summary: simulationSummary,
+          cooperative_plan: cooperativePlan,
+          strategy_suggestions: strategySuggestions,
           parallelism: {
             enabled: Boolean(plannerResult.plan_graph && plannerResult.plan_graph.mode === 'parallel-read'),
             max_parallel_read_steps: runtimeConfig.maxParallelReadSteps,
@@ -328,10 +362,15 @@ class QueryEngineAuthority {
             start_task: { task_id: taskId, run_id: runId, session_id: sessionId },
             get_status: { run_id: runId },
             resume_task: { run_id: runId },
+            inspect_branches: { run_id: runId },
+            inspect_contributions: { run_id: runId },
+            inspect_simulation: { run_id: runId },
+            inspect_run_intelligence: { run_id: runId },
           },
           actions: actionsWithPolicy,
           plan_hierarchy: plannerResult.plan_hierarchy || null,
           learning_guidance: learningMatches,
+          ranked_strategy_memory: strategySuggestions,
           policy_summary: actionsWithPolicy.map(action => ({
             step_id: action.step_id,
             policy_decision: action.policy_decision,
@@ -424,6 +463,14 @@ class QueryEngineAuthority {
       })),
       fallbackResponse: finalResponse,
     });
+    const fusion = fuseResults(
+      stepResults.map(item => ({
+        ...item,
+        action: item.action,
+      })),
+      cooperativePlan,
+      null,
+    );
 
     const runtimeMemoryPatch = {};
     if (memoryHints.new_name) runtimeMemoryPatch.nome = memoryHints.new_name;
@@ -466,6 +513,11 @@ class QueryEngineAuthority {
       plan_graph: plannerResult.plan_graph || null,
       plan_hierarchy: plannerResult.plan_hierarchy || null,
       critic_review: criticPlanReview,
+      cooperative_plan: cooperativePlan,
+      branch_plan: plannerResult.branch_plan || null,
+      simulation_summary: simulationSummary,
+      strategy_suggestions: strategySuggestions,
+      result_fusion: fusion,
       delegated_specialists: delegation.specialists,
         learning_guidance: learningMatches,
         step_results: stepResults.map(item => ({

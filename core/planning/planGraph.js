@@ -12,6 +12,8 @@
     state: extra.state || 'pending',
     goal_id: extra.goal_id || step.goal_id || null,
     parent_goal_id: extra.parent_goal_id || step.parent_goal_id || null,
+    branch_id: extra.branch_id || step.branch_id || null,
+    shared_goal_id: extra.shared_goal_id || step.shared_goal_id || null,
   };
 }
 
@@ -23,6 +25,8 @@ function buildPlanGraph({ steps = [], mode = 'linear' }) {
     order: index,
     goal_id: step.goal_id,
     parent_goal_id: step.parent_goal_id,
+    branch_id: step.branch_id,
+    shared_goal_id: step.shared_goal_id,
   }));
   return {
     version: 1,
