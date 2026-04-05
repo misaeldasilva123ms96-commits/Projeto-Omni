@@ -45,6 +45,7 @@ class TaskService:
             "plan_hierarchy": checkpoint.get("plan_hierarchy"),
             "plan_graph": checkpoint.get("plan_graph"),
             "branch_state": checkpoint.get("branch_state"),
+            "execution_tree": checkpoint.get("execution_tree"),
         }
 
     def inspect_learning_memory(self) -> dict[str, Any]:
@@ -84,6 +85,30 @@ class TaskService:
             "run_id": run_id,
             "cooperative_plan": checkpoint.get("cooperative_plan"),
             "strategy_suggestions": checkpoint.get("strategy_suggestions", []),
+            "negotiation_summary": checkpoint.get("negotiation_summary"),
+        }
+
+    def inspect_negotiation(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "negotiation_summary": checkpoint.get("negotiation_summary"),
+        }
+
+    def inspect_execution_state(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "execution_tree": checkpoint.get("execution_tree"),
+            "branch_state": checkpoint.get("branch_state"),
+            "strategy_optimization": checkpoint.get("strategy_optimization"),
+        }
+
+    def inspect_supervision(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "supervision": checkpoint.get("supervision"),
         }
 
     def inspect_run_intelligence(self, *, run_id: str) -> dict[str, Any]:

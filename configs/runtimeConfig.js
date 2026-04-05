@@ -18,6 +18,10 @@ function loadRuntimeConfig() {
     reflectionEnabled: String(process.env.OMINI_ENABLE_REFLECTION || 'true').trim().toLowerCase() !== 'false',
     reflectionMaxDepth: intEnv('OMINI_MAX_REFLECTION_DEPTH', 1),
     hierarchyThreshold: intEnv('OMINI_HIERARCHY_THRESHOLD', 3),
+    negotiationMaxDepth: intEnv('OMINI_NEGOTIATION_MAX_DEPTH', 1),
+    supervisionMaxTreeNodes: intEnv('OMINI_SUPERVISION_MAX_TREE_NODES', 24),
+    supervisionMaxBranches: intEnv('OMINI_SUPERVISION_MAX_BRANCHES', 2),
+    simulationEnabled: String(process.env.OMINI_ENABLE_SIMULATION || 'true').trim().toLowerCase() !== 'false',
   };
 }
 

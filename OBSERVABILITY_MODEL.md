@@ -127,16 +127,6 @@ The current model distinguishes among:
 
 ## Phase 5 Event Types
 
-Phase 5 adds explicit visibility for:
-
-- `runtime.vector.retrieval`
-- `runtime.critic.plan`
-- `runtime.graph.plan`
-- `runtime.parallel.start`
-- `runtime.checkpoint.resume_blocked`
-
-## Phase 5 Event Types
-
 New Phase 5 event types include:
 
 - `runtime.vector.retrieval`
@@ -153,6 +143,21 @@ New Phase 5 event types include:
 - `runtime.branch.decision`
 - `runtime.simulation.review`
 - `runtime.run.summary`
+
+## Phase 8 Event Types
+
+- `runtime.negotiation.summary`
+- `runtime.strategy.optimization`
+- `runtime.supervision.alert`
+
+## Execution State Visibility
+
+Phase 8 also exposes machine-readable runtime state through:
+
+- checkpointed `execution_tree`
+- run summary `execution_state`
+- operator inspection payloads for negotiation and supervision
+- correlated branch, contribution, simulation, and strategy metadata
 
 ## Operational Value
 

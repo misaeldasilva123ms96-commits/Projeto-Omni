@@ -63,3 +63,10 @@
 - [ ] Add deeper simulation heuristics for dependency and environment blockers.
 - [ ] Add per-strategy decay and promotion thresholds.
 - [ ] Add richer fusion formatting for analytical responses with multiple branches.
+
+## Phase 8 follow-up
+- [ ] Add subtree-specific resume and retry orchestration instead of whole-run continuation.
+- [ ] Add richer merge semantics for sibling subtrees beyond winner-selection.
+- [ ] Add cost-aware promotion and decay windows in strategy optimization.
+- [ ] Add operator/API endpoints over execution state and supervision payloads.
+- [ ] Add distributed worker adapters behind the tree execution model.

@@ -12,6 +12,9 @@
 - `inspect_contributions(run_id)`
 - `inspect_simulation(run_id)`
 - `inspect_run_intelligence(run_id)`
+- `inspect_execution_state(run_id)`
+- `inspect_negotiation(run_id)`
+- `inspect_supervision(run_id)`
 
 ## Coordination data exposed
 - hierarchy
@@ -20,6 +23,9 @@
 - simulation summary
 - strategy suggestions
 - run intelligence summary
+- execution tree
+- negotiation summary
+- supervision state
 
 ## Operator-safe model
 - inspection is read-only

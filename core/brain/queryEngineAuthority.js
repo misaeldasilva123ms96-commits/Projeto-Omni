@@ -3,6 +3,7 @@ const path = require('path');
 
 const { loadRuntimeConfig } = require('../../configs/runtimeConfig');
 const { buildBrainExecutorAction } = require('../planning/brainExecutorContract');
+const { buildExecutionTree } = require('../planning/executionTree');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { chooseProvider } = require('../../platform/providers/providerRouter');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
@@ -28,7 +29,9 @@ const { extractArtifacts, summarizeExecutionResult } = require('../../features/m
 const { synthesizeFinalAnswer } = require('../../features/multiagent/specialists/reviewerSpecialist');
 const { evaluateStepResult } = require('../../features/multiagent/specialists/evaluatorSpecialist');
 const { reviewPlan } = require('../../features/multiagent/specialists/criticSpecialist');
+const { negotiatePlan } = require('../../features/multiagent/specialists/negotiationSpecialist');
 const { simulatePlan } = require('../../features/multiagent/specialists/simulationSpecialist');
+const { optimizeStrategySelection } = require('../../features/multiagent/specialists/strategyOptimizerSpecialist');
 const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { fuseResults } = require('../../features/multiagent/specialists/resultFusionSpecialist');
 const { normalizeWriteRequest } = require('../../features/multiagent/specialists/coderSpecialist');
@@ -189,6 +192,11 @@ class QueryEngineAuthority {
       delegation,
       strategySuggestions,
     });
+    const strategyOptimization = optimizeStrategySelection({
+      message,
+      rankedStrategies: strategySuggestions,
+      plannerResult,
+    });
 
     const simulatedPolicy = plannerResult.steps.map(step => ({
       step_id: step.step_id,
@@ -205,6 +213,20 @@ class QueryEngineAuthority {
       criticReview: criticPlanReview,
       policySummary: simulatedPolicy,
       strategySuggestions,
+      runtimeConfig,
+    });
+    const negotiationSummary = negotiatePlan({
+      message,
+      plannerResult,
+      criticReview: criticPlanReview,
+      simulationSummary,
+      strategySuggestions,
+      maxDepth: runtimeConfig.negotiationMaxDepth,
+    });
+    const executionTree = buildExecutionTree({
+      steps: plannerResult.steps,
+      planHierarchy: plannerResult.plan_hierarchy,
+      branchPlan: plannerResult.branch_plan,
     });
 
     const actions = plannerResult.steps.map((step, index) => {
@@ -342,12 +364,15 @@ class QueryEngineAuthority {
           provider,
           delegation,
           critic_review: criticPlanReview,
+          negotiation_summary: negotiationSummary,
           plan_kind: plannerResult.plan_kind || 'linear',
           plan_graph: plannerResult.plan_graph || null,
+          execution_tree: executionTree,
           branch_plan: plannerResult.branch_plan || null,
           simulation_summary: simulationSummary,
           cooperative_plan: cooperativePlan,
           strategy_suggestions: strategySuggestions,
+          strategy_optimization: strategyOptimization,
           parallelism: {
             enabled: Boolean(plannerResult.plan_graph && plannerResult.plan_graph.mode === 'parallel-read'),
             max_parallel_read_steps: runtimeConfig.maxParallelReadSteps,
@@ -371,6 +396,7 @@ class QueryEngineAuthority {
           plan_hierarchy: plannerResult.plan_hierarchy || null,
           learning_guidance: learningMatches,
           ranked_strategy_memory: strategySuggestions,
+          execution_mode: plannerResult.execution_mode || 'flat',
           policy_summary: actionsWithPolicy.map(action => ({
             step_id: action.step_id,
             policy_decision: action.policy_decision,
@@ -513,10 +539,13 @@ class QueryEngineAuthority {
       plan_graph: plannerResult.plan_graph || null,
       plan_hierarchy: plannerResult.plan_hierarchy || null,
       critic_review: criticPlanReview,
+      negotiation_summary: negotiationSummary,
       cooperative_plan: cooperativePlan,
+      execution_tree: executionTree,
       branch_plan: plannerResult.branch_plan || null,
       simulation_summary: simulationSummary,
       strategy_suggestions: strategySuggestions,
+      strategy_optimization: strategyOptimization,
       result_fusion: fusion,
       delegated_specialists: delegation.specialists,
         learning_guidance: learningMatches,

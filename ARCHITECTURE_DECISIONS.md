@@ -279,3 +279,38 @@
 - Alternatives: rely only on checkpoint files; build UI-specific projections later.
 - Decision: persist run summaries containing hierarchy, branches, simulation, strategy usage, and fusion.
 - Consequences: future operator tooling can consume stable runtime intelligence without redesigning the execution model.
+
+## ADR-036: Phase 8 Uses A Tree Execution State Without Adding A Second Executor
+
+- Context: Phase 7 branching was useful but too flat for richer coordination.
+- Alternatives: keep flat branches only; introduce a second execution engine.
+- Decision: add a tree execution model that is updated by the existing Python execution authority.
+- Consequences: the runtime gains tree semantics while preserving one execution authority.
+
+## ADR-037: Negotiation Is Logged Debate, Not Shared Authority
+
+- Context: critical plans benefit from bounded disagreement before execution.
+- Alternatives: skip debate entirely; let specialists negotiate as peer authorities.
+- Decision: emit bounded negotiation summaries and keep the orchestrator as final arbiter.
+- Consequences: disagreement becomes visible without creating a second brain.
+
+## ADR-038: Strategy Optimization Must Stay Explainable
+
+- Context: ranked strategies now influence planning more directly.
+- Alternatives: keep only passive ranking; add opaque autonomous tuning.
+- Decision: derive optimization choices from explicit ranked strategies and expose them in runtime data.
+- Consequences: strategy evolution remains auditable and operator-safe.
+
+## ADR-039: Supervision Sits Above Runtime Coordination As A Safety Layer
+
+- Context: deeper trees and negotiation increase the chance of runaway behavior.
+- Alternatives: rely only on existing max step limits; add hidden kill-switch logic.
+- Decision: add a cognitive supervisor that evaluates tree, branch, and negotiation bounds before execution.
+- Consequences: safety stops become explicit and inspectable.
+
+## ADR-040: Execution State Payloads Are The UI-Ready Runtime Contract
+
+- Context: future dashboards need a normalized live runtime state object.
+- Alternatives: derive ad hoc UI state later from raw logs; build UI-specific state now.
+- Decision: define a normalized execution state schema inside the runtime.
+- Consequences: operator tooling can consume stable machine-readable state without changing core execution.

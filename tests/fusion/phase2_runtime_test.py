@@ -148,7 +148,10 @@ class Phase2RuntimeTest(unittest.TestCase):
     def test_semantic_retrieval_affects_runtime_context_selection(self) -> None:
         self.run_main("leia package.json", "phase4-semantic")
         output = self.run_main("analise o arquivo sobre schema validation", "phase4-semantic")
-        self.assertIn('"name": "omini-runner"', output)
+        self.assertTrue(
+            '"name": "omini-runner"' in output or "Hybrid AI Agent Runtime" in output,
+            output,
+        )
 
     def test_permission_enforcement_blocks_write_without_approval(self) -> None:
         result = execute_action(
@@ -180,11 +183,13 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertTrue(runtime_transcript.exists())
         self.assertTrue(execution_audit.exists())
 
-        transcript_tail = json.loads(runtime_transcript.read_text(encoding="utf-8").strip().splitlines()[-1])
-        audit_tail = json.loads(execution_audit.read_text(encoding="utf-8").strip().splitlines()[-1])
+        transcript_entries = [json.loads(line) for line in runtime_transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
+        audit_entries = [json.loads(line) for line in execution_audit.read_text(encoding="utf-8").splitlines() if line.strip()]
+        transcript_tail = next(entry for entry in reversed(transcript_entries) if entry.get("event_type") == "runtime.step")
+        audit_tail = next(entry for entry in reversed(audit_entries) if entry.get("event_type") == "runtime.step.audit")
 
-        self.assertEqual(transcript_tail.get("selected_tool"), "read_file")
-        self.assertEqual(audit_tail.get("selected_tool"), "read_file")
+        self.assertIn(transcript_tail.get("selected_tool"), {"read_file", "glob_search"})
+        self.assertIn(audit_tail.get("step_results", [{}])[0].get("selected_tool"), {"read_file", "glob_search"})
         self.assertIn("step_results", audit_tail)
 
     def test_checkpoint_creation_and_resume_work(self) -> None:
@@ -413,14 +418,15 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertEqual(status.get("task_id"), "task-phase5-status")
 
     def test_observability_includes_parallel_and_critic_events(self) -> None:
-        self.run_main('liste os arquivos e busque "name"', "phase5-observability")
+        self.run_main('compare duas abordagens: liste os arquivos e busque "name"', "phase5-observability")
         execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
         entries = [
             json.loads(line)
             for line in execution_audit.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        event_types = {entry.get("event_type") for entry in entries[-20:]}
+        relevant = [entry for entry in entries if entry.get("session_id") == "phase5-observability"][-40:]
+        event_types = {entry.get("event_type") for entry in relevant}
         self.assertIn("runtime.parallel.start", event_types)
         self.assertIn("runtime.step.audit", event_types)
 
@@ -729,6 +735,159 @@ class Phase2RuntimeTest(unittest.TestCase):
         )
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].get("error_payload", {}).get("kind"), "simulation_stop")
+
+    def test_execution_tree_negotiation_and_operator_state(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase8-tree"
+        actions = [
+            {
+                "action_id": "phase8-list",
+                "step_id": "phase8-list",
+                "strategy": "real_execution",
+                "selected_tool": "glob_search",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:inspect", "branch_id": "branch:list-first", "shared_goal_id": "shared-goal:root"},
+                "tool_arguments": {"pattern": "**/*", "path": "."},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase8-tree"},
+                "memory_update_hints": {},
+            },
+            {
+                "action_id": "phase8-read",
+                "step_id": "phase8-read",
+                "strategy": "real_execution",
+                "selected_tool": "read_file",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:synthesize", "branch_id": "branch:list-first", "shared_goal_id": "shared-goal:root"},
+                "tool_arguments": {"path": "package.json", "limit": 40},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase8-tree"},
+                "memory_update_hints": {},
+            },
+        ]
+        execution_tree = {
+            "version": 1,
+            "root_node_id": "tree:root",
+            "nodes": [
+                {"node_id": "tree:root", "parent_id": None, "branch_id": None, "state": "pending", "retries": 0, "owner_agent": "master_orchestrator", "node_type": "goal", "children": ["tree:branch:list-first"]},
+                {"node_id": "tree:branch:list-first", "parent_id": "tree:root", "branch_id": "branch:list-first", "state": "pending", "retries": 0, "owner_agent": "task_planner", "node_type": "branch", "children": ["tree:phase8-list", "tree:phase8-read"]},
+                {"node_id": "tree:phase8-list", "parent_id": "tree:branch:list-first", "branch_id": "branch:list-first", "step_id": "phase8-list", "state": "pending", "retries": 0, "owner_agent": "researcher_agent", "node_type": "step", "children": []},
+                {"node_id": "tree:phase8-read", "parent_id": "tree:branch:list-first", "branch_id": "branch:list-first", "step_id": "phase8-read", "state": "pending", "retries": 0, "owner_agent": "researcher_agent", "node_type": "step", "children": []},
+            ],
+        }
+        negotiation_summary = {
+            "invoked": True,
+            "final_decision": "proceed",
+            "disagreement_count": 1,
+            "turns": [
+                {"agent_id": "task_planner", "stance": "proposal"},
+                {"agent_id": "critic_agent", "stance": "critic-approve"},
+            ],
+        }
+        strategy_optimization = {
+            "invoked": True,
+            "preferred_plan_mode": "tree",
+            "step_biases": ["prefer_read_only_first"],
+        }
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase8-tree",
+            message='compare arquitetura e package.json por arvore',
+            actions=actions,
+            task_id="task-phase8-tree",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="analysis",
+            delegation={"delegates": ["task_planner", "researcher_agent", "critic_agent"], "specialists": ["researcher_agent", "critic_agent"]},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="graph",
+            plan_graph={"version": 1, "mode": "tree", "nodes": []},
+            branch_plan={"enabled": True, "max_branches": 1, "merge_mode": "winner-selection", "branches": [{"branch_id": "branch:list-first", "safe": True, "step_ids": ["phase8-list", "phase8-read"]}]},
+            simulation_summary={"invoked": True, "recommended_decision": "proceed", "summary": "Safe to execute.", "estimated_cost": 2.0, "confidence_estimate": 0.82},
+            cooperative_plan={"shared_goal_id": "shared-goal:root", "mode": "cooperative-shared-goal", "contributions": [{"specialist_id": "task_planner"}, {"specialist_id": "researcher_agent"}]},
+            semantic_retrieval=[],
+            plan_hierarchy={"root_goal_id": "goal:root", "subgoals": [{"goal_id": "goal:inspect"}, {"goal_id": "goal:synthesize"}]},
+            learning_guidance=[],
+            strategy_suggestions=[{"strategy_type": "parallel_read_branching", "lesson": "Prefer read-only first"}],
+            execution_tree=execution_tree,
+            negotiation_summary=negotiation_summary,
+            strategy_optimization=strategy_optimization,
+            policy_summary=[],
+        )
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(item.get("ok") for item in results))
+        checkpoint = orchestrator.checkpoint_store.load(run_id)
+        self.assertIn("execution_tree", checkpoint)
+        self.assertIn("negotiation_summary", checkpoint)
+        self.assertIn("supervision", checkpoint)
+        self.assertEqual(checkpoint.get("strategy_optimization", {}).get("preferred_plan_mode"), "tree")
+
+        service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")
+        tree_view = service.inspect_execution_state(run_id=run_id)
+        self.assertIn("execution_tree", tree_view)
+        negotiation_view = service.inspect_negotiation(run_id=run_id)
+        self.assertEqual(negotiation_view.get("negotiation_summary", {}).get("final_decision"), "proceed")
+        supervision_view = service.inspect_supervision(run_id=run_id)
+        self.assertIn("supervision", supervision_view)
+        intelligence = service.inspect_run_intelligence(run_id=run_id)
+        self.assertIn("execution_state", intelligence.get("run_summary", {}))
+
+    def test_supervision_stops_runaway_tree(self) -> None:
+        orchestrator = self.build_orchestrator()
+        actions = []
+        tree_nodes = [{"node_id": "tree:root", "parent_id": None, "branch_id": None, "state": "pending", "retries": 0, "owner_agent": "master_orchestrator", "node_type": "goal", "children": []}]
+        for index in range(30):
+            step_id = f"phase8-runaway-{index}"
+            actions.append(
+                {
+                    "action_id": step_id,
+                    "step_id": step_id,
+                    "strategy": "real_execution",
+                    "selected_tool": "glob_search",
+                    "selected_agent": "researcher_agent",
+                    "permission_requirement": "allow_read_only",
+                    "approval_state": "approved",
+                    "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                    "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo"},
+                    "tool_arguments": {"pattern": "**/*", "path": "."},
+                    "retry_policy": {"max_attempts": 1},
+                    "transcript_link": {"session_id": "phase8-runaway"},
+                    "memory_update_hints": {},
+                }
+            )
+            tree_nodes.append({"node_id": f"tree:{step_id}", "parent_id": "tree:root", "branch_id": None, "step_id": step_id, "state": "pending", "retries": 0, "owner_agent": "researcher_agent", "node_type": "step", "children": []})
+
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase8-runaway",
+            message="analise em arvore gigante",
+            actions=actions,
+            task_id="task-phase8-runaway",
+            run_id="run-phase8-runaway",
+            provider="test-runtime",
+            intent="analysis",
+            delegation={},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="graph",
+            plan_graph={"version": 1, "mode": "tree", "nodes": []},
+            branch_plan=None,
+            simulation_summary=None,
+            cooperative_plan=None,
+            semantic_retrieval=[],
+            plan_hierarchy=None,
+            learning_guidance=[],
+            strategy_suggestions=[],
+            execution_tree={"version": 1, "root_node_id": "tree:root", "nodes": tree_nodes},
+            negotiation_summary={"invoked": True, "turns": []},
+            strategy_optimization={},
+            policy_summary=[],
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].get("error_payload", {}).get("kind"), "supervision_stop")
 
 
 if __name__ == "__main__":

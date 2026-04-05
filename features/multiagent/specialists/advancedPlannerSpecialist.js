@@ -24,6 +24,9 @@ function detectConstraints(message) {
     wantsSimulation:
       /(arriscado|seguro|simule|antes de executar|compare)/.test(text)
       || text.includes('escreva'),
+    wantsTreeExecution:
+      /(arvore|árvore|compare|subobjetivo|subgoal)/.test(text)
+      || ((text.includes('analise') || text.includes('analyze')) && (text.includes('busque') || text.includes('liste'))),
   };
 }
 
@@ -119,6 +122,7 @@ function buildPlanMetadata(constraints, steps, runtimeConfig) {
           subgoals,
         })
       : null,
+    execution_mode: constraints.wantsTreeExecution ? 'tree' : 'flat',
     max_steps: Math.min(runtimeConfig.maxSteps || 6, steps.length || 1),
   };
 }

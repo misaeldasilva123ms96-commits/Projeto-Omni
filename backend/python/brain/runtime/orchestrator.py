@@ -23,8 +23,10 @@ from brain.memory.store import (
 )
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
+from brain.runtime.execution_state import build_execution_state
 from brain.runtime.session_store import SessionStore
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
+from brain.runtime.supervision import CognitiveSupervisor
 from brain.runtime.transcript_store import TranscriptStore
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
 
@@ -119,6 +121,7 @@ class BrainOrchestrator:
         self.swarm_orchestrator = SwarmOrchestrator(paths.swarm_log)
         self.evaluator = Evaluator()
         self.strategy_updater = StrategyUpdater(paths.evolution_dir)
+        self.supervisor = CognitiveSupervisor()
 
     def run(self, message: str) -> str:
         strategy_state = self.strategy_updater.load_current_state()
@@ -383,6 +386,13 @@ class BrainOrchestrator:
             plan_hierarchy=execution_request.get("plan_hierarchy"),
             learning_guidance=execution_request.get("learning_guidance", []),
             policy_summary=execution_request.get("policy_summary", []),
+            branch_plan=execution_request.get("branch_plan"),
+            simulation_summary=execution_request.get("simulation_summary"),
+            cooperative_plan=execution_request.get("cooperative_plan"),
+            strategy_suggestions=execution_request.get("strategy_suggestions", []),
+            execution_tree=execution_request.get("execution_tree"),
+            negotiation_summary=execution_request.get("negotiation_summary"),
+            strategy_optimization=execution_request.get("strategy_optimization"),
         )
         if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
             self._append_runtime_event(
@@ -424,14 +434,25 @@ class BrainOrchestrator:
         simulation_summary: dict[str, Any] | None = None,
         cooperative_plan: dict[str, Any] | None = None,
         strategy_suggestions: object = None,
+        execution_tree: dict[str, Any] | None = None,
+        negotiation_summary: dict[str, Any] | None = None,
+        strategy_optimization: dict[str, Any] | None = None,
         start_index: int = 0,
     ) -> list[dict[str, Any]]:
         max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
         step_results: list[dict[str, Any]] = []
         critic_review = critic_review or {}
         graph_state = self._clone_plan_graph(plan_graph)
+        tree_state = self._clone_tree(execution_tree)
         plan_signature = self._plan_signature(actions, graph_state)
         branch_state = self._initial_branch_state(branch_plan)
+        supervision = self.supervisor.inspect(
+            execution_tree=tree_state,
+            branch_plan=branch_plan,
+            negotiation_summary=negotiation_summary,
+            executed_steps=0,
+            max_steps=max_steps,
+        )
         if critic_review.get("invoked"):
             self._append_runtime_event(
                 event_type="runtime.critic.plan",
@@ -478,6 +499,68 @@ class BrainOrchestrator:
                     "contribution_count": len(cooperative_plan.get("contributions", [])),
                 },
             )
+        if isinstance(negotiation_summary, dict):
+            self._append_runtime_event(
+                event_type="runtime.negotiation.summary",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "final_decision": negotiation_summary.get("final_decision"),
+                    "disagreement_count": negotiation_summary.get("disagreement_count", 0),
+                },
+            )
+        if isinstance(strategy_optimization, dict):
+            self._append_runtime_event(
+                event_type="runtime.strategy.optimization",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=strategy_optimization,
+            )
+        if supervision.get("alerts"):
+            self._append_runtime_event(
+                event_type="runtime.supervision.alert",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=supervision,
+            )
+        if supervision.get("stop_execution"):
+            blocked = {
+                "ok": False,
+                "selected_tool": "none",
+                "selected_agent": "master_orchestrator",
+                "error_payload": {
+                    "kind": "supervision_stop",
+                    "message": "Execution blocked by cognitive supervision.",
+                },
+                "evaluation": {"decision": "stop_blocked", "reason_code": "supervision_stop"},
+            }
+            step_results.append(blocked)
+            self._write_checkpoint(
+                run_id=run_id,
+                task_id=task_id,
+                session_id=session_id,
+                message=message,
+                actions=actions,
+                next_step_index=start_index,
+                completed_steps=step_results,
+                plan_graph=graph_state,
+                plan_hierarchy=plan_hierarchy,
+                plan_signature=plan_signature,
+                status="blocked",
+                branch_state=branch_state,
+                simulation_summary=simulation_summary,
+                cooperative_plan=cooperative_plan,
+                strategy_suggestions=strategy_suggestions,
+                policy_summary=policy_summary,
+                execution_tree=tree_state,
+                negotiation_summary=negotiation_summary,
+                strategy_optimization=strategy_optimization,
+                supervision=supervision,
+            )
+            return step_results
         if isinstance(simulation_summary, dict) and simulation_summary.get("invoked"):
             self._append_runtime_event(
                 event_type="runtime.simulation.review",
@@ -517,6 +600,11 @@ class BrainOrchestrator:
                     simulation_summary=simulation_summary,
                     cooperative_plan=cooperative_plan,
                     strategy_suggestions=strategy_suggestions,
+                    policy_summary=policy_summary,
+                    execution_tree=tree_state,
+                    negotiation_summary=negotiation_summary,
+                    strategy_optimization=strategy_optimization,
+                    supervision=supervision,
                 )
                 self._write_run_summary(
                     session_id=session_id,
@@ -533,6 +621,11 @@ class BrainOrchestrator:
                     strategy_suggestions=strategy_suggestions,
                     fusion_summary=None,
                     policy_summary=policy_summary,
+                    execution_tree=tree_state,
+                    negotiation_summary=negotiation_summary,
+                    strategy_optimization=strategy_optimization,
+                    supervision=supervision,
+                    execution_state=None,
                 )
                 return step_results
         self._write_checkpoint(
@@ -551,11 +644,16 @@ class BrainOrchestrator:
             simulation_summary=simulation_summary,
             cooperative_plan=cooperative_plan,
             strategy_suggestions=strategy_suggestions,
+            policy_summary=policy_summary,
+            execution_tree=tree_state,
+            negotiation_summary=negotiation_summary,
+            strategy_optimization=strategy_optimization,
+            supervision=supervision,
         )
         executed_steps = 0
         branch_action_ids: set[str] = set()
         if isinstance(branch_plan, dict) and isinstance(branch_state, dict) and branch_state.get("branches"):
-            branch_results, branch_action_ids, branch_state, graph_state = self._execute_branch_plan(
+            branch_results, branch_action_ids, branch_state, graph_state, tree_state = self._execute_branch_plan(
                 session_id=session_id,
                 message=message,
                 actions=actions,
@@ -571,6 +669,7 @@ class BrainOrchestrator:
                 branch_plan=branch_plan,
                 branch_state=branch_state,
                 graph_state=graph_state,
+                tree_state=tree_state,
             )
             executed_steps += len(branch_results)
             self._write_checkpoint(
@@ -589,6 +688,11 @@ class BrainOrchestrator:
                 simulation_summary=simulation_summary,
                 cooperative_plan=cooperative_plan,
                 strategy_suggestions=strategy_suggestions,
+                policy_summary=policy_summary,
+                execution_tree=tree_state,
+                negotiation_summary=negotiation_summary,
+                strategy_optimization=strategy_optimization,
+                supervision=supervision,
             )
             if branch_results and not all(item.get("ok") for item in branch_results):
                 return step_results
@@ -631,6 +735,7 @@ class BrainOrchestrator:
                     executed_steps += 1
                     step_results.append(result)
                     graph_state = self._mark_graph_outcome(graph_state, action, result)
+                    tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
                     self._append_runtime_execution_logs(
                         session_id=session_id,
                         message=message,
@@ -665,6 +770,11 @@ class BrainOrchestrator:
                     simulation_summary=simulation_summary,
                     cooperative_plan=cooperative_plan,
                     strategy_suggestions=strategy_suggestions,
+                    policy_summary=policy_summary,
+                    execution_tree=tree_state,
+                    negotiation_summary=negotiation_summary,
+                    strategy_optimization=strategy_optimization,
+                    supervision=supervision,
                 )
                 if step_results and not step_results[-1].get("ok"):
                     break
@@ -683,6 +793,7 @@ class BrainOrchestrator:
                 )
                 executed_steps += 1
                 step_results.append(result)
+                tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
 
                 self._append_runtime_execution_logs(
                     session_id=session_id,
@@ -715,6 +826,11 @@ class BrainOrchestrator:
                     simulation_summary=simulation_summary,
                     cooperative_plan=cooperative_plan,
                     strategy_suggestions=strategy_suggestions,
+                    policy_summary=policy_summary,
+                    execution_tree=tree_state,
+                    negotiation_summary=negotiation_summary,
+                    strategy_optimization=strategy_optimization,
+                    supervision=supervision,
                 )
 
                 if not result.get("ok"):
@@ -742,6 +858,11 @@ class BrainOrchestrator:
             simulation_summary=simulation_summary,
             cooperative_plan=cooperative_plan,
             strategy_suggestions=strategy_suggestions,
+            policy_summary=policy_summary,
+            execution_tree=tree_state,
+            negotiation_summary=negotiation_summary,
+            strategy_optimization=strategy_optimization,
+            supervision=supervision,
         )
         reflection = self._reflect_on_run(
             message=message,
@@ -803,9 +924,27 @@ class BrainOrchestrator:
                 "cooperative_plan": cooperative_plan,
                 "strategy_suggestions": strategy_suggestions,
                 "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
+                "execution_tree": tree_state,
+                "negotiation_summary": negotiation_summary,
+                "strategy_optimization": strategy_optimization,
+                "supervision": supervision,
             },
         )
         fusion_summary = self._build_fusion_summary(step_results, cooperative_plan, branch_state, strategy_suggestions)
+        execution_state = build_execution_state(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            execution_tree=tree_state,
+            branch_state=branch_state,
+            cooperative_plan=cooperative_plan,
+            negotiation_summary=negotiation_summary,
+            simulation_summary=simulation_summary,
+            strategy_suggestions=strategy_suggestions if isinstance(strategy_suggestions, list) else [],
+            policy_summary=policy_summary if isinstance(policy_summary, list) else [],
+            fusion_summary=fusion_summary,
+            supervision=supervision,
+        )
         self._write_run_summary(
             session_id=session_id,
             task_id=task_id,
@@ -821,6 +960,11 @@ class BrainOrchestrator:
             strategy_suggestions=strategy_suggestions,
             fusion_summary=fusion_summary,
             policy_summary=policy_summary,
+            execution_tree=tree_state,
+            negotiation_summary=negotiation_summary,
+            strategy_optimization=strategy_optimization,
+            supervision=supervision,
+            execution_state=execution_state,
         )
         return step_results
 
@@ -830,6 +974,15 @@ class BrainOrchestrator:
             return None
         try:
             return json.loads(json.dumps(plan_graph))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _clone_tree(execution_tree: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(execution_tree, dict):
+            return None
+        try:
+            return json.loads(json.dumps(execution_tree))
         except Exception:
             return None
 
@@ -871,6 +1024,53 @@ class BrainOrchestrator:
             return False
         nodes = plan_graph.get("nodes", [])
         return bool(nodes) and all(str(node.get("state", "")) == "completed" for node in nodes if isinstance(node, dict))
+
+    @staticmethod
+    def _tree_complete(execution_tree: dict[str, Any] | None) -> bool:
+        if not isinstance(execution_tree, dict):
+            return False
+        nodes = execution_tree.get("nodes", [])
+        step_nodes = [node for node in nodes if isinstance(node, dict) and node.get("node_type") == "step"]
+        return bool(step_nodes) and all(str(node.get("state", "")) == "completed" for node in step_nodes)
+
+    @staticmethod
+    def _mark_tree_outcome(
+        execution_tree: dict[str, Any] | None,
+        action: dict[str, Any],
+        result: dict[str, Any],
+        *,
+        retries: int = 0,
+    ) -> dict[str, Any] | None:
+        if not isinstance(execution_tree, dict):
+            return execution_tree
+        target_step = str(action.get("step_id", ""))
+        node_map = {
+            str(node.get("node_id")): node
+            for node in execution_tree.get("nodes", [])
+            if isinstance(node, dict)
+        }
+        for node in node_map.values():
+            if str(node.get("step_id", "")) == target_step:
+                node["state"] = "completed" if result.get("ok") else "failed"
+                node["retries"] = retries
+                parent_id = str(node.get("parent_id") or "")
+                while parent_id and parent_id in node_map:
+                    parent = node_map[parent_id]
+                    child_ids = parent.get("children", [])
+                    child_states = [
+                        str(node_map.get(str(child_id), {}).get("state", "pending"))
+                        for child_id in child_ids
+                        if str(child_id) in node_map
+                    ]
+                    if child_states and all(state == "completed" for state in child_states):
+                        parent["state"] = "completed"
+                    elif any(state == "failed" for state in child_states):
+                        parent["state"] = "partial"
+                    else:
+                        parent["state"] = "running"
+                    parent_id = str(parent.get("parent_id") or "")
+                break
+        return execution_tree
 
     @staticmethod
     def _initial_branch_state(branch_plan: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -915,12 +1115,13 @@ class BrainOrchestrator:
         branch_plan: dict[str, Any],
         branch_state: dict[str, Any],
         graph_state: dict[str, Any] | None,
-    ) -> tuple[list[dict[str, Any]], set[str], dict[str, Any], dict[str, Any] | None]:
+        tree_state: dict[str, Any] | None,
+    ) -> tuple[list[dict[str, Any]], set[str], dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
         results: list[dict[str, Any]] = []
         executed_ids: set[str] = set()
         branches = branch_state.get("branches", []) if isinstance(branch_state, dict) else []
         if not branches:
-            return results, executed_ids, branch_state, graph_state
+            return results, executed_ids, branch_state, graph_state, tree_state
 
         branch_scores: dict[str, float] = {}
         for branch in branches[: int(branch_plan.get("max_branches", 2) or 2)]:
@@ -946,11 +1147,25 @@ class BrainOrchestrator:
                 learning_guidance=[],
                 allow_parallel=all(action.get("selected_tool") != "write_file" for action in branch_actions),
             )
+            if len(branch_actions) > 1:
+                self._append_runtime_event(
+                    event_type="runtime.parallel.start",
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    payload={
+                        "step_ids": [action.get("step_id") for action in branch_actions],
+                        "parallel_count": len(branch_actions),
+                        "plan_kind": plan_kind,
+                        "branch_id": branch_id,
+                    },
+                )
             for action, result in zip(branch_actions, batch_results):
                 executed_ids.add(str(action.get("step_id", "")))
                 results.append(result)
                 step_results.append(result)
                 graph_state = self._mark_graph_outcome(graph_state, action, result)
+                tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
                 self._append_runtime_execution_logs(
                     session_id=session_id,
                     message=message,
@@ -997,7 +1212,7 @@ class BrainOrchestrator:
                     "merge_mode": branch_state.get("merge_mode", "winner-selection"),
                 },
             )
-        return results, executed_ids, branch_state, graph_state
+        return results, executed_ids, branch_state, graph_state, tree_state
 
     @staticmethod
     def _mark_graph_outcome(plan_graph: dict[str, Any] | None, action: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
@@ -1337,6 +1552,11 @@ class BrainOrchestrator:
         strategy_suggestions: object,
         fusion_summary: dict[str, Any] | None,
         policy_summary: object,
+        execution_tree: dict[str, Any] | None,
+        negotiation_summary: dict[str, Any] | None,
+        strategy_optimization: dict[str, Any] | None,
+        supervision: dict[str, Any] | None,
+        execution_state: dict[str, Any] | None,
     ) -> None:
         run_summary_path = self.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
         summary = {
@@ -1350,11 +1570,16 @@ class BrainOrchestrator:
             "hierarchy": plan_hierarchy,
             "reflection": reflection,
             "branches": branch_state,
+            "execution_tree": execution_tree,
             "cooperation": cooperative_plan,
+            "negotiation": negotiation_summary,
             "simulation": simulation_summary,
             "strategy_usage": strategy_suggestions if isinstance(strategy_suggestions, list) else [],
+            "strategy_optimization": strategy_optimization,
             "fusion": fusion_summary,
             "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
+            "supervision": supervision,
+            "execution_state": execution_state,
             "status": "completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
             "steps": [
                 {
@@ -1707,6 +1932,10 @@ class BrainOrchestrator:
         cooperative_plan: dict[str, Any] | None,
         strategy_suggestions: object,
         policy_summary: object = None,
+        execution_tree: dict[str, Any] | None = None,
+        negotiation_summary: dict[str, Any] | None = None,
+        strategy_optimization: dict[str, Any] | None = None,
+        supervision: dict[str, Any] | None = None,
     ) -> None:
         remaining_actions = actions[next_step_index:] if next_step_index < len(actions) else []
         self.checkpoint_store.save(
@@ -1728,6 +1957,10 @@ class BrainOrchestrator:
                 "cooperative_plan": cooperative_plan,
                 "strategy_suggestions": strategy_suggestions if isinstance(strategy_suggestions, list) else [],
                 "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
+                "execution_tree": execution_tree,
+                "negotiation_summary": negotiation_summary,
+                "strategy_optimization": strategy_optimization,
+                "supervision": supervision,
             },
         )
 
@@ -1785,6 +2018,9 @@ class BrainOrchestrator:
             simulation_summary=checkpoint.get("simulation_summary"),
             cooperative_plan=checkpoint.get("cooperative_plan"),
             strategy_suggestions=checkpoint.get("strategy_suggestions"),
+            execution_tree=checkpoint.get("execution_tree"),
+            negotiation_summary=checkpoint.get("negotiation_summary"),
+            strategy_optimization=checkpoint.get("strategy_optimization"),
             start_index=0,
         )
         return {

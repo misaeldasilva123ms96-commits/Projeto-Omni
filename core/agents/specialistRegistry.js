@@ -81,6 +81,15 @@ const SPECIALIST_AGENTS = [
     failurePolicy: 'fallback-to-raw-results',
   },
   {
+    id: 'simulator_agent',
+    role: 'simulator',
+    source: 'project',
+    description: 'Runs bounded pre-execution simulation for risk, blockers, and path recommendation.',
+    allowedTools: [],
+    capabilities: ['simulation', 'risk-estimation', 'cost-estimation'],
+    failurePolicy: 'warn-only',
+  },
+  {
     id: 'provider_router',
     role: 'platform',
     source: 'openclaude-main.zip',
@@ -113,13 +122,13 @@ function resolveSpecialistsForIntent(intent) {
     case 'memory':
       return ['master_orchestrator', 'memory_manager', 'reviewer_agent'];
     case 'analysis':
-      return ['master_orchestrator', 'task_planner', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
+      return ['master_orchestrator', 'task_planner', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
     case 'execution':
-      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'coder_agent', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'rust_executor'];
+      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'coder_agent', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'rust_executor'];
     case 'planning':
-      return ['master_orchestrator', 'task_planner', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
+      return ['master_orchestrator', 'task_planner', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
     default:
-      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router', 'rust_executor'];
+      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router', 'rust_executor'];
   }
 }
 

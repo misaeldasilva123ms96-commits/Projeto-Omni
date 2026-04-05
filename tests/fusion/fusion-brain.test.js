@@ -199,6 +199,15 @@ async function main() {
   assert.ok(Array.isArray(coordinated.execution_request.ranked_strategy_memory));
   assert.ok(coordinated.execution_request.ranked_strategy_memory.length > 0);
   assert.equal(coordinated.execution_request.strategy_suggestions[0].strategy_type, 'parallel_read_branching');
+  assert.equal(coordinated.execution_request.execution_tree.version, 1);
+  assert.ok(Array.isArray(coordinated.execution_request.execution_tree.nodes));
+  assert.ok(coordinated.execution_request.execution_tree.nodes.some(node => node.node_type === 'branch'));
+  assert.equal(coordinated.execution_request.negotiation_summary.invoked, true);
+  assert.ok(Array.isArray(coordinated.execution_request.negotiation_summary.turns));
+  assert.equal(coordinated.execution_request.strategy_optimization.invoked, true);
+  assert.equal(coordinated.execution_request.strategy_optimization.preferred_plan_mode, 'tree');
+  assert.ok(coordinated.execution_request.simulation_summary.estimated_cost > 0);
+  assert.ok(coordinated.execution_request.simulation_summary.confidence_estimate > 0);
 
   const runtimeMode = resolveExecutionMode({
     cwd: process.cwd(),
