@@ -10,6 +10,50 @@ from pathlib import Path
 from typing import Any
 
 
+def _is_project_root(candidate: Path) -> bool:
+    return (
+        (candidate / "backend" / "python").exists()
+        and (candidate / "backend" / "rust").exists()
+        and (candidate / "package.json").exists()
+    )
+
+
+def _detect_project_root() -> Path:
+    env_root = os.getenv("BASE_DIR", "").strip()
+    if env_root:
+        candidate = Path(env_root).resolve()
+        if _is_project_root(candidate):
+            return candidate
+
+    file_root = Path(__file__).resolve()
+    for candidate in (file_root.parent, *file_root.parents):
+        if _is_project_root(candidate):
+            return candidate.resolve()
+
+    cwd_root = Path(os.getcwd()).resolve()
+    for candidate in (cwd_root, *cwd_root.parents):
+        if _is_project_root(candidate):
+            return candidate.resolve()
+
+    return cwd_root
+
+
+def _resolve_project_root(project_root: Path | str | None, execution_context: dict[str, Any] | None = None) -> Path:
+    detected_root = _detect_project_root()
+    candidate = Path(project_root).resolve() if project_root else detected_root
+    if _is_project_root(candidate):
+        return candidate
+
+    if isinstance(execution_context, dict):
+        raw_context_root = execution_context.get("project_root")
+        if isinstance(raw_context_root, str) and raw_context_root.strip():
+            relative_candidate = (detected_root / raw_context_root).resolve()
+            if _is_project_root(relative_candidate):
+                return relative_candidate
+
+    return detected_root
+
+
 def _cargo_target_dir(project_root: Path) -> Path:
     temp_root = tempfile.gettempdir()
     if temp_root:
@@ -86,14 +130,14 @@ def _windows_safe_path(raw_path: str) -> str:
 
 
 def execute_action(project_root: Path, action: dict[str, Any], timeout_seconds: int = 30) -> dict[str, Any]:
-    rust_root = project_root / "backend" / "rust"
-    safe_rust_root = _windows_safe_path(str(rust_root))
-    safe_project_root = _windows_safe_path(str(project_root))
-    bridge_bin = _compiled_bridge_path(project_root)
     action = dict(action)
     execution_context = dict(action.get("execution_context", {}) or {})
-    if isinstance(execution_context.get("project_root"), str):
-        execution_context["project_root"] = _windows_safe_path(execution_context["project_root"])
+    resolved_project_root = _resolve_project_root(project_root, execution_context)
+    rust_root = resolved_project_root / "backend" / "rust"
+    safe_rust_root = _windows_safe_path(str(rust_root))
+    safe_project_root = _windows_safe_path(str(resolved_project_root))
+    bridge_bin = _compiled_bridge_path(resolved_project_root)
+    execution_context["project_root"] = safe_project_root
     action["execution_context"] = execution_context
     tool_arguments = dict(action.get("tool_arguments", {}) or {})
     if isinstance(tool_arguments.get("path"), str):
@@ -118,7 +162,7 @@ def execute_action(project_root: Path, action: dict[str, Any], timeout_seconds: 
             )
 
         last_error: dict[str, Any] | None = None
-        cargo_target_dir = _cargo_target_dir(project_root)
+        cargo_target_dir = _cargo_target_dir(resolved_project_root)
         enable_cargo_fallback = True
         if enable_cargo_fallback:
             commands.append(

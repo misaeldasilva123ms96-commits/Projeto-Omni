@@ -46,18 +46,51 @@ class BrainPaths:
     swarm_log: Path
     evolution_dir: Path
 
+    @staticmethod
+    def _is_project_root(candidate: Path) -> bool:
+        return (
+            (candidate / "backend" / "python").exists()
+            and (candidate / "backend" / "rust").exists()
+            and (candidate / "package.json").exists()
+        )
+
+    @classmethod
+    def _detect_project_root(cls, entrypoint: Path) -> Path:
+        env_root = os.getenv("BASE_DIR", "").strip()
+        if env_root:
+            candidate = Path(env_root).resolve()
+            if cls._is_project_root(candidate):
+                return candidate
+
+        entrypoint = entrypoint.resolve()
+        search_start = entrypoint if entrypoint.is_dir() else entrypoint.parent
+        for candidate in (search_start, *search_start.parents):
+            resolved = candidate.resolve()
+            if cls._is_project_root(resolved):
+                return resolved
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        return Path(os.path.abspath(os.path.join(current_dir, "../../../../"))).resolve()
+
+    @classmethod
+    def _detect_python_root(cls, project_root: Path, entrypoint: Path) -> Path:
+        env_python_root = os.getenv("PYTHON_BASE_DIR", "").strip()
+        if env_python_root:
+            candidate = Path(env_python_root).resolve()
+            if (candidate / "brain").exists():
+                return candidate
+
+        entrypoint = entrypoint.resolve()
+        if entrypoint.is_file() and entrypoint.parent.name == "python":
+            return entrypoint.parent
+        if entrypoint.is_file() and entrypoint.parent.name == "runtime":
+            return entrypoint.parents[2]
+        return (project_root / "backend" / "python").resolve()
+
     @classmethod
     def from_entrypoint(cls, entrypoint: Path) -> "BrainPaths":
-        project_root = (
-            Path(os.environ["BASE_DIR"]).resolve()
-            if os.getenv("BASE_DIR")
-            else entrypoint.resolve().parents[4]
-        )
-        python_root = (
-            Path(os.environ["PYTHON_BASE_DIR"]).resolve()
-            if os.getenv("PYTHON_BASE_DIR")
-            else project_root / "backend" / "python"
-        )
+        project_root = cls._detect_project_root(entrypoint)
+        python_root = cls._detect_python_root(project_root, entrypoint)
         return cls(
             root=project_root,
             python_root=python_root,
