@@ -32,12 +32,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build Rust Bridge (Native)
+      - name: Build Rust Bridge
         working-directory: backend/rust
-        env:
-          CARGO_BUILD_TARGET: ""
         run: |
-          cargo clean
           cargo build --release
 
       - name: Install root dependencies
