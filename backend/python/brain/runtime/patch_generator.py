@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import os
+import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +45,7 @@ def apply_patch(*, workspace_root: Path, patch: dict[str, Any]) -> dict[str, Any
           "file_path": file_path,
       }
     target.write_text(str(patch.get("new_content", "")), encoding="utf-8")
+    _refresh_python_artifacts(target)
     return {
         "ok": True,
         "file_path": file_path,
@@ -52,6 +56,7 @@ def rollback_patch(*, workspace_root: Path, patch: dict[str, Any]) -> None:
     target = (workspace_root / str(patch.get("file_path", ""))).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(str(patch.get("original_content", "")), encoding="utf-8")
+    _refresh_python_artifacts(target)
 
 
 def review_patch_risk(*, patch: dict[str, Any]) -> dict[str, Any]:
@@ -69,3 +74,11 @@ def review_patch_risk(*, patch: dict[str, Any]) -> dict[str, Any]:
         "risk_level": "high" if warnings else "low",
         "warnings": warnings,
     }
+
+
+def _refresh_python_artifacts(target: Path) -> None:
+    future_timestamp = time.time() + 2
+    os.utime(target, (future_timestamp, future_timestamp))
+    pycache_dir = target.parent / "__pycache__"
+    if pycache_dir.exists():
+        shutil.rmtree(pycache_dir, ignore_errors=True)

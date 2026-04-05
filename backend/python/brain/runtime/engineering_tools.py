@@ -227,13 +227,28 @@ def _error(tool: str, kind: str, message: str, **extra: Any) -> dict[str, Any]:
 
 
 def _build_test_env(workspace_root: Path) -> dict[str, str]:
-    env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "").strip()
-    python_path_parts = [str(workspace_root)]
-    if existing:
-        python_path_parts.append(existing)
-    env["PYTHONPATH"] = os.pathsep.join(python_path_parts)
-    env.pop("AI_SESSION_ID", None)
-    env.pop("BASE_DIR", None)
-    env.pop("PYTHON_BASE_DIR", None)
+    allowed_keys = {
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "PROGRAMDATA",
+        "OS",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+        "PROCESSOR_IDENTIFIER",
+        "PROCESSOR_LEVEL",
+        "PROCESSOR_REVISION",
+    }
+    env = {key: value for key, value in os.environ.items() if key in allowed_keys}
+    env["PYTHONPATH"] = str(workspace_root)
+    env["PYTHONNOUSERSITE"] = "1"
     return env
