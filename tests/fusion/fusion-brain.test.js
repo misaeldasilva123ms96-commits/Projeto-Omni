@@ -56,9 +56,10 @@ async function main() {
   assert.equal(delegated.execution_request.actions[0].selected_agent, 'researcher_agent');
   assert.equal(delegated.execution_request.actions[0].selected_tool, 'read_file');
   assert.equal(delegated.execution_request.mode.startsWith('python-rust'), true);
+  assert.equal(typeof delegated.execution_request.critic_review, 'object');
 
   const multiStep = await runQueryEngine({
-    message: 'liste os arquivos e leia package.json',
+    message: 'liste os arquivos e busque "name"',
     memoryContext: { user: {} },
     history: [],
     summary: '',
@@ -70,9 +71,12 @@ async function main() {
   assert.equal(typeof multiStep.execution_request, 'object');
   assert.equal(multiStep.execution_request.actions.length >= 2, true);
   assert.equal(multiStep.execution_request.actions[0].selected_tool, 'glob_search');
-  assert.equal(multiStep.execution_request.actions[1].selected_tool, 'read_file');
+  assert.equal(multiStep.execution_request.actions[1].selected_tool, 'grep_search');
   assert.equal(multiStep.execution_request.delegation.delegates.includes('task_planner'), true);
   assert.equal(multiStep.execution_request.delegation.delegates.includes('reviewer_agent'), true);
+  assert.equal(multiStep.execution_request.plan_kind, 'graph');
+  assert.equal(multiStep.execution_request.plan_graph.mode, 'parallel-read');
+  assert.equal(multiStep.execution_request.parallelism.enabled, true);
 
   recordRuntimeArtifacts(process.cwd(), 'memory-recall-test', [{ kind: 'file', path: 'package.json', preview: '' }]);
   const memoryGuided = await runQueryEngine({
@@ -103,6 +107,20 @@ async function main() {
   assert.equal(semanticGuided.execution_request.actions[0].tool_arguments.path, 'package.json');
   assert.equal(Array.isArray(semanticGuided.execution_request.semantic_retrieval), true);
   assert.equal(semanticGuided.execution_request.semantic_retrieval[0].path, 'package.json');
+  assert.equal(semanticGuided.execution_request.semantic_retrieval[0].embedding.model, 'local-hash-embedding-v1');
+  assert.ok(semanticGuided.execution_request.semantic_retrieval[0].vector_score > 0);
+
+  const linearFallback = await runQueryEngine({
+    message: 'leia package.json',
+    memoryContext: { user: {} },
+    history: [],
+    summary: '',
+    capabilities: [],
+    session: { session_id: 'linear-test', runtime_mode: EXECUTION_MODES.PYTHON_RUST_CARGO },
+    cwd: process.cwd(),
+  });
+  assert.equal(linearFallback.execution_request.plan_kind, 'linear');
+  assert.equal(linearFallback.execution_request.plan_graph, null);
 
   const runtimeMode = resolveExecutionMode({
     cwd: process.cwd(),

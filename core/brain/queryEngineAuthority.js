@@ -19,11 +19,12 @@ const {
 } = require('../../storage/memory/runtimeMemoryStore');
 const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit');
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
-const { planTask } = require('../../features/multiagent/specialists/plannerSpecialist');
+const { planTask } = require('../../features/multiagent/specialists/advancedPlannerSpecialist');
 const { enrichWithMemory } = require('../../features/multiagent/specialists/memorySpecialist');
 const { extractArtifacts, summarizeExecutionResult } = require('../../features/multiagent/specialists/researcherSpecialist');
 const { synthesizeFinalAnswer } = require('../../features/multiagent/specialists/reviewerSpecialist');
 const { evaluateStepResult } = require('../../features/multiagent/specialists/evaluatorSpecialist');
+const { reviewPlan } = require('../../features/multiagent/specialists/criticSpecialist');
 const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { normalizeWriteRequest } = require('../../features/multiagent/specialists/coderSpecialist');
 const { getFusionSourceMap } = require('./fusedSources');
@@ -163,6 +164,13 @@ class QueryEngineAuthority {
       retrievalContext,
       runtimeConfig,
     });
+    const criticPlanReview = reviewPlan({
+      steps: plannerResult.steps,
+      planGraph: plannerResult.plan_graph,
+      complexity,
+      intent,
+      runtimeConfig,
+    });
 
     const actions = plannerResult.steps.map((step, index) => buildBrainExecutorAction({
       actionId: `${actionIdBase}:${index + 1}`,
@@ -183,6 +191,7 @@ class QueryEngineAuthority {
         complexity,
         runtime_mode: runtimeMode.primary.mode,
         runtime_mode_fallback: runtimeMode.fallback?.mode || null,
+        plan_kind: plannerResult.plan_kind || 'linear',
         available_capabilities: Array.isArray(capabilities) ? capabilities.map(item => item.name) : [],
       },
       toolArguments: absolutizeToolArguments(
@@ -238,6 +247,8 @@ class QueryEngineAuthority {
         runtime_mode: 'no-tool-local',
         fallback_mode: null,
         delegated_specialists: delegation.specialists,
+        critic_review: criticPlanReview,
+        semantic_retrieval: semanticMatches,
         step_results: actions.map(action => ({
           ok: true,
           step_id: action.step_id,
@@ -277,12 +288,24 @@ class QueryEngineAuthority {
           intent,
           provider,
           delegation,
+          critic_review: criticPlanReview,
+          plan_kind: plannerResult.plan_kind || 'linear',
+          plan_graph: plannerResult.plan_graph || null,
+          parallelism: {
+            enabled: Boolean(plannerResult.plan_graph && plannerResult.plan_graph.mode === 'parallel-read'),
+            max_parallel_read_steps: runtimeConfig.maxParallelReadSteps,
+          },
           semantic_retrieval: semanticMatches,
           loop: {
             max_steps: plannerResult.max_steps,
             stop_on_error: plannerResult.stop_on_error,
           },
           memory_hints: memoryHints,
+          service_contract: {
+            start_task: { task_id: taskId, run_id: runId, session_id: sessionId },
+            get_status: { run_id: runId },
+            resume_task: { run_id: runId },
+          },
           actions,
         },
         confidence: 0.82,
@@ -409,6 +432,9 @@ class QueryEngineAuthority {
       ...trace,
       runtime_mode: runtimeMode.primary.mode,
       fallback_mode: runtimeMode.fallback?.mode || null,
+      plan_kind: plannerResult.plan_kind || 'linear',
+      plan_graph: plannerResult.plan_graph || null,
+      critic_review: criticPlanReview,
       delegated_specialists: delegation.specialists,
         step_results: stepResults.map(item => ({
           ok: item.ok,

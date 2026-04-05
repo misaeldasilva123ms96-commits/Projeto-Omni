@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const { buildSemanticDocument, rankSemanticCandidates } = require('./semanticMemory');
+const {
+  buildSemanticEntry,
+  dedupeSemanticCandidates,
+  describeEmbeddingMode,
+  rankSemanticCandidates,
+} = require('./semanticMemory');
 
 function getStorePath(cwd) {
   const dir = path.join(cwd, '.logs', 'fusion-runtime');
@@ -42,6 +47,7 @@ function flattenEnvelope(envelope) {
     ...envelope.working,
     semantic_candidates: Array.isArray(envelope.semantic?.candidates) ? envelope.semantic.candidates : [],
     semantic_last_matches: Array.isArray(envelope.semantic?.last_matches) ? envelope.semantic.last_matches : [],
+    vector_mode: envelope.semantic?.vector_mode || describeEmbeddingMode(),
   };
 }
 
@@ -108,21 +114,9 @@ function recordSemanticEntry(cwd, sessionId, entry = {}) {
   const store = loadRuntimeMemory(cwd);
   const envelope = ensureEnvelope(store, sessionId);
   const candidates = Array.isArray(envelope.semantic.candidates) ? envelope.semantic.candidates : [];
-  const normalizedEntry = {
-    path: entry.path || '',
-    preview: entry.preview || '',
-    source: entry.source || 'runtime',
-    embedding_text: buildSemanticDocument({
-      path: entry.path,
-      preview: entry.preview,
-      message: entry.message,
-      content: entry.content,
-    }),
-    updated_at: new Date().toISOString(),
-  };
-  envelope.semantic.candidates = [normalizedEntry, ...candidates]
-    .filter(candidate => candidate.path)
-    .slice(0, 20);
+  const normalizedEntry = buildSemanticEntry(entry);
+  envelope.semantic.vector_mode = describeEmbeddingMode();
+  envelope.semantic.candidates = dedupeSemanticCandidates([normalizedEntry, ...candidates], 24);
   saveRuntimeMemory(cwd, store);
   return flattenEnvelope(envelope);
 }
@@ -137,6 +131,10 @@ function findSemanticMatches(cwd, sessionId, query, limit = 3) {
   });
   envelope.semantic.last_query = query;
   envelope.semantic.last_matches = matches;
+  envelope.semantic.last_query_embedding = matches.length > 0
+    ? matches[0].embedding?.model || describeEmbeddingMode().model
+    : describeEmbeddingMode().model;
+  envelope.semantic.vector_mode = describeEmbeddingMode();
   saveRuntimeMemory(cwd, store);
   return matches;
 }

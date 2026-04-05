@@ -24,9 +24,12 @@ build/
 target/
 
 # Runtime state
+.logs/
 backend/python/transcripts/
 backend/python/brain/runtime/sessions/
+backend/python/brain/evolution/
 backend/python/memory/learning.json
+memory.json
 sessions/
 *.session.json
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -235,6 +237,34 @@ class BrainOrchestrator:
             return configured
         return shutil.which("node")
 
+    @staticmethod
+    def _runtime_max_parallel_reads() -> int:
+        return max(1, int(os.getenv("OMINI_MAX_PARALLEL_READ_STEPS", "2") or "2"))
+
+    @staticmethod
+    def _runtime_stale_checkpoint_minutes() -> int:
+        return max(1, int(os.getenv("OMINI_STALE_CHECKPOINT_MINUTES", "120") or "120"))
+
+    @staticmethod
+    def _runtime_critic_enabled() -> bool:
+        return str(os.getenv("OMINI_ENABLE_CRITIC", "true")).strip().lower() != "false"
+
+    @staticmethod
+    def _runtime_correction_depth() -> int:
+        return max(1, int(os.getenv("OMINI_MAX_CORRECTION_DEPTH", "1") or "1"))
+
+    @staticmethod
+    def _plan_signature(actions: list[dict[str, Any]], plan_graph: dict[str, Any] | None = None) -> str:
+        payload = json.dumps(
+            {
+                "actions": actions,
+                "plan_graph": plan_graph or {},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
     def _call_node_query_engine(
         self,
         *,
@@ -313,8 +343,22 @@ class BrainOrchestrator:
             provider=execution_request.get("provider", {}),
             intent=str(execution_request.get("intent", "")),
             delegation=execution_request.get("delegation", {}),
+            critic_review=execution_request.get("critic_review", {}),
+            plan_kind=str(execution_request.get("plan_kind", "linear")),
+            plan_graph=execution_request.get("plan_graph"),
             semantic_retrieval=execution_request.get("semantic_retrieval", []),
         )
+        if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
+            self._append_runtime_event(
+                event_type="runtime.vector.retrieval",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "match_count": len(execution_request.get("semantic_retrieval", [])),
+                    "top_match": execution_request.get("semantic_retrieval", [])[0].get("path"),
+                },
+            )
 
         self._apply_memory_hints(memory_store, memory_hints)
         self._apply_result_memory_updates(memory_store, step_results)
@@ -333,11 +377,39 @@ class BrainOrchestrator:
         provider: dict[str, Any] | str,
         intent: str,
         delegation: dict[str, Any],
-        semantic_retrieval: object,
+        critic_review: dict[str, Any] | None = None,
+        plan_kind: str = "linear",
+        plan_graph: dict[str, Any] | None = None,
+        semantic_retrieval: object = None,
         start_index: int = 0,
     ) -> list[dict[str, Any]]:
         max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
         step_results: list[dict[str, Any]] = []
+        critic_review = critic_review or {}
+        graph_state = self._clone_plan_graph(plan_graph)
+        plan_signature = self._plan_signature(actions, graph_state)
+        if critic_review.get("invoked"):
+            self._append_runtime_event(
+                event_type="runtime.critic.plan",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "critic_review": critic_review,
+                    "plan_kind": plan_kind,
+                },
+            )
+        if plan_kind == "graph" and isinstance(graph_state, dict):
+            self._append_runtime_event(
+                event_type="runtime.graph.plan",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "plan_kind": plan_kind,
+                    "node_count": len(graph_state.get("nodes", [])),
+                },
+            )
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -346,81 +418,119 @@ class BrainOrchestrator:
             actions=actions,
             next_step_index=start_index,
             completed_steps=step_results,
+            plan_graph=graph_state,
+            plan_signature=plan_signature,
             status="running",
         )
-
-        for index, action in enumerate(actions[start_index:max_steps], start=start_index):
-            if not isinstance(action, dict):
-                continue
-
-            attempts = int(action.get("retry_policy", {}).get("max_attempts", 1) or 1)
-            final_result: dict[str, Any] | None = None
-            correction_events: list[dict[str, Any]] = []
-            current_action = dict(action)
-            for attempt_number in range(1, attempts + 1):
-                final_result = execute_action(
-                    self.paths.root,
-                    current_action,
-                    timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
-                )
-                evaluation = self._evaluate_step(
-                    current_action,
-                    final_result,
-                    attempt_index=attempt_number,
-                    attempts=attempts,
-                )
-                correction_events.append(evaluation)
-                if final_result.get("ok"):
-                    break
-                if evaluation["decision"] == "revise_plan":
-                    revised_action = self._revise_action_from_context(current_action, step_results, semantic_retrieval)
-                    if revised_action is not None:
-                        current_action = revised_action
-                        continue
-                if evaluation["decision"] != "retry_same_step":
+        executed_steps = 0
+        if plan_kind == "graph" and isinstance(graph_state, dict):
+            while executed_steps < max_steps:
+                ready_parallel, ready_sequential = self._graph_ready_groups(graph_state)
+                if not ready_parallel and not ready_sequential:
                     break
 
-            result = final_result or {
-                "ok": False,
-                "error_payload": {
-                    "kind": "execution_failure",
-                    "message": "Runtime step failed without a result payload",
-                },
-            }
-            result["selected_tool"] = current_action.get("selected_tool")
-            result["selected_agent"] = current_action.get("selected_agent")
-            result["evaluation"] = correction_events[-1] if correction_events else {
-                "decision": "stop_failed",
-                "reason_code": "missing_result",
-            }
-            result["correction_events"] = correction_events
-            step_results.append(result)
+                batch_nodes = ready_parallel[: self._runtime_max_parallel_reads()] if ready_parallel else ready_sequential[:1]
+                batch_actions = [self._action_for_node(actions, node) for node in batch_nodes]
+                if any(action is None for action in batch_actions):
+                    break
 
-            self._append_runtime_execution_logs(
-                session_id=session_id,
-                message=message,
-                action=current_action,
-                result=result,
-                task_id=task_id,
-                run_id=run_id,
-                provider=provider,
-                intent=intent,
-                delegates=delegation.get("delegates", []),
-                specialists=delegation.get("specialists", []),
-            )
-            self._write_checkpoint(
-                run_id=run_id,
-                task_id=task_id,
-                session_id=session_id,
-                message=message,
-                actions=actions,
-                next_step_index=index + 1,
-                completed_steps=step_results,
-                status="blocked" if not result.get("ok") else "running",
-            )
+                if len(batch_actions) > 1:
+                    self._append_runtime_event(
+                        event_type="runtime.parallel.start",
+                        session_id=session_id,
+                        task_id=task_id,
+                        run_id=run_id,
+                        payload={
+                            "step_ids": [action.get("step_id") for action in batch_actions if isinstance(action, dict)],
+                            "parallel_count": len(batch_actions),
+                            "plan_kind": plan_kind,
+                        },
+                    )
 
-            if not result.get("ok"):
-                break
+                batch_results = self._execute_action_batch(
+                    actions=[action for action in batch_actions if isinstance(action, dict)],
+                    step_results=step_results,
+                    semantic_retrieval=semantic_retrieval,
+                    allow_parallel=len(batch_actions) > 1,
+                )
+
+                for action, result in zip(batch_actions, batch_results):
+                    executed_steps += 1
+                    step_results.append(result)
+                    graph_state = self._mark_graph_outcome(graph_state, action, result)
+                    self._append_runtime_execution_logs(
+                        session_id=session_id,
+                        message=message,
+                        action=action,
+                        result=result,
+                        task_id=task_id,
+                        run_id=run_id,
+                        provider=provider,
+                        intent=intent,
+                        delegates=delegation.get("delegates", []),
+                        specialists=delegation.get("specialists", []),
+                        plan_kind=plan_kind,
+                        semantic_retrieval=semantic_retrieval,
+                    )
+                    if not result.get("ok"):
+                        break
+
+                self._write_checkpoint(
+                    run_id=run_id,
+                    task_id=task_id,
+                    session_id=session_id,
+                    message=message,
+                    actions=actions,
+                    next_step_index=min(start_index + executed_steps, len(actions)),
+                    completed_steps=step_results,
+                    plan_graph=graph_state,
+                    plan_signature=plan_signature,
+                    status="blocked" if step_results and not step_results[-1].get("ok") else "running",
+                )
+                if step_results and not step_results[-1].get("ok"):
+                    break
+        else:
+            for index, action in enumerate(actions[start_index:max_steps], start=start_index):
+                if not isinstance(action, dict):
+                    continue
+
+                result = self._execute_single_action(
+                    action=action,
+                    step_results=step_results,
+                    semantic_retrieval=semantic_retrieval,
+                )
+                executed_steps += 1
+                step_results.append(result)
+
+                self._append_runtime_execution_logs(
+                    session_id=session_id,
+                    message=message,
+                    action=action,
+                    result=result,
+                    task_id=task_id,
+                    run_id=run_id,
+                    provider=provider,
+                    intent=intent,
+                    delegates=delegation.get("delegates", []),
+                    specialists=delegation.get("specialists", []),
+                    plan_kind=plan_kind,
+                    semantic_retrieval=semantic_retrieval,
+                )
+                self._write_checkpoint(
+                    run_id=run_id,
+                    task_id=task_id,
+                    session_id=session_id,
+                    message=message,
+                    actions=actions,
+                    next_step_index=index + 1,
+                    completed_steps=step_results,
+                    plan_graph=graph_state,
+                    plan_signature=plan_signature,
+                    status="blocked" if not result.get("ok") else "running",
+                )
+
+                if not result.get("ok"):
+                    break
 
         self._write_checkpoint(
             run_id=run_id,
@@ -430,11 +540,261 @@ class BrainOrchestrator:
             actions=actions,
             next_step_index=min(start_index + len(step_results), len(actions)),
             completed_steps=step_results,
+            plan_graph=graph_state,
+            plan_signature=plan_signature,
             status="completed"
-            if (start_index + len(step_results) >= len(actions) and step_results and all(item.get("ok") for item in step_results))
+            if (
+                (start_index + len(step_results) >= len(actions) or self._graph_complete(graph_state))
+                and step_results
+                and all(item.get("ok") for item in step_results)
+            )
             else "blocked",
         )
         return step_results
+
+    @staticmethod
+    def _clone_plan_graph(plan_graph: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(plan_graph, dict):
+            return None
+        try:
+            return json.loads(json.dumps(plan_graph))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _action_for_node(actions: list[dict[str, Any]], node: dict[str, Any]) -> dict[str, Any] | None:
+        step_id = str(node.get("step_id", ""))
+        for action in actions:
+            if isinstance(action, dict) and str(action.get("step_id", "")) == step_id:
+                return action
+        return None
+
+    @staticmethod
+    def _graph_ready_groups(plan_graph: dict[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if not isinstance(plan_graph, dict):
+            return [], []
+        nodes = plan_graph.get("nodes", [])
+        if not isinstance(nodes, list):
+            return [], []
+        completed = {
+            str(node.get("node_id"))
+            for node in nodes
+            if isinstance(node, dict) and str(node.get("state", "")) == "completed"
+        }
+        pending = [
+            node for node in nodes
+            if isinstance(node, dict) and str(node.get("state", "pending")) == "pending"
+        ]
+        ready = [
+            node for node in pending
+            if all(str(dep) in completed for dep in node.get("depends_on", []) if dep)
+        ]
+        parallel = [node for node in ready if bool(node.get("parallel_safe"))]
+        sequential = [node for node in ready if not bool(node.get("parallel_safe"))]
+        return parallel, sequential
+
+    @staticmethod
+    def _graph_complete(plan_graph: dict[str, Any] | None) -> bool:
+        if not isinstance(plan_graph, dict):
+            return False
+        nodes = plan_graph.get("nodes", [])
+        return bool(nodes) and all(str(node.get("state", "")) == "completed" for node in nodes if isinstance(node, dict))
+
+    @staticmethod
+    def _mark_graph_outcome(plan_graph: dict[str, Any] | None, action: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
+        if not isinstance(plan_graph, dict):
+            return plan_graph
+        for node in plan_graph.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+            if str(node.get("step_id", "")) == str(action.get("step_id", "")):
+                node["state"] = "completed" if result.get("ok") else "failed"
+                node["last_result"] = {
+                    "ok": bool(result.get("ok")),
+                    "evaluation": result.get("evaluation"),
+                }
+        return plan_graph
+
+    def _execute_action_batch(
+        self,
+        *,
+        actions: list[dict[str, Any]],
+        step_results: list[dict[str, Any]],
+        semantic_retrieval: object,
+        allow_parallel: bool,
+    ) -> list[dict[str, Any]]:
+        if not allow_parallel or len(actions) <= 1:
+            return [
+                self._execute_single_action(
+                    action=action,
+                    step_results=step_results,
+                    semantic_retrieval=semantic_retrieval,
+                )
+                for action in actions
+            ]
+
+        results_by_step: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=min(len(actions), self._runtime_max_parallel_reads())) as executor:
+            futures = {
+                executor.submit(
+                    self._execute_single_action,
+                    action=action,
+                    step_results=step_results,
+                    semantic_retrieval=semantic_retrieval,
+                ): action
+                for action in actions
+            }
+            for future in as_completed(futures):
+                action = futures[future]
+                results_by_step[str(action.get("step_id", ""))] = future.result()
+
+        return [results_by_step[str(action.get("step_id", ""))] for action in actions]
+
+    def _execute_single_action(
+        self,
+        *,
+        action: dict[str, Any],
+        step_results: list[dict[str, Any]],
+        semantic_retrieval: object,
+    ) -> dict[str, Any]:
+        attempts = int(action.get("retry_policy", {}).get("max_attempts", 1) or 1)
+        attempts = min(attempts, self._runtime_correction_depth() + 1)
+        final_result: dict[str, Any] | None = None
+        correction_events: list[dict[str, Any]] = []
+        current_action = dict(action)
+
+        for attempt_number in range(1, attempts + 1):
+            final_result = execute_action(
+                self.paths.root,
+                current_action,
+                timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+            )
+            evaluation = self._evaluate_step(
+                current_action,
+                final_result,
+                attempt_index=attempt_number,
+                attempts=attempts,
+            )
+            critic = self._critic_outcome_review(
+                action=current_action,
+                result=final_result,
+                evaluation=evaluation,
+                attempt_index=attempt_number,
+                max_attempts=attempts,
+            )
+            evaluation["critic"] = critic
+            correction_events.append(evaluation)
+
+            if final_result.get("ok"):
+                break
+            if evaluation["decision"] == "revise_plan":
+                revised_action = self._revise_action_from_context(current_action, step_results, semantic_retrieval)
+                if revised_action is not None:
+                    current_action = revised_action
+                    continue
+            if evaluation["decision"] != "retry_same_step":
+                break
+
+        result = final_result or {
+            "ok": False,
+            "error_payload": {
+                "kind": "execution_failure",
+                "message": "Runtime step failed without a result payload",
+            },
+        }
+        result["selected_tool"] = current_action.get("selected_tool")
+        result["selected_agent"] = current_action.get("selected_agent")
+        result["evaluation"] = correction_events[-1] if correction_events else {
+            "decision": "stop_failed",
+            "reason_code": "missing_result",
+        }
+        result["correction_events"] = correction_events
+        return result
+
+    def _critic_outcome_review(
+        self,
+        *,
+        action: dict[str, Any],
+        result: dict[str, Any],
+        evaluation: dict[str, Any],
+        attempt_index: int,
+        max_attempts: int,
+    ) -> dict[str, Any]:
+        if not self._runtime_critic_enabled():
+            return {
+                "invoked": False,
+                "decision": "approve",
+                "reason_code": "critic_disabled",
+            }
+
+        if result.get("ok") and evaluation.get("decision") == "continue":
+            return {
+                "invoked": True,
+                "decision": "approve",
+                "reason_code": "result_grounded",
+                "attempt_index": attempt_index,
+                "max_attempts": max_attempts,
+            }
+
+        if action.get("selected_tool") == "write_file":
+            return {
+                "invoked": True,
+                "decision": "stop",
+                "reason_code": "write_path_needs_operator",
+                "attempt_index": attempt_index,
+                "max_attempts": max_attempts,
+            }
+
+        if attempt_index < max_attempts:
+            evaluation["decision"] = "retry_same_step"
+            evaluation["reason_code"] = "critic_retry"
+            return {
+                "invoked": True,
+                "decision": "retry",
+                "reason_code": "critic_retry",
+                "attempt_index": attempt_index,
+                "max_attempts": max_attempts,
+            }
+
+        if evaluation.get("decision") == "revise_plan":
+            return {
+                "invoked": True,
+                "decision": "revise",
+                "reason_code": "critic_revision",
+                "attempt_index": attempt_index,
+                "max_attempts": max_attempts,
+            }
+
+        evaluation["decision"] = "stop_failed"
+        evaluation["reason_code"] = "critic_stop"
+        return {
+            "invoked": True,
+            "decision": "stop",
+            "reason_code": "critic_stop",
+            "attempt_index": attempt_index,
+            "max_attempts": max_attempts,
+        }
+
+    def _append_runtime_event(
+        self,
+        *,
+        event_type: str,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        log_dir = self.paths.root / ".logs" / "fusion-runtime"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "timestamp": self._utc_now(),
+            "event_type": event_type,
+            "session_id": session_id,
+            "task_id": task_id,
+            "run_id": run_id,
+            **payload,
+        }
+        self._append_jsonl(log_dir / "execution-audit.jsonl", entry)
 
     @staticmethod
     def _synthesize_runtime_response(step_results: list[dict[str, Any]], fallback_response: str) -> str:
@@ -557,6 +917,8 @@ class BrainOrchestrator:
         intent: str,
         delegates: list[Any],
         specialists: list[Any],
+        plan_kind: str,
+        semantic_retrieval: object,
     ) -> None:
         log_dir = self.paths.root / ".logs" / "fusion-runtime"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -576,6 +938,7 @@ class BrainOrchestrator:
             "error": result.get("error_payload"),
             "evaluation": result.get("evaluation"),
             "correction_events": result.get("correction_events", []),
+            "plan_kind": plan_kind,
         }
         audit_entry = {
             "timestamp": self._utc_now(),
@@ -590,7 +953,9 @@ class BrainOrchestrator:
             "session_id": session_id,
             "task_id": task_id,
             "run_id": run_id,
+            "plan_kind": plan_kind,
             "delegated_specialists": specialists if isinstance(specialists, list) else [],
+            "semantic_retrieval": semantic_retrieval if isinstance(semantic_retrieval, list) else [],
             "step_results": [
                 {
                     "ok": bool(result.get("ok")),
@@ -713,6 +1078,8 @@ class BrainOrchestrator:
         actions: list[dict[str, Any]],
         next_step_index: int,
         completed_steps: list[dict[str, Any]],
+        plan_graph: dict[str, Any] | None,
+        plan_signature: str,
         status: str,
     ) -> None:
         remaining_actions = actions[next_step_index:] if next_step_index < len(actions) else []
@@ -727,11 +1094,35 @@ class BrainOrchestrator:
                 "completed_steps": completed_steps,
                 "remaining_actions": remaining_actions,
                 "total_actions": len(actions),
+                "plan_graph": plan_graph,
+                "plan_signature": plan_signature,
             },
         )
 
     def resume_run(self, run_id: str) -> dict[str, Any]:
-        checkpoint = self.checkpoint_store.load(run_id)
+        validation = self.checkpoint_store.validate(
+            run_id,
+            stale_after_minutes=self._runtime_stale_checkpoint_minutes(),
+        )
+        checkpoint = validation.get("payload", {})
+        if not validation.get("ok"):
+            reason = "stale_checkpoint" if validation.get("stale") else "checkpoint_signature_mismatch"
+            self._append_runtime_event(
+                event_type="runtime.checkpoint.resume_blocked",
+                session_id=str(checkpoint.get("session_id", DEFAULT_SESSION_ID)),
+                task_id=str(checkpoint.get("task_id", "")),
+                run_id=run_id,
+                payload={"reason_code": reason},
+            )
+            return {
+                "status": "blocked",
+                "response": "",
+                "run_id": run_id,
+                "task_id": checkpoint.get("task_id"),
+                "error": reason,
+                "step_results": [],
+            }
+
         remaining_actions = checkpoint.get("remaining_actions", [])
         if not isinstance(remaining_actions, list) or not remaining_actions:
             return {
@@ -751,6 +1142,9 @@ class BrainOrchestrator:
             provider="resume-runtime",
             intent="execution",
             delegation={},
+            critic_review={},
+            plan_kind=str((checkpoint.get("plan_graph") or {}).get("mode", "linear")),
+            plan_graph=checkpoint.get("plan_graph"),
             semantic_retrieval=[],
             start_index=0,
         )

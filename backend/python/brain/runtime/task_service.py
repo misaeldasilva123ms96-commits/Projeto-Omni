@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
+from brain.runtime.service_contracts import build_task_envelope, build_task_status, validate_start_task_request
 
 
 class TaskService:
@@ -13,14 +14,17 @@ class TaskService:
 
     def execute_task(self, *, user_id: str, session_id: str, message: str) -> dict[str, Any]:
         previous_session = os.environ.get("AI_SESSION_ID")
+        request = validate_start_task_request(user_id=user_id, session_id=session_id, message=message)
+        task_id = f"task-{request['user_id']}-{request['session_id']}"
         try:
-            os.environ["AI_SESSION_ID"] = session_id
-            response = self.orchestrator.run(message)
-            return {
-                "user_id": user_id,
-                "session_id": session_id,
-                "response": response,
-            }
+            os.environ["AI_SESSION_ID"] = request["session_id"]
+            response = self.orchestrator.run(request["message"])
+            return build_task_envelope(
+                user_id=request["user_id"],
+                session_id=request["session_id"],
+                task_id=task_id,
+                response=response,
+            )
         finally:
             if previous_session is None:
                 os.environ.pop("AI_SESSION_ID", None)
@@ -32,3 +36,7 @@ class TaskService:
 
     def inspect_run(self, *, run_id: str) -> dict[str, Any]:
         return self.orchestrator.checkpoint_store.load(run_id)
+
+    def task_status(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return build_task_status(run_id=run_id, checkpoint=checkpoint)

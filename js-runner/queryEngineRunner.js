@@ -2,8 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const Ajv2020 = require('ajv/dist/2020');
 const { pathToFileURL } = require('url');
+
+let Ajv2020 = null;
+try {
+  Ajv2020 = require('ajv/dist/2020');
+} catch {
+  Ajv2020 = null;
+}
 
 const MAX_MEMORY_BYTES = 16 * 1024;
 
@@ -22,8 +28,23 @@ function loadRunnerSchema() {
   return JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
 }
 
-const ajv = new Ajv2020({ allErrors: true, allowUnionTypes: true });
-const validatePayload = ajv.compile(loadRunnerSchema());
+const validatePayload = (() => {
+  if (!Ajv2020) {
+    return candidate => (
+      candidate &&
+      typeof candidate.message === 'string' &&
+      Array.isArray(candidate.history) &&
+      Array.isArray(candidate.capabilities) &&
+      candidate.memory &&
+      typeof candidate.memory === 'object' &&
+      candidate.session &&
+      typeof candidate.session === 'object'
+    );
+  }
+
+  const ajv = new Ajv2020({ allErrors: true, allowUnionTypes: true });
+  return ajv.compile(loadRunnerSchema());
+})();
 
 function getRawInput() {
   return (process.argv[2] || '').trim();

@@ -27,11 +27,20 @@
 - [x] Add checkpoint creation and resumable run execution
 - [x] Add task/run identity and task service boundaries for product/API readiness
 - [x] Enrich observability with semantic, correction, and step-level execution metadata
+- [x] Upgrade semantic retrieval to embedding-backed vector retrieval in one live path
+- [x] Add a bounded critic specialist for risky plan/outcome review
+- [x] Introduce graph-aware planning with dependency-ready execution state
+- [x] Enable one safe parallel read-only execution path
+- [x] Harden checkpoint validation with stale-state blocking and graph persistence
+- [x] Normalize service-facing task start/status contracts
+- [x] Emit vector, critic, graph, and parallel runtime events
 - [ ] Package or transpile the selected upstream `src.zip` QueryEngine implementation for deeper direct adoption
 - [ ] Replace `cargo run` bridge mode with a stable packaged executor binary for Windows hosts
 - [ ] Expand the Rust bridge tool surface beyond file operations
 - [ ] Deepen final synthesis quality for richer analysis/planning tasks in the Python live path
 - [ ] Remove remaining transitional direct-execution code paths once the packaged bridge is stable
 - [ ] Reduce operational dependence on explicit session isolation for ad hoc smoke validation
-- [ ] Upgrade semantic retrieval from lightweight ranking to embedding-backed retrieval
+- [ ] Add provider-backed embeddings behind the current vector adapter
 - [ ] Add stronger concurrency controls around checkpoint resume for future multi-worker deployment
+- [ ] Extend graph planning beyond read/search dependency shapes
+- [ ] Add richer task/run inspection endpoints on top of TaskService

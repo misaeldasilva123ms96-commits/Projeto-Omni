@@ -10,11 +10,17 @@ The live runtime now emits or persists evidence for:
 
 - runtime mode selection
 - semantic retrieval
+- vector retrieval
 - specialist-assisted planning
+- critic review
+- graph plan creation
+- parallel scheduling
 - step execution
 - evaluator outcome
 - correction attempt
 - checkpoint creation
+- checkpoint validation
+- stale checkpoint blocking
 - run resume
 - final completion
 - blocked or failed completion
@@ -46,6 +52,8 @@ Current records may include:
 - `run_id`
 - runtime mode
 - semantic retrieval metadata
+- graph metadata
+- critic metadata
 - action payload
 - result payload
 - evaluator outcome
@@ -82,6 +90,7 @@ Semantic retrieval is now visible through:
 - semantic query storage in runtime memory
 - last semantic matches in memory envelopes
 - semantic retrieval metadata attached to execution requests/audits
+- `runtime.vector.retrieval` audit events
 
 This makes it possible to explain why the runtime selected a given artifact.
 
@@ -92,6 +101,8 @@ The runtime now records:
 - correction attempts
 - reason codes for retry/revise/stop
 - evaluator summaries at the step level
+- critic review outputs for risky plans and weak steps
+- graph/parallel scheduling decisions
 
 Delegation remains under the main orchestrator, and specialist participation is visible through the planning/evaluation path rather than hidden inside a fake single-step answer.
 
@@ -104,7 +115,29 @@ The current model distinguishes among:
 - timeout from the Rust bridge
 - missing artifact/path recoverable revision
 - exhausted retry budget
+- stale checkpoint
+- checkpoint signature mismatch
 - completed with warnings
+
+## Phase 5 Event Types
+
+Phase 5 adds explicit visibility for:
+
+- `runtime.vector.retrieval`
+- `runtime.critic.plan`
+- `runtime.graph.plan`
+- `runtime.parallel.start`
+- `runtime.checkpoint.resume_blocked`
+
+## Phase 5 Event Types
+
+New Phase 5 event types include:
+
+- `runtime.vector.retrieval`
+- `runtime.critic.plan`
+- `runtime.graph.plan`
+- `runtime.parallel.start`
+- `runtime.checkpoint.resume_blocked`
 
 ## Operational Value
 

@@ -160,3 +160,45 @@
 - Alternatives: keep coarse runtime logging; add opaque debug traces only.
 - Decision: enrich audit records with event types, task/run IDs, evaluation outcomes, correction events, and semantic retrieval metadata.
 - Consequences: runtime behavior is materially easier to debug, validate, and operate.
+
+## ADR-024: Phase 5 Uses Local Vector Embeddings Before External Providers
+
+- Context: the platform now needs embedding-backed retrieval in a live path, but provider-backed embeddings are not yet operationally required.
+- Alternatives: keep lightweight lexical retrieval only; depend immediately on an external embedding provider.
+- Decision: implement a real local deterministic embedding adapter and persist vector-aware semantic entries behind a modular boundary.
+- Consequences: vector retrieval is live and testable now, and the adapter can later swap to a provider-backed embedding source without re-architecting memory.
+
+## ADR-025: The Critic Is A Conditional Specialist, Not A Second Planner
+
+- Context: runtime quality needs another review layer for risky plans and weak execution outcomes.
+- Alternatives: let the evaluator absorb all critique logic; create a second planning authority.
+- Decision: add a bounded critic specialist that only approves, revises, retries, or stops under orchestrator control.
+- Consequences: quality control improves without creating competing orchestration hierarchy.
+
+## ADR-026: Graph Planning Is Opt-In And Compatibility-Preserving
+
+- Context: richer tasks benefit from dependency-aware execution, but many tasks remain simple.
+- Alternatives: force every task into a graph; keep only flat step lists forever.
+- Decision: support graph plans only when useful and fall back to linear plans otherwise.
+- Consequences: the runtime gains graph execution power without making simple paths more fragile.
+
+## ADR-027: Parallelism Is Limited To Safe Read-Only Work
+
+- Context: the runtime needs higher throughput for some tasks, but careless concurrency would risk corruption and permission confusion.
+- Alternatives: keep everything sequential; enable broad unconstrained parallelism.
+- Decision: permit bounded parallel execution only for safe read-only graph nodes.
+- Consequences: the system becomes faster where safe while preserving execution authority and permission discipline.
+
+## ADR-028: Checkpoint Validation Must Reject Stale Or Incompatible Resume State
+
+- Context: resumability becomes riskier once graph state and richer long-run execution are introduced.
+- Alternatives: trust all checkpoint files blindly; disable resume for graph plans.
+- Decision: validate checkpoint freshness and plan signatures before resuming.
+- Consequences: resume becomes safer and more operationally honest, even if some resumes are blocked instead of guessed through.
+
+## ADR-029: Service-Facing Task Contracts Must Stay Separate From Orchestrator Internals
+
+- Context: the platform is moving closer to future API/server exposure.
+- Alternatives: expose raw orchestrator internals externally; defer service boundaries until a full API exists.
+- Decision: define normalized start/status task envelopes in `TaskService` and `service_contracts.py`.
+- Consequences: future API layers can wrap stable contracts instead of binding directly to internal runtime state.

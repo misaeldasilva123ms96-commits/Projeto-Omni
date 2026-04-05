@@ -63,6 +63,15 @@ const SPECIALIST_AGENTS = [
     failurePolicy: 'fallback-to-stop',
   },
   {
+    id: 'critic_agent',
+    role: 'critic',
+    source: 'project',
+    description: 'Reviews risky plans and weak outcomes to recommend bounded revision, retry, escalation, or stop.',
+    allowedTools: [],
+    capabilities: ['plan-review', 'outcome-critique', 'risk-gating'],
+    failurePolicy: 'warn-only',
+  },
+  {
     id: 'synthesizer_agent',
     role: 'synthesizer',
     source: 'project',
@@ -104,13 +113,13 @@ function resolveSpecialistsForIntent(intent) {
     case 'memory':
       return ['master_orchestrator', 'memory_manager', 'reviewer_agent'];
     case 'analysis':
-      return ['master_orchestrator', 'task_planner', 'researcher_agent', 'evaluator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
+      return ['master_orchestrator', 'task_planner', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
     case 'execution':
-      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'coder_agent', 'evaluator_agent', 'reviewer_agent', 'synthesizer_agent', 'rust_executor'];
+      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'coder_agent', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'rust_executor'];
     case 'planning':
-      return ['master_orchestrator', 'task_planner', 'evaluator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
+      return ['master_orchestrator', 'task_planner', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
     default:
-      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'evaluator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router', 'rust_executor'];
+      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router', 'rust_executor'];
   }
 }
 

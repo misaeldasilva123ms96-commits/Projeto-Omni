@@ -140,6 +140,4 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
   };
 }
 
-module.exports = {
-  planTask,
-};
+module.exports = require('./advancedPlannerSpecialist');

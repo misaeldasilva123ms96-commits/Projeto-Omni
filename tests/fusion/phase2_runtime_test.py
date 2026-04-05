@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -256,8 +257,11 @@ class Phase2RuntimeTest(unittest.TestCase):
             session_id="service-session",
             message="leia package.json",
         )
+        self.assertEqual(executed.get("status"), "completed")
         self.assertEqual(executed.get("user_id"), "user-phase4")
         self.assertEqual(executed.get("session_id"), "service-session")
+        self.assertIn("task_id", executed)
+        self.assertIn("links", executed)
         self.assertIn('"name": "omini-runner"', executed.get("response", ""))
 
     def test_observability_records_task_and_run_ids(self) -> None:
@@ -267,6 +271,154 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertIn("event_type", audit_tail)
         self.assertIn("task_id", audit_tail)
         self.assertIn("run_id", audit_tail)
+
+    def test_graph_plan_parallel_read_execution_path(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase5-graph"
+        actions = [
+            {
+                "action_id": "phase5-list",
+                "step_id": "phase5-list",
+                "strategy": "real_execution",
+                "selected_tool": "glob_search",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "execution_context": {"project_root": "..\\..", "runtime_mode": "python-rust-cargo"},
+                "tool_arguments": {"pattern": "**/*", "path": "."},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase5-graph"},
+                "memory_update_hints": {},
+            },
+            {
+                "action_id": "phase5-read",
+                "step_id": "phase5-read",
+                "strategy": "real_execution",
+                "selected_tool": "read_file",
+                "selected_agent": "researcher_agent",
+                "permission_requirement": "allow_read_only",
+                "approval_state": "approved",
+                "execution_context": {"project_root": "..\\..", "runtime_mode": "python-rust-cargo"},
+                "tool_arguments": {"path": "package.json", "limit": 40},
+                "retry_policy": {"max_attempts": 1},
+                "transcript_link": {"session_id": "phase5-graph"},
+                "memory_update_hints": {},
+            },
+        ]
+        plan_graph = {
+            "version": 1,
+            "mode": "parallel-read",
+            "nodes": [
+                {"node_id": "phase5-list", "step_id": "phase5-list", "depends_on": [], "parallel_safe": True, "state": "pending"},
+                {"node_id": "phase5-read", "step_id": "phase5-read", "depends_on": [], "parallel_safe": True, "state": "pending"},
+            ],
+        }
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase5-graph",
+            message='liste os arquivos e busque "name"',
+            actions=actions,
+            task_id="task-phase5-graph",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="execution",
+            delegation={"delegates": ["task_planner", "researcher_agent"], "specialists": ["researcher_agent"]},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="graph",
+            plan_graph=plan_graph,
+            semantic_retrieval=[],
+        )
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(item.get("ok") for item in results))
+
+    def test_critic_influences_failure_handling(self) -> None:
+        orchestrator = self.build_orchestrator()
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase5-critic",
+            message="leia um arquivo inexistente",
+            actions=[
+                {
+                    "action_id": "phase5-missing",
+                    "step_id": "phase5-missing",
+                    "strategy": "real_execution",
+                    "selected_tool": "read_file",
+                    "selected_agent": "researcher_agent",
+                    "permission_requirement": "allow_read_only",
+                    "approval_state": "approved",
+                    "execution_context": {"project_root": "..\\..", "runtime_mode": "python-rust-cargo"},
+                    "tool_arguments": {"path": "missing-file.txt", "limit": 10},
+                    "retry_policy": {"max_attempts": 2},
+                    "transcript_link": {"session_id": "phase5-critic"},
+                    "memory_update_hints": {},
+                }
+            ],
+            task_id="task-phase5-critic",
+            run_id="run-phase5-critic",
+            provider="test-runtime",
+            intent="execution",
+            delegation={},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="linear",
+            plan_graph=None,
+            semantic_retrieval=[],
+        )
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0].get("ok"))
+        self.assertIn("critic", results[0].get("evaluation", {}))
+
+    def test_stale_checkpoint_detection_blocks_resume(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase5-stale"
+        orchestrator.checkpoint_store.save(
+            run_id,
+            {
+                "task_id": "task-phase5-stale",
+                "session_id": "phase5-stale",
+                "message": "stale resume",
+                "status": "blocked",
+                "next_step_index": 0,
+                "completed_steps": [],
+                "remaining_actions": [],
+                "total_actions": 0,
+                "plan_signature": "stale-signature",
+                "updated_at": (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(),
+            },
+        )
+        resumed = orchestrator.resume_run(run_id)
+        self.assertEqual(resumed.get("status"), "blocked")
+        self.assertEqual(resumed.get("error"), "stale_checkpoint")
+
+    def test_task_service_status_boundary(self) -> None:
+        service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")
+        run_id = "run-phase5-status"
+        service.orchestrator.checkpoint_store.save(
+            run_id,
+            {
+                "task_id": "task-phase5-status",
+                "session_id": "service-session",
+                "message": "status",
+                "status": "running",
+                "next_step_index": 1,
+                "completed_steps": [],
+                "remaining_actions": [],
+                "total_actions": 3,
+                "plan_signature": "status-signature",
+            },
+        )
+        status = service.task_status(run_id=run_id)
+        self.assertEqual(status.get("status"), "running")
+        self.assertEqual(status.get("task_id"), "task-phase5-status")
+
+    def test_observability_includes_parallel_and_critic_events(self) -> None:
+        self.run_main('liste os arquivos e busque "name"', "phase5-observability")
+        execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        entries = [
+            json.loads(line)
+            for line in execution_audit.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        event_types = {entry.get("event_type") for entry in entries[-20:]}
+        self.assertIn("runtime.parallel.start", event_types)
+        self.assertIn("runtime.step.audit", event_types)
 
 
 if __name__ == "__main__":
