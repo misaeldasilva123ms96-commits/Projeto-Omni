@@ -46,14 +46,22 @@ def _is_ci_environment() -> bool:
 
 
 def _sanitize_rust_environment(command_env: dict[str, str]) -> dict[str, str]:
+    if os.name == "nt" and not _is_ci_environment():
+        command_env.setdefault("CARGO_BUILD_TARGET", "x86_64-pc-windows-gnullvm")
+        command_env.setdefault("RUSTUP_TOOLCHAIN", "stable-x86_64-pc-windows-gnullvm")
+        return command_env
+
     if os.name != "nt" or _is_ci_environment():
         build_target = command_env.get("CARGO_BUILD_TARGET", "")
         toolchain = command_env.get("RUSTUP_TOOLCHAIN", "")
+        target_triple = command_env.get("TARGET", "")
 
         if "windows" in build_target.lower():
             command_env.pop("CARGO_BUILD_TARGET", None)
         if "windows" in toolchain.lower():
             command_env.pop("RUSTUP_TOOLCHAIN", None)
+        if "windows" in target_triple.lower():
+            command_env.pop("TARGET", None)
 
         for key in list(command_env.keys()):
             upper_key = key.upper()

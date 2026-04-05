@@ -29,6 +29,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust Bridge (Native)
+        working-directory: backend/rust
+        env:
+          CARGO_BUILD_TARGET: ""
+        run: |
+          cargo clean
+          cargo build --release
+
       - name: Install root dependencies
         run: npm ci
 
