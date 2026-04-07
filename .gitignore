@@ -14,6 +14,7 @@
 # Runtime logs
 *.log
 .logs/
+.phase9-temp/
 swarm_log.json
 backend/python/brain/runtime/swarm_log.json
 backend/python/brain/runtime/sessions/
