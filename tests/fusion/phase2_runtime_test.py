@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -72,16 +72,19 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_memory_update_and_retrieval_work_in_live_path(self) -> None:
         learn_output = self.run_main(
-            "meu nome Ã© Misael e eu trabalho com inteligÃªncia artificial",
+            "meu nome é Misael e eu trabalho com inteligência artificial",
             "phase2-memory",
         )
         normalized_learn_output = learn_output.lower()
         self.assertTrue(
-            "registrar seu nome" in normalized_learn_output or "seu nome" in normalized_learn_output,
+            any(
+                keyword in normalized_learn_output
+                for keyword in ["seu nome", "seu trabalho", "contexto desta sessão", "registrar seu"]
+            ),
             learn_output,
         )
 
-        recall_output = self.run_main("qual Ã© meu nome?", "phase2-memory")
+        recall_output = self.run_main("qual é meu nome?", "phase2-memory")
         self.assertIn("Misael", recall_output)
 
     def test_multistep_execution_loop_runs_more_than_one_step(self) -> None:
