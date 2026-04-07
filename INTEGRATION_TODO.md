@@ -80,3 +80,13 @@
 - [ ] Persist engineering strategy outcomes back into ranked strategy memory more explicitly.
 - [ ] Add stronger code review heuristics for risky dependency and configuration edits.
 - [ ] Add operator/dashboard consumers for repository analysis, patch history, and debug iteration payloads.
+
+## Phase 10 follow-up
+- [ ] Extend the live large-project path from planning-heavy coordination into governed multi-file patch-set execution.
+- [ ] Add milestone-specific resume and retry policies instead of run-level continuation only.
+- [ ] Add stronger impact reasoning from symbols, exports, and interface boundaries instead of file/import heuristics only.
+- [ ] Add lint and typecheck discovery/execution to the verification planner when repositories expose those tools.
+- [ ] Add Git branch/worktree-backed workspace isolation for PR-ready mutation flows.
+- [ ] Add human approval checkpoints for high-risk milestone transitions and wide patch sets.
+- [ ] Add richer integration specialists for architectural refactors and dependency upgrades.
+- [ ] Add dashboard/API consumers for milestone, patch-set, verification, and PR-summary payloads.

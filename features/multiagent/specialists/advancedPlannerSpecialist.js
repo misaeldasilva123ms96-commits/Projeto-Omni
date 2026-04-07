@@ -1,5 +1,7 @@
 ﻿const { buildHierarchicalPlan, buildPlanGraph } = require('../../../core/planning/planGraph');
 
+const { buildLargeTaskPlan } = require('../largeTaskPlanner');
+
 function detectConstraints(message) {
   const text = String(message || '').toLowerCase();
   return {
@@ -35,6 +37,8 @@ function detectConstraints(message) {
       /(analise o repositorio|analise o repositório|entenda o repositorio|entenda o repositório|mapeie o projeto)/.test(text),
     wantsGitInspection:
       /(git status|git diff|commit)/.test(text),
+    wantsLargeProject:
+      /(migr|refator|upgrade|grande|multi-?modulo|multi-?file|repo-wide|repo wide|epic|milestone|integra[cç][aã]o|modulos|m[oó]dulos)/.test(text),
   };
 }
 
@@ -64,8 +68,14 @@ function buildStep(sessionId, suffix, tool, agent, toolArguments, goal, extra = 
 function assignHierarchy(constraints, steps) {
   if (!constraints.wantsHierarchy) return steps;
   return steps.map(step => {
-    if (['glob_search', 'grep_search'].includes(step.selected_tool)) {
+    if (step.milestone_id) {
+      return { ...step, goal_id: step.goal_id || 'goal:large-engineering', parent_goal_id: step.parent_goal_id || 'goal:root' };
+    }
+    if (['glob_search', 'grep_search', 'directory_tree', 'dependency_inspection', 'code_search'].includes(step.selected_tool)) {
       return { ...step, goal_id: 'goal:inspect', parent_goal_id: 'goal:root' };
+    }
+    if (['verification_runner', 'test_runner'].includes(step.selected_tool)) {
+      return { ...step, goal_id: 'goal:verification', parent_goal_id: 'goal:root' };
     }
     if (step.selected_tool === 'read_file' && constraints.wantsAnalysis) {
       return { ...step, goal_id: 'goal:synthesize', parent_goal_id: 'goal:root' };
@@ -95,7 +105,7 @@ function buildPlanMetadata(constraints, steps, runtimeConfig) {
           parent_goal_id: rootGoal.goal_id,
           label: 'Inspecionar o workspace e reunir evidencias',
           state: 'pending',
-          step_ids: steps.filter(step => ['glob_search', 'grep_search'].includes(step.selected_tool)).map(step => step.step_id),
+          step_ids: steps.filter(step => ['glob_search', 'grep_search', 'directory_tree', 'dependency_inspection', 'code_search'].includes(step.selected_tool)).map(step => step.step_id),
         },
         {
           goal_id: 'goal:read',
@@ -103,6 +113,13 @@ function buildPlanMetadata(constraints, steps, runtimeConfig) {
           label: 'Ler os artefatos principais',
           state: 'pending',
           step_ids: steps.filter(step => step.selected_tool === 'read_file').map(step => step.step_id),
+        },
+        {
+          goal_id: 'goal:verification',
+          parent_goal_id: rootGoal.goal_id,
+          label: 'Validar e revisar a integracao',
+          state: 'pending',
+          step_ids: steps.filter(step => ['verification_runner', 'test_runner'].includes(step.selected_tool)).map(step => step.step_id),
         },
         {
           goal_id: 'goal:synthesize',
@@ -193,9 +210,71 @@ function buildEngineeringSteps({ sessionId, constraints, repositoryAnalysis, run
   return steps;
 }
 
-function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {}, repositoryAnalysis = null }) {
+function buildLargeProjectEngineeringSteps({
+  sessionId,
+  repositoryAnalysis,
+  repositoryImpactAnalysis,
+  verificationPlan,
+  milestonePlan,
+  message,
+}) {
+  const workspaceRoot = '.';
+  const topCandidate = repositoryImpactAnalysis?.module_change_candidates?.[0]?.path || 'package.json';
+  const searchToken = topCandidate.split('/').pop()?.split('.')[0] || 'TODO';
+  const milestones = Array.isArray(milestonePlan?.milestone_tree?.milestones) ? milestonePlan.milestone_tree.milestones : [];
+  const milestoneByIndex = index => milestones[index]?.milestone_id || null;
+  return [
+    buildStep(sessionId, 'repo-tree', 'directory_tree', 'researcher_agent', { workspace_root: workspaceRoot, max_depth: 4 }, 'scan repository structure for large-task planning', { parallel_safe: true, shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(0) }),
+    buildStep(sessionId, 'repo-deps', 'dependency_inspection', 'dependency_impact_specialist', { workspace_root: workspaceRoot }, 'inspect dependency graph and architecture boundaries', { parallel_safe: true, shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(0) }),
+    buildStep(sessionId, 'repo-impact', 'code_search', 'dependency_impact_specialist', { workspace_root: workspaceRoot, pattern: searchToken }, 'identify likely affected modules and shared interfaces', { shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(0) }),
+    buildStep(sessionId, 'code-search', 'code_search', 'coder_agent', { workspace_root: workspaceRoot, pattern: searchToken }, 'prepare module-aware implementation scope and patch-set boundaries', { shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(1) }),
+    buildStep(sessionId, 'patch-plan', 'git_diff', 'reviewer_agent', { workspace_root: workspaceRoot, path: topCandidate }, 'review current module surface before applying coordinated changes', { shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(1) }),
+    buildStep(sessionId, 'verification', 'verification_runner', 'test_selection_specialist', { workspace_root: workspaceRoot, plan: verificationPlan, message, repository_analysis: repositoryAnalysis || {}, impact_analysis: repositoryImpactAnalysis || {} }, 'run milestone-aware verification before merge readiness', { shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(2) }),
+    buildStep(sessionId, 'pr-summary', 'git_status', 'reviewer_agent', { workspace_root: workspaceRoot }, 'collect branch cleanliness and merge-readiness evidence', { shared_goal_id: 'shared-goal:large-engineering', milestone_id: milestoneByIndex(2) }),
+  ];
+}
+
+function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {}, repositoryAnalysis = null, repositoryImpactAnalysis = null, verificationPlan = null }) {
   const constraints = detectConstraints(message);
+  const largeTaskPlan = constraints.wantsEngineering && constraints.wantsLargeProject
+    ? buildLargeTaskPlan({
+        sessionId,
+        message,
+        repositoryAnalysis,
+        repositoryImpactAnalysis,
+        verificationPlan,
+      })
+    : null;
   const steps = [];
+  if (largeTaskPlan) {
+    const largeProjectSteps = buildLargeProjectEngineeringSteps({
+      sessionId,
+      repositoryAnalysis,
+      repositoryImpactAnalysis,
+      verificationPlan,
+      milestonePlan: largeTaskPlan,
+      message,
+    });
+    return {
+      constraints,
+      ...buildPlanMetadata({ ...constraints, wantsHierarchy: true, wantsEngineering: true }, largeProjectSteps, runtimeConfig),
+      branch_plan: null,
+      stop_on_error: true,
+      retry_policy: {
+        max_attempts: runtimeConfig.maxRetries || 1,
+        backoff_ms: 0,
+      },
+      requires_review: true,
+      engineering_workflow: {
+        mode: 'large-project-engineering',
+        repository_root: repositoryAnalysis?.root || '.',
+      },
+      milestone_plan: largeTaskPlan,
+      repo_impact_analysis: repositoryImpactAnalysis || {},
+      verification_plan: verificationPlan || {},
+      steps: assignHierarchy({ ...constraints, wantsHierarchy: true }, largeProjectSteps),
+    };
+  }
   if (constraints.wantsEngineering) {
     const engineeringSteps = buildEngineeringSteps({ sessionId, constraints, repositoryAnalysis, runtimeConfig, message });
     return {
@@ -212,6 +291,9 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
         mode: constraints.wantsFixTests ? 'autonomous-debug' : 'repository-analysis',
         repository_root: repositoryAnalysis?.root || '.',
       },
+      milestone_plan: null,
+      repo_impact_analysis: repositoryImpactAnalysis || {},
+      verification_plan: verificationPlan || {},
       steps: assignHierarchy({ ...constraints, wantsHierarchy: true }, engineeringSteps),
     };
   }
@@ -346,6 +428,9 @@ function planTask({ message, sessionId, retrievalContext = {}, runtimeConfig = {
       backoff_ms: 0,
     },
     requires_review: hierarchicalSteps.some(step => step.selected_tool !== 'none'),
+    milestone_plan: null,
+    repo_impact_analysis: repositoryImpactAnalysis || {},
+    verification_plan: verificationPlan || {},
     steps: hierarchicalSteps,
   };
 }

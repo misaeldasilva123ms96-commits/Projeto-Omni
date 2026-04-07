@@ -18,6 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
 from brain.runtime.debug_loop_controller import DebugLoopController  # noqa: E402
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk  # noqa: E402
+from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, rollback_patch_set  # noqa: E402
 from brain.runtime.rust_executor_bridge import execute_action  # noqa: E402
 from brain.runtime.task_service import TaskService  # noqa: E402
 from brain.runtime.workspace_manager import WorkspaceManager  # noqa: E402
@@ -1041,6 +1042,140 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertGreater(len(debug_view.get("debug_iterations", [])), 0)
         workspace_view = service.inspect_workspace_state(run_id=run_id)
         self.assertIn("workspace_state", workspace_view)
+
+    def test_patch_set_apply_and_rollback_work_for_multi_file_changes(self) -> None:
+        repo_root = self.make_temp_python_repo()
+        patch_set = build_patch_set(
+            workspace_root=repo_root,
+            file_updates=[
+                {
+                    "file_path": "mathlib/ops.py",
+                    "new_content": "def add(a, b):\n    return a + b\n",
+                    "confidence_score": 0.9,
+                },
+                {
+                    "file_path": "mathlib/__init__.py",
+                    "new_content": "from .ops import add\n",
+                    "confidence_score": 0.85,
+                },
+            ],
+            dependency_notes=["mathlib exports add"],
+            verification_plan={"verification_modes": ["targeted-tests"]},
+        )
+        applied = apply_patch_set(workspace_root=repo_root, patch_set=patch_set)
+        self.assertTrue(applied.get("ok"))
+        self.assertEqual(len(patch_set.get("affected_files", [])), 2)
+        self.assertIn("return a + b", (repo_root / "mathlib" / "ops.py").read_text(encoding="utf-8"))
+        rollback = rollback_patch_set(workspace_root=repo_root, patch_set=patch_set)
+        self.assertTrue(rollback.get("ok"))
+        self.assertIn("return a - b", (repo_root / "mathlib" / "ops.py").read_text(encoding="utf-8"))
+
+    def test_large_task_checkpoint_and_operator_inspection_include_milestones_and_pr_summary(self) -> None:
+        orchestrator = self.build_orchestrator()
+        run_id = "run-phase10-large-task"
+        repository_analysis = {
+            "root": str(PROJECT_ROOT),
+            "repository_map": {"entry_points": ["package.json"], "frameworks": ["react-vite", "python-runtime"]},
+            "language_profile": {"dominant_language": "javascript"},
+            "file_index": [
+                {"path": "package.json", "language": "json"},
+                {"path": "tests/fusion/fusion-brain.test.js", "language": "javascript"},
+            ],
+        }
+        repo_impact_analysis = {
+            "impact_map": {"likely_affected_modules": ["package.json"], "candidate_count": 1},
+            "module_change_candidates": [{"path": "package.json", "language": "json", "score": 5}],
+            "test_selection_candidates": [{"path": "tests/fusion/fusion-brain.test.js", "language": "javascript", "score": 2}],
+            "integration_risk_summary": {"risk_level": "medium", "flags": ["hotspot-coupling"]},
+        }
+        verification_plan = {
+            "verification_modes": ["targeted-tests", "dependency-health"],
+            "targeted_tests": ["tests/fusion/fusion-brain.test.js"],
+        }
+        milestone_plan = {
+            "milestone_tree": {
+                "root_milestone_id": "milestone:analysis",
+                "milestones": [
+                    {"milestone_id": "milestone:analysis", "title": "Analyze", "step_ids": ["phase10-tree"], "state": "pending", "blockers": [], "progress": 0},
+                    {"milestone_id": "milestone:verify", "title": "Verify", "step_ids": ["phase10-verify"], "state": "pending", "blockers": [], "progress": 0},
+                ],
+            }
+        }
+        results = orchestrator._execute_runtime_actions(
+            session_id="phase10-large-task",
+            message="planeje e valide uma mudanca grande no repositorio",
+            actions=[
+                {
+                    "action_id": "phase10-tree",
+                    "step_id": "phase10-tree",
+                    "strategy": "engineering_execution",
+                    "selected_tool": "directory_tree",
+                    "selected_agent": "researcher_agent",
+                    "permission_requirement": "allow_read_only",
+                    "approval_state": "approved",
+                    "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                    "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:large-engineering"},
+                    "tool_arguments": {"workspace_root": str(PROJECT_ROOT), "max_depth": 2},
+                    "retry_policy": {"max_attempts": 1},
+                    "transcript_link": {"session_id": "phase10-large-task"},
+                    "memory_update_hints": {},
+                    "milestone_id": "milestone:analysis",
+                },
+                {
+                    "action_id": "phase10-verify",
+                    "step_id": "phase10-verify",
+                    "strategy": "engineering_execution",
+                    "selected_tool": "verification_runner",
+                    "selected_agent": "test_selection_specialist",
+                    "permission_requirement": "allow_read_only",
+                    "approval_state": "approved",
+                    "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                    "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo", "goal_id": "goal:large-engineering"},
+                    "tool_arguments": {"workspace_root": str(PROJECT_ROOT), "plan": verification_plan},
+                    "retry_policy": {"max_attempts": 1},
+                    "transcript_link": {"session_id": "phase10-large-task"},
+                    "memory_update_hints": {},
+                    "milestone_id": "milestone:verify",
+                },
+            ],
+            task_id="task-phase10-large-task",
+            run_id=run_id,
+            provider="test-runtime",
+            intent="engineering",
+            delegation={"delegates": ["task_planner", "researcher_agent", "test_selection_specialist"], "specialists": ["researcher_agent", "test_selection_specialist"]},
+            critic_review={"invoked": True, "decision": "approve"},
+            plan_kind="hierarchical",
+            plan_graph={"version": 1, "mode": "engineering", "nodes": []},
+            semantic_retrieval=[],
+            plan_hierarchy={"root_goal_id": "goal:large-engineering", "subgoals": [{"goal_id": "goal:analysis"}, {"goal_id": "goal:verification"}]},
+            learning_guidance=[],
+            policy_summary=[],
+            execution_tree={"version": 1, "root_node_id": "tree:root", "nodes": []},
+            negotiation_summary={"invoked": True, "final_decision": "proceed", "turns": []},
+            strategy_optimization={"invoked": True, "preferred_plan_mode": "tree"},
+            repository_analysis=repository_analysis,
+            repo_impact_analysis=repo_impact_analysis,
+            verification_plan=verification_plan,
+            verification_selection={"targeted_tests": ["tests/fusion/fusion-brain.test.js"]},
+            milestone_plan=milestone_plan,
+            engineering_review={"invoked": True, "risk_level": "medium"},
+            engineering_workflow={"mode": "large-project-engineering"},
+        )
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(item.get("ok") for item in results))
+
+        service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")
+        milestones = service.inspect_milestones(run_id=run_id)
+        self.assertEqual(milestones.get("milestone_state", {}).get("completed_milestones"), 2)
+        verification = service.inspect_verification(run_id=run_id)
+        self.assertEqual(verification.get("verification_summary", {}).get("ok"), True)
+        pr_summary = service.inspect_pr_summary(run_id=run_id)
+        self.assertIn("merge_readiness", pr_summary.get("pr_summary", {}))
+        intelligence = service.inspect_run_intelligence(run_id=run_id)
+        run_summary = intelligence.get("run_summary", {})
+        self.assertIn("engineering", run_summary)
+        self.assertIn("execution_state", run_summary)
+        self.assertIn("milestone_state", run_summary.get("engineering", {}))
 
 
 if __name__ == "__main__":

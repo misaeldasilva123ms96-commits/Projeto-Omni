@@ -23,6 +23,7 @@ class DebugLoopController:
         repository_analysis: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         patch_history: list[dict[str, Any]] = []
+        patch_sets: list[dict[str, Any]] = []
         debug_iterations: list[dict[str, Any]] = []
         last_test_result: dict[str, Any] | None = None
 
@@ -52,7 +53,9 @@ class DebugLoopController:
                     "status": "success",
                     "iterations": debug_iterations,
                     "patch_history": patch_history,
+                    "patch_sets": patch_sets,
                     "test_results": payload,
+                    "verification_summary": {"ok": True, "runs": [{"mode": "debug-loop-final-tests", "status": "passed", "result": payload}]},
                     "repository_analysis": repository_analysis or {},
                     "workspace_state": self.workspace_manager.snapshot_workspace(self.workspace_root),
                 }
@@ -107,6 +110,15 @@ class DebugLoopController:
                     "review": review,
                 }
             )
+            patch_sets.append(
+                {
+                    "patch_set_id": f"debug-loop-{iteration}",
+                    "affected_files": [patch.get("file_path")],
+                    "dependency_notes": [],
+                    "risk_level": review.get("risk_level", "low"),
+                    "verification_plan": {"mode": "debug-loop"},
+                }
+            )
 
             verify_result = execute_engineering_action(
                 project_root=self.workspace_root,
@@ -133,7 +145,9 @@ class DebugLoopController:
                     "status": "success",
                     "iterations": debug_iterations,
                     "patch_history": patch_history,
+                    "patch_sets": patch_sets,
                     "test_results": verify_payload,
+                    "verification_summary": {"ok": True, "runs": [{"mode": "debug-loop-final-tests", "status": "passed", "result": verify_payload}]},
                     "repository_analysis": repository_analysis or {},
                     "workspace_state": self.workspace_manager.snapshot_workspace(self.workspace_root),
                 }
@@ -144,7 +158,9 @@ class DebugLoopController:
             "status": "failed",
             "iterations": debug_iterations,
             "patch_history": patch_history,
+            "patch_sets": patch_sets,
             "test_results": (last_test_result or {}).get("result_payload", {}),
+            "verification_summary": {"ok": False, "runs": [{"mode": "debug-loop-final-tests", "status": "failed", "result": (last_test_result or {}).get("result_payload", {})}]},
             "repository_analysis": repository_analysis or {},
             "workspace_state": self.workspace_manager.snapshot_workspace(self.workspace_root),
         }

@@ -33,9 +33,22 @@ def build_execution_state(
         "policy_decisions": policy_summary or [],
         "fusion_outputs": fusion_summary or {},
         "repository_analysis": repository_analysis or {},
+        "impact_map": (engineering_data or {}).get("impact_map", {}),
+        "milestone_tree": (engineering_data or {}).get("milestone_state", {}),
         "workspace_state": (engineering_data or {}).get("workspace_state", {}),
         "code_changes": (engineering_data or {}).get("patch_history", []),
+        "patch_sets": (engineering_data or {}).get("patch_sets", []),
         "test_results": (engineering_data or {}).get("test_results", {}),
+        "verification_status": (engineering_data or {}).get("verification_summary", {}),
+        "integration_status": (engineering_data or {}).get("pr_summary", {}).get("merge_readiness", {}),
+        "merge_readiness": (engineering_data or {}).get("pr_summary", {}).get("merge_readiness", {}),
+        "unresolved_blockers": [
+            blocker
+            for milestone in (engineering_data or {}).get("milestone_state", {}).get("milestones", [])
+            if milestone.get("state") == "blocked"
+            for blocker in (milestone.get("blockers", []) or [])
+        ],
+        "pr_summary": (engineering_data or {}).get("pr_summary", {}),
         "debug_iterations": (engineering_data or {}).get("debug_iterations", []),
         "runtime_metrics": (supervision or {}).get("metrics", {}),
         "supervision": supervision or {},

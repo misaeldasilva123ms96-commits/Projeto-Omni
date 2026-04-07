@@ -24,7 +24,7 @@ function buildTreeNode({
   };
 }
 
-function buildExecutionTree({ steps = [], planHierarchy = null, branchPlan = null }) {
+function buildExecutionTree({ steps = [], planHierarchy = null, branchPlan = null, milestonePlan = null }) {
   const rootGoalId = planHierarchy?.root_goal_id || 'goal:root';
   const nodes = [];
   const rootNode = buildTreeNode({
@@ -53,6 +53,7 @@ function buildExecutionTree({ steps = [], planHierarchy = null, branchPlan = nul
   }
 
   const branchNodes = new Map();
+  const milestoneNodes = new Map();
   if (branchPlan && Array.isArray(branchPlan.branches)) {
     for (const branch of branchPlan.branches) {
       const node = buildTreeNode({
@@ -68,9 +69,27 @@ function buildExecutionTree({ steps = [], planHierarchy = null, branchPlan = nul
     }
   }
 
+  if (milestonePlan && Array.isArray(milestonePlan.milestone_tree?.milestones)) {
+    for (const milestone of milestonePlan.milestone_tree.milestones) {
+      const node = buildTreeNode({
+        nodeId: `tree:${milestone.milestone_id}`,
+        parentId: 'tree:root',
+        ownerAgent: 'task_planner',
+        goalId: milestone.goal_id || null,
+        label: milestone.title || milestone.milestone_id,
+        nodeType: 'milestone',
+      });
+      nodes.push(node);
+      rootNode.children.push(node.node_id);
+      milestoneNodes.set(milestone.milestone_id, node.node_id);
+    }
+  }
+
   for (const step of steps) {
     const parentId = step.branch_id
       ? branchNodes.get(step.branch_id) || 'tree:root'
+      : step.milestone_id
+        ? milestoneNodes.get(step.milestone_id) || 'tree:root'
       : step.goal_id
         ? goalNodes.get(step.goal_id) || 'tree:root'
         : 'tree:root';

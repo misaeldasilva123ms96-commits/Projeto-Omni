@@ -47,6 +47,8 @@ class TaskService:
             "branch_state": checkpoint.get("branch_state"),
             "execution_tree": checkpoint.get("execution_tree"),
             "repository_analysis": checkpoint.get("repository_analysis"),
+            "repo_impact_analysis": (checkpoint.get("engineering_data") or {}).get("repo_impact_analysis", {}),
+            "milestone_state": (checkpoint.get("engineering_data") or {}).get("milestone_state", {}),
         }
 
     def inspect_learning_memory(self) -> dict[str, Any]:
@@ -118,6 +120,40 @@ class TaskService:
         return {
             "run_id": run_id,
             "repository_analysis": checkpoint.get("repository_analysis"),
+            "repo_impact_analysis": (checkpoint.get("engineering_data") or {}).get("repo_impact_analysis", {}),
+        }
+
+    def inspect_milestones(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        engineering_data = checkpoint.get("engineering_data") or {}
+        return {
+            "run_id": run_id,
+            "milestone_plan": engineering_data.get("milestone_plan", {}),
+            "milestone_state": engineering_data.get("milestone_state", {}),
+        }
+
+    def inspect_patch_sets(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "patch_sets": (checkpoint.get("engineering_data") or {}).get("patch_sets", []),
+        }
+
+    def inspect_verification(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        engineering_data = checkpoint.get("engineering_data") or {}
+        return {
+            "run_id": run_id,
+            "verification_plan": engineering_data.get("verification_plan", {}),
+            "verification_selection": engineering_data.get("verification_selection", {}),
+            "verification_summary": engineering_data.get("verification_summary", {}),
+        }
+
+    def inspect_pr_summary(self, *, run_id: str) -> dict[str, Any]:
+        checkpoint = self.orchestrator.checkpoint_store.load(run_id)
+        return {
+            "run_id": run_id,
+            "pr_summary": (checkpoint.get("engineering_data") or {}).get("pr_summary", {}),
         }
 
     def inspect_patch_history(self, *, run_id: str) -> dict[str, Any]:

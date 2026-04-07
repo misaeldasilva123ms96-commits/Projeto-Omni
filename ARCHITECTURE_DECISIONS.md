@@ -349,3 +349,38 @@
 - Alternatives: treat workspace handling as transient implementation detail; defer workspace modeling entirely.
 - Decision: add explicit workspace creation, snapshot, rollback, and inspection surfaces.
 - Consequences: engineering runs become easier to resume, inspect, and supervise.
+
+## ADR-046: Large Engineering Requests Must Decompose Into Milestones
+
+- Context: Phase 9 autonomous engineering worked for narrower tasks, but larger work needs more structure than a flat debug plan.
+- Alternatives: keep a single engineering loop; build a second orchestration hierarchy.
+- Decision: add milestone and epic planning on top of the existing hierarchical planner and execution tree.
+- Consequences: large tasks gain resumable progress structure without adding a new brain.
+
+## ADR-047: Repo-Wide Reasoning Must Influence Verification As Well As Planning
+
+- Context: broader repository changes require more than file listing and debugging.
+- Alternatives: use repository analysis only for planning; defer impact analysis until a future phase.
+- Decision: add repo impact analysis and feed it into test selection, verification planning, and PR-style summaries.
+- Consequences: planning and verification become more grounded for larger engineering tasks.
+
+## ADR-048: Multi-File Patch Coordination Uses Patch Sets, Not Freeform Mutation
+
+- Context: larger changes need grouped mutation and rollback.
+- Alternatives: issue independent file writes; broaden raw shell mutation.
+- Decision: introduce auditable patch-set objects with grouped apply and rollback behavior.
+- Consequences: multi-file mutation becomes safer and easier to supervise.
+
+## ADR-049: Verification Must Be A First-Class Engineering Artifact
+
+- Context: simple test reruns are not enough for large-task engineering.
+- Alternatives: keep verification implicit in the debug loop; defer broader verification until later.
+- Decision: add an explicit verification planner and verification runner output that persists into runtime intelligence.
+- Consequences: merge readiness can now be reasoned about from actual runtime data.
+
+## ADR-050: PR-Style Outputs Must Be Derived From Executed Work
+
+- Context: operator-ready large-task workflows need reviewer-oriented summaries.
+- Alternatives: generate speculative PR text from the prompt alone; defer reviewer output entirely.
+- Decision: build PR-style summaries only from executed engineering state, verification results, and patch-set artifacts.
+- Consequences: reviewer-facing output stays grounded and auditable.

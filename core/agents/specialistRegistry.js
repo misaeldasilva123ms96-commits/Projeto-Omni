@@ -90,6 +90,24 @@ const SPECIALIST_AGENTS = [
     failurePolicy: 'warn-only',
   },
   {
+    id: 'dependency_impact_specialist',
+    role: 'dependency-impact',
+    source: 'project',
+    description: 'Maps cross-module impact, hotspots, and likely affected files for large engineering tasks.',
+    allowedTools: [],
+    capabilities: ['impact-analysis', 'module-scoping', 'repo-wide-reasoning'],
+    failurePolicy: 'warn-only',
+  },
+  {
+    id: 'test_selection_specialist',
+    role: 'verification-planner',
+    source: 'project',
+    description: 'Selects targeted verification scope, broader regression steps, and verification order.',
+    allowedTools: [],
+    capabilities: ['test-selection', 'verification-planning', 'regression-scoping'],
+    failurePolicy: 'warn-only',
+  },
+  {
     id: 'provider_router',
     role: 'platform',
     source: 'openclaude-main.zip',
@@ -125,6 +143,8 @@ function resolveSpecialistsForIntent(intent) {
       return ['master_orchestrator', 'task_planner', 'researcher_agent', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
     case 'execution':
       return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'coder_agent', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'rust_executor'];
+    case 'engineering':
+      return ['master_orchestrator', 'task_planner', 'memory_manager', 'researcher_agent', 'coder_agent', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'dependency_impact_specialist', 'test_selection_specialist', 'reviewer_agent', 'synthesizer_agent', 'rust_executor'];
     case 'planning':
       return ['master_orchestrator', 'task_planner', 'evaluator_agent', 'critic_agent', 'simulator_agent', 'reviewer_agent', 'synthesizer_agent', 'provider_router'];
     default:

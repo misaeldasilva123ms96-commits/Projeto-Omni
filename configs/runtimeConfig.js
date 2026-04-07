@@ -23,6 +23,7 @@ function loadRuntimeConfig() {
     supervisionMaxBranches: intEnv('OMINI_SUPERVISION_MAX_BRANCHES', 2),
     simulationEnabled: String(process.env.OMINI_ENABLE_SIMULATION || 'true').trim().toLowerCase() !== 'false',
     maxEngineeringIterations: intEnv('OMINI_MAX_ENGINEERING_ITERATIONS', 3),
+    maxMilestones: intEnv('OMINI_MAX_MILESTONES', 6),
   };
 }
 

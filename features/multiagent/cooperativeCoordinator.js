@@ -77,6 +77,36 @@ function buildCooperativePlan({ message = '', plannerResult, delegation, strateg
     }));
   }
 
+  if (delegates.includes('dependency_impact_specialist')) {
+    contributions.push(buildContribution({
+      specialistId: 'dependency_impact_specialist',
+      role: 'impact-analyst',
+      sharedGoalId,
+      summary: 'Mapear impacto entre modulos, arquivos afetados e hotspots de integracao.',
+      dependsOn: ['task_planner', 'researcher_agent'].filter(id => contributions.some(item => item.specialist_id === id)),
+      confidence: 0.77,
+      metadata: {
+        candidate_count: Array.isArray(plannerResult?.repo_impact_analysis?.module_change_candidates)
+          ? plannerResult.repo_impact_analysis.module_change_candidates.length
+          : 0,
+      },
+    }));
+  }
+
+  if (delegates.includes('test_selection_specialist')) {
+    contributions.push(buildContribution({
+      specialistId: 'test_selection_specialist',
+      role: 'verification-planner',
+      sharedGoalId,
+      summary: 'Selecionar verificacoes direcionadas e regressao minima antes do merge readiness.',
+      dependsOn: ['dependency_impact_specialist', 'researcher_agent'].filter(id => contributions.some(item => item.specialist_id === id)),
+      confidence: 0.76,
+      metadata: {
+        verification_modes: plannerResult?.verification_plan?.verification_modes || [],
+      },
+    }));
+  }
+
   if (delegates.includes('synthesizer_agent')) {
     contributions.push(buildContribution({
       specialistId: 'synthesizer_agent',
