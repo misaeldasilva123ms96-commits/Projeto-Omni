@@ -229,6 +229,26 @@ async function main() {
   assert.ok(engineering.execution_request.actions.some(action => action.selected_tool === 'autonomous_debug_loop'));
   assert.ok(engineering.execution_request.execution_tree.nodes.some(node => node.owner_agent === 'coder_agent'));
 
+  const largeProject = await runQueryEngine({
+    message: 'migre o repositÃ³rio com refatoracao multi-modulo, milestones e verificacao de integracao',
+    memoryContext: { user: {} },
+    history: [],
+    summary: '',
+    capabilities: [],
+    session: { session_id: 'phase10-large-project', runtime_mode: EXECUTION_MODES.PYTHON_RUST_CARGO },
+    cwd: process.cwd(),
+  });
+  assert.equal(largeProject.execution_request.engineering_workflow.mode, 'large-project-engineering');
+  assert.equal(typeof largeProject.execution_request.milestone_plan, 'object');
+  assert.equal(Array.isArray(largeProject.execution_request.milestone_plan.milestone_tree.milestones), true);
+  assert.ok(largeProject.execution_request.milestone_plan.milestone_tree.milestones.length >= 3);
+  assert.equal(typeof largeProject.execution_request.repo_impact_analysis, 'object');
+  assert.equal(typeof largeProject.execution_request.verification_plan, 'object');
+  assert.ok(largeProject.execution_request.actions.some(action => action.selected_tool === 'verification_runner'));
+  assert.ok(largeProject.execution_request.execution_tree.nodes.some(node => node.node_type === 'milestone'));
+  assert.ok(largeProject.execution_request.cooperative_plan.contributions.some(item => item.specialist_id === 'dependency_impact_specialist'));
+  assert.ok(largeProject.execution_request.cooperative_plan.contributions.some(item => item.specialist_id === 'test_selection_specialist'));
+
   const runtimeMode = resolveExecutionMode({
     cwd: process.cwd(),
     requestedMode: EXECUTION_MODES.PYTHON_RUST_CARGO,

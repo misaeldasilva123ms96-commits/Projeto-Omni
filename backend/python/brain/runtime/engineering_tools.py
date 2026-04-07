@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk
+from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, review_patch_set
 from brain.runtime.workspace_manager import WorkspaceManager
 
 
@@ -22,6 +23,8 @@ ENGINEERING_TOOLS = {
     "dependency_inspection",
     "code_search",
     "autonomous_debug_loop",
+    "verification_runner",
+    "filesystem_patch_set",
 }
 
 
@@ -59,6 +62,21 @@ def execute_engineering_action(
         if not applied.get("ok"):
             return _error(tool, "patch_apply_failed", "Unable to apply patch safely.", patch=patch, apply_result=applied)
         return _ok(tool, {"patch": patch, "review": review, "workspace_root": str(workspace_root)})
+
+    if tool == "filesystem_patch_set":
+        patch_set = build_patch_set(
+            workspace_root=workspace_root,
+            file_updates=list(arguments.get("file_updates", []) or []),
+            dependency_notes=list(arguments.get("dependency_notes", []) or []),
+            verification_plan=dict(arguments.get("verification_plan", {}) or {}),
+        )
+        review = review_patch_set(patch_set=patch_set)
+        if not review["accepted"]:
+            return _error(tool, "patch_set_review_blocked", f"Patch set review blocked write: {', '.join(review['warnings'])}", review=review, patch_set=patch_set)
+        applied = apply_patch_set(workspace_root=workspace_root, patch_set=patch_set)
+        if not applied.get("ok"):
+            return _error(tool, "patch_set_apply_failed", "Unable to apply patch set safely.", patch_set=patch_set, apply_result=applied)
+        return _ok(tool, {"patch_set": patch_set, "review": review, "workspace_root": str(workspace_root)})
 
     if tool == "directory_tree":
         max_depth = int(arguments.get("max_depth", 2) or 2)
@@ -144,6 +162,23 @@ def execute_engineering_action(
         )
         return _ok(tool, result)
 
+    if tool == "verification_runner":
+        plan = dict(arguments.get("plan", {}) or {})
+        summary = _run_verification_plan(
+            workspace_root=workspace_root,
+            plan=plan,
+            timeout_seconds=timeout_seconds,
+        )
+        return _ok(tool, summary) if summary.get("ok") else {
+            "ok": False,
+            "selected_tool": tool,
+            "result_payload": summary,
+            "error_payload": {
+                "kind": "verification_failed",
+                "message": "Verification plan reported failures.",
+            },
+        }
+
     return _error(tool, "unsupported_engineering_tool", f"Unsupported engineering tool: {tool}")
 
 
@@ -175,6 +210,46 @@ def _default_test_command(workspace_root: Path) -> list[str]:
     if (workspace_root / "package.json").exists():
         return ["cmd", "/c", "npm", "test"] if os.name == "nt" else ["npm", "test"]
     return ["python", "-m", "pytest", "-q"]
+
+
+def _run_verification_plan(*, workspace_root: Path, plan: dict[str, Any], timeout_seconds: int) -> dict[str, Any]:
+    modes = list(plan.get("verification_modes", []) or [])
+    runs: list[dict[str, Any]] = []
+    if "targeted-tests" in modes:
+        targeted_tests = list(plan.get("targeted_tests", []) or [])
+        if targeted_tests:
+            runs.append({
+                "mode": "targeted-tests",
+                "targeted_tests": targeted_tests,
+                "status": "planned",
+            })
+        else:
+            runs.append({
+                "mode": "targeted-tests",
+                "targeted_tests": [],
+                "status": "skipped",
+            })
+    if "full-tests" in modes:
+        result = _run_command("verification_runner", _default_test_command(workspace_root), cwd=workspace_root, timeout_seconds=timeout_seconds, env=_build_test_env(workspace_root))
+        runs.append({
+            "mode": "full-tests",
+            "result": result.get("result_payload", {}),
+            "status": "passed" if result.get("ok") else "failed",
+        })
+    if "dependency-health" in modes:
+        inspection = _dependency_inspection(workspace_root)
+        runs.append({
+            "mode": "dependency-health",
+            "result": inspection,
+            "status": "passed",
+        })
+    overall_ok = all(item.get("status") in {"passed", "planned", "skipped"} for item in runs)
+    return {
+        "ok": overall_ok,
+        "verification_modes": modes,
+        "runs": runs,
+        "merge_readiness": "ready" if overall_ok else "needs-review",
+    }
 
 
 def _run_command(tool: str, command: list[str], *, cwd: Path, timeout_seconds: int, env: dict[str, str] | None = None) -> dict[str, Any]:

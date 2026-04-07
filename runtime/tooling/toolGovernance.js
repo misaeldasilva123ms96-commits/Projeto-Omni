@@ -15,6 +15,8 @@ const TOOL_TAXONOMY = {
   dependency_inspection: { category: 'information_gathering', policy_level: 'low', mutating: false, privileged: false },
   code_search: { category: 'information_gathering', policy_level: 'low', mutating: false, privileged: false },
   autonomous_debug_loop: { category: 'execution_shell', policy_level: 'high', mutating: true, privileged: true },
+  verification_runner: { category: 'execution_shell', policy_level: 'medium', mutating: false, privileged: true },
+  filesystem_patch_set: { category: 'file_mutation', policy_level: 'high', mutating: true, privileged: true },
   shell_command: { category: 'execution_shell', policy_level: 'high', mutating: true, privileged: true },
   web_request: { category: 'external_network', policy_level: 'high', mutating: false, privileged: true },
   human_approval: { category: 'human_approval', policy_level: 'high', mutating: false, privileged: true },
@@ -38,6 +40,8 @@ function specialistAllowsTool(specialist, toolName) {
     reviewer_agent: ['information_gathering', 'code_file_read', 'direct_response'],
     memory_agent: ['information_gathering', 'code_file_read', 'direct_response'],
     critic_agent: ['direct_response', 'information_gathering', 'code_file_read'],
+    dependency_impact_specialist: ['information_gathering', 'code_file_read'],
+    test_selection_specialist: ['information_gathering', 'execution_shell', 'code_file_read'],
   };
   return (specialistScopes[String(specialist || 'master_orchestrator')] || ['direct_response']).includes(category);
 }

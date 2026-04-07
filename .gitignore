@@ -28,8 +28,11 @@ target/
 .phase9-temp/
 backend/python/transcripts/
 backend/python/brain/runtime/sessions/
-backend/python/brain/evolution/
+backend/python/brain/evolution/*.json
+backend/python/brain/evolution/snapshots/
+backend/python/brain/evolution/__pycache__/
 backend/python/memory/learning.json
+backend/python/memory.json
 memory.json
 sessions/
 *.session.json
@@ -42,8 +45,13 @@ Thumbs.db
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/extensions.json
-!frontend/src/env.d.ts
-!frontend/src/vite-env.d.ts
+!.frontend/src/env.d.ts
+!.frontend/src/vite-env.d.ts
+
+# Build and IDE artifacts
+*.tsbuildinfo
+frontend/dist/
+frontend/node_modules/
 
 # Local tooling caches
 vendor/openclaude-upstream/

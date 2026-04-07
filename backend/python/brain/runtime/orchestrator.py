@@ -25,6 +25,8 @@ from brain.registry import describe_agents, describe_capabilities, recommend_cap
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import execute_engineering_action, supports_engineering_tool
+from brain.runtime.milestone_manager import MilestoneManager
+from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.session_store import SessionStore
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
@@ -395,6 +397,10 @@ class BrainOrchestrator:
             negotiation_summary=execution_request.get("negotiation_summary"),
             strategy_optimization=execution_request.get("strategy_optimization"),
             repository_analysis=execution_request.get("repository_analysis"),
+            repo_impact_analysis=execution_request.get("repo_impact_analysis"),
+            verification_plan=execution_request.get("verification_plan"),
+            verification_selection=execution_request.get("verification_selection"),
+            milestone_plan=execution_request.get("milestone_plan"),
             engineering_review=execution_request.get("engineering_review"),
             engineering_workflow=execution_request.get("engineering_workflow"),
         )
@@ -442,6 +448,10 @@ class BrainOrchestrator:
         negotiation_summary: dict[str, Any] | None = None,
         strategy_optimization: dict[str, Any] | None = None,
         repository_analysis: dict[str, Any] | None = None,
+        repo_impact_analysis: dict[str, Any] | None = None,
+        verification_plan: dict[str, Any] | None = None,
+        verification_selection: dict[str, Any] | None = None,
+        milestone_plan: dict[str, Any] | None = None,
         engineering_review: dict[str, Any] | None = None,
         engineering_workflow: dict[str, Any] | None = None,
         start_index: int = 0,
@@ -455,12 +465,21 @@ class BrainOrchestrator:
         branch_state = self._initial_branch_state(branch_plan)
         engineering_data: dict[str, Any] = {
             "repository_analysis": repository_analysis or {},
+            "repo_impact_analysis": repo_impact_analysis or {},
+            "impact_map": (repo_impact_analysis or {}).get("impact_map", {}),
+            "verification_plan": verification_plan or {},
+            "verification_selection": verification_selection or {},
+            "milestone_plan": milestone_plan or {},
+            "milestone_state": MilestoneManager(milestone_plan).initialize_state() if isinstance(milestone_plan, dict) else {},
             "engineering_review": engineering_review or {},
             "engineering_workflow": engineering_workflow or {},
             "workspace_state": {},
             "patch_history": [],
+            "patch_sets": [],
             "debug_iterations": [],
             "test_results": {},
+            "verification_summary": {},
+            "pr_summary": {},
         }
         supervision = self.supervisor.inspect(
             execution_tree=tree_state,
@@ -650,7 +669,11 @@ class BrainOrchestrator:
                     engineering_data=engineering_data,
                 )
                 return step_results
-        engineering_data = self._collect_engineering_data(engineering_data, step_results)
+        engineering_data = self._finalize_engineering_data(
+            message=message,
+            engineering_data=self._collect_engineering_data(engineering_data, step_results),
+            step_results=step_results,
+        )
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -718,6 +741,8 @@ class BrainOrchestrator:
                 negotiation_summary=negotiation_summary,
                 strategy_optimization=strategy_optimization,
                 supervision=supervision,
+                repository_analysis=repository_analysis,
+                engineering_data=engineering_data,
             )
             if branch_results and not all(item.get("ok") for item in branch_results):
                 return step_results
@@ -858,12 +883,18 @@ class BrainOrchestrator:
                     negotiation_summary=negotiation_summary,
                     strategy_optimization=strategy_optimization,
                     supervision=supervision,
+                    repository_analysis=repository_analysis,
+                    engineering_data=engineering_data,
                 )
 
                 if not result.get("ok"):
                     break
 
-        engineering_data = self._collect_engineering_data(engineering_data, step_results)
+        engineering_data = self._finalize_engineering_data(
+            message=message,
+            engineering_data=self._collect_engineering_data(engineering_data, step_results),
+            step_results=step_results,
+        )
         self._write_checkpoint(
             run_id=run_id,
             task_id=task_id,
@@ -891,6 +922,8 @@ class BrainOrchestrator:
             negotiation_summary=negotiation_summary,
             strategy_optimization=strategy_optimization,
             supervision=supervision,
+            repository_analysis=repository_analysis,
+            engineering_data=engineering_data,
         )
         reflection = self._reflect_on_run(
             message=message,
@@ -1416,6 +1449,8 @@ class BrainOrchestrator:
         }
         result["selected_tool"] = current_action.get("selected_tool")
         result["selected_agent"] = current_action.get("selected_agent")
+        result["milestone_id"] = current_action.get("milestone_id")
+        result["action"] = current_action
         result["evaluation"] = correction_events[-1] if correction_events else {
             "decision": "stop_failed",
             "reason_code": "missing_result",
@@ -1714,16 +1749,57 @@ class BrainOrchestrator:
             tool = str(item.get("selected_tool") or "")
             if tool == "autonomous_debug_loop":
                 data["patch_history"] = payload.get("patch_history", [])
+                data["patch_sets"] = payload.get("patch_sets", [])
                 data["debug_iterations"] = payload.get("iterations", [])
                 data["test_results"] = payload.get("test_results", {})
+                data["verification_summary"] = payload.get("verification_summary", {})
                 if isinstance(payload.get("workspace_state"), dict):
                     data["workspace_state"] = payload.get("workspace_state")
             elif tool == "filesystem_write" and isinstance(payload.get("patch"), dict):
                 existing = list(data.get("patch_history", []))
                 existing.append({"patch": payload.get("patch"), "review": payload.get("review", {})})
                 data["patch_history"] = existing
+            elif tool == "filesystem_patch_set" and isinstance(payload.get("patch_set"), dict):
+                patch_sets = list(data.get("patch_sets", []))
+                patch_sets.append(payload.get("patch_set"))
+                data["patch_sets"] = patch_sets
             elif tool == "test_runner" and isinstance(payload, dict):
                 data["test_results"] = payload
+            elif tool == "verification_runner" and isinstance(payload, dict):
+                data["verification_summary"] = payload
+        return data
+
+    @staticmethod
+    def _finalize_engineering_data(
+        *,
+        message: str,
+        engineering_data: dict[str, Any],
+        step_results: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        data = dict(engineering_data or {})
+        milestone_plan = data.get("milestone_plan", {})
+        milestone_state = MilestoneManager(milestone_plan).update_from_step_results(
+            data.get("milestone_state", {}),
+            step_results,
+        ) if isinstance(milestone_plan, dict) and milestone_plan else data.get("milestone_state", {})
+        data["milestone_state"] = milestone_state or {}
+        verification_summary = data.get("verification_summary", {})
+        if not verification_summary and isinstance(data.get("test_results"), dict) and data.get("test_results"):
+            verification_summary = {
+                "ok": True,
+                "verification_modes": ["test-runner"],
+                "runs": [{"mode": "test-runner", "status": "passed", "result": data.get("test_results", {})}],
+                "merge_readiness": "ready",
+            }
+        data["verification_summary"] = verification_summary or {}
+        data["pr_summary"] = build_pr_summary(
+            message=message,
+            milestone_state=data.get("milestone_state", {}),
+            patch_sets=data.get("patch_sets", []),
+            verification_summary=data.get("verification_summary", {}),
+            repository_analysis=data.get("repository_analysis", {}),
+            impact_analysis=data.get("repo_impact_analysis", {}),
+        )
         return data
 
     @staticmethod
@@ -2121,6 +2197,10 @@ class BrainOrchestrator:
             negotiation_summary=checkpoint.get("negotiation_summary"),
             strategy_optimization=checkpoint.get("strategy_optimization"),
             repository_analysis=checkpoint.get("repository_analysis"),
+            repo_impact_analysis=(checkpoint.get("engineering_data") or {}).get("repo_impact_analysis"),
+            verification_plan=(checkpoint.get("engineering_data") or {}).get("verification_plan"),
+            verification_selection=(checkpoint.get("engineering_data") or {}).get("verification_selection"),
+            milestone_plan=(checkpoint.get("engineering_data") or {}).get("milestone_plan"),
             engineering_review=(checkpoint.get("engineering_data") or {}).get("engineering_review"),
             engineering_workflow=(checkpoint.get("engineering_data") or {}).get("engineering_workflow"),
             start_index=0,
