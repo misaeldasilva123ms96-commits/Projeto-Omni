@@ -8,34 +8,38 @@
 .claude/settings.json
 .claude/*.private.json
 
-# Python
-__pycache__/
-*.py[cod]
-*.session.json
+# Build caches
+*.tsbuildinfo
+
+# Runtime logs
 *.log
-
-# Node
-node_modules/
-npm-debug.log*
-
-# Build outputs
-dist/
-build/
-target/
-
-# Runtime state
 .logs/
-.phase9-temp/
-backend/python/transcripts/
+swarm_log.json
+backend/python/brain/runtime/swarm_log.json
 backend/python/brain/runtime/sessions/
+backend/python/transcripts/
 backend/python/brain/evolution/*.json
 backend/python/brain/evolution/snapshots/
-backend/python/brain/evolution/__pycache__/
 backend/python/memory/learning.json
 backend/python/memory.json
 memory.json
 sessions/
 *.session.json
+
+# Node
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Build outputs
+dist/
+build/
+target/
+frontend/dist/
 
 # OS/editor noise
 .DS_Store
@@ -47,11 +51,6 @@ Thumbs.db
 !.vscode/extensions.json
 !.frontend/src/env.d.ts
 !.frontend/src/vite-env.d.ts
-
-# Build and IDE artifacts
-*.tsbuildinfo
-frontend/dist/
-frontend/node_modules/
 
 # Local tooling caches
 vendor/openclaude-upstream/
