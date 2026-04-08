@@ -10,6 +10,8 @@ class MilestoneManager:
     def initialize_state(self) -> dict[str, Any]:
         milestones = []
         for milestone in self.milestone_plan.get("milestone_tree", {}).get("milestones", []):
+            if not isinstance(milestone, dict):
+                continue
             milestones.append(
                 {
                     "milestone_id": milestone.get("milestone_id"),
@@ -30,7 +32,7 @@ class MilestoneManager:
     def update_from_step_results(self, state: dict[str, Any], step_results: list[dict[str, Any]]) -> dict[str, Any]:
         state = {
             **(state or {}),
-            "milestones": [dict(item) for item in (state or {}).get("milestones", [])],
+            "milestones": [dict(item) for item in (state or {}).get("milestones", []) if isinstance(item, dict)],
         }
         if not state["milestones"]:
             return state

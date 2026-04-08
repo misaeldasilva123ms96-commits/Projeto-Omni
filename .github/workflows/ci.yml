@@ -37,6 +37,11 @@ jobs:
         run: |
           cargo build --release
 
+      - name: Run Rust tests
+        working-directory: backend/rust
+        run: |
+          cargo test
+
       - name: Install root dependencies
         run: npm ci
 
@@ -44,5 +49,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run test suite
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: http://127.0.0.1:3001
+        run: npm run build
+
+      - name: Run expanded runtime test suite
         run: npm test

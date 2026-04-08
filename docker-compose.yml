@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   python-brain:
     build:
@@ -40,6 +38,23 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - omini_net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: ${FRONTEND_API_URL:-http://localhost:3001}
+    restart: always
+    ports:
+      - "4173:4173"
+    depends_on:
+      python-brain:
+        condition: service_healthy
+      node-runner:
+        condition: service_healthy
     networks:
       - omini_net
 

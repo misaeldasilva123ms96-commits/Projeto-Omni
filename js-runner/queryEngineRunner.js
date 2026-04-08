@@ -265,6 +265,21 @@ async function main() {
   process.stdout.write(response || '');
 }
 
-main().catch(() => {
-  process.stdout.write('');
-});
+module.exports = {
+  emptyPayload,
+  getBaseDir,
+  getQueryEngineCandidates,
+  getWorkspaceRoot,
+  loadAgentMemoryContext,
+  loadRunnerSchema,
+  main,
+  safeParsePayload,
+  tryRunExistingQueryEngine,
+  validatePayload,
+};
+
+if (require.main === module) {
+  main().catch(() => {
+    process.stdout.write('');
+  });
+}

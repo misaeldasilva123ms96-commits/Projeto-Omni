@@ -1,7 +1,7 @@
 const rawApiUrl = import.meta.env.VITE_API_URL?.trim()
 
 const isDev = import.meta.env.DEV
-const fallbackDevUrl = 'http://localhost:8000'
+const fallbackDevUrl = 'http://localhost:3001'
 
 function normalizeBaseUrl(url: string) {
   return url.replace(/\/+$/, '')
