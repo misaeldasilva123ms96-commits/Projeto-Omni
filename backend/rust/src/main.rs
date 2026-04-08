@@ -1,6 +1,14 @@
 mod error;
 
-use std::{env, net::SocketAddr, path::PathBuf, process::Stdio};
+use std::{
+    env,
+    fs,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     extract::State,
@@ -11,16 +19,23 @@ use axum::{
 use error::AppError;
 use runtime::Session;
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpListener, process::Command};
+use serde_json::{json, Value};
+use tokio::{net::TcpListener, process::Command, sync::RwLock, time::timeout};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Clone)]
 struct AppState {
+    project_root: PathBuf,
+    python_root: PathBuf,
     python_bin: String,
     python_entry: PathBuf,
+    python_timeout_ms: u64,
+    runtime_mode: String,
     runtime_session_version: u32,
     mock_mode: bool,
+    node_bin: String,
+    python_health: Arc<RwLock<DependencyStatus>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,9 +58,76 @@ struct ChatResponse {
     usage: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Default, Clone, Serialize)]
+struct DependencyStatus {
+    observable: bool,
+    last_status: String,
+    #[serde(default)]
+    last_error: Option<String>,
+    #[serde(default)]
+    last_checked_ms: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DependencyHealth {
+    configured_bin: String,
+    entry: String,
+    entry_exists: bool,
+    observable: bool,
+    last_status: String,
+    #[serde(default)]
+    last_error: Option<String>,
+    #[serde(default)]
+    last_checked_ms: Option<u64>,
+}
+
 #[derive(Debug, Serialize)]
 struct HealthResponse {
+    status: String,
+    rust_service: &'static str,
+    runtime_mode: String,
+    runtime_session_version: u32,
+    timestamp_ms: u64,
+    python: DependencyHealth,
+    node: DependencyHealth,
+}
+
+#[derive(Debug, Serialize)]
+struct RuntimeSignalsResponse {
     status: &'static str,
+    recent_signals: Vec<Value>,
+    recent_mode_transitions: Vec<Value>,
+    latest_run_summary: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct SwarmLogResponse {
+    status: &'static str,
+    events: Vec<Value>,
+    total_events: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct StrategyStateResponse {
+    status: &'static str,
+    strategy_state: Value,
+    recent_changes: Vec<Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct MilestonesResponse {
+    status: &'static str,
+    latest_run_id: Option<String>,
+    milestone_state: Value,
+    patch_sets: Vec<Value>,
+    checkpoint_status: Value,
+    execution_state: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct PrSummariesResponse {
+    status: &'static str,
+    summaries: Vec<Value>,
 }
 
 #[tokio::main]
@@ -58,18 +140,43 @@ async fn main() -> Result<(), AppError> {
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(3001);
 
+    let python_bin = env::var("PYTHON_BIN").unwrap_or_else(|_| "python".to_string());
+    let mock_mode = env::var("MOCK_CHAT")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
+        .unwrap_or(false);
+    let python_entry = resolve_python_entry();
+    let project_root = resolve_project_root(&python_entry);
+    let python_root = resolve_python_root(&project_root, &python_entry);
     let state = AppState {
-        python_bin: env::var("PYTHON_BIN").unwrap_or_else(|_| "python".to_string()),
-        python_entry: resolve_python_entry(),
+        project_root,
+        python_root,
+        python_bin: python_bin.clone(),
+        python_entry,
+        python_timeout_ms: env::var("PYTHON_TIMEOUT_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(60_000),
+        runtime_mode: resolve_runtime_mode(mock_mode),
         runtime_session_version: bootstrap_runtime_session().version,
-        mock_mode: env::var("MOCK_CHAT")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-            .unwrap_or(false),
+        mock_mode,
+        node_bin: env::var("NODE_BIN").unwrap_or_else(|_| "node".to_string()),
+        python_health: Arc::new(RwLock::new(DependencyStatus {
+            observable: binary_observable(&python_bin),
+            last_status: "not_checked".to_string(),
+            last_error: None,
+            last_checked_ms: None,
+        })),
     };
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/chat", post(chat))
+        .route("/internal/runtime-signals", get(runtime_signals))
+        .route("/internal/swarm-log", get(swarm_log))
+        .route("/internal/strategy-state", get(strategy_state))
+        .route("/internal/milestones", get(milestones))
+        .route("/internal/pr-summaries", get(pr_summaries))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -107,11 +214,305 @@ fn resolve_python_entry() -> PathBuf {
         return PathBuf::from(raw_path);
     }
 
-    PathBuf::from("../python/main.py")
+    let candidates = [
+        PathBuf::from("../python/main.py"),
+        PathBuf::from("backend/python/main.py"),
+    ];
+    for candidate in candidates {
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    PathBuf::from("backend/python/main.py")
 }
 
-async fn health() -> (StatusCode, Json<HealthResponse>) {
-    (StatusCode::OK, Json(HealthResponse { status: "ok" }))
+fn resolve_project_root(python_entry: &Path) -> PathBuf {
+    if let Ok(base_dir) = env::var("BASE_DIR") {
+        let candidate = PathBuf::from(base_dir);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    let current = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut candidates = vec![current];
+    if let Some(parent) = python_entry.parent() {
+        candidates.push(parent.to_path_buf());
+        candidates.extend(parent.ancestors().map(Path::to_path_buf));
+    }
+
+    for candidate in candidates {
+        if candidate.join("backend").join("python").exists()
+            && candidate.join("backend").join("rust").exists()
+        {
+            return candidate;
+        }
+    }
+
+    env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn resolve_python_root(project_root: &Path, python_entry: &Path) -> PathBuf {
+    if let Ok(base_dir) = env::var("PYTHON_BASE_DIR") {
+        let candidate = PathBuf::from(base_dir);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    if python_entry.parent().is_some_and(|parent| parent.ends_with("python")) {
+        return python_entry
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| project_root.join("backend").join("python"));
+    }
+
+    project_root.join("backend").join("python")
+}
+
+fn resolve_runtime_mode(mock_mode: bool) -> String {
+    if mock_mode {
+        return "mock".to_string();
+    }
+    match env::var("OMINI_RUNTIME_MODE")
+        .unwrap_or_else(|_| "live".to_string())
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "fallback" | "mock" => env::var("OMINI_RUNTIME_MODE")
+            .unwrap_or_else(|_| "live".to_string())
+            .trim()
+            .to_lowercase(),
+        _ => "live".to_string(),
+    }
+}
+
+fn binary_observable(bin: &str) -> bool {
+    let candidate = Path::new(bin);
+    if candidate.components().count() > 1 {
+        return candidate.exists();
+    }
+
+    env::var_os("PATH")
+        .map(|paths| {
+            env::split_paths(&paths).any(|dir| {
+                let direct = dir.join(bin);
+                if direct.exists() {
+                    return true;
+                }
+                if cfg!(windows) {
+                    ["exe", "cmd", "bat"]
+                        .iter()
+                        .any(|ext| dir.join(format!("{bin}.{ext}")).exists())
+                } else {
+                    false
+                }
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn unix_timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
+    let python_status = state.python_health.read().await.clone();
+    let node_observable = binary_observable(&state.node_bin);
+    let python_ready = matches!(
+        python_status.last_status.as_str(),
+        "not_checked" | "ready" | "mock"
+    );
+    let status = if state.python_entry.exists() && python_ready {
+        "ok"
+    } else {
+        "degraded"
+    };
+
+    (
+        StatusCode::OK,
+        Json(HealthResponse {
+            status: status.to_string(),
+            rust_service: "ok",
+            runtime_mode: state.runtime_mode.clone(),
+            runtime_session_version: state.runtime_session_version,
+            timestamp_ms: unix_timestamp_ms(),
+            python: DependencyHealth {
+                configured_bin: state.python_bin.clone(),
+                entry: state.python_entry.display().to_string(),
+                entry_exists: state.python_entry.exists(),
+                observable: python_status.observable,
+                last_status: python_status.last_status,
+                last_error: python_status.last_error,
+                last_checked_ms: python_status.last_checked_ms,
+            },
+            node: DependencyHealth {
+                configured_bin: state.node_bin.clone(),
+                entry: String::new(),
+                entry_exists: false,
+                observable: node_observable,
+                last_status: if node_observable {
+                    "observable".to_string()
+                } else {
+                    "unavailable".to_string()
+                },
+                last_error: None,
+                last_checked_ms: Some(unix_timestamp_ms()),
+            },
+        }),
+    )
+}
+
+async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<RuntimeSignalsResponse>) {
+    let audit_path = state.project_root.join(".logs").join("fusion-runtime").join("execution-audit.jsonl");
+    let run_summary_path = state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl");
+    let recent_signals = read_recent_jsonl(&audit_path, 20);
+    let recent_mode_transitions = recent_signals
+        .iter()
+        .filter(|item| item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let latest_run_summary = read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({}));
+
+    (
+        StatusCode::OK,
+        Json(RuntimeSignalsResponse {
+            status: "ok",
+            recent_signals,
+            recent_mode_transitions,
+            latest_run_summary,
+        }),
+    )
+}
+
+async fn swarm_log(State(state): State<AppState>) -> (StatusCode, Json<SwarmLogResponse>) {
+    let swarm_path = state.python_root.join("brain").join("runtime").join("swarm_log.json");
+    let payload = read_json_value(&swarm_path).unwrap_or_else(|| json!({ "events": [] }));
+    let events = payload
+        .get("events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total_events = events.len();
+    let events = events.into_iter().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect();
+
+    (
+        StatusCode::OK,
+        Json(SwarmLogResponse {
+            status: "ok",
+            events,
+            total_events,
+        }),
+    )
+}
+
+async fn strategy_state(State(state): State<AppState>) -> (StatusCode, Json<StrategyStateResponse>) {
+    let strategy_state_path = state.python_root.join("brain").join("evolution").join("strategy_state.json");
+    let strategy_log_path = state.python_root.join("brain").join("evolution").join("strategy_log.json");
+    let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
+    let recent_changes = read_json_value(&strategy_log_path)
+        .and_then(|value| value.get("changes").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(StrategyStateResponse {
+            status: "ok",
+            strategy_state,
+            recent_changes,
+        }),
+    )
+}
+
+async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<MilestonesResponse>) {
+    let latest_run_summary = read_latest_jsonl(
+        &state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl"),
+    );
+    let latest_run_id = latest_run_summary
+        .as_ref()
+        .and_then(|value| value.get("run_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let checkpoint = latest_run_id
+        .as_ref()
+        .and_then(|run_id| {
+            read_json_value(
+                &state
+                    .project_root
+                    .join(".logs")
+                    .join("fusion-runtime")
+                    .join("checkpoints")
+                    .join(format!("{run_id}.json")),
+            )
+        })
+        .unwrap_or_else(|| json!({}));
+    let engineering = checkpoint.get("engineering_data").cloned().unwrap_or_else(|| json!({}));
+
+    (
+        StatusCode::OK,
+        Json(MilestonesResponse {
+            status: "ok",
+            latest_run_id,
+            milestone_state: engineering.get("milestone_state").cloned().unwrap_or_else(|| json!({})),
+            patch_sets: engineering
+                .get("patch_sets")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            checkpoint_status: json!({
+                "status": checkpoint.get("status").cloned().unwrap_or_else(|| json!("unknown")),
+                "next_step_index": checkpoint.get("next_step_index").cloned().unwrap_or_else(|| json!(0)),
+                "total_actions": checkpoint.get("total_actions").cloned().unwrap_or_else(|| json!(0)),
+            }),
+            execution_state: checkpoint.get("execution_state").cloned().unwrap_or_else(|| json!({})),
+        }),
+    )
+}
+
+async fn pr_summaries(State(state): State<AppState>) -> (StatusCode, Json<PrSummariesResponse>) {
+    let summaries = read_recent_jsonl(
+        &state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl"),
+        6,
+    )
+    .into_iter()
+    .map(|entry| {
+        json!({
+            "run_id": entry.get("run_id").cloned().unwrap_or_else(|| json!("")),
+            "timestamp": entry.get("timestamp").cloned().unwrap_or_else(|| json!("")),
+            "message": entry.get("message").cloned().unwrap_or_else(|| json!("")),
+            "pr_summary": entry
+                .get("execution_state")
+                .and_then(|value| value.get("pr_summary"))
+                .cloned()
+                .or_else(|| entry.get("engineering_data").and_then(|value| value.get("pr_summary")).cloned())
+                .unwrap_or_else(|| json!({})),
+            "merge_readiness": entry
+                .get("execution_state")
+                .and_then(|value| value.get("merge_readiness"))
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        })
+    })
+    .collect();
+
+    (
+        StatusCode::OK,
+        Json(PrSummariesResponse {
+            status: "ok",
+            summaries,
+        }),
+    )
 }
 
 async fn chat(
@@ -126,9 +527,9 @@ async fn chat(
     }
 
     info!(
-        "processing /chat request with runtime session version {} and mock_mode={}",
+        "processing /chat request with runtime session version {} and runtime_mode={}",
         state.runtime_session_version,
-        state.mock_mode
+        state.runtime_mode
     );
     let response = call_python(&state, &message).await?;
     Ok((StatusCode::OK, Json(response)))
@@ -138,45 +539,95 @@ fn bootstrap_runtime_session() -> Session {
     Session::new()
 }
 
+async fn update_python_health(state: &AppState, status: &str, error_message: Option<String>) {
+    let mut guard = state.python_health.write().await;
+    guard.observable = binary_observable(&state.python_bin);
+    guard.last_status = status.to_string();
+    guard.last_error = error_message;
+    guard.last_checked_ms = Some(unix_timestamp_ms());
+}
+
 async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, AppError> {
     if state.mock_mode {
+        update_python_health(state, "mock", None).await;
         return Ok(build_mock_response(message, "mock-env"));
     }
 
-    let output = Command::new(&state.python_bin)
+    let mut command = Command::new(&state.python_bin);
+    command
         .arg(&state.python_entry)
         .arg(message)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .await;
+        .kill_on_drop(true);
 
-    let output = match output {
-        Ok(output) => output,
-        Err(err) => {
-            error!("python spawn failed, falling back to mock response: {err}");
-            return Ok(build_mock_response(message, "mock-spawn-fallback"));
+    let output = match timeout(Duration::from_millis(state.python_timeout_ms), command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(err)) => {
+            let message = format!("failed to spawn or await python subprocess: {err}");
+            error!("{message}");
+            update_python_health(state, "failed", Some(message.clone())).await;
+            return Err(AppError::python_process(
+                "python_subprocess_failed",
+                message,
+                None,
+            ));
+        }
+        Err(_) => {
+            let message = format!(
+                "python subprocess timed out after {} ms",
+                state.python_timeout_ms
+            );
+            error!("{message}");
+            update_python_health(state, "timeout", Some(message.clone())).await;
+            return Err(AppError::python_process("python_timeout", message, None));
         }
     };
 
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        error!(
-            "python adapter failed, falling back to mock response: status={:?} stderr={stderr}",
+        let message = format!(
+            "python adapter exited with status {:?}",
             output.status.code()
         );
-        if !stderr.is_empty() || !stdout.is_empty() {
-            return Ok(build_mock_response(message, "mock-python-fallback"));
-        }
-        return Err(AppError::PythonProcess("python adapter failed".to_string()));
+        error!("{message}; stderr={stderr}");
+        update_python_health(
+            state,
+            "failed",
+            Some(if stderr.is_empty() { message.clone() } else { stderr.clone() }),
+        )
+        .await;
+        return Err(AppError::python_process(
+            "python_exit_failure",
+            message,
+            Some(stderr),
+        ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        error!("python adapter returned empty stdout, falling back to mock response");
-        return Ok(build_mock_response(message, "mock-empty-fallback"));
+    if !stderr.is_empty() {
+        warn!("python adapter produced stderr on successful exit: {stderr}");
+        update_python_health(state, "stderr_failure", Some(stderr.clone())).await;
+        return Err(AppError::python_process(
+            "python_stderr_failure",
+            "python adapter returned stderr output".to_string(),
+            Some(stderr),
+        ));
     }
+
+    if stdout.is_empty() {
+        let message = "python adapter returned empty stdout".to_string();
+        error!("{message}");
+        update_python_health(state, "empty_stdout", Some(message.clone())).await;
+        return Err(AppError::python_process(
+            "python_empty_stdout",
+            message,
+            None,
+        ));
+    }
+
+    update_python_health(state, "ready", None).await;
 
     Ok(ChatResponse {
         response: stdout,
@@ -201,5 +652,94 @@ fn build_mock_response(message: &str, source: &str) -> ChatResponse {
             "input_tokens": 0,
             "output_tokens": 0
         })),
+    }
+}
+
+fn read_json_value(path: &Path) -> Option<Value> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+}
+
+fn read_recent_jsonl(path: &Path, limit: usize) -> Vec<Value> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|raw| {
+            raw.lines()
+                .filter_map(|line| {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str::<Value>(trimmed).ok()
+                    }
+                })
+                .rev()
+                .take(limit)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn read_latest_jsonl(path: &Path) -> Option<Value> {
+    read_recent_jsonl(path, 1).into_iter().next()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+    use std::fs;
+
+    fn temp_script(content: &str, name: &str) -> PathBuf {
+        let root = env::temp_dir().join(format!("omini-rust-tests-{name}"));
+        let _ = fs::create_dir_all(&root);
+        let path = root.join("script.py");
+        fs::write(&path, content).expect("write temp python script");
+        path
+    }
+
+    fn build_test_state(script_path: PathBuf, python_timeout_ms: u64) -> AppState {
+        let project_root = resolve_project_root(&script_path);
+        let python_root = resolve_python_root(&project_root, &script_path);
+        AppState {
+            project_root,
+            python_root,
+            python_bin: env::var("PYTHON_BIN").unwrap_or_else(|_| "python".to_string()),
+            python_entry: script_path,
+            python_timeout_ms,
+            runtime_mode: "live".to_string(),
+            runtime_session_version: 1,
+            mock_mode: false,
+            node_bin: "node".to_string(),
+            python_health: Arc::new(RwLock::new(DependencyStatus::default())),
+        }
+    }
+
+    #[tokio::test]
+    async fn call_python_returns_successful_response() {
+        let state = build_test_state(temp_script("print('ok from python')\n", "success"), 15_000);
+        let response = call_python(&state, "hello").await.expect("python success");
+        assert_eq!(response.response, "ok from python");
+        assert_eq!(response.source, "python-subprocess");
+    }
+
+    #[tokio::test]
+    async fn call_python_returns_timeout_error() {
+        let state = build_test_state(temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"), 200);
+        let error = call_python(&state, "hello").await.expect_err("timeout expected");
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn call_python_returns_stderr_failure() {
+        let state = build_test_state(temp_script("import sys\nsys.stderr.write('boom')\nprint('ignored')\n", "stderr"), 2_000);
+        let error = call_python(&state, "hello").await.expect_err("stderr failure expected");
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

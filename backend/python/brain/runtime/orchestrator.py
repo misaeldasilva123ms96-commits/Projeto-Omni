@@ -35,6 +35,13 @@ from brain.swarm.swarm_orchestrator import SwarmOrchestrator
 
 
 SAFE_FALLBACK_RESPONSE = "Nao consegui processar isso ainda, mas estou aprendendo."
+NODE_FALLBACK_RESPONSE = (
+    "Modo fallback ativo: o motor Node nao respondeu de forma utilizavel, "
+    "entao mantive uma resposta degradada e segura."
+)
+MOCK_RUNTIME_RESPONSE = (
+    "Modo mock ativo: esta resposta foi gerada sem acionar o caminho completo do runtime."
+)
 SUBPROCESS_TIMEOUT_SECONDS = 60
 DEFAULT_SESSION_ID = "python-session"
 
@@ -125,8 +132,12 @@ class BrainOrchestrator:
         self.evaluator = Evaluator()
         self.strategy_updater = StrategyUpdater(paths.evolution_dir)
         self.supervisor = CognitiveSupervisor()
+        self.last_runtime_mode = "live"
+        self.last_runtime_reason = "startup"
 
     def run(self, message: str) -> str:
+        self.last_runtime_mode = self._selected_runtime_mode()
+        self.last_runtime_reason = "configured_mode"
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
         session_id = self._session_id()
@@ -148,7 +159,18 @@ class BrainOrchestrator:
         )
 
         if not message.strip():
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "empty_message"
             return SAFE_FALLBACK_RESPONSE
+
+        if self.last_runtime_mode == "mock":
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="mock",
+                reason_code="mock_mode_configured",
+                details={"message_preview": message[:120]},
+            )
+            return MOCK_RUNTIME_RESPONSE
 
         self._extract_user_learning(memory_store, message)
         append_history(
@@ -198,6 +220,15 @@ class BrainOrchestrator:
             )
 
         response = str(swarm_result.get("response", "")).strip() or SAFE_FALLBACK_RESPONSE
+        if response == SAFE_FALLBACK_RESPONSE and self.last_runtime_mode == "live":
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "empty_swarm_response"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="empty_swarm_response",
+                details={"message_preview": message[:120]},
+            )
 
         evaluation = self.evaluator.evaluate(
             session_id=session_id,
@@ -270,6 +301,13 @@ class BrainOrchestrator:
         configured = os.getenv("AI_SESSION_ID", "").strip()
         return configured or DEFAULT_SESSION_ID
 
+    @staticmethod
+    def _selected_runtime_mode() -> str:
+        configured = str(os.getenv("OMINI_RUNTIME_MODE", "live") or "live").strip().lower()
+        if configured in {"fallback", "mock"}:
+            return configured
+        return "live"
+
     def _resolve_node_bin(self) -> str | None:
         configured = os.getenv("NODE_BIN", "").strip()
         if configured:
@@ -313,13 +351,36 @@ class BrainOrchestrator:
         session_id: str,
         extra_session: dict[str, Any] | None = None,
     ) -> str:
+        if self._selected_runtime_mode() == "fallback":
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "configured_fallback_mode"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="configured_fallback_mode",
+                details={"message_preview": message[:120]},
+            )
+            return NODE_FALLBACK_RESPONSE
+
         node_bin = self._resolve_node_bin()
         if not node_bin or not self.paths.js_runner.exists():
-            return ""
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "node_runner_unavailable"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="node_runner_unavailable",
+                details={
+                    "node_bin_present": bool(node_bin),
+                    "js_runner_exists": self.paths.js_runner.exists(),
+                },
+            )
+            return NODE_FALLBACK_RESPONSE
 
         session_payload = self.session_store.load(session_id)
         session_payload["executor_bridge"] = "python-rust"
-        session_payload["runtime_mode"] = os.getenv("OMINI_EXECUTION_MODE", "auto")
+        session_payload["runtime_mode"] = self.last_runtime_mode
+        session_payload["runtime_reason"] = self.last_runtime_reason
         if extra_session:
             session_payload.update(extra_session)
 
@@ -346,14 +407,41 @@ class BrainOrchestrator:
                 check=False,
                 cwd=str(self.paths.root),
             )
-        except Exception:
-            return ""
+        except Exception as error:
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "node_subprocess_error"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="node_subprocess_error",
+                details={"error": str(error)},
+            )
+            return NODE_FALLBACK_RESPONSE
 
         if completed.returncode != 0:
-            return ""
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "node_subprocess_failed"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="node_subprocess_failed",
+                details={
+                    "returncode": completed.returncode,
+                    "stderr": (completed.stderr or "").strip()[:500],
+                },
+            )
+            return NODE_FALLBACK_RESPONSE
         stdout = (completed.stdout or "").strip()
         if not stdout:
-            return ""
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "node_empty_stdout"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="node_empty_stdout",
+                details={},
+            )
+            return NODE_FALLBACK_RESPONSE
 
         try:
             parsed = json.loads(stdout)
@@ -363,12 +451,41 @@ class BrainOrchestrator:
         execution_request = parsed.get("execution_request")
         if not isinstance(execution_request, dict):
             response = parsed.get("response")
-            return str(response).strip() if isinstance(response, str) else stdout
+            normalized = str(response).strip() if isinstance(response, str) else stdout
+            if normalized:
+                self.last_runtime_mode = "live"
+                self.last_runtime_reason = "direct_node_response"
+                return normalized
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "invalid_node_payload"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="invalid_node_payload",
+                details={},
+            )
+            return NODE_FALLBACK_RESPONSE
 
         actions = execution_request.get("actions", [])
         if not isinstance(actions, list) or not actions:
             response = parsed.get("response", "")
-            return str(response).strip() if isinstance(response, str) else ""
+            normalized = str(response).strip() if isinstance(response, str) else ""
+            if normalized:
+                self.last_runtime_mode = "live"
+                self.last_runtime_reason = "node_response_without_actions"
+                return normalized
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "invalid_execution_request"
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code="invalid_execution_request",
+                details={},
+            )
+            return NODE_FALLBACK_RESPONSE
+
+        self.last_runtime_mode = "live"
+        self.last_runtime_reason = "node_execution_request"
 
         task_id = str(execution_request.get("task_id", f"task-{session_id}"))
         run_id = str(execution_request.get("run_id", f"run-{session_id}"))
@@ -421,6 +538,28 @@ class BrainOrchestrator:
         self._sync_runtime_memory_store(session_id, memory_store, step_results)
 
         return self._synthesize_runtime_response(step_results, str(parsed.get("response", "")).strip())
+
+    def _record_runtime_mode_event(
+        self,
+        *,
+        session_id: str,
+        mode: str,
+        reason_code: str,
+        details: dict[str, Any],
+    ) -> None:
+        self._append_jsonl(
+            self.paths.root / ".logs" / "fusion-runtime" / "execution-audit.jsonl",
+            {
+                "timestamp": self._utc_now(),
+                "event_type": "runtime.mode.transition",
+                "session_id": session_id,
+                "task_id": "",
+                "run_id": "",
+                "runtime_mode": mode,
+                "reason_code": reason_code,
+                "details": details,
+            },
+        )
 
     def _execute_runtime_actions(
         self,

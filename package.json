@@ -6,7 +6,9 @@
   "scripts": {
     "runner": "node js-runner/queryEngineRunner.js",
     "health": "node js-runner/healthcheck.js",
-    "test": "node tests/fusion/fusion-brain.test.js && python tests/fusion/phase2_runtime_test.py",
+    "test:node": "node tests/fusion/fusion-brain.test.js && node tests/runtime/queryengine.smoke.test.mjs && node tests/runtime/queryengineRunner.integration.test.mjs && node tests/specialists/dependencyImpact.test.mjs && node tests/specialists/testSelection.test.mjs && node tests/e2e/specialistHardening.test.mjs",
+    "test:python": "python -m unittest discover -s tests -p test_*.py",
+    "test": "npm run test:node && npm run test:python",
     "test:queryengine": "node tests/runtime/queryengine.smoke.test.mjs",
     "check:queryengine": "node scripts/check-queryengine.mjs"
   },

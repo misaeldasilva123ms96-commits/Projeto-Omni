@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CheckpointStore:
@@ -24,12 +27,21 @@ class CheckpointStore:
             "created_at": created_at or datetime.now(timezone.utc).isoformat(),
             "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
         }
-        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            LOGGER.exception("failed to save checkpoint for run_id=%s", run_id)
         return path
 
     def load(self, run_id: str) -> dict[str, Any]:
         path = self._path(run_id)
-        return json.loads(path.read_text(encoding="utf-8"))
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            LOGGER.exception("failed to load checkpoint for run_id=%s", run_id)
+            return {}
 
     def exists(self, run_id: str) -> bool:
         return self._path(run_id).exists()
@@ -42,6 +54,13 @@ class CheckpointStore:
         expected_plan_signature: str | None = None,
     ) -> dict[str, Any]:
         payload = self.load(run_id)
+        if not payload:
+            return {
+                "ok": False,
+                "stale": False,
+                "signature_mismatch": False,
+                "payload": {},
+            }
         updated_at = payload.get("updated_at")
         stale = False
         if updated_at:
