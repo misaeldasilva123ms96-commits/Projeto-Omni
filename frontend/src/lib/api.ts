@@ -14,7 +14,7 @@ const REQUEST_TIMEOUT_MS = 45_000
 function buildConfigurationError() {
   return new Error(
     API_CONFIGURATION_ERROR
-      || 'VITE_API_URL not configured for this environment',
+      || 'VITE_OMNI_API_URL not configured for this environment',
   )
 }
 
