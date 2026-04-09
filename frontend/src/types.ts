@@ -1,15 +1,48 @@
-export type ChatRole = 'user' | 'assistant'
+export type ChatRole = 'user' | 'assistant' | 'system'
+
+export type ChatMode = 'chat' | 'pesquisa' | 'codigo' | 'agente'
+
+export type ChatUsage = {
+  input_tokens?: number
+  output_tokens?: number
+}
+
+export type RuntimeMetadata = {
+  sessionId?: string
+  source?: string
+  matchedCommands: string[]
+  matchedTools: string[]
+  stopReason?: string
+  usage?: ChatUsage
+}
 
 export type ChatMessage = {
   id: string
   role: ChatRole
   content: string
+  createdAt: string
+  metadata?: RuntimeMetadata
+  requestState?: 'completed' | 'failed'
 }
 
 export type ChatApiResponse = {
   response: string
-  session_id: string
-  source: string
+  session_id?: string
+  source?: string
+  matched_commands?: string[]
+  matched_tools?: string[]
+  stop_reason?: string
+  usage?: ChatUsage
+}
+
+export type ChatRequestState = 'idle' | 'loading' | 'error'
+
+export type ConversationSummary = {
+  id: string
+  title: string
+  updatedAt: string
+  messageCount: number
+  mode: ChatMode
 }
 
 export type HealthResponse = {
