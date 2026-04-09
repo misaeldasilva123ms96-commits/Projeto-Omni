@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from brain.control.capability_router import CapabilityRouter
+from brain.control.evidence_gate import EvidenceGate, EvidenceGateResult
+from brain.control.mode_engine import RuntimeMode, build_mode_transition_event, can_transition
+from brain.control.policy_engine import PolicyBundleResult, PolicyEngine, PolicyResult
 from brain.evolution.evaluator import Evaluator
 from brain.evolution.strategy_updater import StrategyUpdater
 from brain.memory.hybrid import HybridMemory
@@ -44,6 +48,28 @@ MOCK_RUNTIME_RESPONSE = (
 )
 SUBPROCESS_TIMEOUT_SECONDS = 60
 DEFAULT_SESSION_ID = "python-session"
+CONTROL_LAYER_BLOCK_PREFIX = "Execucao bloqueada pela camada de controle"
+MUTATING_TOOLS = {
+    "write_file",
+    "filesystem_write",
+    "git_commit",
+    "package_manager",
+    "autonomous_debug_loop",
+    "filesystem_patch_set",
+    "shell_command",
+}
+VERIFICATION_TOOLS = {"test_runner", "verification_runner"}
+READ_ONLY_TOOLS = {
+    "read_file",
+    "filesystem_read",
+    "directory_tree",
+    "glob_search",
+    "grep_search",
+    "code_search",
+    "dependency_inspection",
+    "git_status",
+    "git_diff",
+}
 
 
 @dataclass
@@ -132,6 +158,10 @@ class BrainOrchestrator:
         self.evaluator = Evaluator()
         self.strategy_updater = StrategyUpdater(paths.evolution_dir)
         self.supervisor = CognitiveSupervisor()
+        self.capability_router = CapabilityRouter()
+        self.evidence_gate = EvidenceGate()
+        self.policy_engine = PolicyEngine()
+        self.current_control_mode = RuntimeMode.EXPLORE
         self.last_runtime_mode = "live"
         self.last_runtime_reason = "startup"
 
@@ -171,6 +201,89 @@ class BrainOrchestrator:
                 details={"message_preview": message[:120]},
             )
             return MOCK_RUNTIME_RESPONSE
+
+        control_metadata = self._build_control_metadata(message=message)
+        control_result = self._evaluate_control_layer(
+            session_id=session_id,
+            message=message,
+            task_id="",
+            run_id="",
+            metadata=control_metadata,
+        )
+        self._emit_control_event(
+            "runtime.control.routing_decision",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "control_mode": self.current_control_mode.value,
+                "task_type": control_result["routing_decision"].task_type,
+                "capability_path": control_result["routing_decision"].preferred_capability_path,
+                "risk_level": control_result["routing_decision"].risk_level,
+                "allowed": control_result["allowed"],
+            },
+        )
+        if not control_result["allowed"]:
+            self._emit_control_event(
+                str(control_result["blocked_event_type"]),
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "control_mode": self.current_control_mode.value,
+                    "task_type": control_result["routing_decision"].task_type,
+                    "capability_path": control_result["routing_decision"].preferred_capability_path,
+                    "risk_level": control_result["routing_decision"].risk_level,
+                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
+                    "reason_code": control_result["blocked_reason_code"],
+                    "allowed": False,
+                },
+            )
+            if can_transition(self.current_control_mode, RuntimeMode.REPORT):
+                self._emit_control_event(
+                    "runtime.control.mode_transition",
+                    session_id=session_id,
+                    task_id="",
+                    run_id="",
+                    payload=build_mode_transition_event(
+                        session_id=session_id,
+                        from_mode=self.current_control_mode,
+                        to_mode=RuntimeMode.REPORT,
+                        reason_code="control_layer_block",
+                        details={"task_type": control_result["routing_decision"].task_type},
+                    ),
+                )
+                self.current_control_mode = RuntimeMode.REPORT
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "control_layer_block"
+            return str(control_result["blocked_response"])
+
+        if control_result["mode_transition"] is not None:
+            self._emit_control_event(
+                "runtime.control.mode_transition",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload=control_result["mode_transition"],
+            )
+            self.current_control_mode = control_result["target_mode"]
+        self._emit_control_event(
+            "runtime.control.execution_allowed",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "control_mode": self.current_control_mode.value,
+                "task_type": control_result["routing_decision"].task_type,
+                "capability_path": control_result["routing_decision"].preferred_capability_path,
+                "risk_level": control_result["routing_decision"].risk_level,
+                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
+                "reason_code": "execution_allowed",
+                "allowed": True,
+            },
+        )
 
         self._extract_user_learning(memory_store, message)
         append_history(
@@ -308,6 +421,241 @@ class BrainOrchestrator:
             return configured
         return "live"
 
+    @staticmethod
+    def _requested_action_for_task_type(task_type: str) -> str:
+        return {
+            "simple_query": "read",
+            "repository_analysis": "search",
+            "code_mutation": "plan",
+            "verification": "test",
+            "recovery": "retry",
+            "reporting": "generate_report",
+        }.get(task_type, "read")
+
+    @staticmethod
+    def _policy_result_to_dict(result: PolicyResult) -> dict[str, Any]:
+        return {
+            "allowed": result.allowed,
+            "policy_name": result.policy_name,
+            "reason": result.reason,
+            "severity": result.severity,
+            "details": result.details,
+        }
+
+    @staticmethod
+    def _bundle_to_dict(bundle: PolicyBundleResult) -> dict[str, Any]:
+        return {
+            "allowed": bundle.allowed,
+            "results": [BrainOrchestrator._policy_result_to_dict(item) for item in bundle.results],
+            "blocking_results": [BrainOrchestrator._policy_result_to_dict(item) for item in bundle.blocking_results],
+        }
+
+    @staticmethod
+    def _evidence_to_dict(evidence: EvidenceGateResult) -> dict[str, Any]:
+        return {
+            "enough_evidence": evidence.enough_evidence,
+            "missing_evidence_types": evidence.missing_evidence_types,
+            "recommendation": evidence.recommendation,
+            "severity": evidence.severity,
+        }
+
+    def _emit_control_event(
+        self,
+        event_type: str,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        self._append_runtime_event(
+            event_type=event_type,
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload=payload,
+        )
+
+    def _build_control_metadata(
+        self,
+        *,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+        actions: list[dict[str, Any]] | None = None,
+        repository_analysis: dict[str, Any] | None = None,
+        repo_impact_analysis: dict[str, Any] | None = None,
+        verification_plan: dict[str, Any] | None = None,
+        engineering_data: dict[str, Any] | None = None,
+        policy_summary: object = None,
+    ) -> dict[str, Any]:
+        combined = dict(metadata or {})
+        target_files: list[str] = []
+        existing_targets = combined.get("target_files", [])
+        if isinstance(existing_targets, list):
+            target_files.extend(str(item) for item in existing_targets if isinstance(item, str) and item)
+
+        selected_tools: list[str] = []
+        for action in actions or []:
+            tool_name = str(action.get("selected_tool", "") or "").strip()
+            if tool_name:
+                selected_tools.append(tool_name)
+            arguments = action.get("tool_arguments", {})
+            if isinstance(arguments, dict):
+                for key in ("path", "file_path"):
+                    value = arguments.get(key)
+                    if isinstance(value, str) and value:
+                        target_files.append(value)
+                paths_value = arguments.get("paths")
+                if isinstance(paths_value, list):
+                    target_files.extend(str(item) for item in paths_value if isinstance(item, str) and item)
+
+        combined_repository_analysis = repository_analysis if isinstance(repository_analysis, dict) else {}
+        combined_repo_impact = repo_impact_analysis if isinstance(repo_impact_analysis, dict) else {}
+        combined_engineering = engineering_data if isinstance(engineering_data, dict) else {}
+        combined_workspace = combined_engineering.get("workspace_state", {})
+        if not isinstance(combined_workspace, dict):
+            combined_workspace = {}
+        test_results = combined_engineering.get("test_results", {})
+        verification_summary = combined_engineering.get("verification_summary", {})
+
+        if "task_type" not in combined:
+            if any(tool in MUTATING_TOOLS for tool in selected_tools):
+                combined["task_type"] = "code_mutation"
+            elif any(tool in VERIFICATION_TOOLS for tool in selected_tools):
+                combined["task_type"] = "verification"
+            elif selected_tools and all(tool in READ_ONLY_TOOLS for tool in selected_tools):
+                combined["task_type"] = "repository_analysis"
+
+        combined["target_files"] = target_files
+        combined["repository_analysis"] = combined_repository_analysis
+        combined["repo_impact_analysis"] = combined_repo_impact
+        combined["workspace_state"] = combined_workspace
+        combined["verification_plan"] = verification_plan if isinstance(verification_plan, dict) else {}
+        combined["available_evidence"] = {
+            "file_evidence": bool(target_files or combined_repository_analysis or combined_repo_impact),
+            "runtime_evidence": bool(
+                combined_workspace
+                or combined.get("runtime_evidence")
+                or policy_summary
+                or any(bool((action.get("policy_decision") or {}).get("decision")) for action in actions or [])
+            ),
+            "test_evidence": bool(test_results or verification_summary or verification_plan),
+            "dependency_evidence": bool(combined_repo_impact or combined_repository_analysis.get("dependency_graph")),
+        }
+        return combined
+
+    @staticmethod
+    def _compact_history_for_node(history: object, limit: int = 6) -> list[dict[str, Any]]:
+        if not isinstance(history, list):
+            return []
+        compacted: list[dict[str, Any]] = []
+        for item in history[-limit:]:
+            if not isinstance(item, dict):
+                continue
+            compacted.append(
+                {
+                    "role": str(item.get("role", "")),
+                    "content": str(item.get("content", ""))[:600],
+                }
+            )
+        return compacted
+
+    def _compact_session_payload_for_node(self, session_payload: dict[str, Any]) -> dict[str, Any]:
+        compact = dict(session_payload)
+        compact["history"] = self._compact_history_for_node(compact.get("history", []), limit=4)
+        if isinstance(compact.get("summary"), str):
+            compact["summary"] = compact["summary"][:1200]
+        if isinstance(compact.get("agent_registry"), list):
+            compact["agent_registry"] = compact["agent_registry"][:8]
+        if isinstance(compact.get("agent_trace"), list):
+            compact["agent_trace"] = compact["agent_trace"][-8:]
+        return compact
+
+    def _evaluate_control_layer(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        task_id: str,
+        run_id: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        routing_decision = self.capability_router.classify_task(message, metadata)
+        target_mode = routing_decision.preferred_mode
+        current_mode = self.current_control_mode if task_id or run_id else RuntimeMode.EXPLORE
+        if metadata.get("control_boundary") == "action_execution":
+            current_mode = RuntimeMode.PLAN
+            if routing_decision.task_type in {"simple_query", "repository_analysis", "code_mutation"}:
+                target_mode = RuntimeMode.EXECUTE
+
+        requested_action = str(metadata.get("requested_action") or self._requested_action_for_task_type(routing_decision.task_type))
+        transition_allowed = can_transition(current_mode, target_mode)
+        evidence_result = self.evidence_gate.evaluate_evidence(
+            task_type=routing_decision.task_type,
+            risk_level=routing_decision.risk_level,
+            available_evidence=metadata.get("available_evidence"),
+        )
+        policy_result = self.policy_engine.evaluate_policies(
+            mode=target_mode,
+            requested_action=requested_action,
+            task_type=routing_decision.task_type,
+            risk_level=routing_decision.risk_level,
+            metadata=metadata,
+            evidence_result=evidence_result,
+        )
+
+        if not transition_allowed:
+            transition_policy = PolicyResult(
+                allowed=False,
+                policy_name="ExecutionPolicy",
+                reason="requested mode transition is not allowed from current control mode",
+                severity="high",
+                details={"from_mode": current_mode.value, "to_mode": target_mode.value},
+            )
+            policy_result = PolicyBundleResult(
+                allowed=False,
+                results=[transition_policy, *policy_result.results],
+                blocking_results=[transition_policy, *policy_result.blocking_results],
+            )
+
+        allowed = transition_allowed and policy_result.allowed and (
+            evidence_result.enough_evidence or not routing_decision.requires_evidence
+        )
+        mode_transition = None
+        if allowed and target_mode != self.current_control_mode:
+            mode_transition = build_mode_transition_event(
+                session_id=session_id,
+                from_mode=self.current_control_mode,
+                to_mode=target_mode,
+                reason_code="routing_selected_mode",
+                details={
+                    "task_type": routing_decision.task_type,
+                    "capability_path": routing_decision.preferred_capability_path,
+                },
+            )
+
+        blocked_event_type = "runtime.control.policy_block"
+        blocked_reason_code = "policy_block"
+        blocked_reason = "policy blocked the requested execution"
+        if not evidence_result.enough_evidence and routing_decision.requires_evidence:
+            blocked_event_type = "runtime.control.evidence_gate_block"
+            blocked_reason_code = "insufficient_evidence"
+            blocked_reason = evidence_result.recommendation.replace("_", " ")
+        elif policy_result.blocking_results:
+            blocked_reason = policy_result.blocking_results[0].reason
+
+        return {
+            "routing_decision": routing_decision,
+            "target_mode": target_mode,
+            "mode_transition": mode_transition,
+            "evidence_result": evidence_result,
+            "policy_result": policy_result,
+            "allowed": allowed,
+            "blocked_event_type": blocked_event_type,
+            "blocked_reason_code": blocked_reason_code,
+            "blocked_response": f"{CONTROL_LAYER_BLOCK_PREFIX}: {blocked_reason}.",
+        }
+
     def _resolve_node_bin(self) -> str | None:
         configured = os.getenv("NODE_BIN", "").strip()
         if configured:
@@ -383,15 +731,17 @@ class BrainOrchestrator:
         session_payload["runtime_reason"] = self.last_runtime_reason
         if extra_session:
             session_payload.update(extra_session)
+        compact_history = self._compact_history_for_node(memory_store.get("history", []))
+        compact_session_payload = self._compact_session_payload_for_node(session_payload)
 
         payload = json.dumps(
             {
                 "message": message,
                 "memory": memory_store.get("user", {}),
-                "history": memory_store.get("history", []),
-                "summary": self.summarize_history(memory_store.get("history", [])),
+                "history": compact_history,
+                "summary": self.summarize_history(compact_history),
                 "capabilities": available_capabilities,
-                "session": session_payload,
+                "session": compact_session_payload,
             },
             ensure_ascii=False,
         )
@@ -620,6 +970,132 @@ class BrainOrchestrator:
             "verification_summary": {},
             "pr_summary": {},
         }
+        control_metadata = self._build_control_metadata(
+            message=message,
+            actions=actions,
+            metadata={
+                "control_boundary": "action_execution",
+                "requested_action": "test"
+                if any(str(action.get("selected_tool", "")) in VERIFICATION_TOOLS for action in actions)
+                else "mutate"
+                if any(str(action.get("selected_tool", "")) in MUTATING_TOOLS for action in actions)
+                else "execute",
+            },
+            repository_analysis=repository_analysis,
+            repo_impact_analysis=repo_impact_analysis,
+            verification_plan=verification_plan,
+            engineering_data=engineering_data,
+            policy_summary=policy_summary,
+        )
+        control_result = self._evaluate_control_layer(
+            session_id=session_id,
+            message=message,
+            task_id=task_id,
+            run_id=run_id,
+            metadata=control_metadata,
+        )
+        self._emit_control_event(
+            "runtime.control.routing_decision",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "control_mode": self.current_control_mode.value,
+                "task_type": control_result["routing_decision"].task_type,
+                "capability_path": control_result["routing_decision"].preferred_capability_path,
+                "risk_level": control_result["routing_decision"].risk_level,
+                "allowed": control_result["allowed"],
+            },
+        )
+        if not control_result["allowed"]:
+            self._emit_control_event(
+                str(control_result["blocked_event_type"]),
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "control_mode": self.current_control_mode.value,
+                    "task_type": control_result["routing_decision"].task_type,
+                    "capability_path": control_result["routing_decision"].preferred_capability_path,
+                    "risk_level": control_result["routing_decision"].risk_level,
+                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
+                    "reason_code": control_result["blocked_reason_code"],
+                    "allowed": False,
+                },
+            )
+            blocked = {
+                "ok": False,
+                "selected_tool": "none",
+                "selected_agent": "master_orchestrator",
+                "error_payload": {
+                    "kind": "control_layer_block",
+                    "message": str(control_result["blocked_response"]),
+                    "reason_code": str(control_result["blocked_reason_code"]),
+                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
+                },
+                "evaluation": {
+                    "decision": "stop_blocked",
+                    "reason_code": str(control_result["blocked_reason_code"]),
+                    "control_layer": {
+                        "routing": control_result["routing_decision"].as_dict(),
+                        "evidence": self._evidence_to_dict(control_result["evidence_result"]),
+                        "policy": self._bundle_to_dict(control_result["policy_result"]),
+                    },
+                },
+            }
+            step_results.append(blocked)
+            self._write_checkpoint(
+                run_id=run_id,
+                task_id=task_id,
+                session_id=session_id,
+                message=message,
+                actions=actions,
+                next_step_index=start_index,
+                completed_steps=step_results,
+                plan_graph=graph_state,
+                plan_hierarchy=plan_hierarchy,
+                plan_signature=plan_signature,
+                status="blocked",
+                branch_state=branch_state,
+                simulation_summary=simulation_summary,
+                cooperative_plan=cooperative_plan,
+                strategy_suggestions=strategy_suggestions,
+                policy_summary=policy_summary,
+                execution_tree=tree_state,
+                negotiation_summary=negotiation_summary,
+                strategy_optimization=strategy_optimization,
+                supervision={"control_layer": blocked["evaluation"]["control_layer"]},
+                repository_analysis=repository_analysis,
+                engineering_data=engineering_data,
+            )
+            return step_results
+        if control_result["mode_transition"] is not None:
+            self._emit_control_event(
+                "runtime.control.mode_transition",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=control_result["mode_transition"],
+            )
+            self.current_control_mode = control_result["target_mode"]
+        self._emit_control_event(
+            "runtime.control.execution_allowed",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "control_mode": self.current_control_mode.value,
+                "task_type": control_result["routing_decision"].task_type,
+                "capability_path": control_result["routing_decision"].preferred_capability_path,
+                "risk_level": control_result["routing_decision"].risk_level,
+                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
+                "reason_code": "execution_allowed",
+                "allowed": True,
+            },
+        )
         supervision = self.supervisor.inspect(
             execution_tree=tree_state,
             branch_plan=branch_plan,
