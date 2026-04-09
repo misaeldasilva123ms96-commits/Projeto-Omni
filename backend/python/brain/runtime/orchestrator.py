@@ -18,6 +18,9 @@ from brain.control.mode_engine import RuntimeMode, build_mode_transition_event, 
 from brain.control.policy_engine import PolicyBundleResult, PolicyEngine, PolicyResult
 from brain.evolution.evaluator import Evaluator
 from brain.evolution.strategy_updater import StrategyUpdater
+from brain.memory.context_budget import ContextBudgetDecision, ContextBudgetManager, RetrievalPlan
+from brain.memory.decision_memory import DecisionMemoryStore
+from brain.memory.evidence_memory import EvidenceMemoryStore
 from brain.memory.hybrid import HybridMemory
 from brain.memory.store import (
     DEFAULT_HISTORY_LIMIT,
@@ -25,6 +28,7 @@ from brain.memory.store import (
     load_memory_store,
     save_memory_store,
 )
+from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.execution_state import build_execution_state
@@ -151,6 +155,11 @@ class BrainOrchestrator:
     def __init__(self, paths: BrainPaths) -> None:
         self.paths = paths
         self.hybrid_memory = HybridMemory(paths.memory_dir)
+        memory_log_dir = paths.root / ".logs" / "fusion-runtime"
+        self.working_memory = WorkingMemoryStore(memory_log_dir / "working-memory.json")
+        self.decision_memory = DecisionMemoryStore(memory_log_dir / "decision-memory.json")
+        self.evidence_memory = EvidenceMemoryStore(memory_log_dir / "evidence-memory.json")
+        self.context_budget_manager = ContextBudgetManager()
         self.transcript_store = TranscriptStore(paths.transcripts_dir)
         self.checkpoint_store = CheckpointStore(paths.root)
         self.session_store = SessionStore(paths.sessions_dir)
@@ -210,6 +219,20 @@ class BrainOrchestrator:
             run_id="",
             metadata=control_metadata,
         )
+        context_budget, retrieval_plan = self._build_context_budget(
+            routing_decision=control_result["routing_decision"]
+        )
+        memory_context = self._update_structured_memory(
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            message=message,
+            control_metadata=control_metadata,
+            control_result=control_result,
+            budget=context_budget,
+            retrieval_plan=retrieval_plan,
+            strategy_state=strategy_state if isinstance(strategy_state, dict) else None,
+        )
         self._emit_control_event(
             "runtime.control.routing_decision",
             session_id=session_id,
@@ -229,6 +252,13 @@ class BrainOrchestrator:
             },
         )
         if not control_result["allowed"]:
+            self._record_control_outcome_memory(
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                control_result=control_result,
+                allowed=False,
+            )
             self._emit_control_event(
                 str(control_result["blocked_event_type"]),
                 session_id=session_id,
@@ -278,6 +308,13 @@ class BrainOrchestrator:
                 payload=control_result["mode_transition"],
             )
             self.current_control_mode = control_result["target_mode"]
+        self._record_control_outcome_memory(
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            control_result=control_result,
+            allowed=True,
+        )
         self._emit_control_event(
             "runtime.control.execution_allowed",
             session_id=session_id,
@@ -317,7 +354,11 @@ class BrainOrchestrator:
             strategy_state,
         )
         predicted_intent = self._predict_intent(message)
-        summary = self.summarize_history(memory_store.get("history", []))
+        budgeted_history = self._slice_history_for_budget(
+            memory_store.get("history", []),
+            context_budget.budget_level,
+        )
+        summary = self.summarize_history(budgeted_history)
         direct_response = self._answer_from_memory(memory_store, message)
 
         swarm_result: dict[str, Any] = {
@@ -334,7 +375,7 @@ class BrainOrchestrator:
                     message=message,
                     session_id=session_id,
                     memory_store=memory_store,
-                    history=memory_store.get("history", []),
+                    history=budgeted_history,
                     summary=summary,
                     capabilities=available_capabilities,
                     executor=lambda payload: self._async_node_execution(
@@ -343,6 +384,11 @@ class BrainOrchestrator:
                         available_capabilities=available_capabilities,
                         session_id=session_id,
                         swarm_payload=payload,
+                        context_session={
+                            "context_budget": self._budget_to_dict(context_budget),
+                            "retrieval_plan": self._retrieval_plan_to_dict(retrieval_plan),
+                            "structured_memory": memory_context["retrieved_context"],
+                        },
                     ),
                 )
             )
@@ -414,15 +460,17 @@ class BrainOrchestrator:
         available_capabilities: list[dict[str, str]],
         session_id: str,
         swarm_payload: dict[str, Any],
+        context_session: dict[str, Any] | None = None,
     ) -> str:
+        extra_session = {"swarm_request": swarm_payload}
+        if context_session:
+            extra_session.update(context_session)
         return self._call_node_query_engine(
             message=message,
             memory_store=memory_store,
             available_capabilities=available_capabilities,
             session_id=session_id,
-            extra_session={
-                "swarm_request": swarm_payload,
-            },
+            extra_session=extra_session,
         )
 
     def _session_id(self) -> str:
@@ -473,6 +521,272 @@ class BrainOrchestrator:
             "recommendation": evidence.recommendation,
             "severity": evidence.severity,
         }
+
+    @staticmethod
+    def _budget_to_dict(budget: ContextBudgetDecision) -> dict[str, Any]:
+        return budget.as_dict()
+
+    @staticmethod
+    def _retrieval_plan_to_dict(plan: RetrievalPlan) -> dict[str, Any]:
+        return plan.as_dict()
+
+    @staticmethod
+    def _history_limit_for_budget(budget_level: str) -> int:
+        return {"low": 2, "medium": 4, "high": 6}.get(budget_level, 4)
+
+    @staticmethod
+    def _summary_limit_for_budget(budget_level: str) -> int:
+        return {"low": 600, "medium": 1200, "high": 1800}.get(budget_level, 1200)
+
+    @staticmethod
+    def _slice_history_for_budget(history: object, budget_level: str) -> list[dict[str, Any]]:
+        if not isinstance(history, list):
+            return []
+        limit = BrainOrchestrator._history_limit_for_budget(budget_level)
+        return [item for item in history[-limit:] if isinstance(item, dict)]
+
+    @staticmethod
+    def _summarize_decision_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "count": len(entries),
+            "recent": [
+                {
+                    "decision_type": item.get("decision_type"),
+                    "task_type": item.get("task_type"),
+                    "reason_code": item.get("reason_code"),
+                    "reason": item.get("reason"),
+                }
+                for item in entries[:3]
+            ],
+        }
+
+    @staticmethod
+    def _summarize_evidence_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+        latest = entries[0] if entries else {}
+        return {
+            "count": len(entries),
+            "latest": latest.get("evidence", {}) if isinstance(latest, dict) else {},
+        }
+
+    def _build_context_budget(
+        self,
+        *,
+        routing_decision: Any,
+    ) -> tuple[ContextBudgetDecision, RetrievalPlan]:
+        budget = self.context_budget_manager.select_budget(
+            task_type=routing_decision.task_type,
+            execution_strategy=routing_decision.execution_strategy,
+            risk_level=routing_decision.risk_level,
+            verification_intensity=routing_decision.verification_intensity,
+        )
+        retrieval_plan = self.context_budget_manager.build_retrieval_plan(
+            task_type=routing_decision.task_type,
+            budget=budget,
+        )
+        return budget, retrieval_plan
+
+    def _build_retrieved_context(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        task_type: str,
+        budget: ContextBudgetDecision,
+        retrieval_plan: RetrievalPlan,
+    ) -> dict[str, Any]:
+        context: dict[str, Any] = {}
+        limit = budget.max_context_items
+        for memory_type in retrieval_plan.load_order:
+            if memory_type == "working_memory":
+                working_state = self.working_memory.load_session(session_id)
+                if memory_type in retrieval_plan.summarized_memory_types:
+                    context[memory_type] = {
+                        "task_summary": working_state.get("current_task_summary", ""),
+                        "execution_strategy": working_state.get("current_execution_strategy", ""),
+                        "active_target_files": working_state.get("active_target_files", []),
+                        "updated_at": working_state.get("updated_at", ""),
+                    }
+                else:
+                    context[memory_type] = working_state
+            elif memory_type == "decision_memory":
+                decisions = self.decision_memory.find_decisions(
+                    session_id=session_id,
+                    task_type=task_type,
+                    limit=limit,
+                )
+                context[memory_type] = (
+                    self._summarize_decision_entries(decisions)
+                    if memory_type in retrieval_plan.summarized_memory_types
+                    else decisions
+                )
+            elif memory_type == "evidence_memory":
+                evidence_entries = self.evidence_memory.get_evidence(
+                    session_id=session_id,
+                    task_id=task_id or None,
+                    limit=limit,
+                )
+                context[memory_type] = (
+                    self._summarize_evidence_entries(evidence_entries)
+                    if memory_type in retrieval_plan.summarized_memory_types
+                    else evidence_entries
+                )
+        return context
+
+    def _update_structured_memory(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        message: str,
+        control_metadata: dict[str, Any],
+        control_result: dict[str, Any],
+        budget: ContextBudgetDecision,
+        retrieval_plan: RetrievalPlan,
+        strategy_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        routing_decision = control_result["routing_decision"]
+        active_target_files = control_metadata.get("target_files", [])
+        working_state = self.working_memory.update_session(
+            session_id,
+            {
+                "task_id": task_id,
+                "run_id": run_id,
+                "current_task_summary": message[:240],
+                "current_routing_decision": routing_decision.as_dict(),
+                "current_mode": self.current_control_mode.value,
+                "current_execution_strategy": routing_decision.execution_strategy,
+                "active_target_files": active_target_files if isinstance(active_target_files, list) else [],
+                "current_milestones": (
+                    strategy_state.get("milestones", [])
+                    if isinstance(strategy_state, dict) and isinstance(strategy_state.get("milestones", []), list)
+                    else []
+                ),
+                "context_budget_level": budget.budget_level,
+            },
+        )
+        self._append_runtime_event(
+            event_type="runtime.memory.working_updated",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "task_type": routing_decision.task_type,
+                "execution_strategy": routing_decision.execution_strategy,
+                "active_target_files": working_state.get("active_target_files", []),
+                "budget_level": budget.budget_level,
+            },
+        )
+        decision_entry = self.decision_memory.record_decision(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            decision_type="routing_selection",
+            task_type=routing_decision.task_type,
+            reason_code="routing_selected",
+            reason=routing_decision.reasoning,
+            metadata={
+                "capability_path": routing_decision.preferred_capability_path,
+                "execution_strategy": routing_decision.execution_strategy,
+                "verification_intensity": routing_decision.verification_intensity,
+                "recommended_specialists": routing_decision.recommended_specialists,
+            },
+        )
+        self._append_runtime_event(
+            event_type="runtime.memory.decision_recorded",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "decision_type": decision_entry.get("decision_type"),
+                "task_type": routing_decision.task_type,
+                "reason_code": decision_entry.get("reason_code"),
+            },
+        )
+        evidence_entry = self.evidence_memory.record_evidence(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            task_type=routing_decision.task_type,
+            evidence=control_metadata.get("available_evidence", {}),
+            metadata={
+                "target_files": active_target_files if isinstance(active_target_files, list) else [],
+                "verification_plan_present": bool(control_metadata.get("verification_plan")),
+            },
+        )
+        self._append_runtime_event(
+            event_type="runtime.memory.evidence_recorded",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "task_type": routing_decision.task_type,
+                "evidence": evidence_entry.get("evidence", {}),
+            },
+        )
+        self._append_runtime_event(
+            event_type="runtime.context.budget_selected",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload=self._budget_to_dict(budget),
+        )
+        self._append_runtime_event(
+            event_type="runtime.context.retrieval_plan",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload=self._retrieval_plan_to_dict(retrieval_plan),
+        )
+        retrieved_context = self._build_retrieved_context(
+            session_id=session_id,
+            task_id=task_id,
+            task_type=routing_decision.task_type,
+            budget=budget,
+            retrieval_plan=retrieval_plan,
+        )
+        return {
+            "budget": budget,
+            "retrieval_plan": retrieval_plan,
+            "retrieved_context": retrieved_context,
+        }
+
+    def _record_control_outcome_memory(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        control_result: dict[str, Any],
+        allowed: bool,
+    ) -> None:
+        routing_decision = control_result["routing_decision"]
+        decision_entry = self.decision_memory.record_decision(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            decision_type="execution_allowed" if allowed else str(control_result["blocked_event_type"]).split(".")[-1],
+            task_type=routing_decision.task_type,
+            reason_code="execution_allowed" if allowed else str(control_result["blocked_reason_code"]),
+            reason="control layer allowed execution"
+            if allowed
+            else str(control_result["blocked_response"]),
+            metadata={
+                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
+            },
+        )
+        self._append_runtime_event(
+            event_type="runtime.memory.decision_recorded",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "decision_type": decision_entry.get("decision_type"),
+                "task_type": routing_decision.task_type,
+                "reason_code": decision_entry.get("reason_code"),
+            },
+        )
 
     def _emit_control_event(
         self,
@@ -575,11 +889,17 @@ class BrainOrchestrator:
             )
         return compacted
 
-    def _compact_session_payload_for_node(self, session_payload: dict[str, Any]) -> dict[str, Any]:
+    def _compact_session_payload_for_node(
+        self,
+        session_payload: dict[str, Any],
+        *,
+        history_limit: int = 4,
+        summary_limit: int = 1200,
+    ) -> dict[str, Any]:
         compact = dict(session_payload)
-        compact["history"] = self._compact_history_for_node(compact.get("history", []), limit=4)
+        compact["history"] = self._compact_history_for_node(compact.get("history", []), limit=history_limit)
         if isinstance(compact.get("summary"), str):
-            compact["summary"] = compact["summary"][:1200]
+            compact["summary"] = compact["summary"][:summary_limit]
         if isinstance(compact.get("agent_registry"), list):
             compact["agent_registry"] = compact["agent_registry"][:8]
         if isinstance(compact.get("agent_trace"), list):
@@ -746,8 +1066,17 @@ class BrainOrchestrator:
         session_payload["runtime_reason"] = self.last_runtime_reason
         if extra_session:
             session_payload.update(extra_session)
-        compact_history = self._compact_history_for_node(memory_store.get("history", []))
-        compact_session_payload = self._compact_session_payload_for_node(session_payload)
+        context_budget = extra_session.get("context_budget", {}) if isinstance(extra_session, dict) else {}
+        budget_level = str(context_budget.get("budget_level", "medium"))
+        compact_history = self._compact_history_for_node(
+            memory_store.get("history", []),
+            limit=self._history_limit_for_budget(budget_level),
+        )
+        compact_session_payload = self._compact_session_payload_for_node(
+            session_payload,
+            history_limit=self._history_limit_for_budget(budget_level),
+            summary_limit=self._summary_limit_for_budget(budget_level),
+        )
 
         payload = json.dumps(
             {
@@ -1009,6 +1338,19 @@ class BrainOrchestrator:
             run_id=run_id,
             metadata=control_metadata,
         )
+        context_budget, retrieval_plan = self._build_context_budget(
+            routing_decision=control_result["routing_decision"]
+        )
+        self._update_structured_memory(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            message=message,
+            control_metadata=control_metadata,
+            control_result=control_result,
+            budget=context_budget,
+            retrieval_plan=retrieval_plan,
+        )
         self._emit_control_event(
             "runtime.control.routing_decision",
             session_id=session_id,
@@ -1028,6 +1370,13 @@ class BrainOrchestrator:
             },
         )
         if not control_result["allowed"]:
+            self._record_control_outcome_memory(
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                control_result=control_result,
+                allowed=False,
+            )
             self._emit_control_event(
                 str(control_result["blocked_event_type"]),
                 session_id=session_id,
@@ -1105,6 +1454,13 @@ class BrainOrchestrator:
                 payload=control_result["mode_transition"],
             )
             self.current_control_mode = control_result["target_mode"]
+        self._record_control_outcome_memory(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            control_result=control_result,
+            allowed=True,
+        )
         self._emit_control_event(
             "runtime.control.execution_allowed",
             session_id=session_id,
