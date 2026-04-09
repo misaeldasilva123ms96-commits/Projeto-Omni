@@ -1,1 +1,1 @@
-"""Hybrid memory layer for the Python orchestrator."""
+"""Hybrid and structured memory layers for the Python orchestrator."""
