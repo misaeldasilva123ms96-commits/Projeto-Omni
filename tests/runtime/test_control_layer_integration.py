@@ -43,6 +43,20 @@ class ControlLayerIntegrationTest(unittest.TestCase):
         ]
         self.assertTrue(matching)
 
+        routing_entries = [
+            entry
+            for entry in lines
+            if entry.get("session_id") == session_id
+            and entry.get("event_type") == "runtime.control.routing_decision"
+        ]
+        self.assertTrue(routing_entries)
+        entry = routing_entries[-1]
+        self.assertEqual(entry.get("execution_strategy"), "multi_step_engineering")
+        self.assertEqual(entry.get("verification_intensity"), "high")
+        self.assertTrue(entry.get("delegation_recommended"))
+        self.assertIn("advancedPlannerSpecialist", entry.get("recommended_specialists", []))
+        self.assertTrue(entry.get("routing_reason"))
+
 
 if __name__ == "__main__":
     unittest.main()
