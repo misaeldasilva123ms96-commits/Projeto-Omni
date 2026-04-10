@@ -47,7 +47,7 @@ const validatePayload = (() => {
 })();
 
 function getRawInput() {
-  return (process.argv[2] || '').trim();
+  return process.argv.slice(2).join(' ').trim();
 }
 
 function getWorkspaceRoot() {
@@ -67,20 +67,70 @@ function emptyPayload() {
   };
 }
 
+function parsePayloadCandidate(rawInput) {
+  const attempts = [rawInput];
+
+  if (rawInput.includes('\\"')) {
+    attempts.push(rawInput.replace(/\\"/g, '"'));
+  }
+
+  if ((rawInput.startsWith('"') && rawInput.endsWith('"')) || (rawInput.startsWith("'") && rawInput.endsWith("'"))) {
+    attempts.push(rawInput.slice(1, -1));
+  }
+
+  for (const candidate of attempts) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+  }
+
+  if (rawInput.startsWith('{\\') && rawInput.endsWith('}')) {
+    const pseudoJson = rawInput.slice(1, -1);
+    const parsed = {};
+    for (const part of pseudoJson.split('\\,')) {
+      if (!part) {
+        continue;
+      }
+      const [rawKey, ...rawValueParts] = part.split('\\:');
+      if (!rawKey || rawValueParts.length === 0) {
+        continue;
+      }
+      const key = rawKey.replace(/^\\+/, '').trim();
+      const value = rawValueParts.join('\\:').replace(/^\\+/, '').trim();
+      if (key) {
+        parsed[key] = value;
+      }
+    }
+    if (Object.keys(parsed).length > 0) {
+      return parsed;
+    }
+  }
+
+  throw new Error('invalid_payload');
+}
+
 function safeParsePayload(rawInput) {
   if (!rawInput) {
     return emptyPayload();
   }
 
   try {
-    const parsed = JSON.parse(rawInput);
+    const parsed = parsePayloadCandidate(rawInput);
     const candidate = {
       message: typeof parsed.message === 'string' ? parsed.message.trim() : '',
       memory: parsed.memory && typeof parsed.memory === 'object' ? parsed.memory : {},
       history: Array.isArray(parsed.history) ? parsed.history : [],
       summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
       capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : [],
-      session: parsed.session && typeof parsed.session === 'object' ? parsed.session : {},
+      session: parsed.session && typeof parsed.session === 'object'
+        ? parsed.session
+        : (
+            typeof parsed.session_id === 'string' && parsed.session_id.trim()
+              ? { session_id: parsed.session_id.trim() }
+              : {}
+          ),
     };
 
     if (!validatePayload(candidate)) {

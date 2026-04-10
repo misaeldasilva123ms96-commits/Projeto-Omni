@@ -95,6 +95,23 @@ function directResponseFromMemory(message, mergedMemory) {
   return '';
 }
 
+function directConversationalResponse(message) {
+  const text = normalizeText(message);
+  if (/^(oi|ola|hello|hi|bom dia|boa tarde|boa noite)$/.test(text)) {
+    return 'Olá! Sou o Omni. Como posso te ajudar hoje?';
+  }
+  if (/quem e voce|quem voce e|o que voce e/.test(text)) {
+    return 'Sou o Omni, um assistente de IA para conversa, análise de repositório e execução assistida com segurança.';
+  }
+  if (/voce sabe programar|voces sabem programar|sabe programar|consegue programar/.test(text)) {
+    return 'Sim. Posso ajudar a entender código, analisar impacto, propor mudanças e orientar implementações com cuidado.';
+  }
+  if (/me diga oi|diga oi|fala oi/.test(text)) {
+    return 'Oi! Como posso ajudar?';
+  }
+  return '';
+}
+
 function buildMergedMemory(memoryLayers, runtimeMemory) {
   return {
     ...runtimeMemory,
@@ -180,6 +197,7 @@ class QueryEngineAuthority {
       ...mergedMemory,
       ...memoryHints,
     });
+    const directConversationResponse = directConversationalResponse(message);
 
     const delegation = buildDelegationPlan({
       intent: intent === 'analysis'
@@ -331,10 +349,10 @@ class QueryEngineAuthority {
     if (allActionsAreDirect) {
       const directResponse = synthesizeFinalAnswer({
         intent,
-        directMemoryResponse: directMemoryResponse || (intent === 'greeting' ? 'Olá! Como posso te ajudar hoje?' : ''),
+        directMemoryResponse: directMemoryResponse || directConversationResponse || (intent === 'greeting' ? 'Olá! Como posso te ajudar hoje?' : ''),
         stepResults: actions.map(action => ({
           ok: true,
-          summary: directMemoryResponse || '',
+          summary: directMemoryResponse || directConversationResponse || '',
           action,
         })),
       });
@@ -392,7 +410,7 @@ class QueryEngineAuthority {
 
     if (runtimeMode.primary.owner === 'python') {
       return {
-        response: directMemoryResponse || '',
+        response: directMemoryResponse || directConversationResponse || '',
         execution_request: {
           task_id: taskId,
           run_id: runId,
