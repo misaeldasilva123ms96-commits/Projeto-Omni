@@ -10,7 +10,9 @@
     "test:python": "python -m unittest discover -s tests -p test_*.py",
     "test": "npm run test:node && npm run test:python",
     "test:queryengine": "node tests/runtime/queryengine.smoke.test.mjs",
-    "check:queryengine": "node scripts/check-queryengine.mjs"
+    "check:queryengine": "node scripts/check-queryengine.mjs",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
   "keywords": [
     "ai",
@@ -22,5 +24,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.101.1",
     "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.81.1"
   }
 }
