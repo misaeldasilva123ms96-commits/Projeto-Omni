@@ -134,9 +134,10 @@ struct PrSummariesResponse {
 async fn main() -> Result<(), AppError> {
     init_tracing();
 
-    let host = env::var("APP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = env::var("APP_PORT")
+    let host = env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = env::var("PORT")
         .ok()
+        .or_else(|| env::var("APP_PORT").ok())
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(3001);
 
@@ -189,9 +190,17 @@ async fn main() -> Result<(), AppError> {
         .await
         .map_err(|err| AppError::Internal(format!("failed to bind listener: {err}")))?;
 
-    info!("API listening on http://{}", listener.local_addr().map_err(|err| {
+    let bound_address = listener.local_addr().map_err(|err| {
         AppError::Internal(format!("failed to read listener address: {err}"))
-    })?);
+    })?;
+
+    info!(
+        "API listening on http://{} (host={}, port={}, render_port_env={})",
+        bound_address,
+        host,
+        port,
+        env::var("PORT").unwrap_or_else(|_| "unset".to_string())
+    );
 
     axum::serve(listener, app)
         .await
