@@ -7,6 +7,7 @@ import { Sidebar } from '../components/Sidebar'
 import { StatusPanel } from '../components/StatusPanel'
 import { fetchHealth, sendOmniMessage } from '../lib/api'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
+import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
 import type {
   ChatApiResponse,
   ChatMessage,
@@ -15,6 +16,7 @@ import type {
   ConversationSummary,
   HealthResponse,
   RuntimeMetadata,
+  SyncChatStatus,
 } from '../types'
 
 type View = 'chat' | 'dashboard'
@@ -137,6 +139,12 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }, [])
 
   useEffect(() => {
+    void bootstrapOmniUser().catch((bootstrapError) => {
+      console.warn('Unable to bootstrap Omni user state in Supabase.', bootstrapError)
+    })
+  }, [])
+
+  useEffect(() => {
     const snapshot: StoredChatState = {
       input,
       lastMetadata,
@@ -147,6 +155,34 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [input, lastMetadata, messages, requestState, sessionId])
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return
+    }
+
+    const latestMessage = messages.at(-1)
+    const status: SyncChatStatus =
+      requestState === 'error'
+        ? 'failed'
+        : latestMessage?.requestState === 'completed'
+          ? 'completed'
+          : requestState === 'loading'
+            ? 'active'
+            : 'idle'
+
+    void syncChatSessionToSupabase({
+      externalSessionId: sessionId,
+      messages,
+      metadata: lastMetadata,
+      mode,
+      status,
+      summary: lastMetadata?.source,
+      title: getConversationTitle(messages),
+    }).catch((syncError) => {
+      console.warn('Unable to sync chat session to Supabase.', syncError)
+    })
+  }, [lastMetadata, messages, mode, requestState, sessionId])
 
   useEffect(() => {
     if (!apiReady) {
