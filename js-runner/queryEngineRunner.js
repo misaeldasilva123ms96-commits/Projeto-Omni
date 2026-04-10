@@ -211,7 +211,7 @@ async function runAgentLoop(runner, payload) {
   return '';
 }
 
-async function tryRunExistingQueryEngine(payload) {
+async function tryRunExistingQueryEngineDetailed(payload) {
   const candidateErrors = [];
   let attemptedTypescriptCandidate = false;
   const attemptedCandidates = [];
@@ -263,6 +263,11 @@ async function tryRunExistingQueryEngine(payload) {
     attemptedTypescriptCandidate,
     candidateErrors,
   };
+}
+
+async function tryRunExistingQueryEngine(payload) {
+  const execution = await tryRunExistingQueryEngineDetailed(payload);
+  return execution.result || '';
 }
 
 function normalizeRunnerResult(result) {
@@ -317,7 +322,7 @@ async function main() {
     cwd: getWorkspaceRoot(),
   };
 
-  const execution = await tryRunExistingQueryEngine(payload);
+  const execution = await tryRunExistingQueryEngineDetailed(payload);
   if (!execution.result) {
     emitRunnerError('module_resolution_error', 'No usable QueryEngine runner module was loaded.', {
       attempted_candidates: execution.attemptedCandidates,
@@ -340,6 +345,7 @@ module.exports = {
   loadRunnerSchema,
   main,
   safeParsePayload,
+  tryRunExistingQueryEngineDetailed,
   tryRunExistingQueryEngine,
   validatePayload,
 };
