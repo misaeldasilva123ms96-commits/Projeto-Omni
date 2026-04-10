@@ -58,6 +58,7 @@ create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.chat_sessions (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
+  external_message_id text unique,
   role text not null,
   content text not null,
   content_json jsonb,
@@ -132,7 +133,7 @@ create table if not exists public.audit_events (
 create table if not exists public.runtime_memory_embeddings (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users (id) on delete set null,
-  session_external_id text not null,
+  session_id text not null,
   path text not null default '',
   preview text not null default '',
   source text not null default 'runtime',
@@ -165,6 +166,9 @@ create index if not exists chat_messages_session_created_idx
 create index if not exists chat_messages_user_created_idx
   on public.chat_messages (user_id, created_at);
 
+create index if not exists chat_messages_external_message_idx
+  on public.chat_messages (external_message_id);
+
 create index if not exists memory_entries_user_created_idx
   on public.memory_entries (user_id, created_at desc);
 
@@ -196,7 +200,7 @@ create index if not exists audit_events_type_created_idx
   on public.audit_events (event_type, created_at desc);
 
 create index if not exists runtime_memory_embeddings_session_updated_idx
-  on public.runtime_memory_embeddings (session_external_id, updated_at desc);
+  on public.runtime_memory_embeddings (session_id, updated_at desc);
 
 create index if not exists runtime_memory_embeddings_user_updated_idx
   on public.runtime_memory_embeddings (user_id, updated_at desc);
@@ -232,8 +236,8 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
+drop trigger if exists on_auth_user_created_omni on auth.users;
+create trigger on_auth_user_created_omni
 after insert on auth.users
 for each row execute procedure public.handle_new_user();
 

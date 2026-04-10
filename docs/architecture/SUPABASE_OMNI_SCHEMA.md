@@ -16,7 +16,8 @@ The schema covers:
 
 Important compatibility note:
 
-- The current Node runtime writes semantic memory into `runtime_memory_embeddings` using a string session identifier. The migration therefore uses `session_external_id text` instead of a foreign key to `chat_sessions.id`.
+- The current Node runtime writes semantic memory into `runtime_memory_embeddings` using a string session identifier in a field named `session_id`. The migration preserves that naming for compatibility instead of forcing a foreign key to `chat_sessions.id`.
+- `chat_messages` now includes `external_message_id` so the frontend can upsert message sync safely without duplicating rows.
 - The current Node runtime still reads `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY`. Frontend already uses `VITE_SUPABASE_ANON_KEY`, but the runtime-side Supabase client should be updated in a follow-up change to align on the canonical key name.
 
 Recommended application path:
