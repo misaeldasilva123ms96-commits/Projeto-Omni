@@ -43,7 +43,14 @@ RUN if [ -f backend/python/requirements.txt ] \
 
 COPY backend/python ./backend/python
 COPY backend/rust ./backend/rust
+COPY core ./core
+COPY configs ./configs
+COPY features ./features
 COPY js-runner ./js-runner
+COPY observability ./observability
+COPY platform ./platform
+COPY runtime ./runtime
+COPY storage ./storage
 COPY src ./src
 COPY contract ./contract
 COPY --from=rust-builder /build/backend/rust/target/release/omini-api /usr/local/bin/omini-api

@@ -211,10 +211,18 @@ async function runAgentLoop(runner, payload) {
   return '';
 }
 
-async function tryRunExistingQueryEngine(payload) {
+async function tryRunExistingQueryEngineDetailed(payload) {
+  const candidateErrors = [];
+  let attemptedTypescriptCandidate = false;
+  const attemptedCandidates = [];
+
   for (const candidate of getQueryEngineCandidates()) {
     if (!fs.existsSync(candidate)) {
       continue;
+    }
+    attemptedCandidates.push(candidate);
+    if (candidate.endsWith('.ts')) {
+      attemptedTypescriptCandidate = true;
     }
 
     try {
@@ -230,20 +238,73 @@ async function tryRunExistingQueryEngine(payload) {
 
       const result = await runAgentLoop(runner, payload);
       if (result) {
-        return result;
+        return {
+          result,
+          selectedCandidate: candidate,
+          attemptedCandidates,
+          attemptedTypescriptCandidate,
+          candidateErrors,
+        };
       }
-    } catch {
+    } catch (error) {
+      candidateErrors.push({
+        candidate,
+        error_name: error && error.name ? error.name : 'Error',
+        error_message: error && error.message ? String(error.message) : String(error || ''),
+      });
       continue;
     }
   }
 
-  return '';
+  return {
+    result: '',
+    selectedCandidate: '',
+    attemptedCandidates,
+    attemptedTypescriptCandidate,
+    candidateErrors,
+  };
+}
+
+async function tryRunExistingQueryEngine(payload) {
+  const execution = await tryRunExistingQueryEngineDetailed(payload);
+  return execution.result || '';
+}
+
+function normalizeRunnerResult(result) {
+  if (typeof result === 'string') {
+    return { response: result };
+  }
+
+  if (result && typeof result === 'object') {
+    if (result.execution_request) {
+      return result;
+    }
+    if (typeof result.response === 'string') {
+      return { response: result.response };
+    }
+    if (typeof result.finalAnswer === 'string') {
+      return { response: result.finalAnswer };
+    }
+  }
+
+  return { response: '' };
+}
+
+function emitRunnerError(kind, message, details = {}) {
+  process.stderr.write(
+    JSON.stringify({
+      kind,
+      message,
+      details,
+    }),
+  );
+  process.exit(1);
 }
 
 async function main() {
   const parsed = safeParsePayload(getRawInput());
   if (!parsed.message) {
-    process.stdout.write('');
+    process.stdout.write(JSON.stringify({ response: '' }));
     return;
   }
 
@@ -261,8 +322,18 @@ async function main() {
     cwd: getWorkspaceRoot(),
   };
 
-  const response = await tryRunExistingQueryEngine(payload);
-  process.stdout.write(response || '');
+  const execution = await tryRunExistingQueryEngineDetailed(payload);
+  if (!execution.result) {
+    emitRunnerError('module_resolution_error', 'No usable QueryEngine runner module was loaded.', {
+      attempted_candidates: execution.attemptedCandidates,
+      selected_candidate: execution.selectedCandidate,
+      attempted_typescript_candidate: execution.attemptedTypescriptCandidate,
+      candidate_errors: execution.candidateErrors.slice(0, 6),
+      cwd: payload.cwd,
+    });
+  }
+
+  process.stdout.write(JSON.stringify(normalizeRunnerResult(execution.result)));
 }
 
 module.exports = {
@@ -274,12 +345,16 @@ module.exports = {
   loadRunnerSchema,
   main,
   safeParsePayload,
+  tryRunExistingQueryEngineDetailed,
   tryRunExistingQueryEngine,
   validatePayload,
 };
 
 if (require.main === module) {
-  main().catch(() => {
-    process.stdout.write('');
+  main().catch((error) => {
+    emitRunnerError('subprocess_exception', 'Unhandled Node runner exception.', {
+      error_name: error && error.name ? error.name : 'Error',
+      error_message: error && error.message ? String(error.message) : String(error || ''),
+    });
   });
 }
