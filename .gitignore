@@ -56,3 +56,9 @@ Thumbs.db
 # Local tooling caches
 vendor/openclaude-upstream/
 vendor/**/openclaude-vscode-*.vsix
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
