@@ -31,6 +31,7 @@ from brain.memory.store import (
 from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
+from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
@@ -196,6 +197,7 @@ class BrainOrchestrator:
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
             policy=self._trusted_execution_policy(),
         )
+        self.continuation_executor = ContinuationExecutor(self.paths.root)
         self.planning_executor = PlanningExecutor(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
@@ -2099,6 +2101,7 @@ class BrainOrchestrator:
         )
         executed_steps = 0
         branch_action_ids: set[str] = set()
+        continuation_stop_requested = False
         if isinstance(branch_plan, dict) and isinstance(branch_state, dict) and branch_state.get("branches"):
             branch_results, branch_action_ids, branch_state, graph_state, tree_state = self._execute_branch_plan(
                 session_id=session_id,
@@ -2152,7 +2155,20 @@ class BrainOrchestrator:
                     action=tracked_action,
                     result=branch_result,
                 )
-            if branch_results and not all(item.get("ok") for item in branch_results):
+                operational_plan, continuation_payload, should_stop = self._handle_continuation_decision(
+                    operational_plan=operational_plan,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    action=tracked_action if isinstance(tracked_action, dict) else {},
+                    result=branch_result,
+                )
+                if continuation_payload is not None:
+                    branch_result["continuation_decision"] = continuation_payload
+                if should_stop:
+                    continuation_stop_requested = True
+                    break
+            if continuation_stop_requested or (branch_results and not all(item.get("ok") for item in branch_results)):
                 operational_plan = self.planning_executor.finalize_plan(
                     operational_plan,
                     status_hint="blocked",
@@ -2161,6 +2177,7 @@ class BrainOrchestrator:
                 return step_results
         if plan_kind == "graph" and isinstance(graph_state, dict):
             while executed_steps < max_steps:
+                batch_stop_requested = False
                 ready_parallel, ready_sequential = self._graph_ready_groups(graph_state)
                 if not ready_parallel and not ready_sequential:
                     break
@@ -2212,6 +2229,19 @@ class BrainOrchestrator:
                             action=action,
                             result=result,
                         )
+                        operational_plan, continuation_payload, should_stop = self._handle_continuation_decision(
+                            operational_plan=operational_plan,
+                            session_id=session_id,
+                            task_id=task_id,
+                            run_id=run_id,
+                            action=action,
+                            result=result,
+                        )
+                        if continuation_payload is not None:
+                            result["continuation_decision"] = continuation_payload
+                        if should_stop:
+                            batch_stop_requested = True
+                            break
                     graph_state = self._mark_graph_outcome(graph_state, action, result)
                     tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
                     self._append_runtime_execution_logs(
@@ -2256,7 +2286,7 @@ class BrainOrchestrator:
                     repository_analysis=repository_analysis,
                     engineering_data=engineering_data,
                 )
-                if step_results and not step_results[-1].get("ok"):
+                if batch_stop_requested or (step_results and not step_results[-1].get("ok")):
                     break
         else:
             for index, action in enumerate(actions[start_index:max_steps], start=start_index):
@@ -2285,6 +2315,16 @@ class BrainOrchestrator:
                     action=action,
                     result=result,
                 )
+                operational_plan, continuation_payload, should_stop = self._handle_continuation_decision(
+                    operational_plan=operational_plan,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    action=action,
+                    result=result,
+                )
+                if continuation_payload is not None:
+                    result["continuation_decision"] = continuation_payload
                 tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
 
                 self._append_runtime_execution_logs(
@@ -2327,7 +2367,7 @@ class BrainOrchestrator:
                     engineering_data=engineering_data,
                 )
 
-                if not result.get("ok"):
+                if should_stop or not result.get("ok"):
                     break
 
         engineering_data = self._finalize_engineering_data(
@@ -2488,6 +2528,40 @@ class BrainOrchestrator:
                 payload=operational_summary.as_dict(),
             )
         return step_results
+
+    def _handle_continuation_decision(
+        self,
+        *,
+        operational_plan: Any,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        action: dict[str, Any],
+        result: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any] | None, bool]:
+        evaluation, decision, updated_plan = self.continuation_executor.evaluate_and_decide(
+            plan=operational_plan,
+            result=result,
+        )
+        if decision is None:
+            return updated_plan, None, False
+        self._append_runtime_event(
+            event_type="runtime.continuation.decision",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "evaluation": evaluation.as_dict() if evaluation is not None else None,
+                "decision": decision.as_dict(),
+            },
+        )
+        should_stop = decision.decision_type in {
+            ContinuationDecisionType.PAUSE_PLAN,
+            ContinuationDecisionType.REBUILD_PLAN,
+            ContinuationDecisionType.ESCALATE_FAILURE,
+            ContinuationDecisionType.COMPLETE_PLAN,
+        }
+        return updated_plan, decision.as_dict(), should_stop
 
     @staticmethod
     def _clone_plan_graph(plan_graph: dict[str, Any] | None) -> dict[str, Any] | None:
