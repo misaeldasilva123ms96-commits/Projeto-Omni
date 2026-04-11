@@ -36,6 +36,8 @@ from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.pr_summary_generator import build_pr_summary
+from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
+from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
 from brain.runtime.session_store import SessionStore
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
@@ -193,6 +195,10 @@ class BrainOrchestrator:
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
             policy=self._trusted_execution_policy(),
         )
+        self.self_repair_loop = SelfRepairLoop(
+            workspace_root=self.paths.root,
+            policy=self._self_repair_policy(),
+        )
 
     def _trusted_execution_policy(self) -> ExecutionPolicy:
         allow_high_risk = str(os.getenv("OMINI_ALLOW_HIGH_RISK", "true")).lower() != "false"
@@ -204,6 +210,9 @@ class BrainOrchestrator:
             allow_critical=allow_critical,
             require_session_for_mutation=True,
         )
+
+    def _self_repair_policy(self):
+        return RepairPolicyEngine.from_env()
 
     def _build_execution_intent(
         self,
@@ -2747,6 +2756,9 @@ class BrainOrchestrator:
         final_result: dict[str, Any] | None = None
         correction_events: list[dict[str, Any]] = []
         current_action = dict(action)
+        current_action["session_id"] = session_id
+        current_action["task_id"] = task_id
+        current_action["run_id"] = run_id
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
 
         if policy_decision.get("decision") == "stop":
@@ -2796,6 +2808,55 @@ class BrainOrchestrator:
                 ),
             )
             final_result = trusted_execution.result
+            if not final_result.get("ok") and self.self_repair_loop.executor.policy.enable_self_repair:
+                recurrence_count = self._count_failure_recurrence(
+                    action=current_action,
+                    result=final_result,
+                    step_results=step_results,
+                    attempt_number=attempt_number,
+                )
+                self_repair_outcome = self.self_repair_loop.inspect_failure(
+                    action=current_action,
+                    result=final_result,
+                    trusted_execution=trusted_execution,
+                    retry_count=max(0, attempt_number - 1),
+                    recurrence_count=recurrence_count,
+                )
+                self._append_runtime_event(
+                    event_type="runtime.self_repair.receipt",
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    payload={
+                        "selected_tool": current_action.get("selected_tool"),
+                        "selected_agent": current_action.get("selected_agent"),
+                        "self_repair": self_repair_outcome.as_dict(),
+                    },
+                )
+                if self_repair_outcome.status == RepairStatus.PROMOTED:
+                    trusted_execution = self.trusted_executor.execute(
+                        intent=self._build_execution_intent(
+                            action=current_action,
+                            session_id=session_id,
+                            task_id=task_id,
+                            run_id=run_id,
+                        ),
+                        current_mode=self.last_runtime_mode,
+                        retry_count=max(0, attempt_number - 1),
+                        execute_callback=lambda current_action=current_action: execute_engineering_action(
+                            project_root=self.paths.root,
+                            action=current_action,
+                            timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+                        )
+                        if supports_engineering_tool(str(current_action.get("selected_tool", "")))
+                        else execute_action(
+                            self.paths.root,
+                            current_action,
+                            timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+                        ),
+                    )
+                    final_result = trusted_execution.result
+                final_result = self._attach_self_repair_metadata(final_result, self_repair_outcome)
             self._append_runtime_event(
                 event_type="runtime.trusted_execution.receipt",
                 session_id=session_id,
@@ -2855,6 +2916,36 @@ class BrainOrchestrator:
         }
         result["correction_events"] = correction_events
         return result
+
+    @staticmethod
+    def _attach_self_repair_metadata(result: dict[str, Any], self_repair_outcome: Any | None) -> dict[str, Any]:
+        if self_repair_outcome is None:
+            return result
+        enriched = dict(result)
+        enriched["self_repair"] = self_repair_outcome.as_dict()
+        enriched["repair_receipt"] = self_repair_outcome.receipt.as_dict()
+        return enriched
+
+    @staticmethod
+    def _count_failure_recurrence(
+        *,
+        action: dict[str, Any],
+        result: dict[str, Any],
+        step_results: list[dict[str, Any]],
+        attempt_number: int,
+    ) -> int:
+        error_payload = result.get("error_payload", {}) if isinstance(result.get("error_payload"), dict) else {}
+        kind = str(error_payload.get("kind", "")).strip()
+        tool = str(action.get("selected_tool", "")).strip()
+        recurrence = attempt_number
+        for prior in step_results:
+            if not isinstance(prior, dict):
+                continue
+            prior_action = prior.get("action", {}) if isinstance(prior.get("action"), dict) else {}
+            prior_error = prior.get("error_payload", {}) if isinstance(prior.get("error_payload"), dict) else {}
+            if str(prior_action.get("selected_tool", "")).strip() == tool and str(prior_error.get("kind", "")).strip() == kind:
+                recurrence += 1
+        return recurrence
 
     def _critic_outcome_review(
         self,
