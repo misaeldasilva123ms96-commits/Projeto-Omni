@@ -35,6 +35,7 @@ from brain.runtime.continuation import ContinuationDecisionType, ContinuationExe
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
+from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.learning import LearningExecutor
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.milestone_manager import MilestoneManager
@@ -199,6 +200,7 @@ class BrainOrchestrator:
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
             policy=self._trusted_execution_policy(),
         )
+        self.evolution_executor = EvolutionExecutor(self.paths.root)
         self.learning_executor = LearningExecutor(self.paths.root)
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
         self.continuation_executor = ContinuationExecutor(self.paths.root)
@@ -2582,6 +2584,12 @@ class BrainOrchestrator:
             engineering_tool=supports_engineering_tool(str(action.get("selected_tool", ""))),
             primary_result=result,
         )
+        evolution_update = self.evolution_executor.evaluate(
+            learning_update=None,
+            orchestration_update=orchestration_update,
+            result=result,
+            continuation_payload=decision.as_dict(),
+        )
         learning_update = self.learning_executor.ingest_runtime_artifacts(
             action=action,
             result=result,
@@ -2600,6 +2608,7 @@ class BrainOrchestrator:
                 "evaluation": evaluation.as_dict() if evaluation is not None else None,
                 "decision": decision.as_dict(),
                 "orchestration": orchestration_update,
+                "evolution": evolution_update,
                 "learning": learning_update,
             },
         )
@@ -2611,6 +2620,7 @@ class BrainOrchestrator:
         }
         decision_payload = decision.as_dict()
         decision_payload["orchestration"] = orchestration_update
+        decision_payload["evolution"] = evolution_update
         return updated_plan, decision_payload, should_stop
 
     @staticmethod
@@ -3173,6 +3183,20 @@ class BrainOrchestrator:
                 task_id=task_id,
                 run_id=run_id,
                 payload=learning_update,
+            )
+        evolution_update = self.evolution_executor.evaluate(
+            learning_update=learning_update,
+            orchestration_update=pre_execution_orchestration,
+            result=result,
+        )
+        result["evolution"] = evolution_update
+        if evolution_update.get("opportunity") or evolution_update.get("proposal"):
+            self._append_runtime_event(
+                event_type="runtime.evolution.evaluated",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=evolution_update,
             )
         return result
 
