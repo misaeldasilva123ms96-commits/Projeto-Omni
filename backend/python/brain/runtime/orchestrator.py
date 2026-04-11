@@ -36,6 +36,7 @@ from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel,
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.evolution import EvolutionExecutor
+from brain.runtime.goals import GoalContext
 from brain.runtime.learning import LearningExecutor
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.milestone_manager import MilestoneManager
@@ -2561,6 +2562,7 @@ class BrainOrchestrator:
             plan=operational_plan,
             result=result,
         )
+        goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
         evaluation, decision, updated_plan = self.continuation_executor.evaluate_and_decide(
             plan=operational_plan,
             result=result,
@@ -2578,6 +2580,7 @@ class BrainOrchestrator:
             plan=updated_plan,
             checkpoint=latest_checkpoint,
             summary=latest_summary,
+            goal_context=goal_context,
             continuation_decision=decision.as_dict(),
             step_results=[result],
             learning_signals=[signal.as_dict() for signal in continuation_signals],
@@ -2589,6 +2592,7 @@ class BrainOrchestrator:
             orchestration_update=orchestration_update,
             result=result,
             continuation_payload=decision.as_dict(),
+            goal=self.planning_executor.goal_for_plan(updated_plan),
         )
         learning_update = self.learning_executor.ingest_runtime_artifacts(
             action=action,
@@ -2984,9 +2988,12 @@ class BrainOrchestrator:
         current_action["session_id"] = session_id
         current_action["task_id"] = task_id
         current_action["run_id"] = run_id
+        if operational_plan is not None and getattr(operational_plan, "goal_id", None):
+            current_action["goal_id"] = operational_plan.goal_id
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
         latest_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
         latest_summary = self.planning_executor.store.load_summary(operational_plan.plan_id) if operational_plan else None
+        goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
         planning_signals = [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_planning(actions=[current_action])]
         pre_execution_orchestration = self.orchestration_executor.orchestrate(
             session_id=session_id,
@@ -2996,6 +3003,7 @@ class BrainOrchestrator:
             plan=operational_plan,
             checkpoint=latest_checkpoint,
             summary=latest_summary,
+            goal_context=goal_context,
             step_results=step_results,
             learning_signals=planning_signals,
             engineering_tool=supports_engineering_tool(str(current_action.get("selected_tool", ""))),
@@ -3188,6 +3196,7 @@ class BrainOrchestrator:
             learning_update=learning_update,
             orchestration_update=pre_execution_orchestration,
             result=result,
+            goal=self.planning_executor.goal_for_plan(operational_plan),
         )
         result["evolution"] = evolution_update
         if evolution_update.get("opportunity") or evolution_update.get("proposal"):

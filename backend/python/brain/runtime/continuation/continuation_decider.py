@@ -4,6 +4,7 @@ from typing import Any
 
 from brain.runtime.planning import TaskPlan
 from brain.runtime.planning.progress_tracker import ProgressTracker
+from brain.runtime.goals import GoalEvaluationResult
 
 from .continuation_policy import DeterministicContinuationPolicy
 from .models import ContinuationDecision, ContinuationDecisionType, ContinuationPolicy, PlanEvaluation, PlanHealth
@@ -43,6 +44,7 @@ class ContinuationDecider:
         evaluation: PlanEvaluation,
         policy: ContinuationPolicy,
         checkpoint_id: str | None,
+        goal_evaluation: GoalEvaluationResult | None = None,
         result: dict[str, Any] | None = None,
         advisory_signals: list[Any] | None = None,
     ) -> ContinuationDecision:
@@ -50,6 +52,42 @@ class ContinuationDecider:
         failure_kind = self._failure_kind(result)
         replan_count = int(plan.metadata.get("continuation_replan_count", 0) or 0)
         retry_count = current_step.retry_count if current_step is not None else 0
+
+        if goal_evaluation is not None and goal_evaluation.is_achieved:
+            return self._build_decision(
+                plan=plan,
+                step_id=plan.current_step_id,
+                decision_type=ContinuationDecisionType.COMPLETE_PLAN,
+                reason_code="goal_achieved",
+                reason_summary="The active runtime goal has been achieved.",
+                confidence_score=self._confidence_with_signals(0.99, ContinuationDecisionType.COMPLETE_PLAN, advisory_signals),
+                recommended_action="Complete the plan because the active goal criteria are satisfied.",
+                checkpoint_id=checkpoint_id,
+            )
+
+        if goal_evaluation is not None and goal_evaluation.should_fail:
+            return self._build_decision(
+                plan=plan,
+                step_id=plan.current_step_id,
+                decision_type=ContinuationDecisionType.ESCALATE_FAILURE,
+                reason_code="goal_blocked",
+                reason_summary="Active goal constraints or failure tolerances no longer allow safe continuation.",
+                confidence_score=self._confidence_with_signals(0.95, ContinuationDecisionType.ESCALATE_FAILURE, advisory_signals),
+                recommended_action="Escalate because the active goal boundaries have been violated.",
+                checkpoint_id=checkpoint_id,
+            )
+
+        if goal_evaluation is not None and goal_evaluation.should_stop:
+            return self._build_decision(
+                plan=plan,
+                step_id=plan.current_step_id,
+                decision_type=ContinuationDecisionType.PAUSE_PLAN,
+                reason_code="goal_stop_condition",
+                reason_summary="An active goal stop condition was triggered, so the plan should pause safely.",
+                confidence_score=self._confidence_with_signals(0.91, ContinuationDecisionType.PAUSE_PLAN, advisory_signals),
+                recommended_action="Pause the plan and preserve resumability because a goal stop condition fired.",
+                checkpoint_id=checkpoint_id,
+            )
 
         if evaluation.plan_health == PlanHealth.COMPLETED:
             return self._build_decision(
@@ -185,4 +223,7 @@ class ContinuationDecider:
             linked_execution_receipt_ids=list(plan.linked_execution_receipt_ids[-3:]),
             linked_repair_receipt_ids=list(plan.linked_repair_receipt_ids[-3:]),
             linked_checkpoint_id=checkpoint_id,
+            metadata={
+                "goal_id": plan.goal_id,
+            },
         )

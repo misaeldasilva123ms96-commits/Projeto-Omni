@@ -20,6 +20,8 @@ class RuntimeArtifactIngestor:
         artifacts: list[tuple[LearningSourceType, dict[str, Any], dict[str, Any]]] = []
         context = {
             "action": action or {},
+            "goal_id": getattr(plan, "goal_id", None) or ((action or {}).get("goal_id") if isinstance(action, dict) else None),
+            "goal_description": getattr(plan, "metadata", {}).get("goal_description", "") if plan is not None else "",
             "plan_id": getattr(plan, "plan_id", None),
             "task_id": getattr(plan, "task_id", None),
             "session_id": getattr(plan, "session_id", None),
