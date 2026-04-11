@@ -35,6 +35,7 @@ from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel,
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.milestone_manager import MilestoneManager
+from brain.runtime.planning import PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
 from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
@@ -195,6 +196,7 @@ class BrainOrchestrator:
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
             policy=self._trusted_execution_policy(),
         )
+        self.planning_executor = PlanningExecutor(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -1674,6 +1676,32 @@ class BrainOrchestrator:
             "verification_summary": {},
             "pr_summary": {},
         }
+        planning_decision, operational_plan = self.planning_executor.ensure_plan(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            message=message,
+            actions=actions,
+            plan_kind=plan_kind,
+            branch_plan=branch_plan,
+            start_index=start_index,
+            engineering_workflow=engineering_workflow,
+        )
+        action_lookup = {
+            str(action.get("step_id", "")).strip(): action
+            for action in actions
+            if isinstance(action, dict) and str(action.get("step_id", "")).strip()
+        }
+        self._append_runtime_event(
+            event_type="runtime.planning.classification",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload={
+                "classification": planning_decision.as_dict(),
+                "plan_id": operational_plan.plan_id if operational_plan else None,
+            },
+        )
         control_metadata = self._build_control_metadata(
             message=message,
             actions=actions,
@@ -1803,6 +1831,11 @@ class BrainOrchestrator:
                 supervision={"control_layer": blocked["evaluation"]["control_layer"]},
                 repository_analysis=repository_analysis,
                 engineering_data=engineering_data,
+            )
+            operational_plan = self.planning_executor.finalize_plan(
+                operational_plan,
+                status_hint="blocked",
+                step_results=step_results,
             )
             return step_results
         if control_result["mode_transition"] is not None:
@@ -2029,6 +2062,11 @@ class BrainOrchestrator:
                     repository_analysis=repository_analysis,
                     engineering_data=engineering_data,
                 )
+                operational_plan = self.planning_executor.finalize_plan(
+                    operational_plan,
+                    status_hint="blocked",
+                    step_results=step_results,
+                )
                 return step_results
         engineering_data = self._finalize_engineering_data(
             message=message,
@@ -2105,7 +2143,21 @@ class BrainOrchestrator:
                 repository_analysis=repository_analysis,
                 engineering_data=engineering_data,
             )
+            for branch_result in branch_results:
+                tracked_action = branch_result.get("action", {}) if isinstance(branch_result, dict) else {}
+                if not isinstance(tracked_action, dict):
+                    tracked_action = action_lookup.get(str(branch_result.get("step_id", "")), {})
+                operational_plan = self.planning_executor.record_step_result(
+                    operational_plan,
+                    action=tracked_action,
+                    result=branch_result,
+                )
             if branch_results and not all(item.get("ok") for item in branch_results):
+                operational_plan = self.planning_executor.finalize_plan(
+                    operational_plan,
+                    status_hint="blocked",
+                    step_results=step_results,
+                )
                 return step_results
         if plan_kind == "graph" and isinstance(graph_state, dict):
             while executed_steps < max_steps:
@@ -2134,6 +2186,12 @@ class BrainOrchestrator:
                         },
                     )
 
+                for action in batch_actions:
+                    if isinstance(action, dict):
+                        operational_plan = self.planning_executor.record_step_started(
+                            operational_plan,
+                            action=action,
+                        )
                 batch_results = self._execute_action_batch(
                     actions=[action for action in batch_actions if isinstance(action, dict)],
                     step_results=step_results,
@@ -2148,6 +2206,12 @@ class BrainOrchestrator:
                 for action, result in zip(batch_actions, batch_results):
                     executed_steps += 1
                     step_results.append(result)
+                    if isinstance(action, dict):
+                        operational_plan = self.planning_executor.record_step_result(
+                            operational_plan,
+                            action=action,
+                            result=result,
+                        )
                     graph_state = self._mark_graph_outcome(graph_state, action, result)
                     tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
                     self._append_runtime_execution_logs(
@@ -2201,6 +2265,10 @@ class BrainOrchestrator:
                 if str(action.get("step_id", "")) in branch_action_ids:
                     continue
 
+                operational_plan = self.planning_executor.record_step_started(
+                    operational_plan,
+                    action=action,
+                )
                 result = self._execute_single_action(
                     action=action,
                     step_results=step_results,
@@ -2212,6 +2280,11 @@ class BrainOrchestrator:
                 )
                 executed_steps += 1
                 step_results.append(result)
+                operational_plan = self.planning_executor.record_step_result(
+                    operational_plan,
+                    action=action,
+                    result=result,
+                )
                 tree_state = self._mark_tree_outcome(tree_state, action, result, retries=len(result.get("correction_events", [])))
 
                 self._append_runtime_execution_logs(
@@ -2400,6 +2473,20 @@ class BrainOrchestrator:
             repository_analysis=repository_analysis,
             engineering_data=engineering_data,
         )
+        operational_plan = self.planning_executor.finalize_plan(
+            operational_plan,
+            status_hint="completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
+            step_results=step_results,
+        )
+        operational_summary = self.planning_executor.summary_for_plan(operational_plan)
+        if operational_summary is not None:
+            self._append_runtime_event(
+                event_type="runtime.planning.summary",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=operational_summary.as_dict(),
+            )
         return step_results
 
     @staticmethod
@@ -3686,6 +3773,30 @@ class BrainOrchestrator:
                 "error": reason,
                 "step_results": [],
             }
+
+        operational_plan = self.planning_executor.store.find_plan(
+            session_id=str(checkpoint.get("session_id", DEFAULT_SESSION_ID)),
+            task_id=str(checkpoint.get("task_id", "")),
+            run_id=run_id,
+        )
+        resume_decision = self.planning_executor.resume_decision(operational_plan)
+        if resume_decision is not None:
+            self._append_runtime_event(
+                event_type="runtime.planning.resume_decision",
+                session_id=str(checkpoint.get("session_id", DEFAULT_SESSION_ID)),
+                task_id=str(checkpoint.get("task_id", "")),
+                run_id=run_id,
+                payload=resume_decision.as_dict(),
+            )
+            if resume_decision.decision.value == "manual_intervention_required":
+                return {
+                    "status": "blocked",
+                    "response": "",
+                    "run_id": run_id,
+                    "task_id": checkpoint.get("task_id"),
+                    "error": resume_decision.reason_code,
+                    "step_results": [],
+                }
 
         remaining_actions = checkpoint.get("remaining_actions", [])
         if not isinstance(remaining_actions, list) or not remaining_actions:
