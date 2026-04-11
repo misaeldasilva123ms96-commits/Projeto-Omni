@@ -1,5 +1,7 @@
 export type ChatRole = 'user' | 'assistant' | 'system'
 
+export type SyncChatStatus = 'active' | 'idle' | 'completed' | 'failed'
+
 export type ChatMode = 'chat' | 'pesquisa' | 'codigo' | 'agente'
 
 export type ChatUsage = {

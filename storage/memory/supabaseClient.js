@@ -8,7 +8,9 @@ function readSupabaseEnv(name) {
 }
 
 const supabaseUrl = readSupabaseEnv('VITE_SUPABASE_URL');
-const supabaseKey = readSupabaseEnv('VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY');
+const supabaseKey =
+  readSupabaseEnv('VITE_SUPABASE_ANON_KEY')
+  || readSupabaseEnv('VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY');
 
 const supabase = supabaseUrl && supabaseKey
   ? createClient(supabaseUrl, supabaseKey, {
