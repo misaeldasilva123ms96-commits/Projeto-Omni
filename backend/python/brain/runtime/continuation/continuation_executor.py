@@ -73,6 +73,7 @@ class ContinuationExecutor:
         plan: TaskPlan | None,
         result: dict[str, Any] | None = None,
         advisory_signals: list[Any] | None = None,
+        coordination_trace: dict[str, Any] | None = None,
     ) -> tuple[PlanEvaluation | None, ContinuationDecision | None, TaskPlan | None]:
         if plan is None:
             return None, None, None
@@ -106,6 +107,7 @@ class ContinuationExecutor:
             goal_evaluation=goal_evaluation,
             result=result,
             advisory_signals=advisory_signals,
+            coordination_trace=coordination_trace,
         )
         updated_plan = self._apply_decision(
             plan=plan,
@@ -131,6 +133,7 @@ class ContinuationExecutor:
                     "plan_id": plan.plan_id,
                     "task_id": plan.task_id,
                     "goal_id": plan.goal_id,
+                    "coordination_trace_id": str((decision.metadata or {}).get("coordination_trace_id", "")).strip(),
                 },
             )
             self.memory_facade.update_progress(evaluation.progress_ratio)

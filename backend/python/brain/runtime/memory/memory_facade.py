@@ -102,10 +102,14 @@ class MemoryFacade:
         event_type: str = "goal_resolution",
         evidence_ids: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        coordination_trace_id: str | None = None,
         subgoal_id: str | None = None,
         duration_seconds: float = 0.0,
     ):
         snapshot = self.working.snapshot()
+        merged_metadata = dict(metadata or {})
+        if coordination_trace_id:
+            merged_metadata["coordination_trace_id"] = coordination_trace_id
         episode = self.episode_builder.build(
             working_state=snapshot,
             goal_id=snapshot.goal_id,
@@ -117,7 +121,7 @@ class MemoryFacade:
             evidence_ids=evidence_ids,
             subgoal_id=subgoal_id,
             duration_seconds=duration_seconds,
-            metadata=metadata,
+            metadata=merged_metadata,
         )
         if episode is None:
             return None

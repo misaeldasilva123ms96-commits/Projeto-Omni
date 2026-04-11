@@ -48,6 +48,7 @@ from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
 from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
 from brain.runtime.session_store import SessionStore
 from brain.runtime.simulation import ActionSimulator, SimulationStore
+from brain.runtime.specialists import SpecialistCoordinator
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
 from brain.runtime.transcript_store import TranscriptStore
@@ -210,6 +211,12 @@ class BrainOrchestrator:
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
         self.simulation_store = SimulationStore(self.paths.root)
         self.action_simulator = ActionSimulator(self.paths.root, memory_facade=self.memory_facade, store=self.simulation_store)
+        self.specialist_coordinator = SpecialistCoordinator(
+            self.paths.root,
+            memory_facade=self.memory_facade,
+            simulator=self.action_simulator,
+            simulation_store=self.simulation_store,
+        )
         self.continuation_executor = ContinuationExecutor(
             self.paths.root,
             memory_facade=self.memory_facade,
@@ -2602,6 +2609,7 @@ class BrainOrchestrator:
             plan=operational_plan,
             result=result,
             advisory_signals=continuation_signals,
+            coordination_trace=result.get("coordination_trace") if isinstance(result.get("coordination_trace"), dict) else None,
         )
         if decision is None:
             return updated_plan, None, False
@@ -2659,6 +2667,7 @@ class BrainOrchestrator:
                     "goal_id": updated_plan.goal_id,
                     "reason_code": decision.reason_code,
                     "action_step_id": action.get("step_id"),
+                    "coordination_trace_id": str(((result.get("coordination_trace") or {}).get("trace_id", ""))).strip(),
                 },
             )
             if decision.decision_type == ContinuationDecisionType.COMPLETE_PLAN:
@@ -2681,6 +2690,7 @@ class BrainOrchestrator:
                         "plan_id": updated_plan.plan_id,
                         "simulation_id": str((decision.metadata or {}).get("simulation_id", "")).strip(),
                     },
+                    coordination_trace_id=str(((result.get("coordination_trace") or {}).get("trace_id", ""))).strip() or None,
                 )
             elif decision.decision_type == ContinuationDecisionType.ESCALATE_FAILURE:
                 self.memory_facade.close_goal_episode(
@@ -2702,6 +2712,7 @@ class BrainOrchestrator:
                         "plan_id": updated_plan.plan_id,
                         "simulation_id": str((decision.metadata or {}).get("simulation_id", "")).strip(),
                     },
+                    coordination_trace_id=str(((result.get("coordination_trace") or {}).get("trace_id", ""))).strip() or None,
                 )
         self._append_runtime_event(
             event_type="runtime.continuation.decision",
@@ -3080,6 +3091,58 @@ class BrainOrchestrator:
         learning_guidance: object = None,
         operational_plan: Any = None,
     ) -> dict[str, Any]:
+        if operational_plan is None or not getattr(operational_plan, "goal_id", None):
+            return self._execute_single_action_core(
+                action=action,
+                step_results=step_results,
+                semantic_retrieval=semantic_retrieval,
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                learning_guidance=learning_guidance,
+                operational_plan=operational_plan,
+            )
+        trace = self.specialist_coordinator.coordinate(
+            session_id=session_id,
+            goal_id=operational_plan.goal_id,
+            action=action,
+            plan=operational_plan,
+            execute_callback=lambda: self._execute_single_action_core(
+                action=action,
+                step_results=step_results,
+                semantic_retrieval=semantic_retrieval,
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                learning_guidance=learning_guidance,
+                operational_plan=operational_plan,
+            ),
+        )
+        result = self._result_from_coordination_trace(trace.as_dict()) or self._execute_single_action_core(
+            action=action,
+            step_results=step_results,
+            semantic_retrieval=semantic_retrieval,
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            learning_guidance=learning_guidance,
+            operational_plan=operational_plan,
+        )
+        result["coordination_trace"] = trace.as_dict()
+        return result
+
+    def _execute_single_action_core(
+        self,
+        *,
+        action: dict[str, Any],
+        step_results: list[dict[str, Any]],
+        semantic_retrieval: object,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        learning_guidance: object = None,
+        operational_plan: Any = None,
+    ) -> dict[str, Any]:
         attempts = int(action.get("retry_policy", {}).get("max_attempts", 1) or 1)
         attempts = min(attempts, self._runtime_correction_depth() + 1)
         final_result: dict[str, Any] | None = None
@@ -3308,6 +3371,19 @@ class BrainOrchestrator:
                 payload=evolution_update,
             )
         return result
+
+    @staticmethod
+    def _result_from_coordination_trace(trace: dict[str, Any]) -> dict[str, Any] | None:
+        decisions = trace.get("decisions", []) if isinstance(trace, dict) else []
+        for decision in decisions:
+            if not isinstance(decision, dict):
+                continue
+            if str(decision.get("specialist_type", "")).strip() != "executor":
+                continue
+            result = decision.get("result")
+            if isinstance(result, dict):
+                return dict(result)
+        return None
 
     @staticmethod
     def _attach_self_repair_metadata(result: dict[str, Any], self_repair_outcome: Any | None) -> dict[str, Any]:
