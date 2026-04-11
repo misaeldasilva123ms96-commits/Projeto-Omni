@@ -31,8 +31,9 @@ from brain.memory.store import (
 from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
+from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
-from brain.runtime.engineering_tools import execute_engineering_action, supports_engineering_tool
+from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.session_store import SessionStore
@@ -74,6 +75,20 @@ READ_ONLY_TOOLS = {
     "git_status",
     "git_diff",
 }
+TRUSTED_EXECUTION_KNOWN_TOOLS = (
+    MUTATING_TOOLS
+    | VERIFICATION_TOOLS
+    | READ_ONLY_TOOLS
+    | ENGINEERING_TOOLS
+    | {
+        "shell_command",
+        "read_file",
+        "write_file",
+        "glob_search",
+        "grep_search",
+        "none",
+    }
+)
 
 
 @dataclass
@@ -173,6 +188,75 @@ class BrainOrchestrator:
         self.current_control_mode = RuntimeMode.EXPLORE
         self.last_runtime_mode = "live"
         self.last_runtime_reason = "startup"
+        self.trusted_executor = TrustedExecutor(
+            available_capabilities={item["name"] for item in describe_capabilities()},
+            available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
+            policy=self._trusted_execution_policy(),
+        )
+
+    def _trusted_execution_policy(self) -> ExecutionPolicy:
+        allow_high_risk = str(os.getenv("OMINI_ALLOW_HIGH_RISK", "true")).lower() != "false"
+        allow_critical = str(os.getenv("OMINI_ALLOW_CRITICAL", "false")).lower() == "true"
+        max_risk = RiskLevel.CRITICAL if allow_critical else RiskLevel.HIGH if allow_high_risk else RiskLevel.MEDIUM
+        return ExecutionPolicy(
+            max_risk=max_risk,
+            allow_high_risk=allow_high_risk,
+            allow_critical=allow_critical,
+            require_session_for_mutation=True,
+        )
+
+    def _build_execution_intent(
+        self,
+        *,
+        action: dict[str, Any],
+        session_id: str,
+        task_id: str,
+        run_id: str,
+    ) -> ExecutionIntent:
+        selected_tool = str(action.get("selected_tool", "")).strip()
+        tool_arguments = dict(action.get("tool_arguments", {}) or {})
+        description = str(
+            action.get("description")
+            or action.get("title")
+            or action.get("goal")
+            or action.get("summary")
+            or f"Execute {selected_tool or 'runtime action'}"
+        ).strip()
+        if selected_tool in READ_ONLY_TOOLS:
+            action_type = "read"
+        elif selected_tool in MUTATING_TOOLS:
+            action_type = "mutate"
+        elif selected_tool in VERIFICATION_TOOLS:
+            action_type = "verify"
+        elif selected_tool in {"shell_command", "git_commit", "package_manager"}:
+            action_type = "execute"
+        else:
+            action_type = str(action.get("action_type", "execute") or "execute")
+
+        expected_fields: list[str] = []
+        if selected_tool in {"filesystem_read", "read_file"}:
+            expected_fields.append("file.content")
+        elif selected_tool in {"filesystem_write", "filesystem_patch_set"}:
+            expected_fields.append("workspace_root")
+
+        return ExecutionIntent(
+            action_id=str(action.get("step_id", "") or action.get("action_id", selected_tool or "runtime-action")),
+            action_type=action_type,
+            capability=selected_tool or str(action.get("selected_capability", "unknown-tool")),
+            description=description,
+            input_payload_summary={
+                "selected_tool": selected_tool,
+                "tool_arguments": tool_arguments,
+                "selected_agent": action.get("selected_agent"),
+            },
+            expected_outcome=str(action.get("expected_outcome", f"Successful completion of {selected_tool or 'runtime action'}")).strip(),
+            reversible=selected_tool in READ_ONLY_TOOLS or selected_tool in VERIFICATION_TOOLS,
+            target_subsystem="engineering_tools" if supports_engineering_tool(selected_tool) else "rust_bridge",
+            session_id=session_id or None,
+            task_id=task_id or None,
+            run_id=run_id or None,
+            metadata={"expected_fields": expected_fields},
+        )
 
     def run(self, message: str) -> str:
         self.last_runtime_mode = self._selected_runtime_mode()
@@ -2047,6 +2131,9 @@ class BrainOrchestrator:
                     semantic_retrieval=semantic_retrieval,
                     learning_guidance=learning_guidance,
                     allow_parallel=len(batch_actions) > 1,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
                 )
 
                 for action, result in zip(batch_actions, batch_results):
@@ -2110,6 +2197,9 @@ class BrainOrchestrator:
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
                     learning_guidance=learning_guidance,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
                 )
                 executed_steps += 1
                 step_results.append(result)
@@ -2495,6 +2585,9 @@ class BrainOrchestrator:
                 semantic_retrieval=semantic_retrieval,
                 learning_guidance=[],
                 allow_parallel=all(action.get("selected_tool") != "write_file" for action in branch_actions),
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
             )
             if len(branch_actions) > 1:
                 self._append_runtime_event(
@@ -2599,6 +2692,9 @@ class BrainOrchestrator:
         semantic_retrieval: object,
         learning_guidance: object,
         allow_parallel: bool,
+        session_id: str,
+        task_id: str,
+        run_id: str,
     ) -> list[dict[str, Any]]:
         if not allow_parallel or len(actions) <= 1:
             return [
@@ -2607,6 +2703,9 @@ class BrainOrchestrator:
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
                     learning_guidance=learning_guidance,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
                 )
                 for action in actions
             ]
@@ -2620,6 +2719,9 @@ class BrainOrchestrator:
                     step_results=step_results,
                     semantic_retrieval=semantic_retrieval,
                     learning_guidance=learning_guidance,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
                 ): action
                 for action in actions
             }
@@ -2635,6 +2737,9 @@ class BrainOrchestrator:
         action: dict[str, Any],
         step_results: list[dict[str, Any]],
         semantic_retrieval: object,
+        session_id: str,
+        task_id: str,
+        run_id: str,
         learning_guidance: object = None,
     ) -> dict[str, Any]:
         attempts = int(action.get("retry_policy", {}).get("max_attempts", 1) or 1)
@@ -2669,18 +2774,43 @@ class BrainOrchestrator:
             return blocked_result
 
         for attempt_number in range(1, attempts + 1):
-            if supports_engineering_tool(str(current_action.get("selected_tool", ""))):
-                final_result = execute_engineering_action(
+            trusted_execution = self.trusted_executor.execute(
+                intent=self._build_execution_intent(
+                    action=current_action,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                ),
+                current_mode=self.last_runtime_mode,
+                retry_count=max(0, attempt_number - 1),
+                execute_callback=lambda current_action=current_action: execute_engineering_action(
                     project_root=self.paths.root,
                     action=current_action,
                     timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
                 )
-            else:
-                final_result = execute_action(
+                if supports_engineering_tool(str(current_action.get("selected_tool", "")))
+                else execute_action(
                     self.paths.root,
                     current_action,
                     timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
-                )
+                ),
+            )
+            final_result = trusted_execution.result
+            self._append_runtime_event(
+                event_type="runtime.trusted_execution.receipt",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={
+                    "receipt": trusted_execution.receipt.as_dict(),
+                    "risk": trusted_execution.risk.as_dict(),
+                    "preflight": trusted_execution.preflight.as_dict(),
+                    "guardrail": trusted_execution.guardrail.as_dict(),
+                    "verification": trusted_execution.verification.as_dict(),
+                    "selected_tool": current_action.get("selected_tool"),
+                    "selected_agent": current_action.get("selected_agent"),
+                },
+            )
             evaluation = self._evaluate_step(
                 current_action,
                 final_result,
@@ -3256,8 +3386,34 @@ class BrainOrchestrator:
         self._append_jsonl(log_dir / "execution-audit.jsonl", audit_entry)
 
     @staticmethod
+    def _sanitize_jsonl_file(path: Path) -> None:
+        if not path.exists():
+            return
+        try:
+            valid_lines: list[str] = []
+            changed = False
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                if not raw_line.strip():
+                    changed = True
+                    continue
+                try:
+                    json.loads(raw_line)
+                except Exception:
+                    changed = True
+                    continue
+                valid_lines.append(raw_line)
+            if changed:
+                payload = "\n".join(valid_lines)
+                if payload:
+                    payload += "\n"
+                path.write_text(payload, encoding="utf-8")
+        except Exception:
+            return
+
+    @staticmethod
     def _append_jsonl(path: Path, entry: dict[str, Any]) -> None:
         try:
+            BrainOrchestrator._sanitize_jsonl_file(path)
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry, ensure_ascii=False))
                 handle.write("\n")
@@ -3300,9 +3456,18 @@ class BrainOrchestrator:
 
         message = str(result.get("error_payload", {}).get("message", ""))
         kind = str(result.get("error_payload", {}).get("kind", ""))
-        if kind == "permission_denied":
+        if kind in {
+            "permission_denied",
+            "preflight_failed",
+            "risk_above_policy_ceiling",
+            "critical_risk_blocked",
+            "high_risk_blocked",
+        }:
             decision = "stop_blocked"
-            reason_code = "permission_denied"
+            reason_code = kind
+        elif kind == "verification_failed":
+            decision = "stop_failed"
+            reason_code = "verification_failed"
         elif "cannot find" in message.lower() or "nao pode encontrar" in message.lower():
             decision = "revise_plan"
             reason_code = "path_not_found"
