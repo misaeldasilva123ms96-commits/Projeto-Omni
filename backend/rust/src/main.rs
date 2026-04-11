@@ -739,7 +739,6 @@ fn read_latest_jsonl(path: &Path) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::response::IntoResponse;
     use std::fs;
 
     fn temp_script(content: &str, name: &str) -> PathBuf {
@@ -769,25 +768,28 @@ mod tests {
 
     #[tokio::test]
     async fn call_python_returns_successful_response() {
-        let state = build_test_state(temp_script("print('ok from python')\n", "success"), 15_000);
+        let state = build_test_state(
+            temp_script("print('{\"response\":\"ok from python\"}')\n", "success"),
+            15_000,
+        );
         let response = call_python(&state, "hello").await.expect("python success");
         assert_eq!(response.response, "ok from python");
         assert_eq!(response.source, "python-subprocess");
     }
 
     #[tokio::test]
-    async fn call_python_returns_timeout_error() {
+    async fn call_python_returns_timeout_fallback() {
         let state = build_test_state(temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"), 200);
-        let error = call_python(&state, "hello").await.expect_err("timeout expected");
-        let response = error.into_response();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let response = call_python(&state, "hello").await.expect("timeout fallback expected");
+        assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
+        assert_eq!(response.source, "python-subprocess");
     }
 
     #[tokio::test]
-    async fn call_python_returns_stderr_failure() {
+    async fn call_python_returns_stderr_fallback() {
         let state = build_test_state(temp_script("import sys\nsys.stderr.write('boom')\nprint('ignored')\n", "stderr"), 2_000);
-        let error = call_python(&state, "hello").await.expect_err("stderr failure expected");
-        let response = error.into_response();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let response = call_python(&state, "hello").await.expect("stderr fallback expected");
+        assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
+        assert_eq!(response.source, "python-subprocess");
     }
 }
