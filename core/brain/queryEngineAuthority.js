@@ -49,6 +49,59 @@ const { getCodexIntegrationStatus } = require('../../platform/integrations/codex
 const { getCliPlatformManifest } = require('../../platform/cli/manifest');
 const { buildPolicyDecision, describeTool } = require('../../runtime/tooling/toolGovernance');
 
+const GLOBAL_CONVERSATIONAL_FALLBACK = 'Não entendi exatamente o que você precisa. Pode reformular ou me dar mais detalhes?';
+const CONVERSATIONAL_MATCHERS = [
+  {
+    triggers: [
+      'pode revisar meu projeto',
+      'consegue revisar meu projeto',
+      'revisa meu projeto',
+      'como melhorar meu frontend',
+      'como melhorar o frontend',
+      'me ajude a planejar',
+      'me ajuda a planejar',
+      'planejar uma arquitetura',
+      'arquitetura do projeto',
+      'como estruturar',
+      'como organizar meu projeto',
+    ],
+    response: 'Claro, posso ajudar com isso. Me mostre o que você tem — pode ser código, uma descrição da estrutura atual, ou as dúvidas específicas que está enfrentando.',
+  },
+  {
+    triggers: [
+      'como voce pode me ajudar',
+      'como pode me ajudar',
+      'gostaria de saber como pode',
+      'o que voce faz',
+      'oq vc faz',
+      'tem net',
+      'tem internet',
+      'acesso a internet',
+      'voce tem acesso',
+      'voce sabe programar',
+      'consegue revisar codigo',
+      'pode revisar codigo',
+    ],
+    response: 'Posso ajudá-lo com programação, revisão de código, explicações técnicas, planejamento de arquitetura, dúvidas sobre APIs e muito mais. É só me dizer o que você precisa.',
+  },
+  {
+    triggers: ['bugfix', 'o que e fix', 'o que significa fix'],
+    response: 'Um bugfix é uma correção de código que resolve um comportamento incorreto ou inesperado em um sistema. É diferente de uma nova feature — o objetivo é apenas corrigir algo que estava errado.',
+  },
+  {
+    triggers: ['o que e uma api', 'explique o que e uma api', 'o que significa api'],
+    response: 'Uma API (Application Programming Interface) é um conjunto de regras que permite que dois sistemas se comuniquem. Por exemplo, quando um app consulta a previsão do tempo, ele usa a API de um serviço meteorológico.',
+  },
+  {
+    triggers: ['recursao', 'recursão', 'me explique recursao'],
+    response: 'Recursão é quando uma função chama a si mesma para resolver um problema menor do mesmo tipo. É muito usada em algoritmos de busca, ordenação e estruturas de dados como árvores.',
+  },
+  {
+    triggers: ['o que significa', 'me explique', 'explique o que e', 'o que e que', 'o que seria'],
+    response: 'Posso explicar isso. Me diga o termo ou conceito específico que você quer entender.',
+  },
+];
+
 function normalizeText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -119,6 +172,15 @@ function buildMergedMemory(memoryLayers, runtimeMemory) {
   };
 }
 
+function resolveDirectConversational(normalizedInput) {
+  for (const matcher of CONVERSATIONAL_MATCHERS) {
+    if (matcher.triggers.some(trigger => normalizedInput.includes(trigger))) {
+      return matcher.response;
+    }
+  }
+  return null;
+}
+
 function absolutizeToolArguments(workspace, selectedTool, toolArguments, useRelativeWorkspacePaths = false) {
   const args = { ...(toolArguments || {}) };
   if (selectedTool === 'write_file') {
@@ -161,6 +223,11 @@ class QueryEngineAuthority {
   async submitMessage({ message, memoryContext, history, summary, capabilities, session, cwd }) {
     const workspace = cwd || process.cwd();
     const sessionId = session?.session_id || 'ephemeral-session';
+    const normalizedMessage = normalizeText(message);
+    const directConversationResponse = resolveDirectConversational(normalizedMessage);
+    if (directConversationResponse) {
+      return { response: directConversationResponse };
+    }
     const runtimeConfig = loadRuntimeConfig();
     const runtimeMode = resolveExecutionMode({
       cwd: workspace,
@@ -197,8 +264,6 @@ class QueryEngineAuthority {
       ...mergedMemory,
       ...memoryHints,
     });
-    const directConversationResponse = directConversationalResponse(message);
-
     const delegation = buildDelegationPlan({
       intent: intent === 'analysis'
         ? 'analysis'
@@ -349,10 +414,10 @@ class QueryEngineAuthority {
     if (allActionsAreDirect) {
       const directResponse = synthesizeFinalAnswer({
         intent,
-        directMemoryResponse: directMemoryResponse || directConversationResponse || (intent === 'greeting' ? 'Olá! Como posso te ajudar hoje?' : ''),
+        directMemoryResponse: directMemoryResponse || (intent === 'greeting' ? 'Olá! Como posso te ajudar hoje?' : GLOBAL_CONVERSATIONAL_FALLBACK),
         stepResults: actions.map(action => ({
           ok: true,
-          summary: directMemoryResponse || directConversationResponse || '',
+          summary: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
           action,
         })),
       });
@@ -410,7 +475,7 @@ class QueryEngineAuthority {
 
     if (runtimeMode.primary.owner === 'python') {
       return {
-        response: directMemoryResponse || directConversationResponse || '',
+        response: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
         execution_request: {
           task_id: taskId,
           run_id: runId,
