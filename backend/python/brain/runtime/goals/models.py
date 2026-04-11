@@ -436,6 +436,7 @@ class GoalEvaluationResult:
     unmet_criteria: list[str]
     reasoning: str
     soft_constraint_violations: list[str] = field(default_factory=list)
+    historical_context: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -39,6 +39,7 @@ from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningExecutor
+from brain.runtime.memory import MemoryFacade
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningExecutor
@@ -203,9 +204,10 @@ class BrainOrchestrator:
             policy=self._trusted_execution_policy(),
         )
         self.evolution_executor = EvolutionExecutor(self.paths.root)
-        self.learning_executor = LearningExecutor(self.paths.root)
+        self.memory_facade = MemoryFacade(self.paths.root)
+        self.learning_executor = LearningExecutor(self.paths.root, memory_facade=self.memory_facade)
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
-        self.continuation_executor = ContinuationExecutor(self.paths.root)
+        self.continuation_executor = ContinuationExecutor(self.paths.root, memory_facade=self.memory_facade)
         self.planning_executor = PlanningExecutor(self.paths.root)
         self.js_runtime_adapter = JSRuntimeAdapter(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
@@ -1718,6 +1720,26 @@ class BrainOrchestrator:
                 "plan_id": operational_plan.plan_id if operational_plan else None,
             },
         )
+        goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
+        if operational_plan is not None and operational_plan.goal_id:
+            self.memory_facade.set_active_goal(
+                session_id=session_id,
+                goal_id=operational_plan.goal_id,
+                active_plan_id=operational_plan.plan_id,
+                goal_context=goal_context,
+            )
+            self.memory_facade.record_event(
+                event_type="plan_initialized",
+                description=planning_decision.summary,
+                outcome=operational_plan.status.value,
+                progress_score=0.0,
+                metadata={
+                    "plan_id": operational_plan.plan_id,
+                    "task_id": operational_plan.task_id,
+                    "goal_id": operational_plan.goal_id,
+                    "classification": planning_decision.classification.value,
+                },
+            )
         control_metadata = self._build_control_metadata(
             message=message,
             actions=actions,
@@ -2609,6 +2631,69 @@ class BrainOrchestrator:
             continuation_evaluation=evaluation.as_dict() if evaluation is not None else None,
             continuation_decision=decision.as_dict(),
         )
+        if updated_plan is not None and updated_plan.goal_id and evaluation is not None:
+            self.memory_facade.update_progress(evaluation.progress_ratio)
+        if updated_plan is not None and updated_plan.goal_id:
+            self.memory_facade.record_event(
+                event_type="continuation_outcome",
+                description=decision.reason_summary,
+                outcome=decision.decision_type.value,
+                progress_score=evaluation.progress_ratio if evaluation is not None else None,
+                evidence_ids=[
+                    item
+                    for item in [
+                        str((result.get("execution_receipt") or {}).get("receipt_id", "")).strip(),
+                        str((result.get("repair_receipt") or {}).get("repair_receipt_id", "")).strip(),
+                    ]
+                    if item
+                ],
+                metadata={
+                    "plan_id": updated_plan.plan_id,
+                    "goal_id": updated_plan.goal_id,
+                    "reason_code": decision.reason_code,
+                    "action_step_id": action.get("step_id"),
+                },
+            )
+            if decision.decision_type == ContinuationDecisionType.COMPLETE_PLAN:
+                self.memory_facade.close_goal_episode(
+                    outcome="achieved",
+                    description=decision.reason_summary,
+                    event_type="goal_resolution",
+                    evidence_ids=[
+                        item
+                        for item in [
+                            str((result.get("execution_receipt") or {}).get("receipt_id", "")).strip(),
+                            str((result.get("repair_receipt") or {}).get("repair_receipt_id", "")).strip(),
+                        ]
+                        if item
+                    ],
+                    metadata={
+                        "goal_type": goal_context.intent if goal_context is not None else "",
+                        "recommended_route": decision.decision_type.value,
+                        "decision_type": decision.decision_type.value,
+                        "plan_id": updated_plan.plan_id,
+                    },
+                )
+            elif decision.decision_type == ContinuationDecisionType.ESCALATE_FAILURE:
+                self.memory_facade.close_goal_episode(
+                    outcome="failed",
+                    description=decision.reason_summary,
+                    event_type="goal_resolution",
+                    evidence_ids=[
+                        item
+                        for item in [
+                            str((result.get("execution_receipt") or {}).get("receipt_id", "")).strip(),
+                            str((result.get("repair_receipt") or {}).get("repair_receipt_id", "")).strip(),
+                        ]
+                        if item
+                    ],
+                    metadata={
+                        "goal_type": goal_context.intent if goal_context is not None else "",
+                        "recommended_route": decision.decision_type.value,
+                        "decision_type": decision.decision_type.value,
+                        "plan_id": updated_plan.plan_id,
+                    },
+                )
         self._append_runtime_event(
             event_type="runtime.continuation.decision",
             session_id=session_id,

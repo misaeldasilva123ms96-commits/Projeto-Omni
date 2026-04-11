@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.goals import ConstraintRegistry, GoalEvaluator, GoalStore
+from brain.runtime.memory import MemoryFacade
 from brain.runtime.planning import TaskPlan, TaskPlanStatus
 from brain.runtime.planning.checkpoint_manager import CheckpointManager
 from brain.runtime.planning.operational_summary import OperationalSummaryBuilder
@@ -21,8 +22,9 @@ from .replan_engine import ReplanEngine
 
 
 class ContinuationExecutor:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, memory_facade: MemoryFacade | None = None) -> None:
         self.root = root
+        self.memory_facade = memory_facade
         self.policy = DeterministicContinuationPolicy.from_env()
         self.store = TaskStateStore(root)
         self.tracker = ProgressTracker()
@@ -79,6 +81,7 @@ class ContinuationExecutor:
                 goal_evaluation = self.goal_evaluator.evaluate(
                     goal=goal,
                     runtime_state=self._build_goal_runtime_state(plan=plan, result=result, checkpoint=checkpoint, summary=summary),
+                    memory_facade=self.memory_facade,
                 )
         decision = self.decider.decide(
             plan=plan,
@@ -96,6 +99,26 @@ class ContinuationExecutor:
         )
         self._persist_evaluation(evaluation)
         self._persist_decision(decision)
+        if self.memory_facade is not None and plan.goal_id:
+            self.memory_facade.record_event(
+                event_type="continuation_decision",
+                description=decision.reason_summary,
+                outcome=decision.decision_type.value,
+                progress_score=evaluation.progress_ratio,
+                evidence_ids=[
+                    item
+                    for item in [decision.linked_checkpoint_id, *decision.linked_execution_receipt_ids, *decision.linked_repair_receipt_ids]
+                    if item
+                ],
+                metadata={
+                    "decision_type": decision.decision_type.value,
+                    "reason_code": decision.reason_code,
+                    "plan_id": plan.plan_id,
+                    "task_id": plan.task_id,
+                    "goal_id": plan.goal_id,
+                },
+            )
+            self.memory_facade.update_progress(evaluation.progress_ratio)
         if updated_plan is not None:
             self.store.save_plan(updated_plan)
             self.store.save_summary(self.summary_builder.build(updated_plan))

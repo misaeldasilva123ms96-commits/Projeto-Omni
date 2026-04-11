@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.memory import MemoryFacade
+
 from .artifact_ingestor import RuntimeArtifactIngestor
 from .evidence_normalizer import EvidenceNormalizer
 from .learning_policy import DeterministicLearningPolicy
@@ -15,8 +17,9 @@ from .strategy_ranker import StrategyRanker
 
 
 class LearningExecutor:
-    def __init__(self, root: Path, *, policy: LearningPolicy | None = None) -> None:
+    def __init__(self, root: Path, *, policy: LearningPolicy | None = None, memory_facade: MemoryFacade | None = None) -> None:
         self.root = root
+        self.memory_facade = memory_facade
         self.policy = policy or DeterministicLearningPolicy.from_env()
         self.store = LearningStore(root)
         self.ingestor = RuntimeArtifactIngestor()
@@ -56,6 +59,21 @@ class LearningExecutor:
                 continue
             ingested_evidence += 1
             self.store.append_evidence(evidence)
+            if self.memory_facade is not None and evidence.goal_id:
+                self.memory_facade.record_event(
+                    event_type="learning_evidence",
+                    description=f"{evidence.source_type.value} evidence captured for {evidence.action_type or 'runtime action'}.",
+                    outcome="success" if evidence.success else "failure",
+                    progress_score=None,
+                    evidence_ids=[evidence.evidence_id],
+                    metadata={
+                        "goal_id": evidence.goal_id,
+                        "source_type": evidence.source_type.value,
+                        "capability": evidence.capability,
+                        "subsystem": evidence.subsystem,
+                        "continuation_decision_type": evidence.continuation_decision_type,
+                    },
+                )
             for candidate in self.registry.pattern_records_for(evidence):
                 record = self.store.load_pattern(candidate.pattern_key) or candidate
                 metadata = dict(candidate.metadata)
