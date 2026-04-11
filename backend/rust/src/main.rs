@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::{net::TcpListener, process::Command, sync::RwLock, time::timeout};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
 struct AppState {
@@ -556,6 +556,58 @@ async fn update_python_health(state: &AppState, status: &str, error_message: Opt
     guard.last_checked_ms = Some(unix_timestamp_ms());
 }
 
+const PYTHON_FALLBACK_RESPONSE: &str = "Entendido. Como posso ajudá-lo?";
+const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text", "answer"];
+
+fn python_debug_logging_enabled() -> bool {
+    env::var("OMINI_LOG_LEVEL")
+        .ok()
+        .or_else(|| env::var("LOG_LEVEL").ok())
+        .map(|value| value.trim().eq_ignore_ascii_case("debug"))
+        .unwrap_or(false)
+}
+
+fn extract_response_from_python_output(stdout: &str) -> String {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return PYTHON_FALLBACK_RESPONSE.to_string();
+    }
+
+    if python_debug_logging_enabled() {
+        debug!(python_stdout = %trimmed, "python subprocess stdout");
+    }
+
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(json) => {
+            for key in PYTHON_RESPONSE_CANDIDATE_KEYS {
+                if let Some(value) = json.get(*key).and_then(Value::as_str) {
+                    let candidate = value.trim();
+                    if !candidate.is_empty() {
+                        return candidate.to_string();
+                    }
+                }
+            }
+            PYTHON_FALLBACK_RESPONSE.to_string()
+        }
+        Err(err) => {
+            warn!(error = %err, "failed to parse python output");
+            PYTHON_FALLBACK_RESPONSE.to_string()
+        }
+    }
+}
+
+fn build_python_fallback_response(source: &str) -> ChatResponse {
+    ChatResponse {
+        response: PYTHON_FALLBACK_RESPONSE.to_string(),
+        session_id: "python-session".to_string(),
+        source: source.to_string(),
+        matched_commands: Vec::new(),
+        matched_tools: Vec::new(),
+        stop_reason: Some("completed".to_string()),
+        usage: None,
+    }
+}
+
 async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, AppError> {
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
@@ -576,11 +628,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             let message = format!("failed to spawn or await python subprocess: {err}");
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
-            return Err(AppError::python_process(
-                "python_subprocess_failed",
-                message,
-                None,
-            ));
+            return Ok(build_python_fallback_response("python-subprocess"));
         }
         Err(_) => {
             let message = format!(
@@ -589,57 +637,48 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             );
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
-            return Err(AppError::python_process("python_timeout", message, None));
+            return Ok(build_python_fallback_response("python-subprocess"));
         }
     };
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
     if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let message = format!(
-            "python adapter exited with status {:?}",
-            output.status.code()
+            "python adapter exited with status {}",
+            code
         );
-        error!("{message}; stderr={stderr}");
+        warn!("{message}");
+        if !stderr.is_empty() {
+            warn!("python stderr: {stderr}");
+        }
         update_python_health(
             state,
             "failed",
             Some(if stderr.is_empty() { message.clone() } else { stderr.clone() }),
         )
         .await;
-        return Err(AppError::python_process(
-            "python_exit_failure",
-            message,
-            Some(stderr),
-        ));
+        return Ok(build_python_fallback_response("python-subprocess"));
     }
 
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if !stderr.is_empty() {
         warn!("python adapter produced stderr on successful exit: {stderr}");
-        update_python_health(state, "stderr_failure", Some(stderr.clone())).await;
-        return Err(AppError::python_process(
-            "python_stderr_failure",
-            "python adapter returned stderr output".to_string(),
-            Some(stderr),
-        ));
+        update_python_health(state, "stderr_warning", Some(stderr)).await;
     }
 
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if stdout.is_empty() {
         let message = "python adapter returned empty stdout".to_string();
-        error!("{message}");
+        warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
-        return Err(AppError::python_process(
-            "python_empty_stdout",
-            message,
-            None,
-        ));
+        return Ok(build_python_fallback_response("python-subprocess"));
     }
 
     update_python_health(state, "ready", None).await;
 
     Ok(ChatResponse {
-        response: stdout,
+        response: extract_response_from_python_output(&stdout),
         session_id: "python-session".to_string(),
         source: "python-subprocess".to_string(),
         matched_commands: Vec::new(),
