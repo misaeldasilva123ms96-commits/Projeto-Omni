@@ -9,6 +9,8 @@ const workspaceRoot = process.env.NODE_RUNNER_BASE_DIR
 
 const payload = {
   status: 'ok',
+  runtime_name: process.versions.bun ? 'bun' : 'node',
+  runtime_version: process.versions.bun || process.version,
   node_version: process.version,
   cwd: process.cwd(),
   workspace_root: workspaceRoot,

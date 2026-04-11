@@ -37,6 +37,7 @@ from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
+from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningExecutor
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.milestone_manager import MilestoneManager
@@ -206,6 +207,7 @@ class BrainOrchestrator:
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
         self.continuation_executor = ContinuationExecutor(self.paths.root)
         self.planning_executor = PlanningExecutor(self.paths.root)
+        self.js_runtime_adapter = JSRuntimeAdapter(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -1096,17 +1098,18 @@ class BrainOrchestrator:
         }
 
     def _resolve_node_bin(self) -> str | None:
+        selection = self.js_runtime_adapter.select_runtime()
+        if selection.runtime_name == "node" and selection.node_available:
+            return selection.executable
         configured = os.getenv("NODE_BIN", "").strip()
         if configured:
             return configured
         return shutil.which("node")
 
     def _build_node_subprocess_env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        root = str(self.paths.root.resolve())
-        env["BASE_DIR"] = root
-        env["NODE_RUNNER_BASE_DIR"] = root
+        env, selection = self.js_runtime_adapter.build_env()
         env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
+        env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
         return env
 
     def _resolve_node_command_context(self, payload: str) -> dict[str, Any]:
@@ -1122,10 +1125,10 @@ class BrainOrchestrator:
             (self.paths.root / "src" / "QueryEngine.ts").resolve(),
             (self.paths.root / "runtime" / "node" / "QueryEngine.ts").resolve(),
         ]
+        command, runtime_selection = self.js_runtime_adapter.build_command(script_path=runner_path, payload=payload)
+        env = self._build_node_subprocess_env()
         node_bin = self._resolve_node_bin()
         node_resolved = shutil.which(node_bin) if node_bin and not os.path.isabs(node_bin) else node_bin
-        env = self._build_node_subprocess_env()
-        command = [node_resolved or node_bin or "", str(runner_path), payload]
         missing_paths = []
         if not runner_path.exists():
             missing_paths.append(str(runner_path))
@@ -1137,6 +1140,7 @@ class BrainOrchestrator:
         return {
             "node_bin": node_bin,
             "node_resolved": node_resolved,
+            "js_runtime": runtime_selection.as_dict(),
             "cwd": str(cwd_path),
             "cwd_exists": cwd_path.exists(),
             "runner_path": str(runner_path),
@@ -1172,6 +1176,8 @@ class BrainOrchestrator:
                 "BASE_DIR": env.get("BASE_DIR", ""),
                 "NODE_RUNNER_BASE_DIR": env.get("NODE_RUNNER_BASE_DIR", ""),
                 "NODE_BIN": env.get("NODE_BIN", ""),
+                "OMINI_JS_RUNTIME": env.get("OMINI_JS_RUNTIME", ""),
+                "OMINI_JS_RUNTIME_BIN": env.get("OMINI_JS_RUNTIME_BIN", ""),
                 "PYTHON_BIN": env.get("PYTHON_BIN", ""),
                 "PATH_HEAD": env.get("PATH", "")[:400],
             },
