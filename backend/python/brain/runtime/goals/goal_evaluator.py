@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from .constraint_registry import ConstraintRegistry
 from .models import Goal, GoalEvaluationResult, Severity, ToleranceType
 
@@ -8,7 +10,13 @@ class GoalEvaluator:
     def __init__(self, registry: ConstraintRegistry) -> None:
         self.registry = registry
 
-    def evaluate(self, *, goal: Goal, runtime_state: dict[str, object] | None = None) -> GoalEvaluationResult:
+    def evaluate(
+        self,
+        *,
+        goal: Goal,
+        runtime_state: dict[str, object] | None = None,
+        memory_facade: Any | None = None,
+    ) -> GoalEvaluationResult:
         runtime_state = dict(runtime_state or {})
         violated_constraints: list[str] = []
         soft_violations: list[str] = []
@@ -78,6 +86,24 @@ class GoalEvaluator:
             reasoning_parts.append("Failure tolerance threshold was exceeded.")
         if not reasoning_parts:
             reasoning_parts.append("Goal remains active with partial progress.")
+        historical_context = None
+        if memory_facade is not None and not is_achieved:
+            try:
+                similar = memory_facade.recall_similar(
+                    event_type=str(runtime_state.get("event_type", "goal_resolution")),
+                    progress=progress_score,
+                    limit=3,
+                )
+                procedural = memory_facade.get_procedural_recommendation(goal.intent)
+                semantic = memory_facade.get_semantic_facts(goal.intent, limit=3)
+                if similar or procedural is not None or semantic:
+                    historical_context = {
+                        "similar_episodes": [episode.as_dict() for episode in similar],
+                        "procedural_recommendation": procedural.as_dict() if procedural is not None else None,
+                        "semantic_facts": [fact.as_dict() for fact in semantic],
+                    }
+            except Exception:
+                historical_context = None
         return GoalEvaluationResult(
             should_stop=should_stop,
             should_fail=should_fail,
@@ -88,4 +114,5 @@ class GoalEvaluator:
             unmet_criteria=unmet_criteria,
             reasoning=" ".join(reasoning_parts),
             soft_constraint_violations=soft_violations,
+            historical_context=historical_context,
         )
