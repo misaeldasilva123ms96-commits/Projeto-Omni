@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.goals import ConstraintRegistry, Goal, GoalContext, GoalEvaluator, GoalFactory, GoalStore
+
 from .checkpoint_manager import CheckpointManager
 from .models import PlanStepStatus, TaskClassificationDecision, TaskPlan, TaskPlanStatus
 from .operational_summary import OperationalSummaryBuilder
@@ -22,6 +24,10 @@ class PlanningExecutor:
         self.checkpoints = CheckpointManager(self.store)
         self.summary_builder = OperationalSummaryBuilder(self.tracker)
         self.resume_engine = ResumeEngine(self.store, self.tracker)
+        self.goal_store = GoalStore(root)
+        self.goal_factory = GoalFactory()
+        self.goal_registry = ConstraintRegistry()
+        self.goal_evaluator = GoalEvaluator(self.goal_registry)
 
     def classify_task(self, **kwargs: Any) -> TaskClassificationDecision:
         return self.classifier.classify(**kwargs)
@@ -39,6 +45,7 @@ class PlanningExecutor:
         start_index: int = 0,
         engineering_workflow: dict[str, Any] | None = None,
         advisory_signals: list[dict[str, Any]] | None = None,
+        goal: Goal | None = None,
     ) -> tuple[TaskClassificationDecision, TaskPlan | None]:
         classification = self.classify_task(
             message=message,
@@ -54,12 +61,24 @@ class PlanningExecutor:
         if not classification.should_plan:
             return classification, None
 
+        active_goal = goal or self.goal_factory.infer_from_task(
+            message,
+            context={
+                "actions": actions,
+                "intent": "operational_execution",
+                "priority": 3,
+            },
+        )
+        active_goal.metadata.setdefault("goal_prompt_block", GoalContext.from_goal(active_goal).to_prompt_block())
+        self.goal_store.save_goal(active_goal)
+
         plan = self.builder.build_plan(
             task_id=task_id,
             session_id=session_id,
             run_id=run_id,
             message=message,
             actions=actions,
+            goal=active_goal,
             classification=classification.classification,
             plan_kind=plan_kind,
             advisory_signals=advisory_signals,
@@ -85,6 +104,17 @@ class PlanningExecutor:
         )
         self.store.save_summary(self.summary_builder.build(plan))
         return classification, plan
+
+    def goal_for_plan(self, plan: TaskPlan | None) -> Goal | None:
+        if plan is None or not plan.goal_id:
+            return None
+        return self.goal_store.get_by_id(plan.goal_id)
+
+    def goal_context_for_plan(self, plan: TaskPlan | None) -> GoalContext | None:
+        goal = self.goal_for_plan(plan)
+        if goal is None:
+            return None
+        return GoalContext.from_goal(goal)
 
     def record_step_started(self, plan: TaskPlan | None, *, action: dict[str, Any]) -> TaskPlan | None:
         if plan is None:

@@ -36,6 +36,7 @@ class OperationalSummaryBuilder:
         return OperationalSummary(
             plan_id=plan.plan_id,
             task_id=plan.task_id,
+            goal_id=plan.goal_id,
             current_objective=plan.objective,
             plan_status=plan.status.value,
             completed_steps=completed_steps,
@@ -48,5 +49,6 @@ class OperationalSummaryBuilder:
             metadata={
                 "classification": plan.classification.value,
                 "checkpoint_pointer": plan.checkpoint_pointer,
+                "goal_description": str(plan.metadata.get("goal_description", "")),
             },
         )

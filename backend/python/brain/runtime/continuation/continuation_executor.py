@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.goals import ConstraintRegistry, GoalEvaluator, GoalStore
 from brain.runtime.planning import TaskPlan, TaskPlanStatus
 from brain.runtime.planning.checkpoint_manager import CheckpointManager
 from brain.runtime.planning.operational_summary import OperationalSummaryBuilder
@@ -29,6 +30,9 @@ class ContinuationExecutor:
         self.summary_builder = OperationalSummaryBuilder(self.tracker)
         self.evaluator = PlanEvaluator(self.tracker)
         self.decider = ContinuationDecider(self.tracker)
+        self.goal_store = GoalStore(root)
+        self.goal_registry = ConstraintRegistry()
+        self.goal_evaluator = GoalEvaluator(self.goal_registry)
         self.replanner = ReplanEngine(self.tracker)
         self.pause_handler = PauseHandler(
             store=self.store,
@@ -68,11 +72,20 @@ class ContinuationExecutor:
             checkpoint=checkpoint.as_dict() if checkpoint else None,
             summary=summary.as_dict() if summary else None,
         )
+        goal_evaluation = None
+        if plan.goal_id:
+            goal = self.goal_store.get_by_id(plan.goal_id)
+            if goal is not None:
+                goal_evaluation = self.goal_evaluator.evaluate(
+                    goal=goal,
+                    runtime_state=self._build_goal_runtime_state(plan=plan, result=result, checkpoint=checkpoint, summary=summary),
+                )
         decision = self.decider.decide(
             plan=plan,
             evaluation=evaluation,
             policy=self.policy,
             checkpoint_id=checkpoint.checkpoint_id if checkpoint else None,
+            goal_evaluation=goal_evaluation,
             result=result,
             advisory_signals=advisory_signals,
         )
@@ -87,6 +100,48 @@ class ContinuationExecutor:
             self.store.save_plan(updated_plan)
             self.store.save_summary(self.summary_builder.build(updated_plan))
         return evaluation, decision, updated_plan
+
+    @classmethod
+    def _build_goal_runtime_state(
+        cls,
+        *,
+        plan: TaskPlan,
+        result: dict[str, Any] | None,
+        checkpoint: Any,
+        summary: Any,
+    ) -> dict[str, Any]:
+        completed_steps = len([step for step in plan.steps if step.status.value == "completed"])
+        failed_steps = len([step for step in plan.steps if step.status.value == "failed"])
+        current_step = next((step for step in plan.steps if step.step_id == plan.current_step_id), None)
+        current_tool = ""
+        if isinstance(result, dict):
+            current_tool = str(result.get("selected_tool", "")).strip()
+            if not current_tool:
+                action = result.get("action", {}) if isinstance(result.get("action"), dict) else {}
+                current_tool = str(action.get("selected_tool", "")).strip()
+        return {
+            "result_ok": bool(isinstance(result, dict) and result.get("ok")),
+            "successful_steps_count": completed_steps,
+            "failed_steps_count": failed_steps,
+            "max_retries": float(getattr(current_step, "retry_count", 0) or 0),
+            "max_repairs": float(1 if isinstance(result, dict) and result.get("repair_receipt") else 0),
+            "error_rate": float(failed_steps / max(len(plan.steps), 1)),
+            "partial_success": float(completed_steps / max(plan.total_step_count or len(plan.steps), 1)),
+            "cycle_count": float(completed_steps + failed_steps),
+            "max_cycles": float(len(plan.steps)),
+            "timeout": False,
+            "dependency_failed": bool(isinstance(result, dict) and str(((result.get("error_payload") or {}).get("kind", ""))).strip() in {"dependency_failed", "dependency_missing"}),
+            "proposal_target_subsystem": cls._subsystem_from_tool(current_tool),
+            "summary_status": getattr(summary, "plan_status", "") if summary is not None else "",
+        }
+
+    @staticmethod
+    def _subsystem_from_tool(selected_tool: str) -> str:
+        if selected_tool in {"filesystem_read", "read_file", "filesystem_write", "filesystem_patch_set"}:
+            return "planning"
+        if selected_tool in {"verification_runner", "test_runner"}:
+            return "continuation"
+        return "orchestration"
 
     def _apply_decision(
         self,

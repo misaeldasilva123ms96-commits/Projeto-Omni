@@ -45,6 +45,7 @@ class LearningEvidence:
     source_artifact_id: str
     session_id: str | None
     task_id: str | None
+    goal_id: str | None
     plan_id: str | None
     step_id: str | None
     action_type: str
@@ -68,6 +69,7 @@ class LearningEvidence:
         source_artifact_id: str,
         session_id: str | None,
         task_id: str | None,
+        goal_id: str | None,
         plan_id: str | None,
         step_id: str | None,
         action_type: str,
@@ -89,6 +91,7 @@ class LearningEvidence:
             source_artifact_id=source_artifact_id,
             session_id=session_id,
             task_id=task_id,
+            goal_id=goal_id,
             plan_id=plan_id,
             step_id=step_id,
             action_type=action_type,

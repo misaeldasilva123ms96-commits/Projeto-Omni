@@ -36,6 +36,8 @@ class OrchestrationContext:
     continuation_decision_type: str
     checkpoint_id: str | None
     checkpoint_status: str
+    goal_id: str | None
+    goal_context: dict[str, Any] | None
     operational_summary: dict[str, Any]
     action: dict[str, Any]
     recent_execution_receipt_ids: list[str] = field(default_factory=list)
@@ -57,6 +59,8 @@ class OrchestrationContext:
         continuation_decision_type: str,
         checkpoint_id: str | None,
         checkpoint_status: str,
+        goal_id: str | None,
+        goal_context: dict[str, Any] | None,
         operational_summary: dict[str, Any],
         action: dict[str, Any],
         recent_execution_receipt_ids: list[str] | None = None,
@@ -76,6 +80,8 @@ class OrchestrationContext:
             continuation_decision_type=continuation_decision_type,
             checkpoint_id=checkpoint_id,
             checkpoint_status=checkpoint_status,
+            goal_id=goal_id,
+            goal_context=goal_context,
             operational_summary=operational_summary,
             action=action,
             recent_execution_receipt_ids=recent_execution_receipt_ids or [],

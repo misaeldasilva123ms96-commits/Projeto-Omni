@@ -34,6 +34,7 @@ class EvidenceNormalizer:
         return {
             "session_id": str(payload.get("session_id") or context.get("session_id") or action.get("session_id") or "") or None,
             "task_id": str(payload.get("task_id") or context.get("task_id") or action.get("task_id") or "") or None,
+            "goal_id": str(payload.get("goal_id") or context.get("goal_id") or action.get("goal_id") or "") or None,
             "plan_id": str(payload.get("plan_id") or context.get("plan_id") or "") or None,
             "step_id": str(payload.get("step_id") or action.get("step_id") or "") or None,
             "action_type": str(payload.get("action_type") or action.get("action_type") or "execute"),
@@ -57,6 +58,7 @@ class EvidenceNormalizer:
             source_artifact_id=artifact_id,
             session_id=common["session_id"],
             task_id=common["task_id"],
+            goal_id=common["goal_id"],
             plan_id=common["plan_id"],
             step_id=common["step_id"],
             action_type=common["action_type"],
@@ -82,6 +84,7 @@ class EvidenceNormalizer:
             source_artifact_id=artifact_id,
             session_id=str(context.get("session_id") or action.get("session_id") or "") or None,
             task_id=str(context.get("task_id") or action.get("task_id") or "") or None,
+            goal_id=str(context.get("goal_id") or action.get("goal_id") or "") or None,
             plan_id=str(context.get("plan_id") or "") or None,
             step_id=str(action.get("step_id", "")) or None,
             action_type=str(action.get("action_type", "repair")),
@@ -115,6 +118,7 @@ class EvidenceNormalizer:
             source_artifact_id=artifact_id,
             session_id=str(context.get("session_id") or "") or None,
             task_id=str(context.get("task_id") or "") or None,
+            goal_id=str(context.get("goal_id") or "") or None,
             plan_id=str(payload.get("plan_id", "") or context.get("plan_id") or "") or None,
             step_id=str(payload.get("step_id", "")) or None,
             action_type="checkpoint",
@@ -137,6 +141,7 @@ class EvidenceNormalizer:
             source_artifact_id=plan_id,
             session_id=str(context.get("session_id") or "") or None,
             task_id=str(payload.get("task_id", "") or context.get("task_id") or "") or None,
+            goal_id=str(payload.get("goal_id", "") or context.get("goal_id") or "") or None,
             plan_id=plan_id,
             step_id=str(payload.get("current_step", "")) or None,
             action_type="plan_summary",
@@ -148,6 +153,7 @@ class EvidenceNormalizer:
             metadata={
                 "next_recommended_action": str(payload.get("next_recommended_action", "")),
                 "resumability_state": str(payload.get("resumability_state", "")),
+                "goal_description": str(context.get("goal_description", "")),
             },
         )
 
@@ -161,6 +167,7 @@ class EvidenceNormalizer:
             source_artifact_id=artifact_id,
             session_id=str(context.get("session_id") or "") or None,
             task_id=str(payload.get("task_id", "") or context.get("task_id") or "") or None,
+            goal_id=str(payload.get("goal_id", "") or context.get("goal_id") or "") or None,
             plan_id=str(payload.get("plan_id", "") or context.get("plan_id") or "") or None,
             step_id=str(payload.get("step_id", "")) or None,
             action_type="continuation",
@@ -189,6 +196,7 @@ class EvidenceNormalizer:
             source_artifact_id=artifact_id,
             session_id=str(context.get("session_id") or "") or None,
             task_id=str(context.get("task_id") or "") or None,
+            goal_id=str(context.get("goal_id") or "") or None,
             plan_id=str(payload.get("plan_id", "") or context.get("plan_id") or "") or None,
             step_id=str(payload.get("current_step_id", "")) or None,
             action_type="continuation_evaluation",

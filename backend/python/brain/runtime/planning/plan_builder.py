@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from brain.runtime.goals import Goal
+
 from .models import PlanStep, PlanStepStatus, TaskClassification, TaskPlan
 
 
@@ -15,6 +17,7 @@ class OperationalPlanBuilder:
         run_id: str,
         message: str,
         actions: list[dict[str, Any]],
+        goal: Goal | None,
         classification: TaskClassification,
         plan_kind: str = "linear",
         advisory_signals: list[dict[str, Any]] | None = None,
@@ -66,6 +69,7 @@ class OperationalPlanBuilder:
                     "selected_tool": str(action.get("selected_tool", "")),
                     "selected_agent": str(action.get("selected_agent", "")),
                     "action_signature": hashlib.sha1(str(action).encode("utf-8")).hexdigest()[:16],
+                    "subgoal_id": self._subgoal_id_for_action(goal=goal, index=index - 1),
                 },
             )
             steps.append(action_step)
@@ -117,6 +121,7 @@ class OperationalPlanBuilder:
 
         return TaskPlan.build(
             task_id=task_id,
+            goal_id=goal.goal_id if goal is not None else None,
             title=title,
             objective=objective,
             classification=classification,
@@ -129,6 +134,8 @@ class OperationalPlanBuilder:
                 "action_count": len(actions),
                 "action_step_ids": action_step_ids,
                 "advisory_signal_count": len(advisory_signals or []),
+                "goal_description": goal.description if goal is not None else "",
+                "goal_prompt_block": goal and goal.metadata.get("goal_prompt_block", ""),
             },
         )
 
@@ -147,3 +154,12 @@ class OperationalPlanBuilder:
             if selected_tool:
                 tools.add(selected_tool)
         return tools
+
+    @staticmethod
+    def _subgoal_id_for_action(*, goal: Goal | None, index: int) -> str | None:
+        if goal is None or not goal.subgoals:
+            return None
+        ordered = sorted(goal.subgoals, key=lambda item: item.order)
+        if index < 0 or index >= len(ordered):
+            return None
+        return ordered[index].subgoal_id

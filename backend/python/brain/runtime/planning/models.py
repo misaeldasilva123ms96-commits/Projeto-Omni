@@ -170,6 +170,7 @@ class PlanCheckpoint:
 class TaskPlan:
     plan_id: str
     task_id: str
+    goal_id: str | None
     title: str
     objective: str
     creation_timestamp: str
@@ -193,6 +194,7 @@ class TaskPlan:
         cls,
         *,
         task_id: str,
+        goal_id: str | None,
         title: str,
         objective: str,
         classification: TaskClassification,
@@ -206,6 +208,7 @@ class TaskPlan:
         return cls(
             plan_id=f"plan-{uuid4()}",
             task_id=task_id,
+            goal_id=goal_id,
             title=title,
             objective=objective,
             creation_timestamp=now,
@@ -227,6 +230,7 @@ class TaskPlan:
         return {
             "plan_id": self.plan_id,
             "task_id": self.task_id,
+            "goal_id": self.goal_id,
             "title": self.title,
             "objective": self.objective,
             "creation_timestamp": self.creation_timestamp,
@@ -251,6 +255,7 @@ class TaskPlan:
         return cls(
             plan_id=str(payload.get("plan_id", "")),
             task_id=str(payload.get("task_id", "")),
+            goal_id=str(payload.get("goal_id")) if payload.get("goal_id") else None,
             title=str(payload.get("title", "")),
             objective=str(payload.get("objective", "")),
             creation_timestamp=str(payload.get("creation_timestamp", "")),
@@ -291,6 +296,7 @@ class ResumeDecision:
 class OperationalSummary:
     plan_id: str
     task_id: str
+    goal_id: str | None
     current_objective: str
     plan_status: str
     completed_steps: list[str]
@@ -310,6 +316,7 @@ class OperationalSummary:
         return cls(
             plan_id=str(payload.get("plan_id", "")),
             task_id=str(payload.get("task_id", "")),
+            goal_id=str(payload.get("goal_id")) if payload.get("goal_id") else None,
             current_objective=str(payload.get("current_objective", "")),
             plan_status=str(payload.get("plan_status", "")),
             completed_steps=[str(item) for item in payload.get("completed_steps", []) if str(item).strip()],
