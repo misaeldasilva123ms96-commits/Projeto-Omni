@@ -47,6 +47,7 @@ from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
 from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
 from brain.runtime.session_store import SessionStore
+from brain.runtime.simulation import ActionSimulator, SimulationStore
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
 from brain.runtime.transcript_store import TranscriptStore
@@ -207,7 +208,13 @@ class BrainOrchestrator:
         self.memory_facade = MemoryFacade(self.paths.root)
         self.learning_executor = LearningExecutor(self.paths.root, memory_facade=self.memory_facade)
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
-        self.continuation_executor = ContinuationExecutor(self.paths.root, memory_facade=self.memory_facade)
+        self.simulation_store = SimulationStore(self.paths.root)
+        self.action_simulator = ActionSimulator(self.paths.root, memory_facade=self.memory_facade, store=self.simulation_store)
+        self.continuation_executor = ContinuationExecutor(
+            self.paths.root,
+            memory_facade=self.memory_facade,
+            simulator=self.action_simulator,
+        )
         self.planning_executor = PlanningExecutor(self.paths.root)
         self.js_runtime_adapter = JSRuntimeAdapter(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
@@ -2672,6 +2679,7 @@ class BrainOrchestrator:
                         "recommended_route": decision.decision_type.value,
                         "decision_type": decision.decision_type.value,
                         "plan_id": updated_plan.plan_id,
+                        "simulation_id": str((decision.metadata or {}).get("simulation_id", "")).strip(),
                     },
                 )
             elif decision.decision_type == ContinuationDecisionType.ESCALATE_FAILURE:
@@ -2692,6 +2700,7 @@ class BrainOrchestrator:
                         "recommended_route": decision.decision_type.value,
                         "decision_type": decision.decision_type.value,
                         "plan_id": updated_plan.plan_id,
+                        "simulation_id": str((decision.metadata or {}).get("simulation_id", "")).strip(),
                     },
                 )
         self._append_runtime_event(

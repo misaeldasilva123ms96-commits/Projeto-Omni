@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from brain.runtime.goals import Goal
 from brain.runtime.planning import TaskPlan
 from brain.runtime.planning.progress_tracker import ProgressTracker
 from brain.runtime.goals import GoalEvaluationResult
+from brain.runtime.simulation import ActionSimulator, RouteType, SimulationContextBuilder, SimulationResult
 
 from .continuation_policy import DeterministicContinuationPolicy
 from .models import ContinuationDecision, ContinuationDecisionType, ContinuationPolicy, PlanEvaluation, PlanHealth
@@ -34,8 +36,16 @@ REPLAN_FAILURES = {
 
 
 class ContinuationDecider:
-    def __init__(self, tracker: ProgressTracker) -> None:
+    def __init__(
+        self,
+        tracker: ProgressTracker,
+        *,
+        simulator: ActionSimulator | None = None,
+        simulation_context_builder: SimulationContextBuilder | None = None,
+    ) -> None:
         self.tracker = tracker
+        self.simulator = simulator
+        self.simulation_context_builder = simulation_context_builder
 
     def decide(
         self,
@@ -44,6 +54,7 @@ class ContinuationDecider:
         evaluation: PlanEvaluation,
         policy: ContinuationPolicy,
         checkpoint_id: str | None,
+        goal: Goal | None = None,
         goal_evaluation: GoalEvaluationResult | None = None,
         result: dict[str, Any] | None = None,
         advisory_signals: list[Any] | None = None,
@@ -89,6 +100,114 @@ class ContinuationDecider:
                 checkpoint_id=checkpoint_id,
             )
 
+        simulation_result = self._simulation_result(
+            plan=plan,
+            goal=goal,
+            goal_evaluation=goal_evaluation,
+            result=result,
+        )
+        if simulation_result is not None:
+            high_confidence_decision = self._high_confidence_simulation_decision(
+                plan=plan,
+                checkpoint_id=checkpoint_id,
+                simulation_result=simulation_result,
+            )
+            if high_confidence_decision is not None:
+                return high_confidence_decision
+
+        baseline = self._baseline_decision(
+            plan=plan,
+            evaluation=evaluation,
+            policy=policy,
+            checkpoint_id=checkpoint_id,
+            failure_kind=failure_kind,
+            retry_count=retry_count,
+            replan_count=replan_count,
+            result=result,
+            advisory_signals=advisory_signals,
+        )
+        if simulation_result is not None:
+            return self._blend_with_simulation(
+                baseline=baseline,
+                simulation_result=simulation_result,
+            )
+        return baseline
+
+    def _simulation_result(
+        self,
+        *,
+        plan: TaskPlan,
+        goal: Goal | None,
+        goal_evaluation: GoalEvaluationResult | None,
+        result: dict[str, Any] | None,
+    ) -> SimulationResult | None:
+        if self.simulator is None or self.simulation_context_builder is None:
+            return None
+        if goal_evaluation is not None and (goal_evaluation.is_achieved or goal_evaluation.should_fail):
+            return None
+        context = self.simulation_context_builder.build(
+            plan=plan,
+            goal=goal,
+            result=result,
+            session_id=plan.session_id,
+        )
+        return self.simulator.simulate(context=context)
+
+    def _high_confidence_simulation_decision(
+        self,
+        *,
+        plan: TaskPlan,
+        checkpoint_id: str | None,
+        simulation_result: SimulationResult,
+    ) -> ContinuationDecision | None:
+        route = simulation_result.route_for(simulation_result.recommended_route)
+        if route is None or route.confidence < 0.75 or route.constraint_risk > 0.7:
+            return None
+        if route.route == RouteType.RETRY:
+            return self._decision_from_simulation(
+                plan=plan,
+                checkpoint_id=checkpoint_id,
+                decision_type=ContinuationDecisionType.RETRY_STEP,
+                simulation_result=simulation_result,
+                reason_code="simulation_high_confidence_retry",
+                reason_summary="Internal simulation strongly favors a bounded retry path.",
+                recommended_action="Retry the current step because simulation indicates bounded retry is most promising.",
+            )
+        if route.route == RouteType.REPLAN:
+            return self._decision_from_simulation(
+                plan=plan,
+                checkpoint_id=checkpoint_id,
+                decision_type=ContinuationDecisionType.REBUILD_PLAN,
+                simulation_result=simulation_result,
+                reason_code="simulation_high_confidence_replan",
+                reason_summary="Internal simulation strongly favors a bounded replan path.",
+                recommended_action="Apply a bounded replan because simulation indicates it is the best available route.",
+            )
+        if route.route == RouteType.PAUSE:
+            return self._decision_from_simulation(
+                plan=plan,
+                checkpoint_id=checkpoint_id,
+                decision_type=ContinuationDecisionType.PAUSE_PLAN,
+                simulation_result=simulation_result,
+                reason_code="simulation_high_confidence_pause",
+                reason_summary="Internal simulation strongly favors pausing the plan safely.",
+                recommended_action="Pause the plan because simulation indicates pause is the safest bounded route.",
+            )
+        return None
+
+    def _baseline_decision(
+        self,
+        *,
+        plan: TaskPlan,
+        evaluation: PlanEvaluation,
+        policy: ContinuationPolicy,
+        checkpoint_id: str | None,
+        failure_kind: str,
+        retry_count: int,
+        replan_count: int,
+        result: dict[str, Any] | None,
+        advisory_signals: list[Any] | None,
+    ) -> ContinuationDecision:
         if evaluation.plan_health == PlanHealth.COMPLETED:
             return self._build_decision(
                 plan=plan,
@@ -179,6 +298,69 @@ class ContinuationDecider:
             checkpoint_id=checkpoint_id,
         )
 
+    def _blend_with_simulation(
+        self,
+        *,
+        baseline: ContinuationDecision,
+        simulation_result: SimulationResult,
+    ) -> ContinuationDecision:
+        route = simulation_result.route_for(simulation_result.recommended_route)
+        if route is None:
+            return baseline
+        baseline.metadata = {
+            **dict(baseline.metadata),
+            "simulation_id": simulation_result.simulation_id,
+            "simulation_recommended_route": simulation_result.recommended_route.value,
+            "simulation_confidence": route.confidence,
+        }
+        if route.confidence < 0.75:
+            baseline.reason_summary = f"{baseline.reason_summary} Simulation advisory favored {route.route.value} with low confidence."
+            if baseline.decision_type == ContinuationDecisionType.RETRY_STEP and route.route in {RouteType.PAUSE, RouteType.REPAIR}:
+                baseline.confidence_score = max(0.2, baseline.confidence_score - 0.12)
+            elif self._route_to_decision_type(route.route) == baseline.decision_type:
+                baseline.confidence_score = min(0.99, baseline.confidence_score + 0.05)
+            return baseline
+        return baseline
+
+    def _decision_from_simulation(
+        self,
+        *,
+        plan: TaskPlan,
+        checkpoint_id: str | None,
+        decision_type: ContinuationDecisionType,
+        simulation_result: SimulationResult,
+        reason_code: str,
+        reason_summary: str,
+        recommended_action: str,
+    ) -> ContinuationDecision:
+        route = simulation_result.route_for(simulation_result.recommended_route)
+        confidence = route.confidence if route is not None else 0.8
+        return self._build_decision(
+            plan=plan,
+            step_id=plan.current_step_id,
+            decision_type=decision_type,
+            reason_code=reason_code,
+            reason_summary=reason_summary,
+            confidence_score=confidence,
+            recommended_action=recommended_action,
+            checkpoint_id=checkpoint_id,
+            metadata={
+                "goal_id": plan.goal_id,
+                "simulation_id": simulation_result.simulation_id,
+                "simulation_recommended_route": simulation_result.recommended_route.value,
+                "simulation_routes": [candidate.as_dict() for candidate in simulation_result.routes],
+            },
+        )
+
+    @staticmethod
+    def _route_to_decision_type(route: RouteType) -> ContinuationDecisionType | None:
+        mapping = {
+            RouteType.RETRY: ContinuationDecisionType.RETRY_STEP,
+            RouteType.REPLAN: ContinuationDecisionType.REBUILD_PLAN,
+            RouteType.PAUSE: ContinuationDecisionType.PAUSE_PLAN,
+        }
+        return mapping.get(route)
+
     @staticmethod
     def _confidence_with_signals(base_confidence: float, decision_type: ContinuationDecisionType, advisory_signals: list[Any] | None) -> float:
         confidence = base_confidence
@@ -210,6 +392,7 @@ class ContinuationDecider:
         confidence_score: float,
         recommended_action: str,
         checkpoint_id: str | None,
+        metadata: dict[str, Any] | None = None,
     ) -> ContinuationDecision:
         return ContinuationDecision.build(
             plan_id=plan.plan_id,
@@ -225,5 +408,6 @@ class ContinuationDecider:
             linked_checkpoint_id=checkpoint_id,
             metadata={
                 "goal_id": plan.goal_id,
+                **dict(metadata or {}),
             },
         )
