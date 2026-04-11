@@ -12,6 +12,8 @@ try {
 }
 
 const MAX_MEMORY_BYTES = 16 * 1024;
+const USER_FALLBACK_RESPONSE = 'Entendido. Como posso ajudá-lo?';
+const RESPONSE_CANDIDATE_KEYS = ['response', 'message', 'text', 'answer', 'output', 'result'];
 
 function getBaseDir() {
   return process.env.BASE_DIR
@@ -232,7 +234,7 @@ function getQueryEngineCandidates() {
 }
 
 async function runAgentLoop(runner, payload) {
-  const result = await runner({
+  return runner({
     message: payload.message,
     memoryContext: payload.memoryContext,
     history: payload.history,
@@ -241,24 +243,6 @@ async function runAgentLoop(runner, payload) {
     session: payload.session,
     cwd: payload.cwd,
   });
-
-  if (typeof result === 'string') {
-    return result.trim();
-  }
-
-  if (result && result.execution_request) {
-    return JSON.stringify(result);
-  }
-
-  if (result && typeof result.finalAnswer === 'string') {
-    return result.finalAnswer.trim();
-  }
-
-  if (result && typeof result.response === 'string') {
-    return result.response.trim();
-  }
-
-  return '';
 }
 
 async function tryRunExistingQueryEngineDetailed(payload) {
@@ -317,27 +301,30 @@ async function tryRunExistingQueryEngineDetailed(payload) {
 
 async function tryRunExistingQueryEngine(payload) {
   const execution = await tryRunExistingQueryEngineDetailed(payload);
-  return execution.result || '';
+  return toLegacyRunnerString(execution.result);
 }
 
-function normalizeRunnerResult(result) {
+function toLegacyRunnerString(result) {
   if (typeof result === 'string') {
-    return { response: result };
+    return result.trim();
   }
 
   if (result && typeof result === 'object') {
     if (result.execution_request) {
-      return result;
-    }
-    if (typeof result.response === 'string') {
-      return { response: result.response };
+      return JSON.stringify(result);
     }
     if (typeof result.finalAnswer === 'string') {
-      return { response: result.finalAnswer };
+      return result.finalAnswer.trim();
+    }
+    for (const key of RESPONSE_CANDIDATE_KEYS) {
+      const value = result[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
     }
   }
 
-  return { response: '' };
+  return '';
 }
 
 function emitRunnerError(kind, message, details = {}) {
@@ -351,39 +338,140 @@ function emitRunnerError(kind, message, details = {}) {
   process.exit(1);
 }
 
-async function main() {
-  const parsed = safeParsePayload(getRawInput());
-  if (!parsed.message) {
-    process.stdout.write(JSON.stringify({ response: '' }));
+function isDebugLoggingEnabled() {
+  const level = String(process.env.OMINI_LOG_LEVEL || process.env.LOG_LEVEL || '').toLowerCase().trim();
+  return level === 'debug';
+}
+
+function debugLogInternal(stage, payload) {
+  if (!isDebugLoggingEnabled()) {
     return;
   }
 
-  const payload = {
-    message: parsed.message,
-    memory: parsed.memory,
-    history: parsed.history,
-    summary: parsed.summary,
-    capabilities: parsed.capabilities,
-    session: parsed.session,
-    memoryContext: {
-      user: parsed.memory,
-      agentMemory: loadAgentMemoryContext(),
-    },
-    cwd: getWorkspaceRoot(),
-  };
+  try {
+    process.stderr.write(`${JSON.stringify({ stage, payload })}\n`);
+  } catch {
+    // Never break user-visible output because debug logging failed.
+  }
+}
 
-  const execution = await tryRunExistingQueryEngineDetailed(payload);
-  if (!execution.result) {
-    emitRunnerError('module_resolution_error', 'No usable QueryEngine runner module was loaded.', {
-      attempted_candidates: execution.attemptedCandidates,
-      selected_candidate: execution.selectedCandidate,
-      attempted_typescript_candidate: execution.attemptedTypescriptCandidate,
-      candidate_errors: execution.candidateErrors.slice(0, 6),
-      cwd: payload.cwd,
-    });
+function tryParseStructuredString(value) {
+  if (typeof value !== 'string') {
+    return null;
   }
 
-  process.stdout.write(JSON.stringify(normalizeRunnerResult(execution.result)));
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const looksStructured =
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'));
+
+  if (!looksStructured) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeForUserInternal(input) {
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return { response: USER_FALLBACK_RESPONSE };
+    }
+    const parsed = tryParseStructuredString(trimmed);
+    if (parsed !== null) {
+      return sanitizeForUserInternal(parsed);
+    }
+    return { response: trimmed };
+  }
+
+  if (input == null || Array.isArray(input)) {
+    return { response: USER_FALLBACK_RESPONSE };
+  }
+
+  if (typeof input === 'object') {
+    for (const key of RESPONSE_CANDIDATE_KEYS) {
+      const candidate = input[key];
+      if (typeof candidate !== 'string') {
+        continue;
+      }
+      const trimmed = candidate.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const parsed = tryParseStructuredString(trimmed);
+      if (parsed !== null) {
+        return sanitizeForUserInternal(parsed);
+      }
+      return { response: trimmed };
+    }
+  }
+
+  return { response: USER_FALLBACK_RESPONSE };
+}
+
+function sanitizeForUser(input) {
+  debugLogInternal('node_runner_pre_sanitize', input);
+  try {
+    return sanitizeForUserInternal(input);
+  } catch {
+    return { response: USER_FALLBACK_RESPONSE };
+  }
+}
+
+async function main() {
+  try {
+    const parsed = safeParsePayload(getRawInput());
+    if (!parsed.message) {
+      process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+      return;
+    }
+
+    const payload = {
+      message: parsed.message,
+      memory: parsed.memory,
+      history: parsed.history,
+      summary: parsed.summary,
+      capabilities: parsed.capabilities,
+      session: parsed.session,
+      memoryContext: {
+        user: parsed.memory,
+        agentMemory: loadAgentMemoryContext(),
+      },
+      cwd: getWorkspaceRoot(),
+    };
+
+    const execution = await tryRunExistingQueryEngineDetailed(payload);
+    debugLogInternal('node_runner_execution_detail', execution);
+    if (!execution.result) {
+      debugLogInternal('node_runner_missing_result', {
+        kind: 'module_resolution_error',
+        attempted_candidates: execution.attemptedCandidates,
+        selected_candidate: execution.selectedCandidate,
+        attempted_typescript_candidate: execution.attemptedTypescriptCandidate,
+        candidate_errors: execution.candidateErrors.slice(0, 6),
+        cwd: payload.cwd,
+      });
+      process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+      return;
+    }
+
+    process.stdout.write(JSON.stringify(sanitizeForUser(execution.result)));
+  } catch (error) {
+    debugLogInternal('node_runner_main_exception', {
+      error_name: error && error.name ? error.name : 'Error',
+      error_message: error && error.message ? String(error.message) : String(error || ''),
+    });
+    process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+  }
 }
 
 module.exports = {
