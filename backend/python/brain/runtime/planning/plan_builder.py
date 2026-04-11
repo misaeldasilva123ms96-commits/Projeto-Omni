@@ -17,11 +17,13 @@ class OperationalPlanBuilder:
         actions: list[dict[str, Any]],
         classification: TaskClassification,
         plan_kind: str = "linear",
+        advisory_signals: list[dict[str, Any]] | None = None,
     ) -> TaskPlan:
         objective = str(message or "Execute runtime workflow.").strip() or "Execute runtime workflow."
         title = objective[:96]
         steps: list[PlanStep] = []
         previous_dependencies: list[str] = []
+        validation_tools = self._validation_tools_from_signals(advisory_signals)
 
         if classification in {
             TaskClassification.MULTI_STEP,
@@ -69,6 +71,24 @@ class OperationalPlanBuilder:
             steps.append(action_step)
             action_step_ids.append(action_step.step_id)
             previous_dependencies = [action_step.step_id]
+            selected_tool = str(action.get("selected_tool", "")).strip()
+            if selected_tool and selected_tool in validation_tools:
+                validation_step = PlanStep(
+                    step_id=f"validate:{action_step_id}",
+                    title=f"Validate {selected_tool}",
+                    description=f"Run a bounded validation checkpoint after {selected_tool} because learned evidence indicates this step benefits from explicit validation.",
+                    step_type="validate_result",
+                    dependency_step_ids=[action_step.step_id],
+                    status=PlanStepStatus.PENDING,
+                    expected_outcome=f"{selected_tool} outcome is validated before the workflow continues.",
+                    metadata={
+                        "auto_managed": True,
+                        "selected_tool": selected_tool,
+                        "learning_advisory": True,
+                    },
+                )
+                steps.append(validation_step)
+                previous_dependencies = [validation_step.step_id]
 
         summarize_dependencies = action_step_ids or previous_dependencies
         summarize_step = PlanStep(
@@ -108,5 +128,22 @@ class OperationalPlanBuilder:
                 "plan_kind": plan_kind,
                 "action_count": len(actions),
                 "action_step_ids": action_step_ids,
+                "advisory_signal_count": len(advisory_signals or []),
             },
         )
+
+    @staticmethod
+    def _validation_tools_from_signals(advisory_signals: list[dict[str, Any]] | None) -> set[str]:
+        tools: set[str] = set()
+        for signal in advisory_signals or []:
+            if not isinstance(signal, dict):
+                continue
+            if str(signal.get("signal_type", "")).strip() != "step_template_success_hint":
+                continue
+            metadata = signal.get("metadata", {}) if isinstance(signal.get("metadata"), dict) else {}
+            if not metadata.get("require_validation_after_tool"):
+                continue
+            selected_tool = str(metadata.get("selected_tool", "")).strip()
+            if selected_tool:
+                tools.add(selected_tool)
+        return tools

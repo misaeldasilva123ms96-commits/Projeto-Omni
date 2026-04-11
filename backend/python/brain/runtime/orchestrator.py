@@ -35,6 +35,7 @@ from brain.runtime.continuation import ContinuationDecisionType, ContinuationExe
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
+from brain.runtime.learning import LearningExecutor
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
@@ -197,6 +198,7 @@ class BrainOrchestrator:
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
             policy=self._trusted_execution_policy(),
         )
+        self.learning_executor = LearningExecutor(self.paths.root)
         self.continuation_executor = ContinuationExecutor(self.paths.root)
         self.planning_executor = PlanningExecutor(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
@@ -1688,6 +1690,7 @@ class BrainOrchestrator:
             branch_plan=branch_plan,
             start_index=start_index,
             engineering_workflow=engineering_workflow,
+            advisory_signals=[signal.as_dict() for signal in self.learning_executor.advisory_signals_for_planning(actions=actions)],
         )
         action_lookup = {
             str(action.get("step_id", "")).strip(): action
@@ -2520,12 +2523,21 @@ class BrainOrchestrator:
         )
         operational_summary = self.planning_executor.summary_for_plan(operational_plan)
         if operational_summary is not None:
+            final_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
+            learning_update = self.learning_executor.ingest_runtime_artifacts(
+                plan=operational_plan,
+                checkpoint=final_checkpoint,
+                summary=operational_summary,
+            )
             self._append_runtime_event(
                 event_type="runtime.planning.summary",
                 session_id=session_id,
                 task_id=task_id,
                 run_id=run_id,
-                payload=operational_summary.as_dict(),
+                payload={
+                    **operational_summary.as_dict(),
+                    "learning": learning_update,
+                },
             )
         return step_results
 
@@ -2539,12 +2551,28 @@ class BrainOrchestrator:
         action: dict[str, Any],
         result: dict[str, Any],
     ) -> tuple[Any, dict[str, Any] | None, bool]:
-        evaluation, decision, updated_plan = self.continuation_executor.evaluate_and_decide(
+        continuation_signals = self.learning_executor.advisory_signals_for_continuation(
             plan=operational_plan,
             result=result,
         )
+        evaluation, decision, updated_plan = self.continuation_executor.evaluate_and_decide(
+            plan=operational_plan,
+            result=result,
+            advisory_signals=continuation_signals,
+        )
         if decision is None:
             return updated_plan, None, False
+        latest_checkpoint = self.planning_executor.store.load_latest_checkpoint(updated_plan.plan_id) if updated_plan else None
+        latest_summary = self.planning_executor.store.load_summary(updated_plan.plan_id) if updated_plan else None
+        learning_update = self.learning_executor.ingest_runtime_artifacts(
+            action=action,
+            result=result,
+            plan=updated_plan,
+            checkpoint=latest_checkpoint,
+            summary=latest_summary,
+            continuation_evaluation=evaluation.as_dict() if evaluation is not None else None,
+            continuation_decision=decision.as_dict(),
+        )
         self._append_runtime_event(
             event_type="runtime.continuation.decision",
             session_id=session_id,
@@ -2553,6 +2581,7 @@ class BrainOrchestrator:
             payload={
                 "evaluation": evaluation.as_dict() if evaluation is not None else None,
                 "decision": decision.as_dict(),
+                "learning": learning_update,
             },
         )
         should_stop = decision.decision_type in {
@@ -2976,12 +3005,17 @@ class BrainOrchestrator:
                     step_results=step_results,
                     attempt_number=attempt_number,
                 )
+                repair_signals = self.learning_executor.advisory_signals_for_repair(
+                    action=current_action,
+                    result=final_result,
+                )
                 self_repair_outcome = self.self_repair_loop.inspect_failure(
                     action=current_action,
                     result=final_result,
                     trusted_execution=trusted_execution,
                     retry_count=max(0, attempt_number - 1),
                     recurrence_count=recurrence_count,
+                    advisory_signals=repair_signals,
                 )
                 self._append_runtime_event(
                     event_type="runtime.self_repair.receipt",
@@ -3076,6 +3110,21 @@ class BrainOrchestrator:
             "reason_code": "missing_result",
         }
         result["correction_events"] = correction_events
+        result["learning_signals"] = {
+            "repair": [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_repair(action=current_action, result=result)],
+        }
+        learning_update = self.learning_executor.ingest_runtime_artifacts(
+            action=current_action,
+            result=result,
+        )
+        if learning_update["signals"]:
+            self._append_runtime_event(
+                event_type="runtime.learning.ingested",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=learning_update,
+            )
         return result
 
     @staticmethod
