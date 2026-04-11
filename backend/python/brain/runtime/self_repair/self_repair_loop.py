@@ -21,6 +21,7 @@ class SelfRepairLoop:
         trusted_execution: Any | None,
         retry_count: int,
         recurrence_count: int,
+        advisory_signals: list[Any] | None = None,
     ) -> RepairOutcome:
         evidence = self.analyzer.build_evidence(
             action=action,
@@ -29,7 +30,7 @@ class SelfRepairLoop:
             retry_count=retry_count,
             recurrence_count=recurrence_count,
         )
-        return self.executor.handle_failure(evidence=evidence)
+        return self.executor.handle_failure(evidence=evidence, advisory_signals=advisory_signals)
 
     @staticmethod
     def next_decision(outcome: RepairOutcome) -> str:

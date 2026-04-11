@@ -16,6 +16,7 @@ class DeterministicRepairProposer:
         evidence: FailureEvidence,
         hypothesis: CauseHypothesis,
         allow_promotion: bool,
+        advisory_signals: list[Any] | None = None,
     ) -> RepairProposal | None:
         strategy = hypothesis.repair_strategy_class
         if strategy == "ensure_file_content_contract":
@@ -24,6 +25,7 @@ class DeterministicRepairProposer:
                 evidence=evidence,
                 hypothesis=hypothesis,
                 allow_promotion=allow_promotion,
+                advisory_signals=advisory_signals,
             )
         if strategy == "normalize_result_payload_shape":
             return self._propose_result_payload_normalizer(
@@ -31,6 +33,7 @@ class DeterministicRepairProposer:
                 evidence=evidence,
                 hypothesis=hypothesis,
                 allow_promotion=allow_promotion,
+                advisory_signals=advisory_signals,
             )
         if strategy == "normalize_error_payload_shape":
             return self._propose_error_payload_normalizer(
@@ -38,6 +41,7 @@ class DeterministicRepairProposer:
                 evidence=evidence,
                 hypothesis=hypothesis,
                 allow_promotion=allow_promotion,
+                advisory_signals=advisory_signals,
             )
         return None
 
@@ -48,6 +52,7 @@ class DeterministicRepairProposer:
         evidence: FailureEvidence,
         hypothesis: CauseHypothesis,
         allow_promotion: bool,
+        advisory_signals: list[Any] | None = None,
     ) -> RepairProposal | None:
         target_file = "backend/python/brain/runtime/engineering_tools.py"
         target_path = workspace_root / target_file
@@ -65,6 +70,12 @@ class DeterministicRepairProposer:
             new_content=new_content,
             confidence_score=hypothesis.confidence_score,
         )
+        confidence = self._apply_learning_confidence(
+            base_confidence=hypothesis.confidence_score,
+            strategy=hypothesis.repair_strategy_class,
+            evidence=evidence,
+            advisory_signals=advisory_signals,
+        )
         return RepairProposal.build(
             evidence_id=evidence.evidence_id,
             cause_category=hypothesis.probable_cause_category,
@@ -73,7 +84,7 @@ class DeterministicRepairProposer:
             proposed_action_summary="Restore the file.content contract for filesystem read results.",
             expected_fix_outcome="Read-oriented actions emit file.content so Phase 14 verification can pass.",
             scope_classification="single_file_runtime_patch",
-            confidence_score=hypothesis.confidence_score,
+            confidence_score=confidence,
             validation_plan=RepairValidationPlan(
                 validation_modes=["patch-review", "source-compile", "import-load", "receipt-smoke"],
                 targeted_tests=["tests.runtime.test_trusted_execution_layer"],
@@ -87,7 +98,7 @@ class DeterministicRepairProposer:
                 "Trusted execution tests pass",
             ],
             patch_payload=patch_payload,
-            metadata={"anchor": anchor, "replacement": replacement},
+            metadata={"anchor": anchor, "replacement": replacement, "learning_signals": self._signal_ids(advisory_signals)},
         )
 
     def _propose_result_payload_normalizer(
@@ -97,6 +108,7 @@ class DeterministicRepairProposer:
         evidence: FailureEvidence,
         hypothesis: CauseHypothesis,
         allow_promotion: bool,
+        advisory_signals: list[Any] | None = None,
     ) -> RepairProposal | None:
         target_file = "backend/python/brain/runtime/execution/trusted_executor.py"
         target_path = workspace_root / target_file
@@ -128,6 +140,12 @@ class DeterministicRepairProposer:
             new_content=new_content,
             confidence_score=hypothesis.confidence_score,
         )
+        confidence = self._apply_learning_confidence(
+            base_confidence=hypothesis.confidence_score,
+            strategy=hypothesis.repair_strategy_class,
+            evidence=evidence,
+            advisory_signals=advisory_signals,
+        )
         return RepairProposal.build(
             evidence_id=evidence.evidence_id,
             cause_category=hypothesis.probable_cause_category,
@@ -136,7 +154,7 @@ class DeterministicRepairProposer:
             proposed_action_summary="Normalize runtime callback results to ensure structured result payloads.",
             expected_fix_outcome="Execution wrappers always emit consistent result_payload and error_payload structures.",
             scope_classification="single_file_runtime_patch",
-            confidence_score=hypothesis.confidence_score,
+            confidence_score=confidence,
             validation_plan=RepairValidationPlan(
                 validation_modes=["patch-review", "source-compile", "import-load", "receipt-smoke"],
                 targeted_tests=["tests.runtime.test_trusted_execution_layer"],
@@ -150,7 +168,7 @@ class DeterministicRepairProposer:
                 "Trusted execution tests pass",
             ],
             patch_payload=patch_payload,
-            metadata={"target_component": hypothesis.affected_component},
+            metadata={"target_component": hypothesis.affected_component, "learning_signals": self._signal_ids(advisory_signals)},
         )
 
     def _propose_error_payload_normalizer(
@@ -160,6 +178,7 @@ class DeterministicRepairProposer:
         evidence: FailureEvidence,
         hypothesis: CauseHypothesis,
         allow_promotion: bool,
+        advisory_signals: list[Any] | None = None,
     ) -> RepairProposal | None:
         target_file = "backend/python/brain/runtime/execution/trusted_executor.py"
         target_path = workspace_root / target_file
@@ -181,6 +200,12 @@ class DeterministicRepairProposer:
             new_content=new_content,
             confidence_score=hypothesis.confidence_score,
         )
+        confidence = self._apply_learning_confidence(
+            base_confidence=hypothesis.confidence_score,
+            strategy=hypothesis.repair_strategy_class,
+            evidence=evidence,
+            advisory_signals=advisory_signals,
+        )
         return RepairProposal.build(
             evidence_id=evidence.evidence_id,
             cause_category=hypothesis.probable_cause_category,
@@ -189,7 +214,7 @@ class DeterministicRepairProposer:
             proposed_action_summary="Normalize exception failures so structured error details are always preserved.",
             expected_fix_outcome="Failed execution paths emit complete structured error payloads.",
             scope_classification="single_file_runtime_patch",
-            confidence_score=hypothesis.confidence_score,
+            confidence_score=confidence,
             validation_plan=RepairValidationPlan(
                 validation_modes=["patch-review", "source-compile", "import-load", "receipt-smoke"],
                 targeted_tests=["tests.runtime.test_trusted_execution_layer"],
@@ -203,5 +228,30 @@ class DeterministicRepairProposer:
                 "Trusted execution tests pass",
             ],
             patch_payload=patch_payload,
-            metadata={"target_component": hypothesis.affected_component},
+            metadata={"target_component": hypothesis.affected_component, "learning_signals": self._signal_ids(advisory_signals)},
         )
+
+    @staticmethod
+    def _signal_ids(advisory_signals: list[Any] | None) -> list[str]:
+        return [str(getattr(signal, "signal_id", "")) for signal in advisory_signals or [] if str(getattr(signal, "signal_id", ""))]
+
+    @staticmethod
+    def _apply_learning_confidence(
+        *,
+        base_confidence: float,
+        strategy: str,
+        evidence: FailureEvidence,
+        advisory_signals: list[Any] | None,
+    ) -> float:
+        confidence = base_confidence
+        for signal in advisory_signals or []:
+            signal_type = getattr(getattr(signal, "signal_type", None), "value", "")
+            metadata = getattr(signal, "metadata", {}) if isinstance(getattr(signal, "metadata", {}), dict) else {}
+            if signal_type != "preferred_repair_strategy":
+                continue
+            if str(metadata.get("repair_strategy", "")).strip() not in {"", strategy}:
+                continue
+            if str(metadata.get("failure_class", "")).strip() not in {"", evidence.failure_type}:
+                continue
+            confidence = min(0.99, confidence + float(getattr(signal, "weight", 0.0) or 0.0) * 0.2)
+        return confidence

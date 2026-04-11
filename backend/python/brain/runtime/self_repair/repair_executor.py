@@ -21,7 +21,7 @@ class SelfRepairExecutor:
         self.proposer = DeterministicRepairProposer()
         self.validator = RepairValidator()
 
-    def handle_failure(self, *, evidence: FailureEvidence) -> RepairOutcome:
+    def handle_failure(self, *, evidence: FailureEvidence, advisory_signals: list[Any] | None = None) -> RepairOutcome:
         eligibility = self.policy_engine.evaluate(evidence=evidence, policy=self.policy)
         if eligibility.decision.value != "repairable_within_scope":
             status = RepairStatus.BLOCKED if eligibility.decision.value == "blocked_by_policy" else RepairStatus.REJECTED
@@ -52,6 +52,7 @@ class SelfRepairExecutor:
             evidence=evidence,
             hypothesis=hypothesis,
             allow_promotion=self.policy.allow_promotion,
+            advisory_signals=advisory_signals,
         )
         if proposal is None:
             rejected_eligibility = RepairEligibility(

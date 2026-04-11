@@ -53,6 +53,7 @@ class ContinuationExecutor:
         *,
         plan: TaskPlan | None,
         result: dict[str, Any] | None = None,
+        advisory_signals: list[Any] | None = None,
     ) -> tuple[PlanEvaluation | None, ContinuationDecision | None, TaskPlan | None]:
         if plan is None:
             return None, None, None
@@ -73,6 +74,7 @@ class ContinuationExecutor:
             policy=self.policy,
             checkpoint_id=checkpoint.checkpoint_id if checkpoint else None,
             result=result,
+            advisory_signals=advisory_signals,
         )
         updated_plan = self._apply_decision(
             plan=plan,

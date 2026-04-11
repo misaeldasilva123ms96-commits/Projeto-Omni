@@ -38,6 +38,7 @@ class PlanningExecutor:
         branch_plan: dict[str, Any] | None = None,
         start_index: int = 0,
         engineering_workflow: dict[str, Any] | None = None,
+        advisory_signals: list[dict[str, Any]] | None = None,
     ) -> tuple[TaskClassificationDecision, TaskPlan | None]:
         classification = self.classify_task(
             message=message,
@@ -61,6 +62,7 @@ class PlanningExecutor:
             actions=actions,
             classification=classification.classification,
             plan_kind=plan_kind,
+            advisory_signals=advisory_signals,
         )
         inspect_step = self.tracker.step_by_id(plan, "inspect_context")
         if inspect_step is not None and inspect_step.status == PlanStepStatus.PENDING:
