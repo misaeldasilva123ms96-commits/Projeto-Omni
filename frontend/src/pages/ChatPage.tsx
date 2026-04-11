@@ -43,6 +43,35 @@ function buildSessionId() {
   return `${DEFAULT_SESSION_PREFIX}-${crypto.randomUUID().slice(0, 8)}`
 }
 
+function extractResponseText(payload: unknown): string {
+  if (typeof payload === 'string') {
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>
+      return (
+        (typeof parsed?.response === 'string' && parsed.response.trim())
+        || (typeof parsed?.message === 'string' && parsed.message.trim())
+        || (typeof parsed?.text === 'string' && parsed.text.trim())
+        || (typeof parsed?.answer === 'string' && parsed.answer.trim())
+        || payload
+      )
+    } catch {
+      return payload
+    }
+  }
+
+  if (payload !== null && typeof payload === 'object') {
+    const p = payload as Record<string, unknown>
+    const candidates = ['response', 'message', 'text', 'answer']
+    for (const key of candidates) {
+      if (typeof p[key] === 'string' && (p[key] as string).trim()) {
+        return (p[key] as string).trim()
+      }
+    }
+  }
+
+  return ''
+}
+
 function createMessage(
   role: ChatMessage['role'],
   content: string,
@@ -244,19 +273,16 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
 
     try {
       const data = await sendOmniMessage(prompt, { sessionId })
+      console.debug('[omni:raw]', data)
       const metadata = normalizeMetadata(data, sessionId)
-      const responseText = data.response?.trim()
-
-      if (!responseText) {
-        throw new Error('O backend retornou uma resposta vazia.')
-      }
+      const responseText = extractResponseText(data)
+      const displayText = responseText || '...'
 
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
       setMessages((current) => [
         ...current,
-        createMessage('assistant', responseText, {
-          metadata,
+        createMessage('assistant', displayText, {
           requestState: 'completed',
         }),
       ])
