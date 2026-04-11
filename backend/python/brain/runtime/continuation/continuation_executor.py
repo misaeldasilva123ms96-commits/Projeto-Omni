@@ -11,6 +11,7 @@ from brain.runtime.planning.checkpoint_manager import CheckpointManager
 from brain.runtime.planning.operational_summary import OperationalSummaryBuilder
 from brain.runtime.planning.progress_tracker import ProgressTracker
 from brain.runtime.planning.task_state_store import TaskStateStore
+from brain.runtime.simulation import ActionSimulator, SimulationContextBuilder
 
 from .continuation_decider import ContinuationDecider
 from .continuation_policy import DeterministicContinuationPolicy
@@ -22,16 +23,28 @@ from .replan_engine import ReplanEngine
 
 
 class ContinuationExecutor:
-    def __init__(self, root: Path, *, memory_facade: MemoryFacade | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        memory_facade: MemoryFacade | None = None,
+        simulator: ActionSimulator | None = None,
+    ) -> None:
         self.root = root
         self.memory_facade = memory_facade
+        self.simulator = simulator
         self.policy = DeterministicContinuationPolicy.from_env()
         self.store = TaskStateStore(root)
         self.tracker = ProgressTracker()
         self.checkpoints = CheckpointManager(self.store)
         self.summary_builder = OperationalSummaryBuilder(self.tracker)
         self.evaluator = PlanEvaluator(self.tracker)
-        self.decider = ContinuationDecider(self.tracker)
+        self.simulation_context_builder = SimulationContextBuilder(memory_facade=memory_facade)
+        self.decider = ContinuationDecider(
+            self.tracker,
+            simulator=simulator,
+            simulation_context_builder=self.simulation_context_builder,
+        )
         self.goal_store = GoalStore(root)
         self.goal_registry = ConstraintRegistry()
         self.goal_evaluator = GoalEvaluator(self.goal_registry)
@@ -75,6 +88,7 @@ class ContinuationExecutor:
             summary=summary.as_dict() if summary else None,
         )
         goal_evaluation = None
+        goal = None
         if plan.goal_id:
             goal = self.goal_store.get_by_id(plan.goal_id)
             if goal is not None:
@@ -88,6 +102,7 @@ class ContinuationExecutor:
             evaluation=evaluation,
             policy=self.policy,
             checkpoint_id=checkpoint.checkpoint_id if checkpoint else None,
+            goal=goal,
             goal_evaluation=goal_evaluation,
             result=result,
             advisory_signals=advisory_signals,
