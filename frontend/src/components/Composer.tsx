@@ -37,6 +37,7 @@ export function Composer({
           aria-label="Enviar mensagem para o Omni"
           autoFocus
           className="composer-input"
+          disabled={loading}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Peca ao Omni para investigar um bug, analisar uma arquitetura ou planejar um trabalho tecnico."

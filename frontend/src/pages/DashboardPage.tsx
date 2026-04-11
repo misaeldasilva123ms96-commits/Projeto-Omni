@@ -64,7 +64,7 @@ export function DashboardPage({
 
   useEffect(() => {
     if (!apiReady) {
-      setError('Configure VITE_API_URL to load dashboard telemetry.')
+      setError('Configure VITE_OMNI_API_URL to load dashboard telemetry.')
       return
     }
 

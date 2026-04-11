@@ -997,6 +997,144 @@ class BrainOrchestrator:
             return configured
         return shutil.which("node")
 
+    def _build_node_subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        root = str(self.paths.root.resolve())
+        env["BASE_DIR"] = root
+        env["NODE_RUNNER_BASE_DIR"] = root
+        env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
+        return env
+
+    def _resolve_node_command_context(self, payload: str) -> dict[str, Any]:
+        cwd_path = self.paths.root.resolve()
+        runner_path = self.paths.js_runner.resolve()
+        adapter_path = (self.paths.root / "src" / "queryEngineRunnerAdapter.js").resolve()
+        esm_adapter_path = (self.paths.root / "src" / "queryEngineRunnerAdapter.mjs").resolve()
+        fusion_brain_path = (self.paths.root / "core" / "brain" / "fusionBrain.js").resolve()
+        healthcheck_path = (self.paths.root / "js-runner" / "runtimeHealthcheck.js").resolve()
+        dist_query_engine_path = (self.paths.root / "dist" / "QueryEngine.js").resolve()
+        build_query_engine_path = (self.paths.root / "build" / "QueryEngine.js").resolve()
+        ts_candidates = [
+            (self.paths.root / "src" / "QueryEngine.ts").resolve(),
+            (self.paths.root / "runtime" / "node" / "QueryEngine.ts").resolve(),
+        ]
+        node_bin = self._resolve_node_bin()
+        node_resolved = shutil.which(node_bin) if node_bin and not os.path.isabs(node_bin) else node_bin
+        env = self._build_node_subprocess_env()
+        command = [node_resolved or node_bin or "", str(runner_path), payload]
+        missing_paths = []
+        if not runner_path.exists():
+            missing_paths.append(str(runner_path))
+        if not adapter_path.exists():
+            missing_paths.append(str(adapter_path))
+        if not fusion_brain_path.exists():
+            missing_paths.append(str(fusion_brain_path))
+
+        return {
+            "node_bin": node_bin,
+            "node_resolved": node_resolved,
+            "cwd": str(cwd_path),
+            "cwd_exists": cwd_path.exists(),
+            "runner_path": str(runner_path),
+            "runner_exists": runner_path.exists(),
+            "adapter_path": str(adapter_path),
+            "adapter_exists": adapter_path.exists(),
+            "esm_adapter_path": str(esm_adapter_path),
+            "esm_adapter_exists": esm_adapter_path.exists(),
+            "fusion_brain_path": str(fusion_brain_path),
+            "fusion_brain_exists": fusion_brain_path.exists(),
+            "healthcheck_path": str(healthcheck_path),
+            "healthcheck_exists": healthcheck_path.exists(),
+            "dist_query_engine_path": str(dist_query_engine_path),
+            "dist_query_engine_exists": dist_query_engine_path.exists(),
+            "build_query_engine_path": str(build_query_engine_path),
+            "build_query_engine_exists": build_query_engine_path.exists(),
+            "typescript_candidate_paths": [str(candidate) for candidate in ts_candidates],
+            "typescript_candidates_exist": [str(candidate) for candidate in ts_candidates if candidate.exists()],
+            "command": command,
+            "command_preview": [command[0], command[1], f"<payload:{len(payload)} chars>"],
+            "typescript_direct_execution_detected": str(runner_path).endswith(".ts"),
+            "compiled_runner_artifact_exists": any(
+                path_exists
+                for path_exists in (
+                    adapter_path.exists(),
+                    esm_adapter_path.exists(),
+                    dist_query_engine_path.exists(),
+                    build_query_engine_path.exists(),
+                )
+            ),
+            "missing_paths": missing_paths,
+            "env_preview": {
+                "BASE_DIR": env.get("BASE_DIR", ""),
+                "NODE_RUNNER_BASE_DIR": env.get("NODE_RUNNER_BASE_DIR", ""),
+                "NODE_BIN": env.get("NODE_BIN", ""),
+                "PYTHON_BIN": env.get("PYTHON_BIN", ""),
+                "PATH_HEAD": env.get("PATH", "")[:400],
+            },
+            "subprocess_env": env,
+        }
+
+    @staticmethod
+    def _truncate_text(value: str, limit: int = 1200) -> str:
+        normalized = value.strip()
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[:limit]
+
+    def _classify_node_subprocess_failure(
+        self,
+        *,
+        diagnostics: dict[str, Any],
+        returncode: int | None = None,
+        stdout: str = "",
+        stderr: str = "",
+        exception: Exception | None = None,
+        timed_out: bool = False,
+    ) -> tuple[str, dict[str, Any]]:
+        details = {
+            "runner_path": diagnostics["runner_path"],
+            "adapter_path": diagnostics["adapter_path"],
+            "fusion_brain_path": diagnostics["fusion_brain_path"],
+            "cwd": diagnostics["cwd"],
+            "command_preview": diagnostics["command_preview"],
+            "node_bin": diagnostics["node_bin"],
+            "node_resolved": diagnostics["node_resolved"],
+            "returncode": returncode,
+            "stdout": self._truncate_text(stdout),
+            "stderr": self._truncate_text(stderr),
+            "timed_out": timed_out,
+            "exception": repr(exception) if exception else "",
+            "typescript_direct_execution_detected": diagnostics["typescript_direct_execution_detected"],
+            "typescript_candidates_exist": diagnostics["typescript_candidates_exist"],
+            "compiled_runner_artifact_exists": diagnostics["compiled_runner_artifact_exists"],
+            "missing_paths": diagnostics["missing_paths"],
+            "env_preview": diagnostics["env_preview"],
+        }
+        combined = f"{stdout}\n{stderr}".lower()
+
+        if not diagnostics["node_resolved"]:
+            return "node_not_found", details
+        if not diagnostics["runner_exists"]:
+            return "runner_not_found", details
+        if not diagnostics["cwd_exists"]:
+            return "cwd_not_found", details
+        if diagnostics["missing_paths"]:
+            return "module_resolution_error", details
+        if timed_out:
+            return "timeout", details
+        if exception is not None:
+            return "subprocess_exception", details
+        if not stdout.strip() and not stderr.strip() and returncode == 0:
+            return "empty_stdout", details
+        if "err_module_not_found" in combined or "cannot find module" in combined or "module not found" in combined:
+            return "module_resolution_error", details
+        if "unknown file extension \".ts\"" in combined or "cannot use import statement outside a module" in combined:
+            details["typescript_direct_execution_detected"] = True
+            return "module_resolution_error", details
+        if returncode not in (None, 0):
+            return "node_subprocess_failed", details
+        return "invalid_json", details
+
     @staticmethod
     def _runtime_max_parallel_reads() -> int:
         return max(1, int(os.getenv("OMINI_MAX_PARALLEL_READ_STEPS", "2") or "2"))
@@ -1045,18 +1183,18 @@ class BrainOrchestrator:
             )
             return NODE_FALLBACK_RESPONSE
 
-        node_bin = self._resolve_node_bin()
-        if not node_bin or not self.paths.js_runner.exists():
+        diagnostics = self._resolve_node_command_context(payload="")
+        if not diagnostics["node_resolved"] or not diagnostics["runner_exists"] or not diagnostics["cwd_exists"]:
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+            )
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "node_runner_unavailable"
+            self.last_runtime_reason = classified_reason
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
-                reason_code="node_runner_unavailable",
-                details={
-                    "node_bin_present": bool(node_bin),
-                    "js_runner_exists": self.paths.js_runner.exists(),
-                },
+                reason_code=classified_reason,
+                details=details,
             )
             return NODE_FALLBACK_RESPONSE
 
@@ -1089,58 +1227,187 @@ class BrainOrchestrator:
             },
             ensure_ascii=False,
         )
+        diagnostics = self._resolve_node_command_context(payload=payload)
+        self._append_runtime_event(
+            event_type="runtime.node.subprocess_diagnostics",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "stage": "preflight",
+                **{
+                    key: value
+                    for key, value in diagnostics.items()
+                    if key not in {"command", "subprocess_env"}
+                },
+            },
+        )
+
+        if diagnostics["missing_paths"]:
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+            )
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = classified_reason
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code=classified_reason,
+                details=details,
+            )
+            return NODE_FALLBACK_RESPONSE
 
         try:
             completed = subprocess.run(
-                [node_bin, str(self.paths.js_runner), payload],
+                diagnostics["command"],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=SUBPROCESS_TIMEOUT_SECONDS,
                 check=False,
-                cwd=str(self.paths.root),
+                cwd=diagnostics["cwd"],
+                env=diagnostics["subprocess_env"],
             )
-        except Exception as error:
+        except subprocess.TimeoutExpired as error:
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "node_subprocess_error"
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+                stdout=error.stdout or "",
+                stderr=error.stderr or "",
+                exception=error,
+                timed_out=True,
+            )
+            self.last_runtime_reason = classified_reason
+            self._append_runtime_event(
+                event_type="runtime.node.subprocess_diagnostics",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={"stage": "timeout", "reason_code": classified_reason, **details},
+            )
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
-                reason_code="node_subprocess_error",
-                details={"error": str(error)},
+                reason_code=classified_reason,
+                details=details,
+            )
+            return NODE_FALLBACK_RESPONSE
+        except Exception as error:
+            self.last_runtime_mode = "fallback"
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+                exception=error,
+            )
+            self.last_runtime_reason = classified_reason
+            self._append_runtime_event(
+                event_type="runtime.node.subprocess_diagnostics",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={"stage": "exception", "reason_code": classified_reason, **details},
+            )
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code=classified_reason,
+                details=details,
             )
             return NODE_FALLBACK_RESPONSE
 
         if completed.returncode != 0:
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+                returncode=completed.returncode,
+                stdout=completed.stdout or "",
+                stderr=completed.stderr or "",
+            )
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "node_subprocess_failed"
+            self.last_runtime_reason = classified_reason
+            self._append_runtime_event(
+                event_type="runtime.node.subprocess_diagnostics",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={"stage": "completed", "reason_code": classified_reason, **details},
+            )
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
-                reason_code="node_subprocess_failed",
-                details={
-                    "returncode": completed.returncode,
-                    "stderr": (completed.stderr or "").strip()[:500],
-                },
+                reason_code=classified_reason,
+                details=details,
             )
             return NODE_FALLBACK_RESPONSE
         stdout = (completed.stdout or "").strip()
         if not stdout:
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+                returncode=completed.returncode,
+                stdout=completed.stdout or "",
+                stderr=completed.stderr or "",
+            )
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "node_empty_stdout"
+            self.last_runtime_reason = classified_reason
+            self._append_runtime_event(
+                event_type="runtime.node.subprocess_diagnostics",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={"stage": "completed", "reason_code": classified_reason, **details},
+            )
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
-                reason_code="node_empty_stdout",
-                details={},
+                reason_code=classified_reason,
+                details=details,
             )
             return NODE_FALLBACK_RESPONSE
 
         try:
             parsed = json.loads(stdout)
-        except json.JSONDecodeError:
-            return stdout
+        except json.JSONDecodeError as error:
+            classified_reason, details = self._classify_node_subprocess_failure(
+                diagnostics=diagnostics,
+                returncode=completed.returncode,
+                stdout=completed.stdout or "",
+                stderr=completed.stderr or "",
+                exception=error,
+            )
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = classified_reason
+            self._append_runtime_event(
+                event_type="runtime.node.subprocess_diagnostics",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={"stage": "completed", "reason_code": classified_reason, **details},
+            )
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code=classified_reason,
+                details=details,
+                )
+            return NODE_FALLBACK_RESPONSE
+
+        self._append_runtime_event(
+            event_type="runtime.node.subprocess_diagnostics",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "stage": "completed",
+                "reason_code": "success",
+                "returncode": completed.returncode,
+                "stdout": self._truncate_text(completed.stdout or ""),
+                "stderr": self._truncate_text(completed.stderr or ""),
+                "command_preview": diagnostics["command_preview"],
+                "cwd": diagnostics["cwd"],
+                "node_bin": diagnostics["node_bin"],
+                "node_resolved": diagnostics["node_resolved"],
+                "env_preview": diagnostics["env_preview"],
+            },
+        )
 
         execution_request = parsed.get("execution_request")
         if not isinstance(execution_request, dict):

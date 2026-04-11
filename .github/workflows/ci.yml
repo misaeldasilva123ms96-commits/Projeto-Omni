@@ -10,9 +10,6 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    env:
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
 
     steps:
       - name: Checkout repository
@@ -49,10 +46,20 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Typecheck frontend
+        working-directory: frontend
+        env:
+          VITE_OMNI_API_URL: http://127.0.0.1:3001
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: example-public-anon-key
+        run: npm run typecheck
+
       - name: Build frontend
         working-directory: frontend
         env:
-          VITE_API_URL: http://127.0.0.1:3001
+          VITE_OMNI_API_URL: http://127.0.0.1:3001
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: example-public-anon-key
         run: npm run build
 
       - name: Run expanded runtime test suite
