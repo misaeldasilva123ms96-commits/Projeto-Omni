@@ -36,6 +36,7 @@ from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel,
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.learning import LearningExecutor
+from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
@@ -199,6 +200,7 @@ class BrainOrchestrator:
             policy=self._trusted_execution_policy(),
         )
         self.learning_executor = LearningExecutor(self.paths.root)
+        self.orchestration_executor = OrchestrationExecutor(self.paths.root)
         self.continuation_executor = ContinuationExecutor(self.paths.root)
         self.planning_executor = PlanningExecutor(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
@@ -2221,6 +2223,7 @@ class BrainOrchestrator:
                     session_id=session_id,
                     task_id=task_id,
                     run_id=run_id,
+                    operational_plan=operational_plan,
                 )
 
                 for action, result in zip(batch_actions, batch_results):
@@ -2310,6 +2313,7 @@ class BrainOrchestrator:
                     session_id=session_id,
                     task_id=task_id,
                     run_id=run_id,
+                    operational_plan=operational_plan,
                 )
                 executed_steps += 1
                 step_results.append(result)
@@ -2564,6 +2568,20 @@ class BrainOrchestrator:
             return updated_plan, None, False
         latest_checkpoint = self.planning_executor.store.load_latest_checkpoint(updated_plan.plan_id) if updated_plan else None
         latest_summary = self.planning_executor.store.load_summary(updated_plan.plan_id) if updated_plan else None
+        orchestration_update = self.orchestration_executor.orchestrate(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            action=action,
+            plan=updated_plan,
+            checkpoint=latest_checkpoint,
+            summary=latest_summary,
+            continuation_decision=decision.as_dict(),
+            step_results=[result],
+            learning_signals=[signal.as_dict() for signal in continuation_signals],
+            engineering_tool=supports_engineering_tool(str(action.get("selected_tool", ""))),
+            primary_result=result,
+        )
         learning_update = self.learning_executor.ingest_runtime_artifacts(
             action=action,
             result=result,
@@ -2581,6 +2599,7 @@ class BrainOrchestrator:
             payload={
                 "evaluation": evaluation.as_dict() if evaluation is not None else None,
                 "decision": decision.as_dict(),
+                "orchestration": orchestration_update,
                 "learning": learning_update,
             },
         )
@@ -2590,7 +2609,9 @@ class BrainOrchestrator:
             ContinuationDecisionType.ESCALATE_FAILURE,
             ContinuationDecisionType.COMPLETE_PLAN,
         }
-        return updated_plan, decision.as_dict(), should_stop
+        decision_payload = decision.as_dict()
+        decision_payload["orchestration"] = orchestration_update
+        return updated_plan, decision_payload, should_stop
 
     @staticmethod
     def _clone_plan_graph(plan_graph: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -2894,6 +2915,7 @@ class BrainOrchestrator:
         session_id: str,
         task_id: str,
         run_id: str,
+        operational_plan: Any = None,
     ) -> list[dict[str, Any]]:
         if not allow_parallel or len(actions) <= 1:
             return [
@@ -2905,6 +2927,7 @@ class BrainOrchestrator:
                     session_id=session_id,
                     task_id=task_id,
                     run_id=run_id,
+                    operational_plan=operational_plan,
                 )
                 for action in actions
             ]
@@ -2921,6 +2944,7 @@ class BrainOrchestrator:
                     session_id=session_id,
                     task_id=task_id,
                     run_id=run_id,
+                    operational_plan=operational_plan,
                 ): action
                 for action in actions
             }
@@ -2940,6 +2964,7 @@ class BrainOrchestrator:
         task_id: str,
         run_id: str,
         learning_guidance: object = None,
+        operational_plan: Any = None,
     ) -> dict[str, Any]:
         attempts = int(action.get("retry_policy", {}).get("max_attempts", 1) or 1)
         attempts = min(attempts, self._runtime_correction_depth() + 1)
@@ -2950,6 +2975,28 @@ class BrainOrchestrator:
         current_action["task_id"] = task_id
         current_action["run_id"] = run_id
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
+        latest_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
+        latest_summary = self.planning_executor.store.load_summary(operational_plan.plan_id) if operational_plan else None
+        planning_signals = [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_planning(actions=[current_action])]
+        pre_execution_orchestration = self.orchestration_executor.orchestrate(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            action=current_action,
+            plan=operational_plan,
+            checkpoint=latest_checkpoint,
+            summary=latest_summary,
+            step_results=step_results,
+            learning_signals=planning_signals,
+            engineering_tool=supports_engineering_tool(str(current_action.get("selected_tool", ""))),
+        )
+        self._append_runtime_event(
+            event_type="runtime.orchestration.pre_execution",
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            payload=pre_execution_orchestration,
+        )
 
         if policy_decision.get("decision") == "stop":
             blocked_result = {
@@ -2973,6 +3020,7 @@ class BrainOrchestrator:
                 "learning_guidance": learning_guidance[0] if isinstance(learning_guidance, list) and learning_guidance else None,
             }
             blocked_result["correction_events"] = [blocked_result["evaluation"]]
+            blocked_result["orchestration"] = pre_execution_orchestration
             return blocked_result
 
         for attempt_number in range(1, attempts + 1):
@@ -3113,6 +3161,7 @@ class BrainOrchestrator:
         result["learning_signals"] = {
             "repair": [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_repair(action=current_action, result=result)],
         }
+        result["orchestration"] = pre_execution_orchestration
         learning_update = self.learning_executor.ingest_runtime_artifacts(
             action=current_action,
             result=result,
