@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import sqlite3
@@ -12,20 +13,28 @@ from pathlib import Path
 from .models import SemanticFact
 
 
+_OPEN_CONNECTIONS: dict[int, sqlite3.Connection] = {}
+
+
 class SemanticIndex:
+    _instances: "weakref.WeakSet[SemanticIndex]" = weakref.WeakSet()
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.db_dir = root / ".logs" / "fusion-runtime" / "memory" / "db"
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._closed = False
         self._min_confidence = float(os.getenv("OMINI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL", "0.6") or 0.6)
         self.path = self.db_dir / "semantic.db"
         self._conn = self._connect_and_initialize(self.path)
         self._finalizer = weakref.finalize(self, self._close_quietly, self._conn)
+        self._instances.add(self)
 
     def _connect_and_initialize(self, preferred_path: Path) -> sqlite3.Connection:
         try:
             conn = sqlite3.connect(preferred_path, check_same_thread=False)
+            _OPEN_CONNECTIONS[id(conn)] = conn
             self._initialize(conn)
             return conn
         except sqlite3.OperationalError:
@@ -33,6 +42,7 @@ class SemanticIndex:
             fallback_dir.mkdir(parents=True, exist_ok=True)
             self.path = fallback_dir / "semantic.db"
             conn = sqlite3.connect(self.path, check_same_thread=False)
+            _OPEN_CONNECTIONS[id(conn)] = conn
             self._initialize(conn)
             return conn
 
@@ -84,30 +94,39 @@ class SemanticIndex:
 
     def get_facts(self, *, subject: str, min_confidence: float | None = None, limit: int = 10) -> list[SemanticFact]:
         threshold = self._min_confidence if min_confidence is None else min_confidence
-        rows = self._conn.execute(
-            """
-            SELECT * FROM semantic_facts
-            WHERE subject = ? AND confidence >= ?
-            ORDER BY confidence DESC, last_reinforced_at DESC
-            LIMIT ?
-            """,
-            (subject, threshold, max(1, limit)),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM semantic_facts
+                WHERE subject = ? AND confidence >= ?
+                ORDER BY confidence DESC, last_reinforced_at DESC
+                LIMIT ?
+                """,
+                (subject, threshold, max(1, limit)),
+            ).fetchall()
         return [self._row_to_fact(row) for row in rows]
 
     def recent(self, *, limit: int = 50) -> list[SemanticFact]:
-        rows = self._conn.execute(
-            "SELECT * FROM semantic_facts ORDER BY last_reinforced_at DESC LIMIT ?",
-            (max(1, limit),),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM semantic_facts ORDER BY last_reinforced_at DESC LIMIT ?",
+                (max(1, limit),),
+            ).fetchall()
         return [self._row_to_fact(row) for row in rows]
 
     def current_journal_mode(self) -> str:
-        row = self._conn.execute("PRAGMA journal_mode").fetchone()
+        with self._lock:
+            row = self._conn.execute("PRAGMA journal_mode").fetchone()
         return str(row[0]).lower() if row else ""
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            if getattr(self, "_finalizer", None) is not None:
+                self._finalizer.detach()
+            _OPEN_CONNECTIONS.pop(id(self._conn), None)
             self._conn.close()
 
     def __del__(self) -> None:
@@ -138,3 +157,21 @@ class SemanticIndex:
             last_reinforced_at=str(values[8]),
             metadata=dict(json.loads(values[9] or "{}")),
         )
+
+
+def _close_all_semantic_indexes() -> None:
+    for index in list(SemanticIndex._instances):
+        try:
+            index.close()
+        except Exception:
+            continue
+    for connection_id, conn in list(_OPEN_CONNECTIONS.items()):
+        try:
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            _OPEN_CONNECTIONS.pop(connection_id, None)
+
+
+atexit.register(_close_all_semantic_indexes)

@@ -181,6 +181,7 @@ class BrainPaths:
 class BrainOrchestrator:
     def __init__(self, paths: BrainPaths) -> None:
         self.paths = paths
+        self._closed = False
         self.hybrid_memory = HybridMemory(paths.memory_dir)
         memory_log_dir = paths.root / ".logs" / "fusion-runtime"
         self.working_memory = WorkingMemoryStore(memory_log_dir / "working-memory.json")
@@ -228,6 +229,21 @@ class BrainOrchestrator:
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
         )
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.memory_facade.close()
+        except Exception:
+            return
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            return
 
     def _trusted_execution_policy(self) -> ExecutionPolicy:
         allow_high_risk = str(os.getenv("OMINI_ALLOW_HIGH_RISK", "true")).lower() != "false"

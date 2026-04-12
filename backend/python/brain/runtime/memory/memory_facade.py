@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class MemoryFacade:
     def __init__(self, root: Path) -> None:
         self.root = root
+        self._closed = False
         self.working = WorkingMemory(root)
         self.episodic = EpisodicStore(root)
         self.semantic = SemanticIndex(root)
@@ -157,6 +158,9 @@ class MemoryFacade:
         return self.semantic.get_facts(subject=subject, limit=limit)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.episodic.close()
         self.semantic.close()
 
