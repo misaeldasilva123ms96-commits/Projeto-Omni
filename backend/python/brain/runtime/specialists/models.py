@@ -255,7 +255,7 @@ class GovernanceDecision(SpecialistDecision):
         )
 
     def as_dict(self) -> dict[str, Any]:
-        payload = super().as_dict()
+        payload = SpecialistDecision.as_dict(self)
         payload["verdict"] = self.verdict.value
         return payload
 
