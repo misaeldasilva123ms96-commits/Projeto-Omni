@@ -1,4 +1,4 @@
-type View = 'chat' | 'dashboard'
+type View = 'chat' | 'dashboard' | 'observability'
 
 type AppHeaderProps = {
   activeView: View
@@ -33,6 +33,13 @@ export function AppHeader({
             type="button"
           >
             Dashboard
+          </button>
+          <button
+            className={activeView === 'observability' ? 'nav-tab active' : 'nav-tab'}
+            onClick={() => onChangeView('observability')}
+            type="button"
+          >
+            Observability
           </button>
         </nav>
         <div className="status-chip">

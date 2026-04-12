@@ -2,7 +2,7 @@ import { API_BASE_URL } from '../lib/env'
 import type { ChatMode, ConversationSummary } from '../types'
 import { ModeSwitcher } from './ModeSwitcher'
 
-type View = 'chat' | 'dashboard'
+type View = 'chat' | 'dashboard' | 'observability'
 
 type SidebarProps = {
   activeConversationId?: string
@@ -49,6 +49,13 @@ export function Sidebar({
         >
           Runtime
         </button>
+        <button
+          className={view === 'observability' ? 'sidebar-nav-button active' : 'sidebar-nav-button'}
+          onClick={() => onSelectView('observability')}
+          type="button"
+        >
+          Observability
+        </button>
       </nav>
 
       {onNewConversation ? (
@@ -63,7 +70,7 @@ export function Sidebar({
         <p className="sidebar-label">Sessoes locais</p>
         <div className="conversation-list">
           {conversations.length === 0 ? (
-            <p className="sidebar-copy">A conversa ativa vai aparecer aqui quando voce começar.</p>
+            <p className="sidebar-copy">A conversa ativa vai aparecer aqui quando voce comecar.</p>
           ) : (
             conversations.map((conversation) => (
               <article
