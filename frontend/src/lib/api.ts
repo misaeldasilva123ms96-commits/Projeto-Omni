@@ -1,4 +1,5 @@
 import { API_BASE_URL, API_CONFIGURATION_ERROR } from './env'
+import { supabase } from './supabase'
 import type {
   ChatApiResponse,
   HealthResponse,
@@ -147,6 +148,21 @@ export async function sendOmniMessage(message: string, metadata?: unknown) {
   return normalizeChatResponse(payload)
 }
 
+async function getSupabaseAuthHeaders() {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) {
+    throw error
+  }
+
+  if (!data.session?.access_token) {
+    throw new Error('No active session')
+  }
+
+  return {
+    Authorization: `Bearer ${data.session.access_token}`,
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   if (!API_BASE_URL) {
     throw buildConfigurationError()
@@ -184,10 +200,32 @@ export function fetchPrSummaries() {
   return getJson<PrSummariesResponse>('/internal/pr-summaries')
 }
 
-export function fetchObservabilitySnapshot() {
-  return getJson<ObservabilityApiResponse>('/api/observability/snapshot')
+export async function fetchObservabilitySnapshot() {
+  if (!API_BASE_URL) {
+    throw buildConfigurationError()
+  }
+
+  const res = await fetchWithTimeout(`${API_BASE_URL}/api/observability/snapshot`, {
+    headers: await getSupabaseAuthHeaders(),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<ObservabilityApiResponse>
 }
 
-export function fetchObservabilityTraces(limit = 10) {
-  return getJson<ObservabilityTracesResponse>(`/api/observability/traces?limit=${limit}`)
+export async function fetchObservabilityTraces(limit = 10) {
+  if (!API_BASE_URL) {
+    throw buildConfigurationError()
+  }
+
+  const res = await fetchWithTimeout(`${API_BASE_URL}/api/observability/traces?limit=${limit}`, {
+    headers: await getSupabaseAuthHeaders(),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<ObservabilityTracesResponse>
 }

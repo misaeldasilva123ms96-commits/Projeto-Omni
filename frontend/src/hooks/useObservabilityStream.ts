@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { API_BASE_URL } from '../lib/env'
+import { supabase } from '../lib/supabase'
 import type {
   ObservabilityApiResponse,
   ObservabilityConnectionState,
@@ -18,13 +19,23 @@ export function useObservabilityStream(enabled: boolean) {
 
     let cancelled = false
     let eventSource: EventSource | null = null
+    let activeToken = ''
 
-    const connect = () => {
+    const closeStream = () => {
+      eventSource?.close()
+      eventSource = null
+    }
+
+    const openStream = (token: string) => {
       if (cancelled) {
         return
       }
+      activeToken = token
       setStatus((current) => (current === 'idle' ? 'reconnecting' : current))
-      eventSource = new EventSource(`${API_BASE_URL}/api/observability/stream`)
+      closeStream()
+      eventSource = new EventSource(
+        `${API_BASE_URL}/api/observability/stream?token=${encodeURIComponent(token)}&interval=2`,
+      )
 
       eventSource.addEventListener('snapshot', (event) => {
         try {
@@ -54,11 +65,47 @@ export function useObservabilityStream(enabled: boolean) {
       }
     }
 
-    connect()
+    const connect = async () => {
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (cancelled) {
+        return
+      }
+      if (sessionError) {
+        setStatus('error')
+        setError(sessionError.message)
+        return
+      }
+      if (!data.session?.access_token) {
+        setStatus('error')
+        setError('No active session')
+        return
+      }
+
+      openStream(data.session.access_token)
+    }
+
+    void connect()
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) {
+        return
+      }
+      const nextToken = session?.access_token ?? ''
+      if (!nextToken) {
+        closeStream()
+        setStatus('error')
+        setError('No active session')
+        return
+      }
+      if (nextToken !== activeToken) {
+        openStream(nextToken)
+      }
+    })
 
     return () => {
       cancelled = true
-      eventSource?.close()
+      closeStream()
+      subscription.subscription.unsubscribe()
     }
   }, [enabled])
 

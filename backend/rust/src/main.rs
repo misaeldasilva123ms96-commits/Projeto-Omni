@@ -1,5 +1,6 @@
 mod error;
 mod observability;
+mod observability_auth;
 
 use std::{
     env,
@@ -13,11 +14,13 @@ use std::{
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{Request, StatusCode},
+    middleware::from_fn_with_state,
     routing::{get, post},
     Json, Router,
 };
 use error::AppError;
+use observability_auth::{require_supabase_auth, sanitize_uri_for_logs, SupabaseAuthConfig};
 use runtime::Session;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -37,6 +40,7 @@ struct AppState {
     mock_mode: bool,
     node_bin: String,
     python_health: Arc<RwLock<DependencyStatus>>,
+    supabase_auth: Arc<SupabaseAuthConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +153,15 @@ async fn main() -> Result<(), AppError> {
     let python_entry = resolve_python_entry();
     let project_root = resolve_project_root(&python_entry);
     let python_root = resolve_python_root(&project_root, &python_entry);
+    let supabase_auth = match SupabaseAuthConfig::from_env() {
+        Ok(config) => Arc::new(config),
+        Err(error) => {
+            error!(%error, "observability auth configuration failed");
+            return Err(AppError::Internal(format!(
+                "observability auth configuration error: {error}"
+            )));
+        }
+    };
     let state = AppState {
         project_root,
         python_root,
@@ -169,7 +182,17 @@ async fn main() -> Result<(), AppError> {
             last_error: None,
             last_checked_ms: None,
         })),
+        supabase_auth,
     };
+
+    let protected_observability = Router::new()
+        .route("/api/observability/snapshot", get(observability::snapshot))
+        .route("/api/observability/stream", get(observability::stream))
+        .route("/api/observability/traces", get(observability::traces))
+        .route_layer(from_fn_with_state(
+            state.clone(),
+            require_supabase_auth,
+        ));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -179,12 +202,19 @@ async fn main() -> Result<(), AppError> {
         .route("/internal/strategy-state", get(strategy_state))
         .route("/internal/milestones", get(milestones))
         .route("/internal/pr-summaries", get(pr_summaries))
-        .route("/api/observability/snapshot", get(observability::snapshot))
-        .route("/api/observability/stream", get(observability::stream))
-        .route("/api/observability/traces", get(observability::traces))
+        .merge(protected_observability)
         .layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
+                tracing::info_span!(
+                    "http-request",
+                    method = %request.method(),
+                    uri = %sanitize_uri_for_logs(request.uri()),
+                    version = ?request.version(),
+                )
+            }),
+        )
+        .with_state(state.clone());
 
     let address: SocketAddr = format!("{host}:{port}")
         .parse()
@@ -199,7 +229,7 @@ async fn main() -> Result<(), AppError> {
     })?;
 
     info!(
-        "API listening on http://{} (host={}, port={}, render_port_env={})",
+        "API listening on http://{} (host={}, port={}, render_port_env={}, observability_auth=enabled)",
         bound_address,
         host,
         port,
@@ -767,6 +797,10 @@ mod tests {
             mock_mode: false,
             node_bin: "node".to_string(),
             python_health: Arc::new(RwLock::new(DependencyStatus::default())),
+            supabase_auth: Arc::new(SupabaseAuthConfig {
+                jwt_secret: "test-secret".to_string(),
+                issuer: "https://example.supabase.co/auth/v1".to_string(),
+            }),
         }
     }
 
