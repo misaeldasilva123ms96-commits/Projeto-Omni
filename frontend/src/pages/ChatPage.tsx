@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import { ChatHeader } from '../components/ChatHeader'
 import { Composer } from '../components/Composer'
@@ -20,7 +20,7 @@ import type {
   SyncChatStatus,
 } from '../types'
 
-type View = 'chat' | 'dashboard'
+type View = 'chat' | 'dashboard' | 'observability'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -367,7 +367,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         message.id === loadingMessageId
           ? {
             ...message,
-            content: 'Não consegui processar sua mensagem. Tente novamente.',
+            content: 'NÃ£o consegui processar sua mensagem. Tente novamente.',
             isLoading: false,
             isNew: true,
             requestState: 'failed' as const,
@@ -455,3 +455,4 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     </AppShell>
   )
 }
+

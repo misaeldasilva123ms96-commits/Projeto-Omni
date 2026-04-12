@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import {
   fetchHealth,
@@ -23,7 +23,7 @@ import type {
   SwarmLogResponse,
 } from '../types'
 
-type View = 'chat' | 'dashboard'
+type View = 'chat' | 'dashboard' | 'observability'
 
 type DashboardPageProps = {
   mode: ChatMode
@@ -250,3 +250,4 @@ export function DashboardPage({
     </AppShell>
   )
 }
+

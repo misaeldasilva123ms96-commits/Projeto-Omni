@@ -8,6 +8,10 @@ import type {
   StrategyStateResponse,
   SwarmLogResponse,
 } from '../types'
+import type {
+  ObservabilityApiResponse,
+  ObservabilityTracesResponse,
+} from '../types/observability'
 
 const REQUEST_TIMEOUT_MS = 45_000
 
@@ -178,4 +182,12 @@ export function fetchMilestones() {
 
 export function fetchPrSummaries() {
   return getJson<PrSummariesResponse>('/internal/pr-summaries')
+}
+
+export function fetchObservabilitySnapshot() {
+  return getJson<ObservabilityApiResponse>('/api/observability/snapshot')
+}
+
+export function fetchObservabilityTraces(limit = 10) {
+  return getJson<ObservabilityTracesResponse>(`/api/observability/traces?limit=${limit}`)
 }

@@ -1,4 +1,5 @@
 mod error;
+mod observability;
 
 use std::{
     env,
@@ -178,6 +179,9 @@ async fn main() -> Result<(), AppError> {
         .route("/internal/strategy-state", get(strategy_state))
         .route("/internal/milestones", get(milestones))
         .route("/internal/pr-summaries", get(pr_summaries))
+        .route("/api/observability/snapshot", get(observability::snapshot))
+        .route("/api/observability/stream", get(observability::stream))
+        .route("/api/observability/traces", get(observability::traces))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -556,7 +560,7 @@ async fn update_python_health(state: &AppState, status: &str, error_message: Opt
     guard.last_checked_ms = Some(unix_timestamp_ms());
 }
 
-const PYTHON_FALLBACK_RESPONSE: &str = "Entendido. Como posso ajudá-lo?";
+const PYTHON_FALLBACK_RESPONSE: &str = "Entendido. Como posso ajuda-lo?";
 const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text", "answer"];
 
 fn python_debug_logging_enabled() -> bool {
@@ -793,3 +797,5 @@ mod tests {
         assert_eq!(response.source, "python-subprocess");
     }
 }
+
+

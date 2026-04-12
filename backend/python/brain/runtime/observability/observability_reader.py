@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from .goal_reader import GoalReader
+from .memory_reader import MemoryReader
+from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_iso
+from .simulation_reader import SimulationReader
+from .specialist_reader import SpecialistReader
+from .timeline_reader import TimelineReader
+
+
+class ObservabilityReader:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.goal_reader = GoalReader(root)
+        self.timeline_reader = TimelineReader(root)
+        self.specialist_reader = SpecialistReader(root)
+        self.simulation_reader = SimulationReader(root)
+        self.memory_reader = MemoryReader(root)
+
+    def snapshot(self) -> ObservabilitySnapshot:
+        state = self.timeline_reader.read_state()
+        progress_score = state.current_progress if state else None
+        goal = self.goal_reader.read_active_goal(progress_score=progress_score)
+        latest_trace = self.specialist_reader.read_latest_trace()
+        if goal and latest_trace:
+            self._enrich_goal_from_trace(goal, latest_trace)
+
+        goal_type = self._goal_type(goal)
+        semantic_subject = goal_type or (goal.intent if goal else None)
+        latest_simulation = self.simulation_reader.read_latest_simulation(goal_id=goal.goal_id if goal else None)
+        pending_count, recent_proposals = self.memory_reader.read_pending_evolution_proposals(limit=6)
+
+        return ObservabilitySnapshot(
+            generated_at=utc_now_iso(),
+            goal=goal,
+            goal_history=self.goal_reader.read_goal_history(limit=6),
+            timeline=self.timeline_reader.read_recent_events(limit=25),
+            latest_trace=latest_trace,
+            recent_traces=self.specialist_reader.read_recent_traces(limit=6),
+            latest_simulation=latest_simulation,
+            recent_simulations=self.simulation_reader.read_recent_simulations(limit=6, goal_id=goal.goal_id if goal else None),
+            recent_episodes=self.memory_reader.read_recent_episodes(goal_id=goal.goal_id if goal else None, limit=8),
+            semantic_facts=self.memory_reader.read_top_semantic_facts(subject=semantic_subject, limit=8),
+            active_procedural_pattern=self.memory_reader.read_active_procedural_pattern(goal_type),
+            recent_procedural_updates=self.memory_reader.read_recent_procedural_updates(limit=5),
+            recent_learning_signals=self.memory_reader.read_recent_learning_signals(limit=8),
+            pending_evolution_proposal_count=pending_count,
+            recent_evolution_proposals=recent_proposals,
+            warnings=[],
+        )
+
+    def goal_history(self, *, limit: int = 10) -> list[dict[str, object]]:
+        return [item.as_dict() for item in self.goal_reader.read_goal_history(limit=limit)]
+
+    def trace_history(self, *, limit: int = 10) -> list[dict[str, object]]:
+        return [item.as_dict() for item in self.specialist_reader.read_recent_traces(limit=limit)]
+
+    def simulation_history(self, *, limit: int = 10, goal_id: str | None = None) -> list[dict[str, object]]:
+        return [item.as_dict() for item in self.simulation_reader.read_recent_simulations(limit=limit, goal_id=goal_id)]
+
+    @staticmethod
+    def _goal_type(goal: GoalSnapshot | None) -> str | None:
+        if goal is None:
+            return None
+        metadata_goal_type = goal.metadata.get("goal_type") if isinstance(goal.metadata, dict) else None
+        if isinstance(metadata_goal_type, str) and metadata_goal_type.strip():
+            return metadata_goal_type.strip()
+        if goal.intent.strip():
+            return goal.intent.strip()
+        return None
+
+    @staticmethod
+    def _enrich_goal_from_trace(goal: GoalSnapshot, trace: TraceSnapshot) -> None:
+        validator = None
+        for decision in reversed(trace.decisions):
+            if decision.specialist_type == "validator":
+                validator = decision
+                break
+        if validator is None:
+            return
+        criteria_met = set(str(item) for item in validator.metadata.get("criteria_met", []) if str(item).strip())
+        criteria_failed = set(str(item) for item in validator.metadata.get("criteria_failed", []) if str(item).strip())
+        criteria_pending = set(str(item) for item in validator.metadata.get("criteria_pending", []) if str(item).strip())
+        for criterion in goal.success_criteria:
+            if criterion.description in criteria_met:
+                criterion.status = "met"
+            elif criterion.description in criteria_failed:
+                criterion.status = "failed"
+            elif criterion.description in criteria_pending:
+                criterion.status = "pending"
+        progress_score = validator.metadata.get("progress_score")
+        if isinstance(progress_score, (int, float)):
+            goal.progress_score = max(0.0, min(1.0, float(progress_score)))
