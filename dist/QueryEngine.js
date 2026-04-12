@@ -497,12 +497,95 @@ function shouldUseActiveAuthority(payload) {
   return engineeringSignals.some(signal => message.includes(signal))
 }
 
-export async function runQueryEngine(payload) {
-  if (shouldUseActiveAuthority(payload) && typeof activeRunQueryEngine === 'function') {
-    return activeRunQueryEngine(payload)
+function determineFallbackReason(payload) {
+  const session = payload?.session || {}
+  if (
+    hasAnySessionKey(session, [
+      'executor_bridge',
+      'runtime_mode',
+      'milestone_plan',
+      'repository_analysis',
+      'task_id',
+      'run_id',
+      'checkpoint_id',
+      'resume_from',
+    ])
+  ) {
+    return 'fallback_policy_triggered'
   }
 
-  return runPackagedUpstreamQueryEngine(payload)
+  const message = normalizeRoutingText(payload?.message)
+  if (!message) {
+    return 'fallback_policy_triggered'
+  }
+
+  const heavyExecutionSignals = [
+    'package.json',
+    'cargo',
+    'npm',
+    'repositorio',
+    'repository',
+    'arquivo',
+    'file',
+    'teste',
+    'tests',
+    'corrija',
+    'corrigir',
+    'fix',
+    'bug',
+    'erro',
+    'error',
+    'codigo',
+    'code',
+    'commit',
+    'branch',
+    'worktree',
+    'leia ',
+    'analyze the repository',
+    'analise o repositorio',
+  ]
+
+  if (heavyExecutionSignals.some(signal => message.includes(signal))) {
+    return 'heavy_execution_request'
+  }
+
+  return 'fallback_policy_triggered'
+}
+
+function withEngineMetadata(result, engineMode, engineReason) {
+  const normalized =
+    result && typeof result === 'object' && !Array.isArray(result)
+      ? { ...result }
+      : { response: String(result || '').trim() }
+
+  const metadata =
+    normalized.metadata && typeof normalized.metadata === 'object' && !Array.isArray(normalized.metadata)
+      ? { ...normalized.metadata }
+      : {}
+
+  normalized.metadata = {
+    ...metadata,
+    engine_mode: engineMode,
+    engine_reason: engineReason,
+  }
+
+  return normalized
+}
+
+export async function runQueryEngine(payload) {
+  if (shouldUseActiveAuthority(payload) && typeof activeRunQueryEngine === 'function') {
+    return withEngineMetadata(
+      await activeRunQueryEngine(payload),
+      'authority_fallback',
+      determineFallbackReason(payload),
+    )
+  }
+
+  return withEngineMetadata(
+    await runPackagedUpstreamQueryEngine(payload),
+    'packaged_upstream',
+    'dist_candidate_selected',
+  )
 }
 
 export { runPackagedUpstreamQueryEngine }

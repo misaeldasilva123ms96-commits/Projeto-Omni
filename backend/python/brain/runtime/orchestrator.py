@@ -1551,6 +1551,7 @@ class BrainOrchestrator:
             },
         )
 
+        self._record_engine_selection_event(parsed)
         execution_request = parsed.get("execution_request")
         if not isinstance(execution_request, dict):
             response = parsed.get("response")
@@ -1661,6 +1662,22 @@ class BrainOrchestrator:
                 "runtime_mode": mode,
                 "reason_code": reason_code,
                 "details": details,
+            },
+        )
+
+    def _record_engine_selection_event(self, result_payload: dict[str, Any] | None) -> None:
+        payload = result_payload if isinstance(result_payload, dict) else {}
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        engine_mode = str(metadata.get("engine_mode", "")).strip()
+        if not engine_mode:
+            return
+        engine_reason = str(metadata.get("engine_reason", "")).strip()
+        self.memory_facade.record_event(
+            event_type="engine_selection",
+            description=f"QueryEngine responded via {engine_mode}",
+            metadata={
+                "engine_mode": engine_mode,
+                "engine_reason": engine_reason,
             },
         )
 

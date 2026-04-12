@@ -29,5 +29,23 @@ const response = await packagedModule.runQueryEngine({
 assert.equal(typeof response.response, 'string')
 assert.ok(response.response.length > 0)
 assert.equal(typeof response.confidence, 'number')
+assert.equal(response.metadata?.engine_mode, 'packaged_upstream')
+assert.equal(response.metadata?.engine_reason, 'dist_candidate_selected')
+
+const heavyResponse = await packagedModule.runQueryEngine({
+  message: 'analise o repositorio e corrija os testes com seguranca',
+  memoryContext: { user: {} },
+  history: [],
+  summary: '',
+  capabilities: [],
+  session: {
+    session_id: 'package-queryengine-heavy-test',
+    runtime_mode: 'python-rust-cargo',
+    milestone_plan: { preexisting: true },
+  },
+})
+
+assert.equal(heavyResponse.metadata?.engine_mode, 'authority_fallback')
+assert.equal(heavyResponse.metadata?.engine_reason, 'fallback_policy_triggered')
 
 console.log('package queryengine tests: ok')
