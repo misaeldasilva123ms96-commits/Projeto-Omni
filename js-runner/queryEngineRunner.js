@@ -14,6 +14,12 @@ try {
 const MAX_MEMORY_BYTES = 16 * 1024;
 const USER_FALLBACK_RESPONSE = 'Entendido. Como posso ajudá-lo?';
 const RESPONSE_CANDIDATE_KEYS = ['response', 'message', 'text', 'answer', 'output', 'result'];
+const PACKAGED_ENGINE_MODE = 'packaged_upstream';
+const AUTHORITY_FALLBACK_MODE = 'authority_fallback';
+const DIST_CANDIDATE_REASON = 'dist_candidate_selected';
+const HEAVY_EXECUTION_REASON = 'heavy_execution_request';
+const PACKAGED_IMPORT_FAILED_REASON = 'packaged_import_failed';
+const FALLBACK_POLICY_REASON = 'fallback_policy_triggered';
 
 function getBaseDir() {
   return process.env.BASE_DIR
@@ -222,15 +228,101 @@ function getQueryEngineCandidates() {
   const esmAdapterPath = adapterPath.replace(/\.js$/i, '.mjs');
 
   return [
+    path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
+    path.join(workspaceRoot, 'build', 'QueryEngine.js'),
     esmAdapterPath,
     adapterPath,
     path.join(workspaceRoot, 'src', 'QueryEngine.js'),
     path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
-    path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'build', 'QueryEngine.js'),
   ];
+}
+
+function getPackagedQueryEngineCandidate() {
+  return path.join(getWorkspaceRoot(), 'dist', 'QueryEngine.js');
+}
+
+function cloneMetadata(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...value }
+    : {};
+}
+
+function buildRunnerMetadata(engineMode, engineReason, metadata = {}) {
+  return {
+    ...cloneMetadata(metadata),
+    engine_mode: engineMode,
+    engine_reason: engineReason,
+  };
+}
+
+function normalizeResultShape(result) {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    return { ...result };
+  }
+
+  if (typeof result === 'string') {
+    return { response: result.trim() };
+  }
+
+  return { response: '' };
+}
+
+function attachRunnerMetadata(result, engineMode, engineReason) {
+  const normalized = normalizeResultShape(result);
+  normalized.metadata = buildRunnerMetadata(engineMode, engineReason, normalized.metadata);
+  return normalized;
+}
+
+function getCandidateError(candidateErrors, candidatePath) {
+  return candidateErrors.find((item) => item && item.candidate === candidatePath) || null;
+}
+
+function inferFallbackMetadata(execution) {
+  const packagedCandidate = getPackagedQueryEngineCandidate();
+  if (getCandidateError(execution.candidateErrors, packagedCandidate)) {
+    return {
+      engineMode: AUTHORITY_FALLBACK_MODE,
+      engineReason: PACKAGED_IMPORT_FAILED_REASON,
+    };
+  }
+
+  return {
+    engineMode: AUTHORITY_FALLBACK_MODE,
+    engineReason: FALLBACK_POLICY_REASON,
+  };
+}
+
+function enrichExecutionMetadata(execution) {
+  const { result, selectedCandidate } = execution;
+  if (!result) {
+    return execution;
+  }
+
+  const packagedCandidate = getPackagedQueryEngineCandidate();
+  const metadata = result && typeof result === 'object' && !Array.isArray(result)
+    ? cloneMetadata(result.metadata)
+    : {};
+
+  let engineMode = String(metadata.engine_mode || '').trim();
+  let engineReason = String(metadata.engine_reason || '').trim();
+
+  if (!engineMode || !engineReason) {
+    if (selectedCandidate === packagedCandidate) {
+      engineMode = PACKAGED_ENGINE_MODE;
+      engineReason = DIST_CANDIDATE_REASON;
+    } else {
+      const fallbackMetadata = inferFallbackMetadata(execution);
+      engineMode = fallbackMetadata.engineMode;
+      engineReason = fallbackMetadata.engineReason;
+    }
+  }
+
+  return {
+    ...execution,
+    result: attachRunnerMetadata(result, engineMode, engineReason),
+  };
 }
 
 async function runAgentLoop(runner, payload) {
@@ -264,6 +356,8 @@ async function tryRunExistingQueryEngineDetailed(payload) {
       const runner =
         imported.runQueryEngine ||
         imported.run ||
+        imported.default?.runQueryEngine ||
+        imported.default?.run ||
         imported.default;
 
       if (typeof runner !== 'function') {
@@ -272,13 +366,13 @@ async function tryRunExistingQueryEngineDetailed(payload) {
 
       const result = await runAgentLoop(runner, payload);
       if (result) {
-        return {
+        return enrichExecutionMetadata({
           result,
           selectedCandidate: candidate,
           attemptedCandidates,
           attemptedTypescriptCandidate,
           candidateErrors,
-        };
+        });
       }
     } catch (error) {
       candidateErrors.push({
@@ -290,13 +384,13 @@ async function tryRunExistingQueryEngineDetailed(payload) {
     }
   }
 
-  return {
+  return enrichExecutionMetadata({
     result: '',
     selectedCandidate: '',
     attemptedCandidates,
     attemptedTypescriptCandidate,
     candidateErrors,
-  };
+  });
 }
 
 async function tryRunExistingQueryEngine(payload) {
@@ -384,20 +478,21 @@ function sanitizeForUserInternal(input) {
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (!trimmed) {
-      return { response: USER_FALLBACK_RESPONSE };
+      return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
     }
     const parsed = tryParseStructuredString(trimmed);
     if (parsed !== null) {
       return sanitizeForUserInternal(parsed);
     }
-    return { response: trimmed };
+    return attachRunnerMetadata({ response: trimmed }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 
   if (input == null || Array.isArray(input)) {
-    return { response: USER_FALLBACK_RESPONSE };
+    return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 
   if (typeof input === 'object') {
+    const metadata = cloneMetadata(input.metadata);
     for (const key of RESPONSE_CANDIDATE_KEYS) {
       const candidate = input[key];
       if (typeof candidate !== 'string') {
@@ -411,11 +506,18 @@ function sanitizeForUserInternal(input) {
       if (parsed !== null) {
         return sanitizeForUserInternal(parsed);
       }
-      return { response: trimmed };
+      return {
+        response: trimmed,
+        metadata: buildRunnerMetadata(
+          String(metadata.engine_mode || AUTHORITY_FALLBACK_MODE),
+          String(metadata.engine_reason || FALLBACK_POLICY_REASON),
+          metadata,
+        ),
+      };
     }
   }
 
-  return { response: USER_FALLBACK_RESPONSE };
+  return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
 }
 
 function sanitizeForUser(input) {
@@ -423,7 +525,7 @@ function sanitizeForUser(input) {
   try {
     return sanitizeForUserInternal(input);
   } catch {
-    return { response: USER_FALLBACK_RESPONSE };
+    return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 }
 
@@ -431,7 +533,9 @@ async function main() {
   try {
     const parsed = safeParsePayload(getRawInput());
     if (!parsed.message) {
-      process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+      process.stdout.write(JSON.stringify(
+        attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON),
+      ));
       return;
     }
 
@@ -460,7 +564,14 @@ async function main() {
         candidate_errors: execution.candidateErrors.slice(0, 6),
         cwd: payload.cwd,
       });
-      process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+      const fallbackMetadata = inferFallbackMetadata(execution);
+      process.stdout.write(JSON.stringify(
+        attachRunnerMetadata(
+          { response: USER_FALLBACK_RESPONSE },
+          fallbackMetadata.engineMode,
+          fallbackMetadata.engineReason,
+        ),
+      ));
       return;
     }
 
@@ -470,7 +581,9 @@ async function main() {
       error_name: error && error.name ? error.name : 'Error',
       error_message: error && error.message ? String(error.message) : String(error || ''),
     });
-    process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+    process.stdout.write(JSON.stringify(
+      attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON),
+    ));
   }
 }
 
@@ -478,11 +591,14 @@ module.exports = {
   emptyPayload,
   getBaseDir,
   getQueryEngineCandidates,
+  getPackagedQueryEngineCandidate,
   getWorkspaceRoot,
+  inferFallbackMetadata,
   loadAgentMemoryContext,
   loadRunnerSchema,
   main,
   safeParsePayload,
+  sanitizeForUser,
   tryRunExistingQueryEngineDetailed,
   tryRunExistingQueryEngine,
   validatePayload,

@@ -5,6 +5,9 @@ import path from 'node:path';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 process.env.BASE_DIR = projectRoot;
 process.env.NODE_RUNNER_BASE_DIR = projectRoot;
+const packageModule = await import(pathToFileURL(path.join(projectRoot, 'scripts', 'package-queryengine.mjs')).href);
+packageModule.packageQueryEngine();
+const packagedCandidatePath = path.join(projectRoot, 'dist', 'QueryEngine.js');
 
 const runnerModule = await import(pathToFileURL(path.join(projectRoot, 'js-runner', 'queryEngineRunner.js')).href);
 
@@ -17,7 +20,7 @@ const valid = runnerModule.safeParsePayload(JSON.stringify({
   session: { session_id: 'fase2-runner' },
 }));
 assert.equal(valid.message, 'ola');
-const validResponse = await runnerModule.tryRunExistingQueryEngine({
+const validExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
   message: valid.message,
   memoryContext: { user: valid.memory, agentMemory: '' },
   history: valid.history,
@@ -26,7 +29,11 @@ const validResponse = await runnerModule.tryRunExistingQueryEngine({
   session: valid.session,
   cwd: projectRoot,
 });
-assert.ok(validResponse.trim().length > 0);
+assert.equal(validExecution.selectedCandidate, packagedCandidatePath);
+assert.equal(typeof validExecution.result.response, 'string');
+assert.ok(validExecution.result.response.trim().length > 0);
+assert.equal(validExecution.result.metadata?.engine_mode, 'packaged_upstream');
+assert.equal(validExecution.result.metadata?.engine_reason, 'dist_candidate_selected');
 
 const legacy = runnerModule.safeParsePayload(JSON.stringify({
   message: 'leia package.json',
@@ -38,7 +45,7 @@ const legacy = runnerModule.safeParsePayload(JSON.stringify({
   plan_kind: 'linear',
   milestone_plan: { ignored: true },
 }));
-const legacyResponse = await runnerModule.tryRunExistingQueryEngine({
+const legacyExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
   message: legacy.message,
   memoryContext: { user: legacy.memory, agentMemory: '' },
   history: legacy.history,
@@ -47,9 +54,12 @@ const legacyResponse = await runnerModule.tryRunExistingQueryEngine({
   session: legacy.session,
   cwd: projectRoot,
 });
-const legacyPayload = JSON.parse(legacyResponse);
+assert.equal(legacyExecution.selectedCandidate, packagedCandidatePath);
+const legacyPayload = legacyExecution.result;
 assert.equal(typeof legacyPayload.execution_request, 'object');
 assert.ok(Array.isArray(legacyPayload.execution_request.actions));
+assert.equal(legacyPayload.metadata?.engine_mode, 'authority_fallback');
+assert.equal(legacyPayload.metadata?.engine_reason, 'fallback_policy_triggered');
 
 const malformed = runnerModule.safeParsePayload('{not-json');
 assert.equal(malformed.message, '');
@@ -68,7 +78,7 @@ const phase10Safe = runnerModule.safeParsePayload(JSON.stringify({
     repository_analysis: { preexisting: true },
   },
 }));
-const phase10Response = await runnerModule.tryRunExistingQueryEngine({
+const phase10Execution = await runnerModule.tryRunExistingQueryEngineDetailed({
   message: phase10Safe.message,
   memoryContext: { user: phase10Safe.memory, agentMemory: '' },
   history: phase10Safe.history,
@@ -77,8 +87,11 @@ const phase10Response = await runnerModule.tryRunExistingQueryEngine({
   session: phase10Safe.session,
   cwd: projectRoot,
 });
-const phase10Payload = JSON.parse(phase10Response);
+assert.equal(phase10Execution.selectedCandidate, packagedCandidatePath);
+const phase10Payload = phase10Execution.result;
 assert.equal(typeof phase10Payload.execution_request.repository_analysis, 'object');
 assert.equal(typeof phase10Payload.execution_request.milestone_plan, 'object');
+assert.equal(phase10Payload.metadata?.engine_mode, 'authority_fallback');
+assert.equal(phase10Payload.metadata?.engine_reason, 'fallback_policy_triggered');
 
 console.log('queryengine runner integration tests: ok');
