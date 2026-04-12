@@ -20,6 +20,10 @@ const DIST_CANDIDATE_REASON = 'dist_candidate_selected';
 const HEAVY_EXECUTION_REASON = 'heavy_execution_request';
 const PACKAGED_IMPORT_FAILED_REASON = 'packaged_import_failed';
 const FALLBACK_POLICY_REASON = 'fallback_policy_triggered';
+const BUN_NATIVE_REASON = 'bun_native';
+const NODE_FALLBACK_NO_BUN_REASON = 'node_fallback_no_bun';
+const NODE_FALLBACK_API_MISSING_REASON = 'node_fallback_api_missing';
+const NODE_FALLBACK_ERROR_REASON = 'node_fallback_error';
 
 function getBaseDir() {
   return process.env.BASE_DIR
@@ -249,11 +253,52 @@ function cloneMetadata(value) {
     : {};
 }
 
-function buildRunnerMetadata(engineMode, engineReason, metadata = {}) {
+function resolveRuntimeMetadata(env = process.env, runtimeVersions = process.versions) {
+  if (runtimeVersions && runtimeVersions.bun) {
+    return {
+      runtime_mode: 'bun',
+      runtime_reason: BUN_NATIVE_REASON,
+    };
+  }
+
+  const runtimeName = String(env.OMINI_JS_RUNTIME || '').trim().toLowerCase();
+  const runtimeSource = String(env.OMINI_JS_RUNTIME_SOURCE || '').trim().toLowerCase();
+
+  if (runtimeName === 'bun') {
+    return {
+      runtime_mode: 'bun',
+      runtime_reason: BUN_NATIVE_REASON,
+    };
+  }
+
+  if (runtimeSource === 'bun_api_missing') {
+    return {
+      runtime_mode: 'node',
+      runtime_reason: NODE_FALLBACK_API_MISSING_REASON,
+    };
+  }
+
+  if (runtimeSource === 'bun_error') {
+    return {
+      runtime_mode: 'node',
+      runtime_reason: NODE_FALLBACK_ERROR_REASON,
+    };
+  }
+
+  return {
+    runtime_mode: 'node',
+    runtime_reason: NODE_FALLBACK_NO_BUN_REASON,
+  };
+}
+
+function buildRunnerMetadata(engineMode, engineReason, metadata = {}, env = process.env, runtimeVersions = process.versions) {
+  const runtimeMetadata = resolveRuntimeMetadata(env, runtimeVersions);
   return {
     ...cloneMetadata(metadata),
     engine_mode: engineMode,
     engine_reason: engineReason,
+    runtime_mode: runtimeMetadata.runtime_mode,
+    runtime_reason: runtimeMetadata.runtime_reason,
   };
 }
 
@@ -602,6 +647,7 @@ module.exports = {
   tryRunExistingQueryEngineDetailed,
   tryRunExistingQueryEngine,
   validatePayload,
+  resolveRuntimeMetadata,
 };
 
 if (require.main === module) {
