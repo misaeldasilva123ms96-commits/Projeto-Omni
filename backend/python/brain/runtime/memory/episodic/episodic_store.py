@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import sqlite3
 import threading
@@ -11,19 +12,27 @@ from pathlib import Path
 from .models import Episode
 
 
+_OPEN_CONNECTIONS: dict[int, sqlite3.Connection] = {}
+
+
 class EpisodicStore:
+    _instances: "weakref.WeakSet[EpisodicStore]" = weakref.WeakSet()
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.db_dir = root / ".logs" / "fusion-runtime" / "memory" / "db"
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._closed = False
         self.path = self.db_dir / "episodic.db"
         self._conn = self._connect_and_initialize(self.path)
         self._finalizer = weakref.finalize(self, self._close_quietly, self._conn)
+        self._instances.add(self)
 
     def _connect_and_initialize(self, preferred_path: Path) -> sqlite3.Connection:
         try:
             conn = sqlite3.connect(preferred_path, check_same_thread=False)
+            _OPEN_CONNECTIONS[id(conn)] = conn
             self._initialize(conn)
             return conn
         except sqlite3.OperationalError:
@@ -31,6 +40,7 @@ class EpisodicStore:
             fallback_dir.mkdir(parents=True, exist_ok=True)
             self.path = fallback_dir / "episodic.db"
             conn = sqlite3.connect(self.path, check_same_thread=False)
+            _OPEN_CONNECTIONS[id(conn)] = conn
             self._initialize(conn)
             return conn
 
@@ -90,17 +100,19 @@ class EpisodicStore:
             self._conn.commit()
 
     def query_by_goal(self, goal_id: str, *, limit: int = 20) -> list[Episode]:
-        rows = self._conn.execute(
-            "SELECT * FROM episodes WHERE goal_id = ? ORDER BY created_at DESC LIMIT ?",
-            (goal_id, max(1, limit)),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM episodes WHERE goal_id = ? ORDER BY created_at DESC LIMIT ?",
+                (goal_id, max(1, limit)),
+            ).fetchall()
         return [self._row_to_episode(row) for row in rows]
 
     def query_by_outcome(self, outcome: str, *, limit: int = 20) -> list[Episode]:
-        rows = self._conn.execute(
-            "SELECT * FROM episodes WHERE outcome = ? ORDER BY created_at DESC LIMIT ?",
-            (outcome, max(1, limit)),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM episodes WHERE outcome = ? ORDER BY created_at DESC LIMIT ?",
+                (outcome, max(1, limit)),
+            ).fetchall()
         return [self._row_to_episode(row) for row in rows]
 
     def query_similar_context(
@@ -111,36 +123,46 @@ class EpisodicStore:
         progress_max: float,
         limit: int = 5,
     ) -> list[Episode]:
-        rows = self._conn.execute(
-            """
-            SELECT * FROM episodes
-            WHERE event_type = ?
-              AND progress_at_end >= ?
-              AND progress_at_start <= ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (event_type, progress_min, progress_max, max(1, limit)),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM episodes
+                WHERE event_type = ?
+                  AND progress_at_end >= ?
+                  AND progress_at_start <= ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (event_type, progress_min, progress_max, max(1, limit)),
+            ).fetchall()
         return [self._row_to_episode(row) for row in rows]
 
     def recent(self, *, limit: int = 50) -> list[Episode]:
-        rows = self._conn.execute(
-            "SELECT * FROM episodes ORDER BY created_at DESC LIMIT ?",
-            (max(1, limit),),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM episodes ORDER BY created_at DESC LIMIT ?",
+                (max(1, limit),),
+            ).fetchall()
         return [self._row_to_episode(row) for row in rows]
 
     def current_journal_mode(self) -> str:
-        row = self._conn.execute("PRAGMA journal_mode").fetchone()
+        with self._lock:
+            row = self._conn.execute("PRAGMA journal_mode").fetchone()
         return str(row[0]).lower() if row else ""
 
     def current_synchronous_mode(self) -> int:
-        row = self._conn.execute("PRAGMA synchronous").fetchone()
+        with self._lock:
+            row = self._conn.execute("PRAGMA synchronous").fetchone()
         return int(row[0]) if row else -1
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            if getattr(self, "_finalizer", None) is not None:
+                self._finalizer.detach()
+            _OPEN_CONNECTIONS.pop(id(self._conn), None)
             self._conn.close()
 
     def __del__(self) -> None:
@@ -175,3 +197,21 @@ class EpisodicStore:
             created_at=str(values[12]),
             metadata=dict(json.loads(values[13] or "{}")),
         )
+
+
+def _close_all_episodic_stores() -> None:
+    for store in list(EpisodicStore._instances):
+        try:
+            store.close()
+        except Exception:
+            continue
+    for connection_id, conn in list(_OPEN_CONNECTIONS.items()):
+        try:
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            _OPEN_CONNECTIONS.pop(connection_id, None)
+
+
+atexit.register(_close_all_episodic_stores)
