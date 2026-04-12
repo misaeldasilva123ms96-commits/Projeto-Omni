@@ -58,6 +58,7 @@ class ContinuationDecider:
         goal_evaluation: GoalEvaluationResult | None = None,
         result: dict[str, Any] | None = None,
         advisory_signals: list[Any] | None = None,
+        coordination_trace: dict[str, Any] | None = None,
     ) -> ContinuationDecision:
         current_step = self.tracker.step_by_id(plan, plan.current_step_id) if plan.current_step_id else None
         failure_kind = self._failure_kind(result)
@@ -130,7 +131,13 @@ class ContinuationDecider:
             return self._blend_with_simulation(
                 baseline=baseline,
                 simulation_result=simulation_result,
+                coordination_trace=coordination_trace,
             )
+        if coordination_trace is not None:
+            baseline.metadata = {
+                **dict(baseline.metadata),
+                "coordination_trace_id": str(coordination_trace.get("trace_id", "")).strip(),
+            }
         return baseline
 
     def _simulation_result(
@@ -303,6 +310,7 @@ class ContinuationDecider:
         *,
         baseline: ContinuationDecision,
         simulation_result: SimulationResult,
+        coordination_trace: dict[str, Any] | None = None,
     ) -> ContinuationDecision:
         route = simulation_result.route_for(simulation_result.recommended_route)
         if route is None:
@@ -313,6 +321,8 @@ class ContinuationDecider:
             "simulation_recommended_route": simulation_result.recommended_route.value,
             "simulation_confidence": route.confidence,
         }
+        if coordination_trace is not None:
+            baseline.metadata["coordination_trace_id"] = str(coordination_trace.get("trace_id", "")).strip()
         if route.confidence < 0.75:
             baseline.reason_summary = f"{baseline.reason_summary} Simulation advisory favored {route.route.value} with low confidence."
             if baseline.decision_type == ContinuationDecisionType.RETRY_STEP and route.route in {RouteType.PAUSE, RouteType.REPAIR}:
