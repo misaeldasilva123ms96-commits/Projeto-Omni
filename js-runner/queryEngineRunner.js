@@ -222,14 +222,14 @@ function getQueryEngineCandidates() {
   const esmAdapterPath = adapterPath.replace(/\.js$/i, '.mjs');
 
   return [
+    path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
+    path.join(workspaceRoot, 'build', 'QueryEngine.js'),
     esmAdapterPath,
     adapterPath,
     path.join(workspaceRoot, 'src', 'QueryEngine.js'),
     path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
-    path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'build', 'QueryEngine.js'),
   ];
 }
 
@@ -264,6 +264,8 @@ async function tryRunExistingQueryEngineDetailed(payload) {
       const runner =
         imported.runQueryEngine ||
         imported.run ||
+        imported.default?.runQueryEngine ||
+        imported.default?.run ||
         imported.default;
 
       if (typeof runner !== 'function') {

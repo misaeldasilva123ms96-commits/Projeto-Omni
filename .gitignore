@@ -37,7 +37,10 @@ __pycache__/
 *.py[cod]
 
 # Build outputs
-dist/
+dist/*
+!dist/
+!dist/QueryEngine.js
+!dist/package.json
 build/
 target/
 frontend/dist/
