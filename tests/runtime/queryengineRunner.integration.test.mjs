@@ -34,6 +34,10 @@ assert.equal(typeof validExecution.result.response, 'string');
 assert.ok(validExecution.result.response.trim().length > 0);
 assert.equal(validExecution.result.metadata?.engine_mode, 'packaged_upstream');
 assert.equal(validExecution.result.metadata?.engine_reason, 'dist_candidate_selected');
+assert.equal(typeof validExecution.result.metadata?.runtime_mode, 'string');
+assert.ok(validExecution.result.metadata?.runtime_mode);
+assert.equal(typeof validExecution.result.metadata?.runtime_reason, 'string');
+assert.ok(validExecution.result.metadata?.runtime_reason);
 
 const legacy = runnerModule.safeParsePayload(JSON.stringify({
   message: 'leia package.json',
@@ -60,6 +64,10 @@ assert.equal(typeof legacyPayload.execution_request, 'object');
 assert.ok(Array.isArray(legacyPayload.execution_request.actions));
 assert.equal(legacyPayload.metadata?.engine_mode, 'authority_fallback');
 assert.equal(legacyPayload.metadata?.engine_reason, 'fallback_policy_triggered');
+assert.equal(typeof legacyPayload.metadata?.runtime_mode, 'string');
+assert.ok(legacyPayload.metadata?.runtime_mode);
+assert.equal(typeof legacyPayload.metadata?.runtime_reason, 'string');
+assert.ok(legacyPayload.metadata?.runtime_reason);
 
 const malformed = runnerModule.safeParsePayload('{not-json');
 assert.equal(malformed.message, '');
@@ -93,5 +101,9 @@ assert.equal(typeof phase10Payload.execution_request.repository_analysis, 'objec
 assert.equal(typeof phase10Payload.execution_request.milestone_plan, 'object');
 assert.equal(phase10Payload.metadata?.engine_mode, 'authority_fallback');
 assert.equal(phase10Payload.metadata?.engine_reason, 'fallback_policy_triggered');
+assert.equal(typeof phase10Payload.metadata?.runtime_mode, 'string');
+assert.ok(phase10Payload.metadata?.runtime_mode);
+assert.equal(typeof phase10Payload.metadata?.runtime_reason, 'string');
+assert.ok(phase10Payload.metadata?.runtime_reason);
 
 console.log('queryengine runner integration tests: ok');

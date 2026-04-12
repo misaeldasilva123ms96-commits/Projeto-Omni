@@ -48,6 +48,34 @@ class EngineSelectionObservabilityTest(unittest.TestCase):
 
         self.orchestrator.memory_facade.record_event.assert_not_called()
 
+    def test_records_runtime_selection_event_when_metadata_exists(self) -> None:
+        self.orchestrator._record_runtime_selection_event(
+            {
+                "response": "ok",
+                "metadata": {
+                    "runtime_mode": "bun",
+                    "runtime_reason": "bun_native",
+                },
+            },
+            runner="queryEngineRunner.js",
+        )
+
+        self.orchestrator.memory_facade.record_event.assert_called_once_with(
+            event_type="runtime_selection",
+            description="JS runner responded via bun",
+            metadata={
+                "runtime_mode": "bun",
+                "runtime_reason": "bun_native",
+                "runner": "queryEngineRunner.js",
+            },
+        )
+
+    def test_missing_runtime_metadata_is_ignored_without_exception(self) -> None:
+        self.orchestrator._record_runtime_selection_event({"response": "ok"}, runner="queryEngineRunner.js")
+        self.orchestrator._record_runtime_selection_event(None, runner="queryEngineRunner.js")
+
+        self.orchestrator.memory_facade.record_event.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

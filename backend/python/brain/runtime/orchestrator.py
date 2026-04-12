@@ -1551,6 +1551,7 @@ class BrainOrchestrator:
             },
         )
 
+        self._record_runtime_selection_event(parsed, runner="queryEngineRunner.js")
         self._record_engine_selection_event(parsed)
         execution_request = parsed.get("execution_request")
         if not isinstance(execution_request, dict):
@@ -1678,6 +1679,23 @@ class BrainOrchestrator:
             metadata={
                 "engine_mode": engine_mode,
                 "engine_reason": engine_reason,
+            },
+        )
+
+    def _record_runtime_selection_event(self, result_payload: dict[str, Any] | None, *, runner: str) -> None:
+        payload = result_payload if isinstance(result_payload, dict) else {}
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        runtime_mode = str(metadata.get("runtime_mode", "")).strip()
+        if not runtime_mode:
+            return
+        runtime_reason = str(metadata.get("runtime_reason", "")).strip()
+        self.memory_facade.record_event(
+            event_type="runtime_selection",
+            description=f"JS runner responded via {runtime_mode}",
+            metadata={
+                "runtime_mode": runtime_mode,
+                "runtime_reason": runtime_reason,
+                "runner": runner,
             },
         )
 

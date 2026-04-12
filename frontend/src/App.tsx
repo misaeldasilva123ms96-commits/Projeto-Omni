@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import { ObservabilityAuthGate } from './components/ObservabilityAuthGate'
 import { ChatPage } from './pages/ChatPage'
 import { DashboardPage } from './pages/DashboardPage'
-import { ObservabilityPage } from './pages/ObservabilityPage'
 import type { ChatMode } from './types'
 
 type View = 'chat' | 'dashboard' | 'observability'
@@ -57,7 +57,7 @@ export default function App() {
 
   if (view === 'observability') {
     return (
-      <ObservabilityPage
+      <ObservabilityAuthGate
         mode={mode}
         onChangeMode={setMode}
         onChangeView={handleChangeView}

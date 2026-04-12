@@ -184,6 +184,20 @@ Phase 25 is intentionally conservative.
 
 The panel is only as current as the persisted artifacts already emitted by the runtime.
 
+## Security
+
+The observability surface is protected by Supabase Auth.
+
+- `GET /api/observability/snapshot` requires a valid Supabase JWT
+- `GET /api/observability/traces` requires a valid Supabase JWT
+- `GET /api/observability/stream` requires a valid Supabase JWT
+- the SSE endpoint accepts the token through `?token=` for browser `EventSource` compatibility
+- `SUPABASE_JWT_SECRET` must be present in the Rust runtime environment or the API refuses to start
+- issuer validation is derived from `SUPABASE_URL` (or `VITE_SUPABASE_URL` as a compatibility fallback)
+- access-log spans redact the `token` query parameter so bearer material never appears in plaintext logs
+
+Authenticated users retain the existing read-only behavior. Unauthenticated requests receive `401 unauthorized` and the frontend gates `/observability` behind the existing Supabase session.
+
 ## How This Prepares Later Productization
 
 Phase 25 establishes the stable contracts needed for the next stage of product readiness:
