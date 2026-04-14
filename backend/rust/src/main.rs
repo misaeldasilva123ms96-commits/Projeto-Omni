@@ -1,6 +1,7 @@
 mod error;
 mod observability;
 mod observability_auth;
+mod run_control;
 
 use std::{
     env,
@@ -193,6 +194,16 @@ async fn main() -> Result<(), AppError> {
             state.clone(),
             require_supabase_auth,
         ));
+    let protected_control = Router::new()
+        .route("/api/control/runs", get(run_control::list_runs))
+        .route("/api/control/runs/:run_id", get(run_control::get_run))
+        .route("/api/control/runs/:run_id/pause", post(run_control::pause_run))
+        .route("/api/control/runs/:run_id/resume", post(run_control::resume_run))
+        .route("/api/control/runs/:run_id/approve", post(run_control::approve_run))
+        .route_layer(from_fn_with_state(
+            state.clone(),
+            require_supabase_auth,
+        ));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -203,6 +214,7 @@ async fn main() -> Result<(), AppError> {
         .route("/internal/milestones", get(milestones))
         .route("/internal/pr-summaries", get(pr_summaries))
         .merge(protected_observability)
+        .merge(protected_control)
         .layer(CorsLayer::permissive())
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
