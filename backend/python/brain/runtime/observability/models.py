@@ -226,6 +226,8 @@ class ObservabilitySnapshot:
     recent_learning_signals: list[dict[str, Any]]
     pending_evolution_proposal_count: int
     recent_evolution_proposals: list[dict[str, Any]]
+    engine_adoption: dict[str, Any] | None = None
+    active_runs: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -245,5 +247,7 @@ class ObservabilitySnapshot:
             "recent_learning_signals": list(self.recent_learning_signals),
             "pending_evolution_proposal_count": self.pending_evolution_proposal_count,
             "recent_evolution_proposals": list(self.recent_evolution_proposals),
+            "engine_adoption": dict(self.engine_adoption) if isinstance(self.engine_adoption, dict) else None,
+            "active_runs": [dict(item) for item in self.active_runs],
             "warnings": list(self.warnings),
         }

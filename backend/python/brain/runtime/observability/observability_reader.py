@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .engine_adoption_reader import read_engine_adoption
 from .goal_reader import GoalReader
 from .memory_reader import MemoryReader
 from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_iso
+from .run_reader import read_active_runs
 from .simulation_reader import SimulationReader
 from .specialist_reader import SpecialistReader
 from .timeline_reader import TimelineReader
@@ -48,6 +50,8 @@ class ObservabilityReader:
             recent_learning_signals=self.memory_reader.read_recent_learning_signals(limit=8),
             pending_evolution_proposal_count=pending_count,
             recent_evolution_proposals=recent_proposals,
+            engine_adoption=read_engine_adoption(self.root),
+            active_runs=read_active_runs(self.root),
             warnings=[],
         )
 
