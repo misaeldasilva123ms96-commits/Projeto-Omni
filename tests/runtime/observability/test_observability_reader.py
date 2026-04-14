@@ -49,6 +49,52 @@ class ObservabilityReaderTest(unittest.TestCase):
                 facade.set_active_goal(session_id='sess-obs', goal_id=goal.goal_id, active_plan_id='plan-obs', goal_context=GoalContext.from_goal(goal))
                 facade.record_event(event_type='continuation', description='Runtime seguindo.', outcome='retry', progress_score=0.5, metadata={'goal_type': 'execution', 'recommended_route': 'retry', 'decision_type': 'retry'})
                 facade.close_goal_episode(outcome='retry', description='Episode persisted.', event_type='continuation')
+                engine_adoption_path = workspace_root / '.logs' / 'fusion-runtime'
+                engine_adoption_path.mkdir(parents=True, exist_ok=True)
+                (engine_adoption_path / 'engine_adoption.json').write_text(
+                    json.dumps(
+                        {
+                            'scope': 'session',
+                            'session_id': 'sess-obs',
+                            'engine_counters': {
+                                'packaged_upstream': 8,
+                                'authority_fallback': 2,
+                                'fallback_by_reason': {
+                                    'heavy_execution_request': 1,
+                                    'packaged_import_failed': 0,
+                                    'fallback_policy_triggered': 1,
+                                },
+                            },
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding='utf-8',
+                )
+                control_path = workspace_root / '.logs' / 'fusion-runtime' / 'control'
+                control_path.mkdir(parents=True, exist_ok=True)
+                (control_path / 'run_registry.json').write_text(
+                    json.dumps(
+                        {
+                            'runs': {
+                                'run-obs': {
+                                    'run_id': 'run-obs',
+                                    'goal_id': goal.goal_id,
+                                    'session_id': 'sess-obs',
+                                    'status': 'running',
+                                    'started_at': '2026-04-12T00:00:00+00:00',
+                                    'updated_at': '2026-04-12T00:00:10+00:00',
+                                    'last_action': 'execution_started',
+                                    'progress_score': 0.25,
+                                    'metadata': {'task_id': 'task-obs'},
+                                }
+                            }
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding='utf-8',
+                )
                 SimulationStore(workspace_root).append(
                     SimulationResult.build(
                         recommended_route=RouteType.RETRY,
@@ -66,6 +112,11 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertEqual(len(snapshot.timeline), 1)
                 self.assertIsNotNone(snapshot.latest_simulation)
                 self.assertIsNotNone(snapshot.latest_trace)
+                self.assertIsNotNone(snapshot.engine_adoption)
+                self.assertEqual(len(snapshot.active_runs), 1)
+                self.assertEqual(snapshot.active_runs[0]['run_id'], 'run-obs')
+                self.assertAlmostEqual(snapshot.engine_adoption['adoption_rate'], 0.8)
+                self.assertTrue(snapshot.engine_adoption['promotion_ready'])
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -77,3 +128,5 @@ class ObservabilityReaderTest(unittest.TestCase):
             payload = json.loads(stream.getvalue())
             self.assertIn('status', payload)
             self.assertIn('snapshot', payload)
+            self.assertIn('engine_adoption', payload['snapshot'])
+            self.assertIn('active_runs', payload['snapshot'])

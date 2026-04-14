@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,9 +33,11 @@ from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor
+from brain.runtime.control import RunRecord, RunRegistry, RunStatus
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
+from brain.runtime.engine_adoption_store import EngineAdoptionStore
 from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
@@ -208,6 +211,11 @@ class BrainOrchestrator:
         )
         self.evolution_executor = EvolutionExecutor(self.paths.root)
         self.memory_facade = MemoryFacade(self.paths.root)
+        self.engine_adoption_store = EngineAdoptionStore(self.paths.root)
+        try:
+            self.run_registry = RunRegistry(self.paths.root)
+        except Exception:
+            self.run_registry = None
         self.learning_executor = LearningExecutor(self.paths.root, memory_facade=self.memory_facade)
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
         self.simulation_store = SimulationStore(self.paths.root)
@@ -1552,7 +1560,7 @@ class BrainOrchestrator:
         )
 
         self._record_runtime_selection_event(parsed, runner="queryEngineRunner.js")
-        self._record_engine_selection_event(parsed)
+        self._record_engine_selection_event(parsed, session_id=session_id)
         execution_request = parsed.get("execution_request")
         if not isinstance(execution_request, dict):
             response = parsed.get("response")
@@ -1625,6 +1633,7 @@ class BrainOrchestrator:
             milestone_plan=execution_request.get("milestone_plan"),
             engineering_review=execution_request.get("engineering_review"),
             engineering_workflow=execution_request.get("engineering_workflow"),
+            operator_control_enabled=True,
         )
         if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
             self._append_runtime_event(
@@ -1666,13 +1675,27 @@ class BrainOrchestrator:
             },
         )
 
-    def _record_engine_selection_event(self, result_payload: dict[str, Any] | None) -> None:
+    def _record_engine_selection_event(
+        self,
+        result_payload: dict[str, Any] | None,
+        *,
+        session_id: str = "",
+    ) -> None:
         payload = result_payload if isinstance(result_payload, dict) else {}
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         engine_mode = str(metadata.get("engine_mode", "")).strip()
         if not engine_mode:
             return
         engine_reason = str(metadata.get("engine_reason", "")).strip()
+        try:
+            if self.engine_adoption_store is not None:
+                self.engine_adoption_store.record_selection(
+                    engine_mode=engine_mode,
+                    engine_reason=engine_reason,
+                    session_id=session_id,
+                )
+        except Exception:
+            pass
         self.memory_facade.record_event(
             event_type="engine_selection",
             description=f"QueryEngine responded via {engine_mode}",
@@ -1681,6 +1704,30 @@ class BrainOrchestrator:
                 "engine_reason": engine_reason,
             },
         )
+        promoted_scenario = str(metadata.get("promoted_scenario", "")).strip()
+        promotion_phase = str(metadata.get("promotion_phase", "")).strip()
+        promotion_rollback_reason = str(metadata.get("promotion_rollback_reason", "")).strip()
+        if promoted_scenario and engine_mode == "packaged_upstream":
+            self.memory_facade.record_event(
+                event_type="engine_promotion",
+                description="Request type promoted to packaged_upstream",
+                metadata={
+                    "promoted_scenario": promoted_scenario,
+                    "previous_route": "authority_fallback",
+                    "new_route": "packaged_upstream",
+                    "phase": promotion_phase or "27",
+                },
+            )
+        if promoted_scenario and promotion_rollback_reason:
+            self.memory_facade.record_event(
+                event_type="engine_promotion_rollback",
+                description="Packaged engine promotion rolled back due to import failures",
+                metadata={
+                    "promoted_scenario": promoted_scenario,
+                    "reason": promotion_rollback_reason,
+                    "phase": promotion_phase or "27",
+                },
+            )
 
     def _record_runtime_selection_event(self, result_payload: dict[str, Any] | None, *, runner: str) -> None:
         payload = result_payload if isinstance(result_payload, dict) else {}
@@ -1698,6 +1745,150 @@ class BrainOrchestrator:
                 "runner": runner,
             },
         )
+
+    def _register_run_record(
+        self,
+        *,
+        run_id: str,
+        session_id: str,
+        goal_id: str | None,
+        status: RunStatus,
+        last_action: str,
+        progress_score: float,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            if self.run_registry is None:
+                return
+            self.run_registry.register(
+                RunRecord.build(
+                    run_id=run_id,
+                    goal_id=goal_id,
+                    session_id=session_id,
+                    status=status,
+                    last_action=last_action,
+                    progress_score=progress_score,
+                    metadata=metadata,
+                )
+            )
+        except Exception:
+            return
+
+    def _update_run_status(
+        self,
+        *,
+        run_id: str,
+        status: RunStatus,
+        last_action: str,
+        progress_score: float,
+    ) -> None:
+        try:
+            if self.run_registry is None:
+                return
+            self.run_registry.update_status(
+                run_id=run_id,
+                status=status,
+                last_action=last_action,
+                progress=progress_score,
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    def _progress_from_step_results(step_results: list[dict[str, Any]]) -> float:
+        if not step_results:
+            return 0.0
+        successes = len([item for item in step_results if isinstance(item, dict) and item.get("ok")])
+        return max(0.0, min(1.0, successes / max(1, len(step_results))))
+
+    @staticmethod
+    def _coordination_trace_has_governance_hold(trace: dict[str, Any] | None) -> bool:
+        if not isinstance(trace, dict):
+            return False
+        decisions = trace.get("decisions", [])
+        if not isinstance(decisions, list):
+            return False
+        for decision in decisions:
+            if not isinstance(decision, dict):
+                continue
+            if str(decision.get("specialist_type", "")).strip() != "governance":
+                continue
+            if str(decision.get("verdict", "")).strip() == "hold":
+                return True
+        return False
+
+    @staticmethod
+    def _run_control_poll_interval_seconds() -> float:
+        raw = str(os.getenv("OMINI_RUN_CONTROL_POLL_SECONDS", "2") or "2").strip()
+        try:
+            return max(0.1, float(raw))
+        except ValueError:
+            return 2.0
+
+    @staticmethod
+    def _run_control_max_wait_seconds() -> float:
+        raw = str(os.getenv("OMINI_RUN_CONTROL_MAX_WAIT_SECONDS", "300") or "300").strip()
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            return 300.0
+
+    def _await_run_control_clearance(self, *, run_id: str) -> dict[str, Any]:
+        if self.run_registry is None:
+            return {"status": "running"}
+        started_at = time.monotonic()
+        poll_interval = self._run_control_poll_interval_seconds()
+        max_wait = self._run_control_max_wait_seconds()
+        while True:
+            try:
+                self.run_registry.reload_from_disk()
+                record = self.run_registry.get(run_id)
+            except Exception:
+                return {"status": "running"}
+            if record is None or record.status == RunStatus.RUNNING:
+                return {"status": "running"}
+            control_enabled = bool((record.metadata or {}).get("operator_control_enabled"))
+            if not control_enabled:
+                return {"status": "running"}
+            should_wait = record.status == RunStatus.AWAITING_APPROVAL or (
+                record.status == RunStatus.PAUSED and str(record.last_action).startswith("operator_")
+            )
+            if not should_wait:
+                return {"status": record.status.value, "progress_score": record.progress_score}
+            if time.monotonic() - started_at >= max_wait:
+                self._update_run_status(
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    last_action="operator_timeout",
+                    progress_score=record.progress_score,
+                )
+                return {
+                    "status": "failed",
+                    "error": "operator_timeout",
+                    "progress_score": record.progress_score,
+                }
+            time.sleep(poll_interval)
+
+    def _control_block_result(
+        self,
+        *,
+        reason_code: str,
+        message: str,
+        selected_agent: str = "operator_control",
+    ) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "selected_tool": "none",
+            "selected_agent": selected_agent,
+            "error_payload": {
+                "kind": reason_code,
+                "message": message,
+            },
+            "evaluation": {
+                "decision": "stop_blocked",
+                "reason_code": reason_code,
+            },
+        }
 
     def _execute_runtime_actions(
         self,
@@ -1732,6 +1923,7 @@ class BrainOrchestrator:
         engineering_review: dict[str, Any] | None = None,
         engineering_workflow: dict[str, Any] | None = None,
         start_index: int = 0,
+        operator_control_enabled: bool = False,
     ) -> list[dict[str, Any]]:
         max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
         step_results: list[dict[str, Any]] = []
@@ -1758,6 +1950,20 @@ class BrainOrchestrator:
             "verification_summary": {},
             "pr_summary": {},
         }
+        self._register_run_record(
+            run_id=run_id,
+            session_id=session_id,
+            goal_id=None,
+            status=RunStatus.RUNNING,
+            last_action="execution_started",
+            progress_score=0.0,
+            metadata={
+                "task_id": task_id,
+                "intent": intent,
+                "plan_kind": plan_kind,
+                "operator_control_enabled": operator_control_enabled,
+            },
+        )
         planning_decision, operational_plan = self.planning_executor.ensure_plan(
             session_id=session_id,
             task_id=task_id,
@@ -1786,6 +1992,20 @@ class BrainOrchestrator:
             },
         )
         goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
+        self._register_run_record(
+            run_id=run_id,
+            session_id=session_id,
+            goal_id=getattr(operational_plan, "goal_id", None),
+            status=RunStatus.RUNNING,
+            last_action="plan_initialized",
+            progress_score=0.0,
+            metadata={
+                "task_id": task_id,
+                "intent": intent,
+                "plan_id": getattr(operational_plan, "plan_id", ""),
+                "plan_kind": plan_kind,
+            },
+        )
         if operational_plan is not None and operational_plan.goal_id:
             self.memory_facade.set_active_goal(
                 session_id=session_id,
@@ -1939,6 +2159,12 @@ class BrainOrchestrator:
                 operational_plan,
                 status_hint="blocked",
                 step_results=step_results,
+            )
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                last_action="control_layer_blocked",
+                progress_score=self._progress_from_step_results(step_results),
             )
             return step_results
         if control_result["mode_transition"] is not None:
@@ -2094,6 +2320,12 @@ class BrainOrchestrator:
                 repository_analysis=repository_analysis,
                 engineering_data=engineering_data,
             )
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                last_action="supervision_stop",
+                progress_score=self._progress_from_step_results(step_results),
+            )
             return step_results
         if isinstance(simulation_summary, dict) and simulation_summary.get("invoked"):
             self._append_runtime_event(
@@ -2170,6 +2402,12 @@ class BrainOrchestrator:
                     status_hint="blocked",
                     step_results=step_results,
                 )
+                self._update_run_status(
+                    run_id=run_id,
+                    status=RunStatus.FAILED,
+                    last_action="simulation_stop",
+                    progress_score=self._progress_from_step_results(step_results),
+                )
                 return step_results
         engineering_data = self._finalize_engineering_data(
             message=message,
@@ -2204,6 +2442,14 @@ class BrainOrchestrator:
         branch_action_ids: set[str] = set()
         continuation_stop_requested = False
         if isinstance(branch_plan, dict) and isinstance(branch_state, dict) and branch_state.get("branches"):
+            control_state = self._await_run_control_clearance(run_id=run_id)
+            if control_state.get("status") != "running":
+                blocked = self._control_block_result(
+                    reason_code=str(control_state.get("error") or control_state.get("status") or "operator_control_blocked"),
+                    message="Execution paused by operator control.",
+                )
+                step_results.append(blocked)
+                return step_results
             branch_results, branch_action_ids, branch_state, graph_state, tree_state = self._execute_branch_plan(
                 session_id=session_id,
                 message=message,
@@ -2278,6 +2524,14 @@ class BrainOrchestrator:
                 return step_results
         if plan_kind == "graph" and isinstance(graph_state, dict):
             while executed_steps < max_steps:
+                control_state = self._await_run_control_clearance(run_id=run_id)
+                if control_state.get("status") != "running":
+                    blocked = self._control_block_result(
+                        reason_code=str(control_state.get("error") or control_state.get("status") or "operator_control_blocked"),
+                        message="Execution paused by operator control.",
+                    )
+                    step_results.append(blocked)
+                    break
                 batch_stop_requested = False
                 ready_parallel, ready_sequential = self._graph_ready_groups(graph_state)
                 if not ready_parallel and not ready_sequential:
@@ -2392,6 +2646,14 @@ class BrainOrchestrator:
                     break
         else:
             for index, action in enumerate(actions[start_index:max_steps], start=start_index):
+                control_state = self._await_run_control_clearance(run_id=run_id)
+                if control_state.get("status") != "running":
+                    blocked = self._control_block_result(
+                        reason_code=str(control_state.get("error") or control_state.get("status") or "operator_control_blocked"),
+                        message="Execution paused by operator control.",
+                    )
+                    step_results.append(blocked)
+                    break
                 if not isinstance(action, dict):
                     continue
                 if str(action.get("step_id", "")) in branch_action_ids:
@@ -2621,6 +2883,12 @@ class BrainOrchestrator:
             status_hint="completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
             step_results=step_results,
         )
+        self._update_run_status(
+            run_id=run_id,
+            status=RunStatus.COMPLETED if step_results and all(item.get("ok") for item in step_results) else RunStatus.FAILED,
+            last_action="goal_completed" if step_results and all(item.get("ok") for item in step_results) else "goal_failed",
+            progress_score=1.0 if step_results and all(item.get("ok") for item in step_results) else self._progress_from_step_results(step_results),
+        )
         operational_summary = self.planning_executor.summary_for_plan(operational_plan)
         if operational_summary is not None:
             final_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
@@ -2784,6 +3052,27 @@ class BrainOrchestrator:
             ContinuationDecisionType.ESCALATE_FAILURE,
             ContinuationDecisionType.COMPLETE_PLAN,
         }
+        if decision.decision_type == ContinuationDecisionType.PAUSE_PLAN:
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.PAUSED,
+                last_action=decision.reason_code or "pause_plan",
+                progress_score=evaluation.progress_ratio if evaluation is not None else 0.0,
+            )
+        elif decision.decision_type == ContinuationDecisionType.COMPLETE_PLAN:
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.COMPLETED,
+                last_action=decision.reason_code or "complete_plan",
+                progress_score=1.0,
+            )
+        elif decision.decision_type == ContinuationDecisionType.ESCALATE_FAILURE:
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.FAILED,
+                last_action=decision.reason_code or "escalate_failure",
+                progress_score=evaluation.progress_ratio if evaluation is not None else 0.0,
+            )
         decision_payload = decision.as_dict()
         decision_payload["orchestration"] = orchestration_update
         decision_payload["evolution"] = evolution_update
@@ -3169,6 +3458,13 @@ class BrainOrchestrator:
                 operational_plan=operational_plan,
             ),
         )
+        if self._coordination_trace_has_governance_hold(trace.as_dict()):
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.AWAITING_APPROVAL,
+                last_action="governance_hold",
+                progress_score=self._progress_from_step_results(step_results),
+            )
         result = self._result_from_coordination_trace(trace.as_dict()) or self._execute_single_action_core(
             action=action,
             step_results=step_results,
@@ -4271,6 +4567,7 @@ class BrainOrchestrator:
             engineering_review=(checkpoint.get("engineering_data") or {}).get("engineering_review"),
             engineering_workflow=(checkpoint.get("engineering_data") or {}).get("engineering_workflow"),
             start_index=0,
+            operator_control_enabled=True,
         )
         return {
             "status": "completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
