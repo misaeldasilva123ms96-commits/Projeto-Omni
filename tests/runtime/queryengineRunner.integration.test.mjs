@@ -7,6 +7,9 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const engineAdoptionPath = path.join(projectRoot, '.logs', 'fusion-runtime', 'engine_adoption.json');
 process.env.BASE_DIR = projectRoot;
 process.env.NODE_RUNNER_BASE_DIR = projectRoot;
+if (fs.existsSync(engineAdoptionPath)) {
+  fs.rmSync(engineAdoptionPath, { force: true });
+}
 const packageModule = await import(pathToFileURL(path.join(projectRoot, 'scripts', 'package-queryengine.mjs')).href);
 packageModule.packageQueryEngine();
 const packagedCandidatePath = path.join(projectRoot, 'dist', 'QueryEngine.js');
