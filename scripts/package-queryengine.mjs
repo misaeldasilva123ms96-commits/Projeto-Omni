@@ -35,8 +35,11 @@ function buildPackagedModule(source) {
     '',
   ].join('\n')
 
-  const wrapper = `
+const wrapper = `
 import fusionBrainModule from '../core/brain/fusionBrain.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const activeRunQueryEngine =
   typeof fusionBrainModule?.runQueryEngine === 'function'
@@ -44,6 +47,54 @@ const activeRunQueryEngine =
     : typeof fusionBrainModule?.default?.runQueryEngine === 'function'
       ? fusionBrainModule.default.runQueryEngine
       : null
+
+const PHASE27_PROMOTED_SCENARIO = 'executor_bridge_light_request'
+const PHASE27_PROMOTION_PHASE = '27'
+const PHASE27_ROLLBACK_REASON = 'packaged_import_failed_threshold_exceeded'
+const PHASE27_IMPORT_FAILURE_THRESHOLD = 2
+const ENGINE_ADOPTION_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '.logs',
+  'fusion-runtime',
+  'engine_adoption.json',
+)
+const CONTROL_SESSION_KEYS = [
+  'executor_bridge',
+  'runtime_mode',
+  'milestone_plan',
+  'repository_analysis',
+  'task_id',
+  'run_id',
+  'checkpoint_id',
+  'resume_from',
+]
+const PROMOTION_BLOCKING_SESSION_KEYS = CONTROL_SESSION_KEYS.filter(key => key !== 'executor_bridge')
+const ENGINEERING_SIGNALS = [
+  'package.json',
+  'cargo',
+  'npm',
+  'repositorio',
+  'repository',
+  'arquivo',
+  'file',
+  'teste',
+  'tests',
+  'corrija',
+  'corrigir',
+  'fix',
+  'bug',
+  'erro',
+  'error',
+  'codigo',
+  'code',
+  'commit',
+  'branch',
+  'worktree',
+  'leia ',
+  'analyze the repository',
+  'analise o repositorio',
+]
 
 function normalizeRoutingText(value) {
   return String(value || '')
@@ -57,113 +108,80 @@ function hasAnySessionKey(session, keys) {
   return keys.some(key => Object.prototype.hasOwnProperty.call(session || {}, key))
 }
 
-function shouldUseActiveAuthority(payload) {
-  const session = payload?.session || {}
-  if (
-    hasAnySessionKey(session, [
-      'executor_bridge',
-      'runtime_mode',
-      'milestone_plan',
-      'repository_analysis',
-      'task_id',
-      'run_id',
-      'checkpoint_id',
-      'resume_from',
-    ])
-  ) {
-    return true
-  }
-
+function isHeavyEngineeringRequest(payload) {
   const message = normalizeRoutingText(payload?.message)
   if (!message) {
     return false
   }
 
-  const engineeringSignals = [
-    'package.json',
-    'cargo',
-    'npm',
-    'repositorio',
-    'repository',
-    'arquivo',
-    'file',
-    'teste',
-    'tests',
-    'corrija',
-    'corrigir',
-    'fix',
-    'bug',
-    'erro',
-    'error',
-    'codigo',
-    'code',
-    'commit',
-    'branch',
-    'worktree',
-    'leia ',
-    'analyze the repository',
-    'analise o repositorio',
-  ]
+  return ENGINEERING_SIGNALS.some(signal => message.includes(signal))
+}
 
-  return engineeringSignals.some(signal => message.includes(signal))
+function getPromotedScenario(payload) {
+  const session = payload?.session || {}
+  if (!Object.prototype.hasOwnProperty.call(session, 'executor_bridge')) {
+    return ''
+  }
+
+  if (hasAnySessionKey(session, PROMOTION_BLOCKING_SESSION_KEYS)) {
+    return ''
+  }
+
+  if (isHeavyEngineeringRequest(payload)) {
+    return ''
+  }
+
+  return PHASE27_PROMOTED_SCENARIO
+}
+
+function shouldUseActiveAuthority(payload) {
+  if (getPromotedScenario(payload)) {
+    return false
+  }
+
+  const session = payload?.session || {}
+  if (hasAnySessionKey(session, CONTROL_SESSION_KEYS)) {
+    return true
+  }
+
+  return isHeavyEngineeringRequest(payload)
 }
 
 function determineFallbackReason(payload) {
   const session = payload?.session || {}
-  if (
-    hasAnySessionKey(session, [
-      'executor_bridge',
-      'runtime_mode',
-      'milestone_plan',
-      'repository_analysis',
-      'task_id',
-      'run_id',
-      'checkpoint_id',
-      'resume_from',
-    ])
-  ) {
+  if (hasAnySessionKey(session, CONTROL_SESSION_KEYS)) {
     return 'fallback_policy_triggered'
   }
 
-  const message = normalizeRoutingText(payload?.message)
-  if (!message) {
-    return 'fallback_policy_triggered'
-  }
-
-  const heavyExecutionSignals = [
-    'package.json',
-    'cargo',
-    'npm',
-    'repositorio',
-    'repository',
-    'arquivo',
-    'file',
-    'teste',
-    'tests',
-    'corrija',
-    'corrigir',
-    'fix',
-    'bug',
-    'erro',
-    'error',
-    'codigo',
-    'code',
-    'commit',
-    'branch',
-    'worktree',
-    'leia ',
-    'analyze the repository',
-    'analise o repositorio',
-  ]
-
-  if (heavyExecutionSignals.some(signal => message.includes(signal))) {
+  if (isHeavyEngineeringRequest(payload)) {
     return 'heavy_execution_request'
   }
 
   return 'fallback_policy_triggered'
 }
 
-function withEngineMetadata(result, engineMode, engineReason) {
+function readPackagedImportFailureCount() {
+  try {
+    const payload = JSON.parse(fs.readFileSync(ENGINE_ADOPTION_PATH, 'utf8'))
+    const fallbackByReason = payload?.engine_counters?.fallback_by_reason
+    if (!fallbackByReason || typeof fallbackByReason !== 'object') {
+      return 0
+    }
+    return Number(fallbackByReason.packaged_import_failed || 0)
+  } catch {
+    return 0
+  }
+}
+
+function shouldRollbackPromotedScenario(payload, promotedScenario) {
+  if (!promotedScenario) {
+    return false
+  }
+
+  return readPackagedImportFailureCount() > PHASE27_IMPORT_FAILURE_THRESHOLD
+}
+
+function withEngineMetadata(result, engineMode, engineReason, extraMetadata = {}) {
   const normalized =
     result && typeof result === 'object' && !Array.isArray(result)
       ? { ...result }
@@ -176,6 +194,7 @@ function withEngineMetadata(result, engineMode, engineReason) {
 
   normalized.metadata = {
     ...metadata,
+    ...extraMetadata,
     engine_mode: engineMode,
     engine_reason: engineReason,
   }
@@ -184,6 +203,20 @@ function withEngineMetadata(result, engineMode, engineReason) {
 }
 
 export async function runQueryEngine(payload) {
+  const promotedScenario = getPromotedScenario(payload)
+  if (promotedScenario && shouldRollbackPromotedScenario(payload, promotedScenario) && typeof activeRunQueryEngine === 'function') {
+    return withEngineMetadata(
+      await activeRunQueryEngine(payload),
+      'authority_fallback',
+      'fallback_policy_triggered',
+      {
+        promoted_scenario: promotedScenario,
+        promotion_phase: PHASE27_PROMOTION_PHASE,
+        promotion_rollback_reason: PHASE27_ROLLBACK_REASON,
+      },
+    )
+  }
+
   if (shouldUseActiveAuthority(payload) && typeof activeRunQueryEngine === 'function') {
     return withEngineMetadata(
       await activeRunQueryEngine(payload),
@@ -196,6 +229,12 @@ export async function runQueryEngine(payload) {
     await runPackagedUpstreamQueryEngine(payload),
     'packaged_upstream',
     'dist_candidate_selected',
+    promotedScenario
+      ? {
+          promoted_scenario: promotedScenario,
+          promotion_phase: PHASE27_PROMOTION_PHASE,
+        }
+      : {},
   )
 }
 

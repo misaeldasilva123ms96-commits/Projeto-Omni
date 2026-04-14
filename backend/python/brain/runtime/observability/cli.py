@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .observability_reader import ObservabilityReader
+from .run_reader import read_active_runs
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -16,6 +17,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     traces = subparsers.add_parser("traces")
     traces.add_argument("--limit", type=int, default=10)
+
+    runs = subparsers.add_parser("runs")
+    runs.add_argument("--limit", type=int, default=50)
 
     goal_history = subparsers.add_parser("goal_history")
     goal_history.add_argument("--limit", type=int, default=10)
@@ -47,6 +51,9 @@ def main() -> int:
             return _emit({"status": "ok", "snapshot": reader.snapshot().as_dict()})
         if args.command == "traces":
             return _emit({"status": "ok", "traces": reader.trace_history(limit=max(1, args.limit))})
+        if args.command == "runs":
+            runs = read_active_runs(_resolve_root(args.root))
+            return _emit({"status": "ok", "runs": runs[: max(1, args.limit)]})
         if args.command == "goal_history":
             return _emit({"status": "ok", "goals": reader.goal_history(limit=max(1, args.limit))})
         if args.command == "simulation_history":
@@ -63,6 +70,7 @@ def main() -> int:
                 "error": str(error),
                 "snapshot": None,
                 "traces": [],
+                "runs": [],
                 "goals": [],
                 "simulations": [],
             }
