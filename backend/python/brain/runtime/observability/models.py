@@ -228,6 +228,11 @@ class ObservabilitySnapshot:
     recent_evolution_proposals: list[dict[str, Any]]
     engine_adoption: dict[str, Any] | None = None
     active_runs: list[dict[str, Any]] = field(default_factory=list)
+    governance_summary: dict[str, Any] = field(default_factory=dict)
+    resolution_counts: dict[str, int] = field(default_factory=dict)
+    runs_waiting_operator: list[dict[str, Any]] = field(default_factory=list)
+    runs_blocked_by_policy: list[dict[str, Any]] = field(default_factory=list)
+    recent_resolution_events: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -249,5 +254,10 @@ class ObservabilitySnapshot:
             "recent_evolution_proposals": list(self.recent_evolution_proposals),
             "engine_adoption": dict(self.engine_adoption) if isinstance(self.engine_adoption, dict) else None,
             "active_runs": [dict(item) for item in self.active_runs],
+            "governance_summary": dict(self.governance_summary),
+            "resolution_counts": dict(self.resolution_counts),
+            "runs_waiting_operator": [dict(item) for item in self.runs_waiting_operator],
+            "runs_blocked_by_policy": [dict(item) for item in self.runs_blocked_by_policy],
+            "recent_resolution_events": [dict(item) for item in self.recent_resolution_events],
             "warnings": list(self.warnings),
         }

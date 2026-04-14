@@ -64,6 +64,8 @@ class ControlCliTest(unittest.TestCase):
             operator_events = [event for event in timeline if event.event_type == "operator_control"]
             self.assertEqual(len(operator_events), 3)
             self.assertEqual(operator_events[-1].metadata.get("action"), "approve")
+            self.assertEqual(stored.resolution.current_resolution, "approved")
+            self.assertEqual(stored.resolution.reason, "operator_approve")
 
     def test_orchestrator_waits_for_run_to_resume(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -76,6 +78,7 @@ class ControlCliTest(unittest.TestCase):
                     status=RunStatus.PAUSED,
                     last_action="operator_pause",
                     progress_score=0.4,
+                    metadata={"operator_control_enabled": True},
                 )
             )
             orchestrator = object.__new__(BrainOrchestrator)
@@ -122,6 +125,7 @@ class ControlCliTest(unittest.TestCase):
                     status=RunStatus.PAUSED,
                     last_action="operator_pause",
                     progress_score=0.35,
+                    metadata={"operator_control_enabled": True},
                 )
             )
             orchestrator = object.__new__(BrainOrchestrator)
@@ -148,6 +152,41 @@ class ControlCliTest(unittest.TestCase):
             self.assertEqual(clearance["error"], "operator_timeout")
             self.assertEqual(updates[0][1], RunStatus.FAILED)
             self.assertEqual(updates[0][2], "operator_timeout")
+
+    def test_cli_read_model_commands_return_structured_json(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            registry = RunRegistry(workspace_root)
+            registry.register(
+                RunRecord.build(
+                    run_id="run-observe",
+                    goal_id="goal-observe",
+                    session_id="sess-observe",
+                    status=RunStatus.AWAITING_APPROVAL,
+                    last_action="governance_hold",
+                    progress_score=0.45,
+                )
+            )
+            registry.update_status(
+                "run-observe",
+                RunStatus.FAILED,
+                "engine_promotion_rollback",
+                0.45,
+                reason="promotion_rollback_threshold",
+            )
+            for argv in (
+                ["control-cli", "--root", str(workspace_root), "inspect_run", "run-observe"],
+                ["control-cli", "--root", str(workspace_root), "list_runs", "--limit", "10"],
+                ["control-cli", "--root", str(workspace_root), "resolution_summary"],
+                ["control-cli", "--root", str(workspace_root), "runs_waiting_operator"],
+                ["control-cli", "--root", str(workspace_root), "runs_with_rollback"],
+            ):
+                stream = io.StringIO()
+                with patch.object(sys, "argv", argv):
+                    with redirect_stdout(stream):
+                        result = control_cli_main()
+                self.assertEqual(result, 0)
+                payload = json.loads(stream.getvalue())
+                self.assertEqual(payload["status"], "ok")
 
 
 if __name__ == "__main__":

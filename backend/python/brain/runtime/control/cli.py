@@ -13,12 +13,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", default=None)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for action in ("pause", "resume", "approve", "show"):
+    for action in ("pause", "resume", "approve", "show", "inspect_run"):
         subparser = subparsers.add_parser(action)
         subparser.add_argument("run_id")
 
-    list_parser = subparsers.add_parser("list")
-    list_parser.add_argument("--limit", type=int, default=50)
+    for action in ("list", "list_runs"):
+        list_parser = subparsers.add_parser(action)
+        list_parser.add_argument("--limit", type=int, default=50)
+    subparsers.add_parser("resolution_summary")
+    waiting = subparsers.add_parser("runs_waiting_operator")
+    waiting.add_argument("--limit", type=int, default=50)
+    rollback = subparsers.add_parser("runs_with_rollback")
+    rollback.add_argument("--limit", type=int, default=50)
     return parser
 
 
@@ -60,6 +66,9 @@ def _update_run(root: Path, *, run_id: str, status: RunStatus, action: str) -> d
         status=status,
         last_action=f"operator_{action}",
         progress=current.progress_score,
+        reason=f"operator_{action}",
+        decision_source="operator_cli",
+        operator_id="supabase_user",
     )
     if updated is None:
         return {"status": "error", "error": "run_not_found", "run": None}
@@ -79,14 +88,22 @@ def main() -> int:
         return _emit(_update_run(root, run_id=args.run_id, status=RunStatus.RUNNING, action="resume"))
     if args.command == "approve":
         return _emit(_update_run(root, run_id=args.run_id, status=RunStatus.RUNNING, action="approve"))
-    if args.command == "show":
+    if args.command in {"show", "inspect_run"}:
         record = registry.get(args.run_id)
         if record is None:
             return _emit({"status": "error", "error": "run_not_found", "run": None})
         return _emit({"status": "ok", "run": record.as_dict()})
-    if args.command == "list":
+    if args.command in {"list", "list_runs"}:
         runs = [item.as_dict() for item in registry.get_all(limit=max(1, args.limit))]
         return _emit({"status": "ok", "runs": runs})
+    if args.command == "resolution_summary":
+        return _emit({"status": "ok", "summary": registry.get_resolution_summary()})
+    if args.command == "runs_waiting_operator":
+        runs = [item.as_dict() for item in registry.get_runs_waiting_operator()]
+        return _emit({"status": "ok", "runs": runs[: max(1, args.limit)]})
+    if args.command == "runs_with_rollback":
+        runs = [item.as_dict() for item in registry.get_runs_with_rollback()]
+        return _emit({"status": "ok", "runs": runs[: max(1, args.limit)]})
     return _emit({"status": "error", "error": "unsupported_command"})
 
 

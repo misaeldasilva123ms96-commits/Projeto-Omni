@@ -26,6 +26,142 @@ ACTIVE_RUN_STATUSES = {
 }
 
 
+class ResolutionState(str, Enum):
+    RUNNING = "running"
+    HOLD = "hold"
+    PAUSED = "paused"
+    APPROVED = "approved"
+    RESUMED = "resumed"
+    ROLLBACK = "rollback"
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ResolutionReason(str, Enum):
+    OPERATOR_PAUSE = "operator_pause"
+    OPERATOR_APPROVE = "operator_approve"
+    OPERATOR_RESUME = "operator_resume"
+    GOVERNANCE_HOLD = "governance_hold"
+    PROMOTION_ROLLBACK_THRESHOLD = "promotion_rollback_threshold"
+    PACKAGED_IMPORT_FAILED = "packaged_import_failed"
+    TIMEOUT = "timeout"
+    POLICY_BLOCK = "policy_block"
+    UNSAFE_STATE = "unsafe_state"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+def _normalize_resolution_state(raw: str, *, status: RunStatus) -> ResolutionState:
+    value = str(raw or "").strip()
+    try:
+        return ResolutionState(value)
+    except ValueError:
+        if status == RunStatus.AWAITING_APPROVAL:
+            return ResolutionState.HOLD
+        if status == RunStatus.PAUSED:
+            return ResolutionState.PAUSED
+        if status == RunStatus.COMPLETED:
+            return ResolutionState.COMPLETED
+        if status == RunStatus.FAILED:
+            return ResolutionState.FAILED
+        return ResolutionState.RUNNING
+
+
+def _normalize_resolution_reason(raw: str, *, fallback: ResolutionReason) -> ResolutionReason:
+    value = str(raw or "").strip()
+    try:
+        return ResolutionReason(value)
+    except ValueError:
+        return fallback
+
+
+def infer_reason_from_action(action: str, *, status: RunStatus) -> ResolutionReason:
+    text = str(action or "").strip().lower()
+    if "governance_hold" in text:
+        return ResolutionReason.GOVERNANCE_HOLD
+    if "operator_pause" in text or "pause" in text:
+        return ResolutionReason.OPERATOR_PAUSE
+    if "operator_approve" in text or "approve" in text:
+        return ResolutionReason.OPERATOR_APPROVE
+    if "operator_resume" in text or "resume" in text:
+        return ResolutionReason.OPERATOR_RESUME
+    if "timeout" in text:
+        return ResolutionReason.TIMEOUT
+    if "packaged_import_failed" in text:
+        return ResolutionReason.PACKAGED_IMPORT_FAILED
+    if "rollback" in text:
+        return ResolutionReason.PROMOTION_ROLLBACK_THRESHOLD
+    if "control_layer_blocked" in text or "policy" in text or "simulation_stop" in text or "supervision_stop" in text:
+        return ResolutionReason.POLICY_BLOCK
+    if status == RunStatus.COMPLETED or "goal_completed" in text:
+        return ResolutionReason.COMPLETED
+    if status == RunStatus.FAILED or "goal_failed" in text:
+        return ResolutionReason.FAILED
+    return ResolutionReason.UNSAFE_STATE
+
+
+def infer_resolution_state(status: RunStatus, reason: ResolutionReason) -> ResolutionState:
+    if reason == ResolutionReason.PROMOTION_ROLLBACK_THRESHOLD:
+        return ResolutionState.ROLLBACK
+    if reason == ResolutionReason.OPERATOR_APPROVE:
+        return ResolutionState.APPROVED
+    if reason == ResolutionReason.OPERATOR_RESUME:
+        return ResolutionState.RESUMED
+    if reason == ResolutionReason.POLICY_BLOCK:
+        return ResolutionState.BLOCKED
+    if status == RunStatus.AWAITING_APPROVAL or reason == ResolutionReason.GOVERNANCE_HOLD:
+        return ResolutionState.HOLD
+    if status == RunStatus.PAUSED:
+        return ResolutionState.PAUSED
+    if status == RunStatus.COMPLETED:
+        return ResolutionState.COMPLETED
+    if status == RunStatus.FAILED:
+        return ResolutionState.FAILED
+    return ResolutionState.RUNNING
+
+
+@dataclass(slots=True)
+class ResolutionRecord:
+    current_resolution: str
+    previous_resolution: str
+    reason: str
+    decision_source: str
+    timestamp: str
+    operator_id: str | None = None
+    promotion_metadata: dict[str, Any] = field(default_factory=dict)
+    engine_mode: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "current_resolution": self.current_resolution,
+            "previous_resolution": self.previous_resolution,
+            "reason": self.reason,
+            "decision_source": self.decision_source,
+            "timestamp": self.timestamp,
+            "operator_id": self.operator_id,
+            "promotion_metadata": dict(self.promotion_metadata),
+            "engine_mode": self.engine_mode,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any], *, status: RunStatus, last_action: str) -> "ResolutionRecord":
+        fallback_reason = infer_reason_from_action(last_action, status=status)
+        state = _normalize_resolution_state(str(payload.get("current_resolution", "")), status=status)
+        reason = _normalize_resolution_reason(str(payload.get("reason", "")), fallback=fallback_reason)
+        previous = str(payload.get("previous_resolution", "")).strip() or state.value
+        return cls(
+            current_resolution=state.value,
+            previous_resolution=previous,
+            reason=reason.value,
+            decision_source=str(payload.get("decision_source", "runtime_orchestrator") or "runtime_orchestrator"),
+            timestamp=str(payload.get("timestamp", "")).strip() or utc_now_iso(),
+            operator_id=str(payload.get("operator_id", "")).strip() or None,
+            promotion_metadata=dict(payload.get("promotion_metadata", {}) or {}),
+            engine_mode=str(payload.get("engine_mode", "")).strip() or None,
+        )
+
+
 @dataclass(slots=True)
 class RunRecord:
     run_id: str
@@ -37,6 +173,8 @@ class RunRecord:
     last_action: str
     progress_score: float
     metadata: dict[str, Any] = field(default_factory=dict)
+    resolution: ResolutionRecord | None = None
+    resolution_history: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +187,8 @@ class RunRecord:
             "last_action": self.last_action,
             "progress_score": self.progress_score,
             "metadata": dict(self.metadata),
+            "resolution": self.resolution.as_dict() if self.resolution else None,
+            "resolution_history": [dict(item) for item in self.resolution_history],
         }
 
     @classmethod
@@ -63,8 +203,12 @@ class RunRecord:
         progress_score: float,
         metadata: dict[str, Any] | None = None,
         started_at: str | None = None,
+        resolution: ResolutionRecord | None = None,
+        resolution_history: list[dict[str, Any]] | None = None,
     ) -> "RunRecord":
         now = utc_now_iso()
+        fallback_reason = infer_reason_from_action(last_action, status=status)
+        resolution_state = infer_resolution_state(status, fallback_reason)
         return cls(
             run_id=str(run_id).strip(),
             goal_id=str(goal_id).strip() if goal_id else None,
@@ -75,6 +219,15 @@ class RunRecord:
             last_action=str(last_action or "").strip(),
             progress_score=max(0.0, min(1.0, float(progress_score or 0.0))),
             metadata=dict(metadata or {}),
+            resolution=resolution
+            or ResolutionRecord(
+                current_resolution=resolution_state.value,
+                previous_resolution=resolution_state.value,
+                reason=fallback_reason.value,
+                decision_source="runtime_orchestrator",
+                timestamp=now,
+            ),
+            resolution_history=list(resolution_history or []),
         )
 
     @classmethod
@@ -94,7 +247,47 @@ class RunRecord:
             last_action=str(payload.get("last_action", "")).strip(),
             progress_score=max(0.0, min(1.0, float(payload.get("progress_score", 0.0) or 0.0))),
             metadata=dict(payload.get("metadata", {}) or {}),
+            resolution=ResolutionRecord.from_dict(
+                dict(payload.get("resolution", {}) or {}),
+                status=status,
+                last_action=str(payload.get("last_action", "")).strip(),
+            ),
+            resolution_history=[
+                dict(item)
+                for item in (payload.get("resolution_history", []) or [])
+                if isinstance(item, dict)
+            ],
         )
+
+    def transition_resolution(
+        self,
+        *,
+        status: RunStatus,
+        last_action: str,
+        reason: str | None = None,
+        decision_source: str = "runtime_orchestrator",
+        operator_id: str | None = None,
+        promotion_metadata: dict[str, Any] | None = None,
+        engine_mode: str | None = None,
+    ) -> ResolutionRecord:
+        fallback_reason = infer_reason_from_action(last_action, status=status)
+        normalized_reason = _normalize_resolution_reason(str(reason or ""), fallback=fallback_reason)
+        next_state = infer_resolution_state(status, normalized_reason)
+        previous = self.resolution.current_resolution if self.resolution else next_state.value
+        next_resolution = ResolutionRecord(
+            current_resolution=next_state.value,
+            previous_resolution=previous,
+            reason=normalized_reason.value,
+            decision_source=str(decision_source or "runtime_orchestrator").strip() or "runtime_orchestrator",
+            timestamp=utc_now_iso(),
+            operator_id=str(operator_id or "").strip() or None,
+            promotion_metadata=dict(promotion_metadata or {}),
+            engine_mode=str(engine_mode or "").strip() or None,
+        )
+        self.resolution = next_resolution
+        self.resolution_history.append(next_resolution.as_dict())
+        self.resolution_history = self.resolution_history[-40:]
+        return next_resolution
 
 
 class RunRegistry:
@@ -131,6 +324,11 @@ class RunRegistry:
         status: RunStatus,
         last_action: str,
         progress: float,
+        reason: str | None = None,
+        decision_source: str = "runtime_orchestrator",
+        operator_id: str | None = None,
+        promotion_metadata: dict[str, Any] | None = None,
+        engine_mode: str | None = None,
     ) -> RunRecord | None:
         with self._lock:
             record = self._runs.get(str(run_id).strip())
@@ -140,6 +338,15 @@ class RunRegistry:
             record.last_action = str(last_action or "").strip()
             record.progress_score = max(0.0, min(1.0, float(progress or 0.0)))
             record.updated_at = utc_now_iso()
+            record.transition_resolution(
+                status=status,
+                last_action=record.last_action,
+                reason=reason,
+                decision_source=decision_source,
+                operator_id=operator_id,
+                promotion_metadata=promotion_metadata,
+                engine_mode=engine_mode,
+            )
             self.flush()
             return record
 
@@ -159,6 +366,73 @@ class RunRegistry:
             self._reload_if_available()
             records = sorted(self._runs.values(), key=lambda item: item.updated_at, reverse=True)
             return records[: max(1, int(limit or 50))]
+
+    def get_resolution_summary(self) -> dict[str, Any]:
+        with self._lock:
+            self._reload_if_available()
+            summary = {
+                "total_runs": len(self._runs),
+                "resolution_counts": {state.value: 0 for state in ResolutionState},
+                "reason_counts": {reason.value: 0 for reason in ResolutionReason},
+            }
+            for record in self._runs.values():
+                resolution = record.resolution
+                if resolution is None:
+                    continue
+                current = str(resolution.current_resolution or "").strip()
+                reason = str(resolution.reason or "").strip()
+                if current in summary["resolution_counts"]:
+                    summary["resolution_counts"][current] += 1
+                if reason in summary["reason_counts"]:
+                    summary["reason_counts"][reason] += 1
+            return summary
+
+    def get_runs_waiting_operator(self) -> list[RunRecord]:
+        with self._lock:
+            self._reload_if_available()
+            rows = []
+            for record in self._runs.values():
+                is_waiting_status = record.status == RunStatus.AWAITING_APPROVAL
+                is_operator_pause = record.status == RunStatus.PAUSED and str(record.last_action).startswith("operator_")
+                if is_waiting_status or is_operator_pause:
+                    rows.append(record)
+            return sorted(rows, key=lambda item: item.updated_at, reverse=True)
+
+    def get_runs_with_rollback(self) -> list[RunRecord]:
+        with self._lock:
+            self._reload_if_available()
+            rows = []
+            for record in self._runs.values():
+                resolution = record.resolution
+                reason = str((resolution.reason if resolution else "") or "").strip()
+                if reason == ResolutionReason.PROMOTION_ROLLBACK_THRESHOLD.value:
+                    rows.append(record)
+                    continue
+                if str((record.metadata or {}).get("promotion_rollback_reason", "")).strip():
+                    rows.append(record)
+            return sorted(rows, key=lambda item: item.updated_at, reverse=True)
+
+    def recent_resolution_events(self, limit: int = 25) -> list[dict[str, Any]]:
+        with self._lock:
+            self._reload_if_available()
+            events: list[dict[str, Any]] = []
+            for record in self._runs.values():
+                history = list(record.resolution_history)
+                if not history and record.resolution is not None:
+                    history = [record.resolution.as_dict()]
+                for item in history:
+                    if not isinstance(item, dict):
+                        continue
+                    events.append(
+                        {
+                            **item,
+                            "run_id": record.run_id,
+                            "session_id": record.session_id,
+                            "status": record.status.value,
+                        }
+                    )
+            events.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
+            return events[: max(1, int(limit or 25))]
 
     def reload_from_disk(self) -> None:
         with self._lock:
