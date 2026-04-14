@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const engineAdoptionPath = path.join(projectRoot, '.logs', 'fusion-runtime', 'engine_adoption.json');
 process.env.BASE_DIR = projectRoot;
 process.env.NODE_RUNNER_BASE_DIR = projectRoot;
 const packageModule = await import(pathToFileURL(path.join(projectRoot, 'scripts', 'package-queryengine.mjs')).href);
@@ -38,6 +40,29 @@ assert.equal(typeof validExecution.result.metadata?.runtime_mode, 'string');
 assert.ok(validExecution.result.metadata?.runtime_mode);
 assert.equal(typeof validExecution.result.metadata?.runtime_reason, 'string');
 assert.ok(validExecution.result.metadata?.runtime_reason);
+
+const promoted = runnerModule.safeParsePayload(JSON.stringify({
+  message: 'explique o contexto da sessao atual',
+  memory: {},
+  history: [],
+  summary: '',
+  capabilities: [],
+  session: { session_id: 'fase27-promoted', executor_bridge: 'python-rust' },
+}));
+const promotedExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
+  message: promoted.message,
+  memoryContext: { user: promoted.memory, agentMemory: '' },
+  history: promoted.history,
+  summary: promoted.summary,
+  capabilities: promoted.capabilities,
+  session: promoted.session,
+  cwd: projectRoot,
+});
+assert.equal(promotedExecution.selectedCandidate, packagedCandidatePath);
+assert.equal(promotedExecution.result.metadata?.engine_mode, 'packaged_upstream');
+assert.equal(promotedExecution.result.metadata?.engine_reason, 'dist_candidate_selected');
+assert.equal(promotedExecution.result.metadata?.promoted_scenario, 'executor_bridge_light_request');
+assert.equal(promotedExecution.result.metadata?.promotion_phase, '27');
 
 const legacy = runnerModule.safeParsePayload(JSON.stringify({
   message: 'leia package.json',
@@ -105,5 +130,37 @@ assert.equal(typeof phase10Payload.metadata?.runtime_mode, 'string');
 assert.ok(phase10Payload.metadata?.runtime_mode);
 assert.equal(typeof phase10Payload.metadata?.runtime_reason, 'string');
 assert.ok(phase10Payload.metadata?.runtime_reason);
+
+fs.mkdirSync(path.dirname(engineAdoptionPath), { recursive: true });
+fs.writeFileSync(
+  engineAdoptionPath,
+  JSON.stringify({
+    scope: 'session',
+    session_id: 'fase27-promoted',
+    engine_counters: {
+      packaged_upstream: 5,
+      authority_fallback: 3,
+      fallback_by_reason: {
+        heavy_execution_request: 0,
+        packaged_import_failed: 3,
+        fallback_policy_triggered: 0,
+      },
+    },
+  }, null, 2),
+);
+const rolledBackExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
+  message: promoted.message,
+  memoryContext: { user: promoted.memory, agentMemory: '' },
+  history: promoted.history,
+  summary: promoted.summary,
+  capabilities: promoted.capabilities,
+  session: promoted.session,
+  cwd: projectRoot,
+});
+assert.equal(rolledBackExecution.result.metadata?.engine_mode, 'authority_fallback');
+assert.equal(rolledBackExecution.result.metadata?.engine_reason, 'fallback_policy_triggered');
+assert.equal(rolledBackExecution.result.metadata?.promoted_scenario, 'executor_bridge_light_request');
+assert.equal(rolledBackExecution.result.metadata?.promotion_phase, '27');
+assert.equal(rolledBackExecution.result.metadata?.promotion_rollback_reason, 'packaged_import_failed_threshold_exceeded');
 
 console.log('queryengine runner integration tests: ok');
