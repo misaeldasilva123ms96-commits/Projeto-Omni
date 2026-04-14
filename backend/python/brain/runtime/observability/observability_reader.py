@@ -6,7 +6,12 @@ from .engine_adoption_reader import read_engine_adoption
 from .goal_reader import GoalReader
 from .memory_reader import MemoryReader
 from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_iso
-from .run_reader import read_active_runs
+from .run_reader import (
+    read_active_runs,
+    read_recent_resolution_events,
+    read_resolution_summary,
+    read_runs_waiting_operator,
+)
 from .simulation_reader import SimulationReader
 from .specialist_reader import SpecialistReader
 from .timeline_reader import TimelineReader
@@ -33,6 +38,14 @@ class ObservabilityReader:
         semantic_subject = goal_type or (goal.intent if goal else None)
         latest_simulation = self.simulation_reader.read_latest_simulation(goal_id=goal.goal_id if goal else None)
         pending_count, recent_proposals = self.memory_reader.read_pending_evolution_proposals(limit=6)
+        governance_summary = read_resolution_summary(self.root)
+        waiting_operator = read_runs_waiting_operator(self.root)
+        recent_resolution_events = read_recent_resolution_events(self.root, limit=25)
+        blocked_by_policy = [
+            item
+            for item in recent_resolution_events
+            if str(item.get("reason", "")).strip() == "policy_block"
+        ]
 
         return ObservabilitySnapshot(
             generated_at=utc_now_iso(),
@@ -52,6 +65,11 @@ class ObservabilityReader:
             recent_evolution_proposals=recent_proposals,
             engine_adoption=read_engine_adoption(self.root),
             active_runs=read_active_runs(self.root),
+            governance_summary=governance_summary,
+            resolution_counts=dict(governance_summary.get("resolution_counts", {}) or {}),
+            runs_waiting_operator=waiting_operator,
+            runs_blocked_by_policy=blocked_by_policy[:25],
+            recent_resolution_events=recent_resolution_events,
             warnings=[],
         )
 

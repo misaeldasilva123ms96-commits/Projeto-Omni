@@ -49,6 +49,8 @@ class RunRegistryTest(unittest.TestCase):
             self.assertEqual(stored.status, RunStatus.PAUSED)
             self.assertEqual(stored.last_action, "pause_plan")
             self.assertAlmostEqual(stored.progress_score, 0.4)
+            self.assertEqual(stored.resolution.current_resolution, "paused")
+            self.assertEqual(stored.resolution.reason, "operator_pause")
 
             active_runs = read_active_runs(workspace_root)
             self.assertEqual(len(active_runs), 1)
@@ -108,6 +110,47 @@ class RunRegistryTest(unittest.TestCase):
             payload = json.loads(stream.getvalue())
             self.assertEqual(payload["status"], "ok")
             self.assertEqual(payload["runs"][0]["status"], "awaiting_approval")
+
+    def test_resolution_summary_waiting_and_rollback_views(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            registry = RunRegistry(workspace_root)
+            registry.register(
+                RunRecord.build(
+                    run_id="run-waiting",
+                    goal_id=None,
+                    session_id="sess-1",
+                    status=RunStatus.AWAITING_APPROVAL,
+                    last_action="governance_hold",
+                    progress_score=0.3,
+                )
+            )
+            registry.register(
+                RunRecord.build(
+                    run_id="run-rollback",
+                    goal_id=None,
+                    session_id="sess-2",
+                    status=RunStatus.FAILED,
+                    last_action="engine_promotion_rollback",
+                    progress_score=0.5,
+                )
+            )
+            registry.update_status(
+                "run-rollback",
+                RunStatus.FAILED,
+                "engine_promotion_rollback",
+                0.5,
+                reason="promotion_rollback_threshold",
+            )
+            summary = registry.get_resolution_summary()
+            self.assertEqual(summary["total_runs"], 2)
+            self.assertGreaterEqual(summary["resolution_counts"]["hold"], 1)
+            self.assertGreaterEqual(summary["reason_counts"]["promotion_rollback_threshold"], 1)
+            waiting = registry.get_runs_waiting_operator()
+            self.assertEqual(waiting[0].run_id, "run-waiting")
+            rollback = registry.get_runs_with_rollback()
+            self.assertEqual(rollback[0].run_id, "run-rollback")
+            events = registry.recent_resolution_events(limit=10)
+            self.assertGreaterEqual(len(events), 1)
 
 
 if __name__ == "__main__":

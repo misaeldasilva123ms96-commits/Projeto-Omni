@@ -1760,7 +1760,7 @@ class BrainOrchestrator:
         try:
             if self.run_registry is None:
                 return
-            self.run_registry.register(
+            run = self.run_registry.register(
                 RunRecord.build(
                     run_id=run_id,
                     goal_id=goal_id,
@@ -1771,6 +1771,14 @@ class BrainOrchestrator:
                     metadata=metadata,
                 )
             )
+            run.transition_resolution(
+                status=status,
+                last_action=last_action,
+                decision_source="runtime_orchestrator",
+                engine_mode=str((metadata or {}).get("engine_mode", "")).strip() or None,
+                promotion_metadata=dict((metadata or {}).get("promotion_metadata", {}) or {}),
+            )
+            self.run_registry.flush()
         except Exception:
             return
 
@@ -1785,11 +1793,15 @@ class BrainOrchestrator:
         try:
             if self.run_registry is None:
                 return
+            decision_source = "operator_control" if str(last_action).startswith("operator_") else "runtime_orchestrator"
+            operator_id = "supabase_user" if decision_source == "operator_control" else None
             self.run_registry.update_status(
                 run_id=run_id,
                 status=status,
                 last_action=last_action,
                 progress=progress_score,
+                decision_source=decision_source,
+                operator_id=operator_id,
             )
         except Exception:
             return

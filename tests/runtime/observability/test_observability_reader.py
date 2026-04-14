@@ -117,6 +117,9 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertEqual(snapshot.active_runs[0]['run_id'], 'run-obs')
                 self.assertAlmostEqual(snapshot.engine_adoption['adoption_rate'], 0.8)
                 self.assertTrue(snapshot.engine_adoption['promotion_ready'])
+                self.assertIn('resolution_counts', snapshot.governance_summary)
+                self.assertIn('running', snapshot.resolution_counts)
+                self.assertGreaterEqual(len(snapshot.recent_resolution_events), 1)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -130,3 +133,5 @@ class ObservabilityReaderTest(unittest.TestCase):
             self.assertIn('snapshot', payload)
             self.assertIn('engine_adoption', payload['snapshot'])
             self.assertIn('active_runs', payload['snapshot'])
+            self.assertIn('governance_summary', payload['snapshot'])
+            self.assertIn('resolution_counts', payload['snapshot'])

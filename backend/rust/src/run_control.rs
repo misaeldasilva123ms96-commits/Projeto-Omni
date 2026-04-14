@@ -41,6 +41,33 @@ pub(crate) async fn list_runs(State(state): State<AppState>) -> Result<(StatusCo
     Ok((status_for_control(&payload), Json(payload)))
 }
 
+pub(crate) async fn resolution_summary(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
+    let payload = call_control_cli(&state, "resolution_summary", &[], "summary").await?;
+    Ok((status_for_control(&payload), Json(payload)))
+}
+
+pub(crate) async fn runs_waiting_operator(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
+    let payload = call_control_cli(
+        &state,
+        "runs_waiting_operator",
+        &["--limit".to_string(), "50".to_string()],
+        "runs",
+    )
+    .await?;
+    Ok((status_for_control(&payload), Json(payload)))
+}
+
+pub(crate) async fn runs_with_rollback(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
+    let payload = call_control_cli(
+        &state,
+        "runs_with_rollback",
+        &["--limit".to_string(), "50".to_string()],
+        "runs",
+    )
+    .await?;
+    Ok((status_for_control(&payload), Json(payload)))
+}
+
 pub(crate) async fn get_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
@@ -123,6 +150,7 @@ fn graceful_error(payload_key: &str, message: String) -> Value {
     match payload_key {
         "run" => json!({ "status": "error", "error": message, "run": null }),
         "runs" => json!({ "status": "error", "error": message, "runs": [] }),
+        "summary" => json!({ "status": "error", "error": message, "summary": {} }),
         _ => json!({ "status": "error", "error": message }),
     }
 }
@@ -211,6 +239,9 @@ mod tests {
         Router::new()
             .route("/api/control/runs", get(list_runs))
             .route("/api/control/runs/:run_id", get(get_run))
+            .route("/api/control/runs/summary/resolution", get(resolution_summary))
+            .route("/api/control/runs/waiting-operator", get(runs_waiting_operator))
+            .route("/api/control/runs/with-rollback", get(runs_with_rollback))
             .route("/api/control/runs/:run_id/pause", post(pause_run))
             .route("/api/control/runs/:run_id/resume", post(resume_run))
             .route("/api/control/runs/:run_id/approve", post(approve_run))
@@ -348,6 +379,7 @@ mod tests {
         assert_eq!(list_payload["runs"][0]["run_id"], "run-1");
 
         let show = router
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
@@ -361,5 +393,53 @@ mod tests {
         assert_eq!(show.status(), StatusCode::OK);
         let show_payload = read_json(show).await;
         assert_eq!(show_payload["run"]["status"], "paused");
+
+        let summary = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/control/runs/summary/resolution")
+                    .header(AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .expect("summary request"),
+            )
+            .await
+            .expect("summary response");
+        assert_eq!(summary.status(), StatusCode::OK);
+        let summary_payload = read_json(summary).await;
+        assert_eq!(summary_payload["status"], "ok");
+        assert!(summary_payload["summary"]["resolution_counts"].is_object());
+
+        let waiting = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/control/runs/waiting-operator")
+                    .header(AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .expect("waiting request"),
+            )
+            .await
+            .expect("waiting response");
+        assert_eq!(waiting.status(), StatusCode::OK);
+        let waiting_payload = read_json(waiting).await;
+        assert_eq!(waiting_payload["status"], "ok");
+
+        let rollback = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/control/runs/with-rollback")
+                    .header(AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .expect("rollback request"),
+            )
+            .await
+            .expect("rollback response");
+        assert_eq!(rollback.status(), StatusCode::OK);
+        let rollback_payload = read_json(rollback).await;
+        assert_eq!(rollback_payload["status"], "ok");
     }
 }
