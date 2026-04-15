@@ -62,3 +62,9 @@ vendor/**/openclaude-vscode-*.vsix
 
 # Cursor / local worktrees (must not be committed)
 .worktrees/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
