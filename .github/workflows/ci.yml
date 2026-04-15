@@ -64,3 +64,11 @@ jobs:
 
       - name: Run expanded runtime test suite
         run: npm test
+
+      - name: Install Python coverage tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov
+
+      - name: Run critical runtime coverage suite
+        run: npm run test:python:pytest
