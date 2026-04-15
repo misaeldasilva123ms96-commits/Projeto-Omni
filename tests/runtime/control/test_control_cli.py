@@ -19,6 +19,7 @@ from brain.runtime.control import RunRecord, RunRegistry, RunStatus  # noqa: E40
 from brain.runtime.control.cli import main as control_cli_main  # noqa: E402
 from brain.runtime.observability.timeline_reader import TimelineReader  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator  # noqa: E402
+from brain.runtime.orchestrator_services import GovernanceIntegrationService  # noqa: E402
 
 
 class ControlCliTest(unittest.TestCase):
@@ -85,11 +86,23 @@ class ControlCliTest(unittest.TestCase):
             orchestrator.run_registry = registry
             updates: list[tuple[str, RunStatus, str, float]] = []
 
-            def update_run_status(*, run_id: str, status: RunStatus, last_action: str, progress_score: float) -> None:
-                updates.append((run_id, status, last_action, progress_score))
-                registry.update_status(run_id, status, last_action, progress_score)
+            class TrackingRunLifecycle:
+                __slots__ = ("_registry", "_updates")
 
-            orchestrator._update_run_status = update_run_status  # type: ignore[attr-defined]
+                def __init__(self, reg: RunRegistry, upd: list[tuple[str, RunStatus, str, float]]) -> None:
+                    self._registry = reg
+                    self._updates = upd
+
+                def update_run_status(self, *, run_id: str, status: RunStatus, last_action: str, progress_score: float) -> None:
+                    self._updates.append((run_id, status, last_action, progress_score))
+                    self._registry.update_status(run_id, status, last_action, progress_score)
+
+            run_lifecycle = TrackingRunLifecycle(registry, updates)
+            orchestrator._governance_integration = GovernanceIntegrationService(
+                run_registry=registry,
+                get_controller=lambda: None,
+                run_lifecycle=run_lifecycle,  # type: ignore[arg-type]
+            )
 
             def release_run() -> None:
                 time.sleep(0.12)
@@ -132,11 +145,23 @@ class ControlCliTest(unittest.TestCase):
             orchestrator.run_registry = registry
             updates: list[tuple[str, RunStatus, str, float]] = []
 
-            def update_run_status(*, run_id: str, status: RunStatus, last_action: str, progress_score: float) -> None:
-                updates.append((run_id, status, last_action, progress_score))
-                registry.update_status(run_id, status, last_action, progress_score)
+            class TrackingRunLifecycle:
+                __slots__ = ("_registry", "_updates")
 
-            orchestrator._update_run_status = update_run_status  # type: ignore[attr-defined]
+                def __init__(self, reg: RunRegistry, upd: list[tuple[str, RunStatus, str, float]]) -> None:
+                    self._registry = reg
+                    self._updates = upd
+
+                def update_run_status(self, *, run_id: str, status: RunStatus, last_action: str, progress_score: float) -> None:
+                    self._updates.append((run_id, status, last_action, progress_score))
+                    self._registry.update_status(run_id, status, last_action, progress_score)
+
+            run_lifecycle = TrackingRunLifecycle(registry, updates)
+            orchestrator._governance_integration = GovernanceIntegrationService(
+                run_registry=registry,
+                get_controller=lambda: None,
+                run_lifecycle=run_lifecycle,  # type: ignore[arg-type]
+            )
 
             with patch.dict(
                 "os.environ",

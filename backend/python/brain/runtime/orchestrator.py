@@ -33,7 +33,7 @@ from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor
-from brain.runtime.control import GovernanceResolutionController, RunRecord, RunRegistry, RunStatus
+from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
@@ -44,6 +44,13 @@ from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningExecutor
 from brain.runtime.memory import MemoryFacade
 from brain.runtime.orchestration import OrchestrationExecutor
+from brain.runtime.orchestrator_services import (
+    CompletionService,
+    ExecutionDispatchService,
+    GovernanceIntegrationService,
+    RunLifecycleService,
+    SessionService,
+)
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
@@ -238,6 +245,26 @@ class BrainOrchestrator:
             simulator=self.action_simulator,
         )
         self.planning_executor = PlanningExecutor(self.paths.root)
+        self._session_service = SessionService(self.checkpoint_store)
+        self._run_lifecycle = RunLifecycleService(
+            run_registry=self.run_registry,
+            get_controller=self._governance_resolution_controller,
+        )
+        self._governance_integration = GovernanceIntegrationService(
+            run_registry=self.run_registry,
+            get_controller=self._governance_resolution_controller,
+            run_lifecycle=self._run_lifecycle,
+        )
+        self._completion_service = CompletionService(
+            get_controller=self._governance_resolution_controller,
+            run_lifecycle=self._run_lifecycle,
+            progress_fn=BrainOrchestrator._progress_from_step_results,
+        )
+        self._execution_dispatch = ExecutionDispatchService(
+            self,
+            governance=self._governance_integration,
+            progress_fn=BrainOrchestrator._progress_from_step_results,
+        )
         self.js_runtime_adapter = JSRuntimeAdapter(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
@@ -1763,42 +1790,15 @@ class BrainOrchestrator:
         progress_score: float,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        try:
-            if self.run_registry is None:
-                return
-            ctrl = self._governance_resolution_controller()
-            if ctrl is not None:
-                ctrl.register_run_start(
-                    run_id=run_id,
-                    goal_id=goal_id,
-                    session_id=session_id,
-                    status=status,
-                    last_action=last_action,
-                    progress_score=progress_score,
-                    metadata=metadata,
-                )
-                return
-            run = self.run_registry.register(
-                RunRecord.build(
-                    run_id=run_id,
-                    goal_id=goal_id,
-                    session_id=session_id,
-                    status=status,
-                    last_action=last_action,
-                    progress_score=progress_score,
-                    metadata=metadata,
-                )
-            )
-            run.transition_resolution(
-                status=status,
-                last_action=last_action,
-                decision_source="runtime_orchestrator",
-                engine_mode=str((metadata or {}).get("engine_mode", "")).strip() or None,
-                promotion_metadata=dict((metadata or {}).get("promotion_metadata", {}) or {}),
-            )
-            self.run_registry.flush()
-        except Exception:
-            return
+        self._run_lifecycle.register_run_start(
+            run_id=run_id,
+            session_id=session_id,
+            goal_id=goal_id,
+            status=status,
+            last_action=last_action,
+            progress_score=progress_score,
+            metadata=metadata,
+        )
 
     def _update_run_status(
         self,
@@ -1808,33 +1808,12 @@ class BrainOrchestrator:
         last_action: str,
         progress_score: float,
     ) -> None:
-        try:
-            if self.run_registry is None:
-                return
-            decision_source = "operator_control" if str(last_action).startswith("operator_") else "runtime_orchestrator"
-            operator_id = "supabase_user" if decision_source == "operator_control" else None
-            ctrl = self._governance_resolution_controller()
-            if ctrl is not None:
-                ctrl.transition_run(
-                    run_id=run_id,
-                    status=status,
-                    last_action=last_action,
-                    progress=progress_score,
-                    reason=None,
-                    decision_source=decision_source,
-                    operator_id=operator_id,
-                )
-                return
-            self.run_registry.update_status(
-                run_id=run_id,
-                status=status,
-                last_action=last_action,
-                progress=progress_score,
-                decision_source=decision_source,
-                operator_id=operator_id,
-            )
-        except Exception:
-            return
+        self._run_lifecycle.update_run_status(
+            run_id=run_id,
+            status=status,
+            last_action=last_action,
+            progress_score=progress_score,
+        )
 
     @staticmethod
     def _progress_from_step_results(step_results: list[dict[str, Any]]) -> float:
@@ -1859,61 +1838,8 @@ class BrainOrchestrator:
                 return True
         return False
 
-    @staticmethod
-    def _run_control_poll_interval_seconds() -> float:
-        raw = str(os.getenv("OMINI_RUN_CONTROL_POLL_SECONDS", "2") or "2").strip()
-        try:
-            return max(0.1, float(raw))
-        except ValueError:
-            return 2.0
-
-    @staticmethod
-    def _run_control_max_wait_seconds() -> float:
-        raw = str(os.getenv("OMINI_RUN_CONTROL_MAX_WAIT_SECONDS", "300") or "300").strip()
-        try:
-            return max(1.0, float(raw))
-        except ValueError:
-            return 300.0
-
     def _await_run_control_clearance(self, *, run_id: str) -> dict[str, Any]:
-        if self.run_registry is None:
-            return {"status": "running"}
-        started_at = time.monotonic()
-        poll_interval = self._run_control_poll_interval_seconds()
-        max_wait = self._run_control_max_wait_seconds()
-        while True:
-            try:
-                self.run_registry.reload_from_disk()
-                record = self.run_registry.get(run_id)
-            except Exception:
-                return {"status": "running"}
-            if record is None or record.status == RunStatus.RUNNING:
-                return {"status": "running"}
-            control_enabled = bool((record.metadata or {}).get("operator_control_enabled"))
-            if not control_enabled:
-                return {"status": "running"}
-            should_wait = record.status == RunStatus.AWAITING_APPROVAL or (
-                record.status == RunStatus.PAUSED and str(record.last_action).startswith("operator_")
-            )
-            if not should_wait:
-                return {"status": record.status.value, "progress_score": record.progress_score}
-            if time.monotonic() - started_at >= max_wait:
-                ctrl = self._governance_resolution_controller()
-                if ctrl is not None:
-                    ctrl.handle_timeout(run_id=run_id, progress=record.progress_score)
-                else:
-                    self._update_run_status(
-                        run_id=run_id,
-                        status=RunStatus.FAILED,
-                        last_action="operator_timeout",
-                        progress_score=record.progress_score,
-                    )
-                return {
-                    "status": "failed",
-                    "error": "operator_timeout",
-                    "progress_score": record.progress_score,
-                }
-            time.sleep(poll_interval)
+        return self._governance_integration.await_run_control_clearance(run_id=run_id)
 
     def _control_block_result(
         self,
@@ -2929,28 +2855,7 @@ class BrainOrchestrator:
             status_hint="completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
             step_results=step_results,
         )
-        ctrl = self._governance_resolution_controller()
-        if ctrl is not None:
-            if step_results and all(item.get("ok") for item in step_results):
-                ctrl.handle_completion(
-                    run_id=run_id,
-                    last_action="goal_completed",
-                    progress=1.0,
-                )
-            else:
-                ctrl.handle_failure(
-                    run_id=run_id,
-                    last_action="goal_failed",
-                    progress=self._progress_from_step_results(step_results),
-                    reason=None,
-                )
-        else:
-            self._update_run_status(
-                run_id=run_id,
-                status=RunStatus.COMPLETED if step_results and all(item.get("ok") for item in step_results) else RunStatus.FAILED,
-                last_action="goal_completed" if step_results and all(item.get("ok") for item in step_results) else "goal_failed",
-                progress_score=1.0 if step_results and all(item.get("ok") for item in step_results) else self._progress_from_step_results(step_results),
-            )
+        self._completion_service.apply_fusion_terminal_status(run_id=run_id, step_results=step_results)
         operational_summary = self.planning_executor.summary_for_plan(operational_plan)
         if operational_summary is not None:
             final_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
@@ -3493,48 +3398,7 @@ class BrainOrchestrator:
         learning_guidance: object = None,
         operational_plan: Any = None,
     ) -> dict[str, Any]:
-        if operational_plan is None or not getattr(operational_plan, "goal_id", None):
-            return self._execute_single_action_core(
-                action=action,
-                step_results=step_results,
-                semantic_retrieval=semantic_retrieval,
-                session_id=session_id,
-                task_id=task_id,
-                run_id=run_id,
-                learning_guidance=learning_guidance,
-                operational_plan=operational_plan,
-            )
-        trace = self.specialist_coordinator.coordinate(
-            session_id=session_id,
-            goal_id=operational_plan.goal_id,
-            action=action,
-            plan=operational_plan,
-            execute_callback=lambda: self._execute_single_action_core(
-                action=action,
-                step_results=step_results,
-                semantic_retrieval=semantic_retrieval,
-                session_id=session_id,
-                task_id=task_id,
-                run_id=run_id,
-                learning_guidance=learning_guidance,
-                operational_plan=operational_plan,
-            ),
-        )
-        if self._coordination_trace_has_governance_hold(trace.as_dict()):
-            ctrl = self._governance_resolution_controller()
-            if ctrl is not None:
-                ctrl.handle_governance_hold(
-                    run_id=run_id,
-                    progress=self._progress_from_step_results(step_results),
-                )
-            else:
-                self._update_run_status(
-                    run_id=run_id,
-                    status=RunStatus.AWAITING_APPROVAL,
-                    last_action="governance_hold",
-                    progress_score=self._progress_from_step_results(step_results),
-                )
-        result = self._result_from_coordination_trace(trace.as_dict()) or self._execute_single_action_core(
+        return self._execution_dispatch.execute_single_action_with_specialists(
             action=action,
             step_results=step_results,
             semantic_retrieval=semantic_retrieval,
@@ -3544,8 +3408,6 @@ class BrainOrchestrator:
             learning_guidance=learning_guidance,
             operational_plan=operational_plan,
         )
-        result["coordination_trace"] = trace.as_dict()
-        return result
 
     def _execute_single_action_core(
         self,
@@ -4518,33 +4380,29 @@ class BrainOrchestrator:
         repository_analysis: dict[str, Any] | None = None,
         engineering_data: dict[str, Any] | None = None,
     ) -> None:
-        remaining_actions = actions[next_step_index:] if next_step_index < len(actions) else []
-        self.checkpoint_store.save(
-            run_id,
-            {
-                "task_id": task_id,
-                "session_id": session_id,
-                "message": message,
-                "status": status,
-                "next_step_index": next_step_index,
-                "completed_steps": completed_steps,
-                "remaining_actions": remaining_actions,
-                "total_actions": len(actions),
-                "plan_graph": plan_graph,
-                "plan_hierarchy": plan_hierarchy,
-                "plan_signature": plan_signature,
-                "branch_state": branch_state,
-                "simulation_summary": simulation_summary,
-                "cooperative_plan": cooperative_plan,
-                "strategy_suggestions": strategy_suggestions if isinstance(strategy_suggestions, list) else [],
-                "policy_summary": policy_summary if isinstance(policy_summary, list) else [],
-                "execution_tree": execution_tree,
-                "negotiation_summary": negotiation_summary,
-                "strategy_optimization": strategy_optimization,
-                "supervision": supervision,
-                "repository_analysis": repository_analysis,
-                "engineering_data": engineering_data,
-            },
+        self._session_service.write_checkpoint(
+            run_id=run_id,
+            task_id=task_id,
+            session_id=session_id,
+            message=message,
+            actions=actions,
+            next_step_index=next_step_index,
+            completed_steps=completed_steps,
+            plan_graph=plan_graph,
+            plan_hierarchy=plan_hierarchy,
+            plan_signature=plan_signature,
+            status=status,
+            branch_state=branch_state,
+            simulation_summary=simulation_summary,
+            cooperative_plan=cooperative_plan,
+            strategy_suggestions=strategy_suggestions,
+            policy_summary=policy_summary,
+            execution_tree=execution_tree,
+            negotiation_summary=negotiation_summary,
+            strategy_optimization=strategy_optimization,
+            supervision=supervision,
+            repository_analysis=repository_analysis,
+            engineering_data=engineering_data,
         )
 
     def resume_run(self, run_id: str) -> dict[str, Any]:
