@@ -59,3 +59,6 @@ Thumbs.db
 # Local tooling caches
 vendor/openclaude-upstream/
 vendor/**/openclaude-vscode-*.vsix
+
+# Cursor / local worktrees (must not be committed)
+.worktrees/
