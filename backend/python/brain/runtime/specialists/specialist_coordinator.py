@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from brain.runtime.goals import ConstraintRegistry, GoalEvaluator, GoalStore, ToleranceType
+from brain.runtime.language.protocol import (
+    build_specialist_request,
+    build_tool_execution,
+    runtime_protocol_to_legacy_dict,
+)
 from brain.runtime.memory import MemoryFacade
 from brain.runtime.planning import TaskPlan
 from brain.runtime.simulation import ActionSimulator, SimulationContextBuilder, SimulationStore
@@ -78,6 +83,27 @@ class SpecialistCoordinator:
                 session_id=session_id,
                 metadata={"plan_id": getattr(plan, "plan_id", None), "step_id": action.get("step_id")},
             )
+            intent_hint = None
+            if isinstance(action, dict):
+                raw_intent = action.get("intent") or action.get("selected_tool")
+                if raw_intent is not None:
+                    intent_hint = str(raw_intent).strip() or None
+            run_id = str(action.get("run_id")).strip() if action.get("run_id") not in (None, "") else None
+            open_proto = build_specialist_request(
+                source_component="specialist_coordinator",
+                target_component="planner",
+                session_id=session_id,
+                run_id=run_id,
+                trace_id=trace.trace_id,
+                intent=intent_hint or "specialist_coordination",
+                payload={
+                    "entities": {"action": dict(action)},
+                    "constraints": {},
+                },
+                routing={"stage": "coordination_open", "replan": bool(action.get("replan", False))},
+            )
+            trace.metadata.setdefault("oil_runtime_protocol_envelopes", []).append(open_proto.serialize())
+            trace.metadata["oil_runtime_protocol_open_legacy"] = runtime_protocol_to_legacy_dict(open_proto)
             decisions = []
 
             plan_decision = self.planner.plan(
@@ -99,6 +125,21 @@ class SpecialistCoordinator:
             trace.append_decision(governance_plan)
             if governance_plan.verdict == GovernanceVerdict.BLOCK:
                 return self._finish(trace=trace, final_outcome="blocked_by_governance")
+
+            tool_proto = build_tool_execution(
+                source_component="specialist_coordinator",
+                target_component="executor",
+                session_id=session_id,
+                run_id=run_id,
+                trace_id=trace.trace_id,
+                intent=intent_hint or "execute_tool_like_action",
+                payload={
+                    "entities": {"action": dict(action)},
+                    "constraints": {},
+                },
+                routing={"stage": "pre_execution"},
+            )
+            trace.metadata.setdefault("oil_runtime_protocol_envelopes", []).append(tool_proto.serialize())
 
             execution_decision = self.executor.execute(
                 goal_id=goal_id,
