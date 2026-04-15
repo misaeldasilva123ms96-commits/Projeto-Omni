@@ -60,6 +60,9 @@ Thumbs.db
 vendor/openclaude-upstream/
 vendor/**/openclaude-vscode-*.vsix
 
+# Cursor / local worktrees (must not be committed)
+.worktrees/
+
 # wrangler files
 .wrangler
 .dev.vars*
