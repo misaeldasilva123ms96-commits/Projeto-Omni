@@ -1,0 +1,15 @@
+[run]
+branch = True
+source =
+    backend/python/brain/runtime/language
+    backend/python/brain/runtime/control
+    backend/python/brain/runtime/observability
+    backend/python/brain/runtime/orchestrator_services
+omit =
+    */tests/*
+
+[report]
+show_missing = True
+skip_covered = False
+precision = 2
+fail_under = 55
