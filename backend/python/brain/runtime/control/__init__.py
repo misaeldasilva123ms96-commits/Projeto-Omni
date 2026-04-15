@@ -12,9 +12,11 @@ from .governance_taxonomy import (
     map_status_to_reason,
     normalize_governance_source,
 )
+from .governance_controller import GovernanceResolutionController
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
 
 __all__ = [
+    "GovernanceResolutionController",
     "RunRecord",
     "RunRegistry",
     "RunStatus",

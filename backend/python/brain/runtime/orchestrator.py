@@ -33,7 +33,7 @@ from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor
-from brain.runtime.control import RunRecord, RunRegistry, RunStatus
+from brain.runtime.control import GovernanceResolutionController, RunRecord, RunRegistry, RunStatus
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
@@ -182,6 +182,10 @@ class BrainPaths:
 
 
 class BrainOrchestrator:
+    def _governance_resolution_controller(self) -> GovernanceResolutionController | None:
+        """Present when ``run_registry`` initialized; absent if ``__init__`` was bypassed (e.g. partial tests)."""
+        return getattr(self, "_governance_controller", None)
+
     def __init__(self, paths: BrainPaths) -> None:
         self.paths = paths
         self._closed = False
@@ -214,8 +218,10 @@ class BrainOrchestrator:
         self.engine_adoption_store = EngineAdoptionStore(self.paths.root)
         try:
             self.run_registry = RunRegistry(self.paths.root)
+            self._governance_controller = GovernanceResolutionController(self.run_registry)
         except Exception:
             self.run_registry = None
+            self._governance_controller = None
         self.learning_executor = LearningExecutor(self.paths.root, memory_facade=self.memory_facade)
         self.orchestration_executor = OrchestrationExecutor(self.paths.root)
         self.simulation_store = SimulationStore(self.paths.root)
@@ -1760,6 +1766,18 @@ class BrainOrchestrator:
         try:
             if self.run_registry is None:
                 return
+            ctrl = self._governance_resolution_controller()
+            if ctrl is not None:
+                ctrl.register_run_start(
+                    run_id=run_id,
+                    goal_id=goal_id,
+                    session_id=session_id,
+                    status=status,
+                    last_action=last_action,
+                    progress_score=progress_score,
+                    metadata=metadata,
+                )
+                return
             run = self.run_registry.register(
                 RunRecord.build(
                     run_id=run_id,
@@ -1795,6 +1813,18 @@ class BrainOrchestrator:
                 return
             decision_source = "operator_control" if str(last_action).startswith("operator_") else "runtime_orchestrator"
             operator_id = "supabase_user" if decision_source == "operator_control" else None
+            ctrl = self._governance_resolution_controller()
+            if ctrl is not None:
+                ctrl.transition_run(
+                    run_id=run_id,
+                    status=status,
+                    last_action=last_action,
+                    progress=progress_score,
+                    reason=None,
+                    decision_source=decision_source,
+                    operator_id=operator_id,
+                )
+                return
             self.run_registry.update_status(
                 run_id=run_id,
                 status=status,
@@ -1868,12 +1898,16 @@ class BrainOrchestrator:
             if not should_wait:
                 return {"status": record.status.value, "progress_score": record.progress_score}
             if time.monotonic() - started_at >= max_wait:
-                self._update_run_status(
-                    run_id=run_id,
-                    status=RunStatus.FAILED,
-                    last_action="operator_timeout",
-                    progress_score=record.progress_score,
-                )
+                ctrl = self._governance_resolution_controller()
+                if ctrl is not None:
+                    ctrl.handle_timeout(run_id=run_id, progress=record.progress_score)
+                else:
+                    self._update_run_status(
+                        run_id=run_id,
+                        status=RunStatus.FAILED,
+                        last_action="operator_timeout",
+                        progress_score=record.progress_score,
+                    )
                 return {
                     "status": "failed",
                     "error": "operator_timeout",
@@ -2895,12 +2929,28 @@ class BrainOrchestrator:
             status_hint="completed" if step_results and all(item.get("ok") for item in step_results) else "blocked",
             step_results=step_results,
         )
-        self._update_run_status(
-            run_id=run_id,
-            status=RunStatus.COMPLETED if step_results and all(item.get("ok") for item in step_results) else RunStatus.FAILED,
-            last_action="goal_completed" if step_results and all(item.get("ok") for item in step_results) else "goal_failed",
-            progress_score=1.0 if step_results and all(item.get("ok") for item in step_results) else self._progress_from_step_results(step_results),
-        )
+        ctrl = self._governance_resolution_controller()
+        if ctrl is not None:
+            if step_results and all(item.get("ok") for item in step_results):
+                ctrl.handle_completion(
+                    run_id=run_id,
+                    last_action="goal_completed",
+                    progress=1.0,
+                )
+            else:
+                ctrl.handle_failure(
+                    run_id=run_id,
+                    last_action="goal_failed",
+                    progress=self._progress_from_step_results(step_results),
+                    reason=None,
+                )
+        else:
+            self._update_run_status(
+                run_id=run_id,
+                status=RunStatus.COMPLETED if step_results and all(item.get("ok") for item in step_results) else RunStatus.FAILED,
+                last_action="goal_completed" if step_results and all(item.get("ok") for item in step_results) else "goal_failed",
+                progress_score=1.0 if step_results and all(item.get("ok") for item in step_results) else self._progress_from_step_results(step_results),
+            )
         operational_summary = self.planning_executor.summary_for_plan(operational_plan)
         if operational_summary is not None:
             final_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
@@ -3471,12 +3521,19 @@ class BrainOrchestrator:
             ),
         )
         if self._coordination_trace_has_governance_hold(trace.as_dict()):
-            self._update_run_status(
-                run_id=run_id,
-                status=RunStatus.AWAITING_APPROVAL,
-                last_action="governance_hold",
-                progress_score=self._progress_from_step_results(step_results),
-            )
+            ctrl = self._governance_resolution_controller()
+            if ctrl is not None:
+                ctrl.handle_governance_hold(
+                    run_id=run_id,
+                    progress=self._progress_from_step_results(step_results),
+                )
+            else:
+                self._update_run_status(
+                    run_id=run_id,
+                    status=RunStatus.AWAITING_APPROVAL,
+                    last_action="governance_hold",
+                    progress_score=self._progress_from_step_results(step_results),
+                )
         result = self._result_from_coordination_trace(trace.as_dict()) or self._execute_single_action_core(
             action=action,
             step_results=step_results,

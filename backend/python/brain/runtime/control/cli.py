@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from brain.runtime.control import RunRegistry, RunStatus
+from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
 from brain.runtime.memory import MemoryFacade
 
 
@@ -61,12 +61,11 @@ def _update_run(root: Path, *, run_id: str, status: RunStatus, action: str) -> d
     current = registry.get(run_id)
     if current is None:
         return {"status": "error", "error": "run_not_found", "run": None}
-    updated = registry.update_status(
+    controller = GovernanceResolutionController(registry)
+    updated = controller.handle_operator_action(
         run_id=run_id,
-        status=status,
-        last_action=f"operator_{action}",
+        action=action,
         progress=current.progress_score,
-        reason=f"operator_{action}",
         decision_source="operator_cli",
         operator_id="supabase_user",
     )
