@@ -15,6 +15,12 @@ from .governance_taxonomy import (
     infer_governance_reason,
     map_legacy_reason_string,
 )
+from .governance_timeline import (
+    GovernanceTimelineEventType,
+    build_governance_timeline_event,
+    infer_event_type_from_transition,
+    synthesize_timeline_from_legacy,
+)
 
 
 def utc_now_iso() -> str:
@@ -155,6 +161,7 @@ class RunRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     resolution: ResolutionRecord | None = None
     resolution_history: list[dict[str, Any]] = field(default_factory=list)
+    governance_timeline: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -169,7 +176,31 @@ class RunRecord:
             "metadata": dict(self.metadata),
             "resolution": self.resolution.as_dict() if self.resolution else None,
             "resolution_history": [dict(item) for item in self.resolution_history],
+            "governance_timeline": [dict(item) for item in self.governance_timeline],
         }
+
+    def _append_governance_timeline(
+        self,
+        *,
+        event_type: str,
+        resolution: ResolutionRecord,
+        status: RunStatus,
+    ) -> None:
+        self.governance_timeline.append(
+            build_governance_timeline_event(
+                event_type=event_type,
+                timestamp=resolution.timestamp,
+                current_resolution=resolution.current_resolution,
+                previous_resolution=resolution.previous_resolution,
+                reason=resolution.reason,
+                decision_source=resolution.decision_source,
+                run_status=status.value,
+                operator_id=resolution.operator_id,
+                promotion_metadata=dict(resolution.promotion_metadata) if resolution.promotion_metadata else None,
+                engine_mode=resolution.engine_mode,
+            )
+        )
+        self.governance_timeline = self.governance_timeline[-80:]
 
     @classmethod
     def build(
@@ -185,11 +216,19 @@ class RunRecord:
         started_at: str | None = None,
         resolution: ResolutionRecord | None = None,
         resolution_history: list[dict[str, Any]] | None = None,
+        governance_timeline: list[dict[str, Any]] | None = None,
     ) -> "RunRecord":
         now = utc_now_iso()
         fallback_reason = infer_reason_from_action(last_action, status=status)
         resolution_state = infer_resolution_state(status, fallback_reason)
-        return cls(
+        res = resolution or ResolutionRecord(
+            current_resolution=resolution_state.value,
+            previous_resolution=resolution_state.value,
+            reason=fallback_reason.value,
+            decision_source="runtime_orchestrator",
+            timestamp=now,
+        )
+        record = cls(
             run_id=str(run_id).strip(),
             goal_id=str(goal_id).strip() if goal_id else None,
             session_id=str(session_id).strip(),
@@ -199,16 +238,17 @@ class RunRecord:
             last_action=str(last_action or "").strip(),
             progress_score=max(0.0, min(1.0, float(progress_score or 0.0))),
             metadata=dict(metadata or {}),
-            resolution=resolution
-            or ResolutionRecord(
-                current_resolution=resolution_state.value,
-                previous_resolution=resolution_state.value,
-                reason=fallback_reason.value,
-                decision_source="runtime_orchestrator",
-                timestamp=now,
-            ),
+            resolution=res,
             resolution_history=list(resolution_history or []),
+            governance_timeline=list(governance_timeline) if governance_timeline is not None else [],
         )
+        if governance_timeline is None:
+            record._append_governance_timeline(
+                event_type=GovernanceTimelineEventType.START.value,
+                resolution=record.resolution,
+                status=status,
+            )
+        return record
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "RunRecord":
@@ -217,6 +257,18 @@ class RunRecord:
             status = RunStatus(status_raw)
         except ValueError:
             status = RunStatus.RUNNING
+        raw_timeline = payload.get("governance_timeline", [])
+        timeline = [dict(item) for item in raw_timeline if isinstance(item, dict)]
+        if not timeline:
+            timeline = synthesize_timeline_from_legacy(
+                resolution_history=[
+                    dict(item)
+                    for item in (payload.get("resolution_history", []) or [])
+                    if isinstance(item, dict)
+                ],
+                resolution=dict(payload.get("resolution", {}) or {}) if payload.get("resolution") else None,
+                run_status=status_raw,
+            )
         return cls(
             run_id=str(payload.get("run_id", "")).strip(),
             goal_id=str(payload.get("goal_id", "")).strip() or None,
@@ -237,6 +289,7 @@ class RunRecord:
                 for item in (payload.get("resolution_history", []) or [])
                 if isinstance(item, dict)
             ],
+            governance_timeline=timeline,
         )
 
     def transition_resolution(
@@ -267,6 +320,13 @@ class RunRecord:
         self.resolution = next_resolution
         self.resolution_history.append(next_resolution.as_dict())
         self.resolution_history = self.resolution_history[-40:]
+        event_type = infer_event_type_from_transition(
+            reason=next_resolution.reason,
+            run_status=status.value,
+            current_resolution=next_resolution.current_resolution,
+            previous_resolution=previous,
+        )
+        self._append_governance_timeline(event_type=event_type, resolution=next_resolution, status=status)
         return next_resolution
 
 
@@ -284,6 +344,15 @@ class RunRegistry:
         with self._lock:
             existing = self._runs.get(run.run_id)
             if existing is not None:
+                merged_timeline = list(existing.governance_timeline)
+                if not merged_timeline:
+                    merged_timeline = synthesize_timeline_from_legacy(
+                        resolution_history=list(existing.resolution_history),
+                        resolution=existing.resolution.as_dict() if existing.resolution else None,
+                        run_status=existing.status.value,
+                    )
+                if not merged_timeline:
+                    merged_timeline = None
                 run = RunRecord.build(
                     run_id=run.run_id,
                     goal_id=run.goal_id or existing.goal_id,
@@ -293,6 +362,8 @@ class RunRegistry:
                     progress_score=run.progress_score,
                     metadata={**existing.metadata, **run.metadata},
                     started_at=existing.started_at,
+                    resolution_history=list(existing.resolution_history),
+                    governance_timeline=merged_timeline,
                 )
             self._runs[run.run_id] = run
             self.flush()
@@ -360,6 +431,7 @@ class RunRegistry:
                     "severity_counts": {sev.value: 0 for sev in GovernanceSeverity},
                     "blocked_by_policy": 0,
                     "waiting_operator": 0,
+                    "timeline_event_counts": {},
                 },
             }
             waiting_operator = 0
@@ -386,6 +458,13 @@ class RunRegistry:
                     waiting_operator += 1
                 elif record.status == RunStatus.PAUSED and str(record.last_action).startswith("operator_"):
                     waiting_operator += 1
+                for ev in record.governance_timeline:
+                    if not isinstance(ev, dict):
+                        continue
+                    et = str(ev.get("event_type", "") or "").strip()
+                    if et:
+                        counts = summary["governance"]["timeline_event_counts"]
+                        counts[et] = int(counts.get(et, 0)) + 1
             summary["governance"]["waiting_operator"] = waiting_operator
             return summary
 
@@ -435,6 +514,37 @@ class RunRegistry:
                     )
             events.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
             return events[: max(1, int(limit or 25))]
+
+    def recent_governance_timeline_events(self, limit: int = 25) -> list[dict[str, Any]]:
+        with self._lock:
+            self._reload_if_available()
+            events: list[dict[str, Any]] = []
+            for record in self._runs.values():
+                for item in record.governance_timeline:
+                    if not isinstance(item, dict):
+                        continue
+                    events.append(
+                        {
+                            **dict(item),
+                            "run_id": record.run_id,
+                            "session_id": record.session_id,
+                            "status": record.status.value,
+                        }
+                    )
+            events.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
+            return events[: max(1, int(limit or 25))]
+
+    def latest_governance_event_by_run(self) -> dict[str, dict[str, Any]]:
+        with self._lock:
+            self._reload_if_available()
+            out: dict[str, dict[str, Any]] = {}
+            for run_id, record in self._runs.items():
+                if not record.governance_timeline:
+                    continue
+                last = record.governance_timeline[-1]
+                if isinstance(last, dict):
+                    out[str(run_id)] = dict(last)
+            return out
 
     def reload_from_disk(self) -> None:
         with self._lock:

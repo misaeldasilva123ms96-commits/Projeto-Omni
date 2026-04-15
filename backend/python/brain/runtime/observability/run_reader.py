@@ -46,6 +46,7 @@ def read_resolution_summary(root: Path) -> dict[str, Any]:
                 "severity_counts": {},
                 "blocked_by_policy": 0,
                 "waiting_operator": 0,
+                "timeline_event_counts": {},
             },
         }
 
@@ -72,3 +73,19 @@ def read_recent_resolution_events(root: Path, *, limit: int = 25) -> list[dict[s
         return registry.recent_resolution_events(limit=max(1, int(limit or 25)))
     except Exception:
         return []
+
+
+def read_recent_governance_timeline_events(root: Path, *, limit: int = 25) -> list[dict[str, Any]]:
+    try:
+        registry = RunRegistry(root)
+        return registry.recent_governance_timeline_events(limit=max(1, int(limit or 25)))
+    except Exception:
+        return []
+
+
+def read_latest_governance_event_by_run(root: Path) -> dict[str, dict[str, Any]]:
+    try:
+        registry = RunRegistry(root)
+        return registry.latest_governance_event_by_run()
+    except Exception:
+        return {}

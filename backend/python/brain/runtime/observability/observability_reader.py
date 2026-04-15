@@ -10,6 +10,8 @@ from .memory_reader import MemoryReader
 from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_iso
 from .run_reader import (
     read_active_runs,
+    read_latest_governance_event_by_run,
+    read_recent_governance_timeline_events,
     read_recent_resolution_events,
     read_resolution_summary,
     read_runs_waiting_operator,
@@ -43,6 +45,8 @@ class ObservabilityReader:
         governance_summary = read_resolution_summary(self.root)
         waiting_operator = read_runs_waiting_operator(self.root)
         recent_resolution_events = read_recent_resolution_events(self.root, limit=25)
+        recent_governance_timeline_events = read_recent_governance_timeline_events(self.root, limit=25)
+        latest_governance_event_by_run = read_latest_governance_event_by_run(self.root)
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -78,6 +82,8 @@ class ObservabilityReader:
             runs_waiting_operator=waiting_operator,
             runs_blocked_by_policy=blocked_by_policy[:25],
             recent_resolution_events=recent_resolution_events,
+            recent_governance_timeline_events=recent_governance_timeline_events,
+            latest_governance_event_by_run=latest_governance_event_by_run,
             warnings=[],
         )
 

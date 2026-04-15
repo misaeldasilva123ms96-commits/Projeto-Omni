@@ -120,6 +120,12 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertIn('resolution_counts', snapshot.governance_summary)
                 self.assertIn('running', snapshot.resolution_counts)
                 self.assertGreaterEqual(len(snapshot.recent_resolution_events), 1)
+                self.assertIsInstance(snapshot.recent_governance_timeline_events, list)
+                self.assertIsInstance(snapshot.latest_governance_event_by_run, dict)
+                self.assertIn('timeline_event_counts', snapshot.governance_summary.get('governance', {}))
+                snap_dict = snapshot.as_dict()
+                self.assertIn('recent_governance_timeline_events', snap_dict)
+                self.assertIn('latest_governance_event_by_run', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

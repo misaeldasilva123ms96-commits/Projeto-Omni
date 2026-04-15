@@ -187,6 +187,11 @@ class ControlCliTest(unittest.TestCase):
                 self.assertEqual(result, 0)
                 payload = json.loads(stream.getvalue())
                 self.assertEqual(payload["status"], "ok")
+                if argv[3] == "inspect_run":
+                    run_payload = payload.get("run")
+                    self.assertIsInstance(run_payload, dict)
+                    self.assertIn("governance_timeline", run_payload)
+                    self.assertGreaterEqual(len(run_payload["governance_timeline"]), 1)
 
 
 if __name__ == "__main__":
