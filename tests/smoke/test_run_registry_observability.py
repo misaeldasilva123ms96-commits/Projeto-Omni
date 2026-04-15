@@ -18,6 +18,7 @@ class RunRegistryObservabilitySmokeTest(unittest.TestCase):
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )
         self.orchestrator.run_registry = None
+        self.orchestrator._governance_controller = None
 
     def test_none_safe_run_registry_helpers_do_not_raise(self) -> None:
         self.orchestrator._register_run_record(

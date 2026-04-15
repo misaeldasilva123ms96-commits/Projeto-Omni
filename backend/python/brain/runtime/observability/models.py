@@ -233,6 +233,9 @@ class ObservabilitySnapshot:
     runs_waiting_operator: list[dict[str, Any]] = field(default_factory=list)
     runs_blocked_by_policy: list[dict[str, Any]] = field(default_factory=list)
     recent_resolution_events: list[dict[str, Any]] = field(default_factory=list)
+    recent_governance_timeline_events: list[dict[str, Any]] = field(default_factory=list)
+    latest_governance_event_by_run: dict[str, dict[str, Any]] = field(default_factory=dict)
+    operational_governance: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -259,5 +262,8 @@ class ObservabilitySnapshot:
             "runs_waiting_operator": [dict(item) for item in self.runs_waiting_operator],
             "runs_blocked_by_policy": [dict(item) for item in self.runs_blocked_by_policy],
             "recent_resolution_events": [dict(item) for item in self.recent_resolution_events],
+            "recent_governance_timeline_events": [dict(item) for item in self.recent_governance_timeline_events],
+            "latest_governance_event_by_run": {str(k): dict(v) for k, v in self.latest_governance_event_by_run.items()},
+            "operational_governance": dict(self.operational_governance),
             "warnings": list(self.warnings),
         }

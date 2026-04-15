@@ -145,6 +145,8 @@ class RunRegistryTest(unittest.TestCase):
             self.assertEqual(summary["total_runs"], 2)
             self.assertGreaterEqual(summary["resolution_counts"]["hold"], 1)
             self.assertGreaterEqual(summary["reason_counts"]["promotion_rollback_threshold"], 1)
+            self.assertIn("timeline_event_counts", summary["governance"])
+            self.assertGreaterEqual(sum(summary["governance"]["timeline_event_counts"].values()), 1)
             waiting = registry.get_runs_waiting_operator()
             self.assertEqual(waiting[0].run_id, "run-waiting")
             rollback = registry.get_runs_with_rollback()

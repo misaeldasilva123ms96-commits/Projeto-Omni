@@ -1,5 +1,8 @@
 """Omni Internal Language (OIL) — runtime language layer (Phase 30.x)."""
 
+# Closed convergence band with runtime governance/control plane (30.1–30.9); informational only.
+OMNI_OIL_PROGRAM_RANGE = "30.1-30.9"
+
 from brain.runtime.language.envelopes import (
     OILCommunicationEnvelope,
     OILRuntimeProtocolEnvelope,
@@ -34,6 +37,7 @@ from brain.runtime.language.types import (
 )
 
 __all__ = [
+    "OMNI_OIL_PROGRAM_RANGE",
     "OIL_VERSION",
     "OILContext",
     "OILExecution",
