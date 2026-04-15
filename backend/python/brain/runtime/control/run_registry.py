@@ -6,9 +6,23 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from .governance_taxonomy import (
+    GovernanceReason,
+    GovernanceSource,
+    GovernanceSeverity,
+    build_governance_decision,
+    governance_dict_for_resolution,
+    infer_governance_reason,
+    map_legacy_reason_string,
+)
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Backward-compatible alias used across the codebase and tests.
+ResolutionReason = GovernanceReason
 
 
 class RunStatus(str, Enum):
@@ -38,20 +52,6 @@ class ResolutionState(str, Enum):
     FAILED = "failed"
 
 
-class ResolutionReason(str, Enum):
-    OPERATOR_PAUSE = "operator_pause"
-    OPERATOR_APPROVE = "operator_approve"
-    OPERATOR_RESUME = "operator_resume"
-    GOVERNANCE_HOLD = "governance_hold"
-    PROMOTION_ROLLBACK_THRESHOLD = "promotion_rollback_threshold"
-    PACKAGED_IMPORT_FAILED = "packaged_import_failed"
-    TIMEOUT = "timeout"
-    POLICY_BLOCK = "policy_block"
-    UNSAFE_STATE = "unsafe_state"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 def _normalize_resolution_state(raw: str, *, status: RunStatus) -> ResolutionState:
     value = str(raw or "").strip()
     try:
@@ -68,49 +68,24 @@ def _normalize_resolution_state(raw: str, *, status: RunStatus) -> ResolutionSta
         return ResolutionState.RUNNING
 
 
-def _normalize_resolution_reason(raw: str, *, fallback: ResolutionReason) -> ResolutionReason:
-    value = str(raw or "").strip()
-    try:
-        return ResolutionReason(value)
-    except ValueError:
-        return fallback
+def _normalize_resolution_reason(raw: str, *, fallback: GovernanceReason) -> GovernanceReason:
+    return map_legacy_reason_string(str(raw or ""), fallback=fallback)
 
 
-def infer_reason_from_action(action: str, *, status: RunStatus) -> ResolutionReason:
-    text = str(action or "").strip().lower()
-    if "governance_hold" in text:
-        return ResolutionReason.GOVERNANCE_HOLD
-    if "operator_pause" in text or "pause" in text:
-        return ResolutionReason.OPERATOR_PAUSE
-    if "operator_approve" in text or "approve" in text:
-        return ResolutionReason.OPERATOR_APPROVE
-    if "operator_resume" in text or "resume" in text:
-        return ResolutionReason.OPERATOR_RESUME
-    if "timeout" in text:
-        return ResolutionReason.TIMEOUT
-    if "packaged_import_failed" in text:
-        return ResolutionReason.PACKAGED_IMPORT_FAILED
-    if "rollback" in text:
-        return ResolutionReason.PROMOTION_ROLLBACK_THRESHOLD
-    if "control_layer_blocked" in text or "policy" in text or "simulation_stop" in text or "supervision_stop" in text:
-        return ResolutionReason.POLICY_BLOCK
-    if status == RunStatus.COMPLETED or "goal_completed" in text:
-        return ResolutionReason.COMPLETED
-    if status == RunStatus.FAILED or "goal_failed" in text:
-        return ResolutionReason.FAILED
-    return ResolutionReason.UNSAFE_STATE
+def infer_reason_from_action(action: str, *, status: RunStatus) -> GovernanceReason:
+    return infer_governance_reason(last_action=action, run_status=status.value)
 
 
-def infer_resolution_state(status: RunStatus, reason: ResolutionReason) -> ResolutionState:
-    if reason == ResolutionReason.PROMOTION_ROLLBACK_THRESHOLD:
+def infer_resolution_state(status: RunStatus, reason: GovernanceReason) -> ResolutionState:
+    if reason == GovernanceReason.PROMOTION_ROLLBACK_THRESHOLD:
         return ResolutionState.ROLLBACK
-    if reason == ResolutionReason.OPERATOR_APPROVE:
+    if reason == GovernanceReason.OPERATOR_APPROVE:
         return ResolutionState.APPROVED
-    if reason == ResolutionReason.OPERATOR_RESUME:
+    if reason == GovernanceReason.OPERATOR_RESUME:
         return ResolutionState.RESUMED
-    if reason == ResolutionReason.POLICY_BLOCK:
+    if reason == GovernanceReason.POLICY_BLOCK:
         return ResolutionState.BLOCKED
-    if status == RunStatus.AWAITING_APPROVAL or reason == ResolutionReason.GOVERNANCE_HOLD:
+    if status == RunStatus.AWAITING_APPROVAL or reason == GovernanceReason.GOVERNANCE_HOLD:
         return ResolutionState.HOLD
     if status == RunStatus.PAUSED:
         return ResolutionState.PAUSED
@@ -133,7 +108,7 @@ class ResolutionRecord:
     engine_mode: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "current_resolution": self.current_resolution,
             "previous_resolution": self.previous_resolution,
             "reason": self.reason,
@@ -143,6 +118,11 @@ class ResolutionRecord:
             "promotion_metadata": dict(self.promotion_metadata),
             "engine_mode": self.engine_mode,
         }
+        payload["governance"] = governance_dict_for_resolution(
+            reason=self.reason,
+            decision_source=self.decision_source,
+        )
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, status: RunStatus, last_action: str) -> "ResolutionRecord":
@@ -374,7 +354,15 @@ class RunRegistry:
                 "total_runs": len(self._runs),
                 "resolution_counts": {state.value: 0 for state in ResolutionState},
                 "reason_counts": {reason.value: 0 for reason in ResolutionReason},
+                "governance": {
+                    "taxonomy_version": "30.5",
+                    "source_counts": {src.value: 0 for src in GovernanceSource},
+                    "severity_counts": {sev.value: 0 for sev in GovernanceSeverity},
+                    "blocked_by_policy": 0,
+                    "waiting_operator": 0,
+                },
             }
+            waiting_operator = 0
             for record in self._runs.values():
                 resolution = record.resolution
                 if resolution is None:
@@ -385,6 +373,20 @@ class RunRegistry:
                     summary["resolution_counts"][current] += 1
                 if reason in summary["reason_counts"]:
                     summary["reason_counts"][reason] += 1
+                decision = build_governance_decision(
+                    reason=resolution.reason,
+                    decision_source=resolution.decision_source,
+                )
+                gov = summary["governance"]
+                gov["source_counts"][decision.source.value] += 1
+                gov["severity_counts"][decision.severity.value] += 1
+                if decision.reason == GovernanceReason.POLICY_BLOCK:
+                    gov["blocked_by_policy"] += 1
+                if record.status == RunStatus.AWAITING_APPROVAL:
+                    waiting_operator += 1
+                elif record.status == RunStatus.PAUSED and str(record.last_action).startswith("operator_"):
+                    waiting_operator += 1
+            summary["governance"]["waiting_operator"] = waiting_operator
             return summary
 
     def get_runs_waiting_operator(self) -> list[RunRecord]:
@@ -405,7 +407,7 @@ class RunRegistry:
             for record in self._runs.values():
                 resolution = record.resolution
                 reason = str((resolution.reason if resolution else "") or "").strip()
-                if reason == ResolutionReason.PROMOTION_ROLLBACK_THRESHOLD.value:
+                if reason == GovernanceReason.PROMOTION_ROLLBACK_THRESHOLD.value:
                     rows.append(record)
                     continue
                 if str((record.metadata or {}).get("promotion_rollback_reason", "")).strip():

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from brain.runtime.control.governance_taxonomy import GovernanceReason
+
 from .engine_adoption_reader import read_engine_adoption
 from .goal_reader import GoalReader
 from .memory_reader import MemoryReader
@@ -41,11 +43,17 @@ class ObservabilityReader:
         governance_summary = read_resolution_summary(self.root)
         waiting_operator = read_runs_waiting_operator(self.root)
         recent_resolution_events = read_recent_resolution_events(self.root, limit=25)
-        blocked_by_policy = [
-            item
-            for item in recent_resolution_events
-            if str(item.get("reason", "")).strip() == "policy_block"
-        ]
+        policy = GovernanceReason.POLICY_BLOCK.value
+
+        def _is_policy_block(item: dict) -> bool:
+            if str(item.get("reason", "")).strip() == policy:
+                return True
+            gov = item.get("governance")
+            if isinstance(gov, dict) and str(gov.get("reason", "")).strip() == policy:
+                return True
+            return False
+
+        blocked_by_policy = [item for item in recent_resolution_events if _is_policy_block(item)]
 
         return ObservabilitySnapshot(
             generated_at=utc_now_iso(),

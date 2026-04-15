@@ -36,7 +36,18 @@ def read_resolution_summary(root: Path) -> dict[str, Any]:
         registry = RunRegistry(root)
         return registry.get_resolution_summary()
     except Exception:
-        return {"total_runs": 0, "resolution_counts": {}, "reason_counts": {}}
+        return {
+            "total_runs": 0,
+            "resolution_counts": {},
+            "reason_counts": {},
+            "governance": {
+                "taxonomy_version": "30.5",
+                "source_counts": {},
+                "severity_counts": {},
+                "blocked_by_policy": 0,
+                "waiting_operator": 0,
+            },
+        }
 
 
 def read_runs_waiting_operator(root: Path) -> list[dict[str, Any]]:

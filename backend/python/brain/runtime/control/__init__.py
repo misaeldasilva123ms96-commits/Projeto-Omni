@@ -1,3 +1,36 @@
-from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus
+from .governance_taxonomy import (
+    GovernanceDecision,
+    GovernanceReason,
+    GovernanceSeverity,
+    GovernanceSource,
+    build_governance_decision,
+    governance_dict_for_resolution,
+    infer_governance_reason,
+    infer_governance_severity,
+    map_action_to_reason,
+    map_legacy_reason_string,
+    map_status_to_reason,
+    normalize_governance_source,
+)
+from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
 
-__all__ = ["RunRecord", "RunRegistry", "RunStatus", "ResolutionState", "ResolutionReason"]
+__all__ = [
+    "RunRecord",
+    "RunRegistry",
+    "RunStatus",
+    "ResolutionState",
+    "ResolutionReason",
+    "infer_reason_from_action",
+    "GovernanceReason",
+    "GovernanceSource",
+    "GovernanceSeverity",
+    "GovernanceDecision",
+    "infer_governance_reason",
+    "infer_governance_severity",
+    "map_action_to_reason",
+    "map_status_to_reason",
+    "map_legacy_reason_string",
+    "normalize_governance_source",
+    "governance_dict_for_resolution",
+    "build_governance_decision",
+]
