@@ -72,3 +72,6 @@ jobs:
 
       - name: Run critical runtime coverage suite
         run: npm run test:python:pytest
+
+      - name: Run performance and contract audit suite
+        run: npm run test:python:pytest:audit
