@@ -1,172 +1,173 @@
-# 🧠 Omini — Hybrid AI Agent Runtime
+# Projeto Omni — Cognitive Runtime
 
-> A production-oriented hybrid agent runtime that combines Rust, Python, Node.js, memory, swarm orchestration, and self-evolution into one auditable system.
+A production-oriented **cognitive runtime**: Python orchestration, hybrid memory, specialists and simulation, a Node.js reasoning runner, a Rust HTTP bridge, and explicit **governance** and **observability** layers. Omni is not a single chatbot endpoint—it is a structured system for routed execution, persisted traces, and operator-visible control state.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/YOUR_GITHUB_USER_OR_ORG/omini/ci.yml?branch=main&label=CI)](https://github.com/YOUR_GITHUB_USER_OR_ORG/omini/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-## What is Omini?
+## Overview
 
-Omini is a hybrid AI agent runtime designed for controlled orchestration rather than opaque monolith behavior. It combines a Python cognitive brain, a Node.js reasoning runner, a Rust subprocess bridge, persistent memory, a multi-agent swarm layer, and a heuristic self-evolution loop. The result is a system that can route work across specialized components, track internal decisions, persist traces, and gradually adjust its behavior without changing the Rust-facing stdout contract.
+Omni combines:
 
-## Architecture Overview
+- A **Python brain** (`backend/python/brain`) with `BrainOrchestrator`, planning, continuation, learning, evolution, and **runtime control** (`RunRegistry`, governance controller).
+- **OIL (Omni Internal Language)** — typed request/result envelopes, protocol builders, input interpretation, and **output composition** for structured runtime I/O.
+- A **governance control plane** — taxonomy (reason / source / severity), per-run `governance_timeline`, `GovernanceResolutionController`, and an **operational read layer** (`operational_governance` summaries).
+- **Observability** — read models over goals, traces, simulations, engine adoption, and consolidated governance snapshots for CLI/API consumers.
+- **Rust** and **Node** boundaries for HTTP, subprocess execution, and schema-validated runner payloads.
 
-```text
-+-------------------+
-|   Web / Mobile    |
-+-------------------+
-          |
-          v
-+-------------------+
-| Rust HTTP Bridge  |
-| Axum API          |
-+-------------------+
-          |
-          v
-+-------------------+
-| Python Brain      |
-| orchestrator.py   |
-+-------------------+
-          |
-          v
-+-------------------+
-| Swarm Layer       |
-| Router / Planner  |
-| Executor / Critic |
-| Memory            |
-+-------------------+
-          |
-          v
-+-------------------+
-| Node Runner       |
-| THINK -> DECIDE   |
-| -> ACT -> MEMORY  |
-| -> RESPOND        |
-+-------------------+
-          |
-          v
-+-------------------+
-| Memory / Sessions |
-| Transcripts /     |
-| Learning /        |
-| Strategy State    |
-+-------------------+
-```
+## Architecture (layered)
 
-## Core Components
+### OIL — language layer
 
-| Component | Location | Responsibility |
-| --- | --- | --- |
-| Rust Bridge | `backend/rust` | Exposes HTTP endpoints and calls Python via subprocess while preserving the stdout-only contract |
-| Python Brain | `backend/python/brain/runtime` | Owns orchestration, memory loading, transcript/session persistence, and bridge control |
-| Capability Registry | `backend/python/brain/registry.py` | Defines capabilities and agent profiles used across the runtime |
-| Hybrid Memory | `backend/python/brain/memory` | Persists user data, preferences, notes, learning data, and strategy-linked memory signals |
-| Swarm Layer | `backend/python/brain/swarm` | Routes tasks across specialized internal agents and records agent traces |
-| Evolution Layer | `backend/python/brain/evolution` | Scores responses, finds patterns, versions strategy updates, and supports rollback |
-| Node Runner | `js-runner/queryEngineRunner.js` | Validates the Python-to-Node payload contract and loads the reasoning adapter |
-| Reasoning Adapter | `src/queryEngineRunnerAdapter.js` | Implements the cognitive pipeline and delegate resolution |
-| Contract Schema | `contract/runner-schema.v1.json` | Formal JSON schema for the Python <-> Node payload |
-| Deployment Layer | `docker-compose.yml`, `.github/workflows` | Container orchestration and automation for CI and VPS deployment |
+Location: `backend/python/brain/runtime/language/`
 
-## Cognitive Pipeline
+- **Schema**: `OILRequest`, `OILResult`, `OILError` (`oil_schema.py`).
+- **Protocol**: handoff builders, legacy adapters (`protocol.py`).
+- **Input**: `InputInterpreter`, `interpret_input`, normalizers and intent registry.
+- **Output**: `OutputComposer`, `compose_output`, renderers and envelopes.
+- Public exports: `brain.runtime.language` (`__init__.py`), including `OMNI_OIL_PROGRAM_RANGE` as a version band label.
 
-Omini uses a deliberately explicit pipeline:
+### Runtime — execution
+
+Location: `backend/python/brain/runtime/`
+
+- **`orchestrator.py`**: `BrainOrchestrator` coordinates planning, trusted execution, specialists, simulation, checkpoints, and run lifecycle side-effects.
+- **Planning / continuation / learning / evolution** under `planning/`, `continuation/`, `learning/`, `evolution/`.
+- **Specialists** (`specialists/`), **simulation** (`simulation/`), **goals** (`goals/`), **memory** integrations (`memory/` under runtime and `brain/memory/`).
+- **JS / Rust bridges**: `js_runtime_adapter.py`, `rust_executor_bridge.py`.
+
+### Governance control plane
+
+Location: `backend/python/brain/runtime/control/`
+
+- **`RunRegistry`**: source of truth for runs (`run_registry.json` under `.logs/fusion-runtime/control/`), resolution history, and persisted `governance_timeline`.
+- **`governance_taxonomy.py`**: canonical governance reason, source, severity, and helpers such as `build_governance_decision`, `governance_dict_for_resolution`.
+- **`governance_timeline.py`**: normalized timeline events aligned with the taxonomy.
+- **`GovernanceResolutionController`**: canonical transitions into registry updates (orchestrator and CLI use this path where wired).
+- **`governance_read_model.py`**: operational views—per-run governance view, waiting/rollback/policy lists, operator-attention ordering, `build_operational_governance_snapshot`.
+- **`program_closure.py`**: shared taxonomy version, empty read fallbacks, and shape validation for the operational snapshot contract (Phase 30.9 closure).
+- **CLI**: `control/cli.py` — inspect runs, resolution summary, `governance_operational` / `governance_snapshot`, `governance_attention`, operator pause/resume/approve.
+
+### Observability / read layer
+
+Location: `backend/python/brain/runtime/observability/`
+
+- **`ObservabilityReader`**: builds `ObservabilitySnapshot` (goals, traces, simulations, timeline, **governance_summary**, **operational_governance**, recent governance timeline events, **latest_governance_event_by_run**, etc.).
+- **`run_reader.py`**: filesystem-backed reads (`read_run`, `read_operational_governance`, …) over `RunRegistry`.
+
+## Execution flow (pipeline)
+
+End-to-end data flow at a high level:
 
 ```text
-THINK -> DECIDE -> ACT -> MEMORY -> RESPOND
+User Input
+  → OILRequest (schema + protocol / interpreter path as applicable)
+  → Runtime (BrainOrchestrator + planning / execution / specialists)
+  → GovernanceResolutionController (governance-aware transitions into RunRegistry)
+  → OILResult
+  → Output Composer (compose_output / renderers)
+  → Natural Response (user-facing text; Rust-facing contracts preserved where applicable)
 ```
 
-- `THINK`: classifies intent, reads memory, inspects recent history, and builds context.
-- `DECIDE`: selects a response strategy and confidence level from available capabilities.
-- `ACT`: prepares the practical answer path, delegate plan, or execution outline.
-- `MEMORY`: stores useful signals about what happened, including traces, evaluations, and usage.
-- `RESPOND`: returns the final user-facing text while preserving a clean Rust-compatible output.
+Run persistence and audit trail:
 
-## Multi-Agent Swarm
+- Resolution transitions append to **`governance_timeline`** and **`resolution_history`** (caps enforced in registry).
+- **Operational governance** read surfaces aggregate counts, waiting/rollback/policy runs, and operator-attention ordering for operations.
 
-The swarm layer adds internal specialization without external swarm dependencies.
+## Project structure (representative)
 
 ```text
-Input
-  |
-  v
-RouterAgent
-  |
-  v
-PlannerAgent
-  |
-  v
-ExecutorAgent(s)
-  |
-  v
-CriticAgent
-  |
-  v
-MemoryAgent
-  |
-  v
-Final response
+.
+├── .github/                    # CI workflows, templates
+├── backend/
+│   ├── python/
+│   │   ├── brain/
+│   │   │   ├── runtime/        # Orchestrator, OIL, control, observability, planning, …
+│   │   │   ├── memory/         # Memory primitives and hybrid helpers
+│   │   │   ├── evolution/      # Strategy evolution and evaluation
+│   │   │   └── swarm/          # Internal swarm orchestration
+│   │   ├── memory/             # Persisted memory artifacts (runtime-adjacent)
+│   │   ├── transcripts/
+│   │   └── main.py             # Python entrypoint (used by Rust bridge)
+│   └── rust/                   # Axum API, subprocess bridge to Python
+├── contract/                   # JSON schemas (e.g. runner contract)
+├── frontend/                   # Web UI (incl. observability)
+├── js-runner/                  # Node runner entrypoint
+├── src/                        # Node adapter / query engine integration
+├── scripts/                    # Tooling, launcher, packaging
+├── supabase/                   # Migrations / schema (when used)
+├── docker-compose.yml
+├── ARCHITECTURE.md             # Deeper technical notes (if present)
+├── CONTRIBUTING.md
+├── CHANGELOG.md
+├── LICENSE
+└── README.md
 ```
 
-Current swarm agents:
+## Current state
 
-- `RouterAgent`: classifies intent and chooses the internal route.
-- `PlannerAgent`: decomposes complex requests into subtasks.
-- `ExecutorAgent`: produces task outputs and execution fragments.
-- `CriticAgent`: validates response quality before delivery.
-- `MemoryAgent`: consolidates memory signals and persists trace metadata.
+Working today (non-exhaustive):
 
-## Self-Evolution Loop
+- Python orchestration with memory, sessions, transcripts, planning, and tool execution policies.
+- OIL types, protocol conversion, input interpretation, and output composition for structured flows.
+- **RunRegistry** with governance taxonomy fields on resolution records, **governance_timeline**, registry CLI and tests.
+- **GovernanceResolutionController** integrated on primary orchestrator/CLI transition paths (with legacy fallbacks where applicable).
+- **Operational governance** snapshot (`build_operational_governance_snapshot`, `read_operational_governance`) and observability **`operational_governance`** field on snapshots.
+- Node runner with schema validation; Rust bridge; frontend and optional Supabase-related assets.
 
-Omini includes a heuristic self-evolution layer that does not fine-tune models or require GPUs.
+Always refer to code and tests under `tests/` for authoritative behavior.
 
-```text
-Response
-  |
-  v
-Evaluator
-  |
-  v
-Pattern Analyzer
-  |
-  v
-Strategy Updater
-  |
-  v
-Versioned snapshot
-  |
-  v
-Future orchestrator reads strategy_state.json
-```
+## Runtime Convergence Program (Phases 30.1–30.9)
 
-What it currently does:
+Closed band: **OIL + governance + control-plane read consistency** through Phase **30.9**.
 
-- scores each response for relevance, coherence, completeness, and efficiency
-- records weak and strong patterns from recent sessions
-- proposes strategy changes and versions them in snapshots
-- supports rollback to previous strategy versions
+| Phase | Focus |
+| --- | --- |
+| 30.1 | OIL core schema (`OILRequest` / `OILResult`, errors) |
+| 30.2 | OIL input normalization |
+| 30.3 | OIL runtime communication (protocol / envelopes) |
+| 30.4 | OIL output composition |
+| 30.5 | Unified governance taxonomy (reason / source / severity) |
+| 30.6 | Unified governance timeline (`governance_timeline` on runs) |
+| 30.7 | Governance resolution controller (`GovernanceResolutionController`) |
+| 30.8 | Operational governance read layer (`governance_read_model`, consolidated snapshot) |
+| 30.9 | Control plane hardening, contract anchors (`program_closure`), closure tests |
 
-## Getting Started
+Release marker (when tagged in git): **`v9-runtime-convergence-closed`**.
+
+## Next steps (Phase 31+, high level)
+
+- Extend product/API surfaces that consume **`operational_governance`** without changing core persistence contracts.
+- Deeper cognitive or domain-specific phases **after** 30.x remain out of scope for this README; follow `CHANGELOG.md` and issue trackers.
+
+## Technologies
+
+- **Python** 3.11+ (orchestrator, OIL, control, observability, tests).
+- **Node.js** 20+ (runner, schema validation, `npm` scripts).
+- **Rust** (HTTP bridge, subprocess to Python).
+- **Docker** / **docker compose** for local and deployment shapes.
+- **Frontend**: Vite/React (see `frontend/`).
+- Optional: **Supabase** (`supabase/migrations/`) when deploying with that stack.
+
+## Setup and usage
 
 ### Prerequisites
 
-- Python `3.11+`
-- Node.js `20+`
-- Rust toolchain
-- Docker and Docker Compose
+- Python **3.11+**
+- Node.js **20+**
+- Rust toolchain (for `backend/rust`)
+- Docker and Docker Compose (optional)
 
 ### Installation
 
 ```bash
-git clone <your-repo-url>
-cd omini
-cp .env.example .env
+git clone <your-repository-url>
+cd <repository-root>
+cp .env.example .env   # if present; configure variables for your environment
 ```
 
-Install Node dependencies:
+Install Node dependencies at the repository root:
 
 ```bash
 npm install
@@ -174,98 +175,68 @@ npm install
 
 ### Running locally
 
-Run the Python brain:
+Python brain (example):
 
 ```bash
 cd backend/python
 python main.py "hello"
 ```
 
-Run the Rust bridge:
+Rust bridge:
 
 ```bash
 cd backend/rust
 cargo run
 ```
 
-Run the Node health command:
+Node health:
 
 ```bash
 npm run health
 ```
 
-### Running with Docker
+### Docker
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-## Environment Variables
+### Control CLI (governance / runs)
 
-| Variable | Layer | Description |
-| --- | --- | --- |
-| `BASE_DIR` | Shared | Base repository path used by the runtime |
-| `PYTHON_BASE_DIR` | Python | Python runtime root |
-| `NODE_RUNNER_BASE_DIR` | Node | Base directory used by the runner |
-| `APP_HOST` | Rust | Host for the Rust API |
-| `APP_PORT` | Rust | Port for the Rust API |
-| `PYTHON_BIN` | Rust | Python executable used by the Rust bridge |
-| `PYTHON_ENTRY` | Rust | Python entrypoint path used by the bridge |
-| `MOCK_CHAT` | Rust | Optional fallback mode for the Rust API |
-| `AI_SESSION_ID` | Python | Session identifier for runtime persistence |
-| `MEMORY_JSON_PATH` | Python | Structured memory store path |
-| `MEMORY_DIR` | Python | Hybrid memory directory |
-| `TRANSCRIPTS_DIR` | Python | Transcript storage directory |
-| `SESSIONS_DIR` | Python | Session snapshot directory |
-| `NODE_BIN` | Python | Node executable used by the Python orchestrator |
-| `RUNNER_SCHEMA_PATH` | Node | JSON schema path for payload validation |
-| `RUNNER_ADAPTER_PATH` | Node | Adapter path used by the runner |
-| `SERVER_IP` | Deploy | VPS address used by GitHub Actions deploy |
-| `SERVER_USER` | Deploy | SSH user used for deploy |
-| `SSH_PRIVATE_KEY` | Deploy | SSH private key stored as a GitHub secret |
+From the Python path, the control CLI module is `brain.runtime.control.cli` (invoked as `control-cli` in tests). Typical JSON-oriented commands include `inspect_run`, `resolution_summary`, `governance_operational` / `governance_snapshot`, and operator `pause` / `resume` / `approve`. Use `--root` pointing at the project root when required.
 
-## Project Structure
+### Tests
 
-```text
-.
-├── .github/                     # GitHub workflows, issue templates, PR template, CODEOWNERS
-├── backend/
-│   ├── python/
-│   │   ├── brain/
-│   │   │   ├── evolution/       # Scoring, analysis, strategy snapshots, dashboard
-│   │   │   ├── memory/          # Hybrid memory primitives and storage helpers
-│   │   │   ├── runtime/         # Main orchestrator, sessions, transcripts, swarm logs
-│   │   │   └── swarm/           # Internal specialized agents and swarm orchestration
-│   │   ├── memory/              # User-facing persisted memory artifacts
-│   │   ├── transcripts/         # Session transcript files
-│   │   ├── main.py              # Python entrypoint used by the Rust bridge
-│   │   └── Dockerfile           # Python production image
-│   └── rust/
-│       └── src/                 # Axum bridge and subprocess integration
-├── contract/                    # Formal payload schemas between runtime layers
-├── frontend/                    # Web and mobile frontends
-├── js-runner/                   # Node runtime entrypoint and health checks
-├── scripts/                     # Server and deployment setup scripts
-├── src/                         # Node reasoning adapter
-├── docker-compose.yml           # Local and server orchestration
-├── ARCHITECTURE.md              # Detailed technical architecture
-├── CONTRIBUTING.md              # Development workflow and contribution guide
-├── CHANGELOG.md                 # Project release history
-└── LICENSE                      # License file
+```bash
+npm run test:python
+# and/or
+npm test
 ```
 
-## Roadmap
+## Environment variables (representative)
 
-- Improve evaluator heuristics to better separate weak routing from weak answer content
-- Add focused test coverage for orchestrator, swarm, and evolution logic
-- Expand frontend observability for internal traces in a debug mode
-- Add richer capability weighting and intent-specific routing policies
-- Introduce safer production-facing health and metrics endpoints
+| Variable | Role |
+| --- | --- |
+| `BASE_DIR` | Repository root for runtime path resolution |
+| `PYTHON_BASE_DIR` | Python package root |
+| `MEMORY_JSON_PATH`, `MEMORY_DIR` | Memory store locations |
+| `TRANSCRIPTS_DIR`, `SESSIONS_DIR` | Transcript and session persistence |
+| `NODE_BIN` | Node executable for orchestrator-invoked runner |
+| `APP_HOST`, `APP_PORT`, `PYTHON_BIN`, `PYTHON_ENTRY` | Rust bridge ↔ Python |
+| Deploy-related SSH / server variables | As used in CI (see `.github/workflows`) |
 
-## Contributing
+See `.env.example` for the authoritative list in your checkout.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, commit conventions, PR rules, and how to extend agents and capabilities.
+## Notes and constraints
+
+- **Governance** state is persisted under `.logs/fusion-runtime/control/`; treat that tree as operational data, not hand-edited source.
+- **Backward compatibility**: older run rows without full `governance` blocks or `governance_timeline` remain loadable via registry synthesis and read-model fallbacks (`program_closure` empty shapes).
+- Badges and upstream URLs in third-party README templates may need updating to match your GitHub org and default branch.
+
+## Author
+
+Projeto Omni — maintained by the repository contributors. See `CONTRIBUTING.md` and git history for attribution.
 
 ## License
 
