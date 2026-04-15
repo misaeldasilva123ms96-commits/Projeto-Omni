@@ -8,6 +8,7 @@ from brain.runtime.language.envelopes import (
 )
 from brain.runtime.language.oil_schema import OILError, OILRequest, OILResult
 from brain.runtime.language.input_interpreter import InputInterpreter, interpret_input
+from brain.runtime.language.output_composer import OutputComposer, compose_output
 from brain.runtime.language.protocol import (
     OILHandoffProtocol,
     OIL_PROTOCOL_VERSION,
@@ -43,6 +44,8 @@ __all__ = [
     "OILError",
     "InputInterpreter",
     "interpret_input",
+    "OutputComposer",
+    "compose_output",
     "OIL_PROTOCOL_VERSION",
     "OILRoutingMetadata",
     "OILTraceMetadata",
