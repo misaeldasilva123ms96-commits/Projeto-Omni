@@ -126,6 +126,9 @@ class ObservabilityReaderTest(unittest.TestCase):
                 snap_dict = snapshot.as_dict()
                 self.assertIn('recent_governance_timeline_events', snap_dict)
                 self.assertIn('latest_governance_event_by_run', snap_dict)
+                self.assertIsInstance(snapshot.operational_governance, dict)
+                self.assertIn('operational_governance', snap_dict)
+                self.assertIn('waiting_operator_runs', snapshot.operational_governance)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

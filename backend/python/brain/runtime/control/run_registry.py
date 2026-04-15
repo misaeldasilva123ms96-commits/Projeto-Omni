@@ -493,6 +493,21 @@ class RunRegistry:
                     rows.append(record)
             return sorted(rows, key=lambda item: item.updated_at, reverse=True)
 
+    def get_runs_blocked_by_policy(self) -> list[RunRecord]:
+        with self._lock:
+            self._reload_if_available()
+            rows = []
+            for record in self._runs.values():
+                resolution = record.resolution
+                reason = str((resolution.reason if resolution else "") or "").strip()
+                if reason == GovernanceReason.POLICY_BLOCK.value:
+                    rows.append(record)
+                    continue
+                cur = str((resolution.current_resolution if resolution else "") or "").strip().lower()
+                if cur == "blocked":
+                    rows.append(record)
+            return sorted(rows, key=lambda item: item.updated_at, reverse=True)
+
     def recent_resolution_events(self, limit: int = 25) -> list[dict[str, Any]]:
         with self._lock:
             self._reload_if_available()

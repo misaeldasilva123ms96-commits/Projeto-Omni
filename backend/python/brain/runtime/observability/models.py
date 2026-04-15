@@ -235,6 +235,7 @@ class ObservabilitySnapshot:
     recent_resolution_events: list[dict[str, Any]] = field(default_factory=list)
     recent_governance_timeline_events: list[dict[str, Any]] = field(default_factory=list)
     latest_governance_event_by_run: dict[str, dict[str, Any]] = field(default_factory=dict)
+    operational_governance: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -263,5 +264,6 @@ class ObservabilitySnapshot:
             "recent_resolution_events": [dict(item) for item in self.recent_resolution_events],
             "recent_governance_timeline_events": [dict(item) for item in self.recent_governance_timeline_events],
             "latest_governance_event_by_run": {str(k): dict(v) for k, v in self.latest_governance_event_by_run.items()},
+            "operational_governance": dict(self.operational_governance),
             "warnings": list(self.warnings),
         }

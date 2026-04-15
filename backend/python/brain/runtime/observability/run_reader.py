@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.control import RunRegistry
+from brain.runtime.control.governance_read_model import build_operational_governance_snapshot
 
 
 def read_active_runs(root: Path) -> list[dict[str, Any]]:
@@ -89,3 +90,26 @@ def read_latest_governance_event_by_run(root: Path) -> dict[str, dict[str, Any]]
         return registry.latest_governance_event_by_run()
     except Exception:
         return {}
+
+
+def read_operational_governance(root: Path, *, timeline_limit: int = 25) -> dict[str, Any]:
+    try:
+        registry = RunRegistry(root)
+        return build_operational_governance_snapshot(registry, timeline_limit=timeline_limit)
+    except Exception:
+        return {
+            "taxonomy_version": "30.5",
+            "summary": read_resolution_summary(root),
+            "total_runs": 0,
+            "resolution_counts": {},
+            "reason_counts": {},
+            "governance_source_counts": {},
+            "governance_severity_counts": {},
+            "timeline_event_counts": {},
+            "waiting_operator_runs": [],
+            "rollback_affected_runs": [],
+            "blocked_by_policy_runs": [],
+            "operator_attention_runs": [],
+            "recent_governance_timeline_events": [],
+            "latest_governance_event_by_run": {},
+        }

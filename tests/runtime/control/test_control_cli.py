@@ -177,6 +177,8 @@ class ControlCliTest(unittest.TestCase):
                 ["control-cli", "--root", str(workspace_root), "inspect_run", "run-observe"],
                 ["control-cli", "--root", str(workspace_root), "list_runs", "--limit", "10"],
                 ["control-cli", "--root", str(workspace_root), "resolution_summary"],
+                ["control-cli", "--root", str(workspace_root), "governance_operational"],
+                ["control-cli", "--root", str(workspace_root), "governance_attention"],
                 ["control-cli", "--root", str(workspace_root), "runs_waiting_operator"],
                 ["control-cli", "--root", str(workspace_root), "runs_with_rollback"],
             ):
@@ -192,6 +194,13 @@ class ControlCliTest(unittest.TestCase):
                     self.assertIsInstance(run_payload, dict)
                     self.assertIn("governance_timeline", run_payload)
                     self.assertGreaterEqual(len(run_payload["governance_timeline"]), 1)
+                if argv[3] == "governance_operational":
+                    gov = payload.get("governance")
+                    self.assertIsInstance(gov, dict)
+                    self.assertIn("operator_attention_runs", gov)
+                    self.assertIn("summary", gov)
+                if argv[3] == "governance_attention":
+                    self.assertIsInstance(payload.get("operator_attention_runs"), list)
 
 
 if __name__ == "__main__":

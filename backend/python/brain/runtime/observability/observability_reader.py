@@ -11,6 +11,7 @@ from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_
 from .run_reader import (
     read_active_runs,
     read_latest_governance_event_by_run,
+    read_operational_governance,
     read_recent_governance_timeline_events,
     read_recent_resolution_events,
     read_resolution_summary,
@@ -47,6 +48,7 @@ class ObservabilityReader:
         recent_resolution_events = read_recent_resolution_events(self.root, limit=25)
         recent_governance_timeline_events = read_recent_governance_timeline_events(self.root, limit=25)
         latest_governance_event_by_run = read_latest_governance_event_by_run(self.root)
+        operational_governance = read_operational_governance(self.root, timeline_limit=25)
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -84,6 +86,7 @@ class ObservabilityReader:
             recent_resolution_events=recent_resolution_events,
             recent_governance_timeline_events=recent_governance_timeline_events,
             latest_governance_event_by_run=latest_governance_event_by_run,
+            operational_governance=operational_governance,
             warnings=[],
         )
 

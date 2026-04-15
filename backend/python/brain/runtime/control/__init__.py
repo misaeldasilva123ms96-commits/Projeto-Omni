@@ -13,10 +13,28 @@ from .governance_taxonomy import (
     normalize_governance_source,
 )
 from .governance_controller import GovernanceResolutionController
+from .governance_read_model import (
+    attention_priority_for_run,
+    build_governance_run_view,
+    build_operational_governance_snapshot,
+    list_blocked_by_policy_runs,
+    list_operator_attention_runs,
+    list_rollback_affected_runs,
+    list_waiting_operator_runs,
+    summarize_governance,
+)
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
 
 __all__ = [
     "GovernanceResolutionController",
+    "attention_priority_for_run",
+    "build_governance_run_view",
+    "build_operational_governance_snapshot",
+    "list_blocked_by_policy_runs",
+    "list_operator_attention_runs",
+    "list_rollback_affected_runs",
+    "list_waiting_operator_runs",
+    "summarize_governance",
     "RunRecord",
     "RunRegistry",
     "RunStatus",
