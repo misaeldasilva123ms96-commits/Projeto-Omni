@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .governance_taxonomy import GovernanceReason, GovernanceSeverity, build_governance_decision
+from .program_closure import GOVERNANCE_TAXONOMY_VERSION
 from .run_registry import RunRecord, RunRegistry, RunStatus
 
 
@@ -121,7 +122,7 @@ def build_operational_governance_snapshot(registry: RunRegistry, *, timeline_lim
     recent = registry.recent_governance_timeline_events(limit=max(1, int(timeline_limit or 25)))
     latest = registry.latest_governance_event_by_run()
     return {
-        "taxonomy_version": str(gov.get("taxonomy_version", "30.5")),
+        "taxonomy_version": str(gov.get("taxonomy_version", GOVERNANCE_TAXONOMY_VERSION)),
         "summary": summary,
         "total_runs": int(summary.get("total_runs", 0) or 0),
         "resolution_counts": dict(summary.get("resolution_counts", {}) or {}),

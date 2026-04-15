@@ -23,6 +23,7 @@ def _build_parser() -> argparse.ArgumentParser:
         list_parser.add_argument("--limit", type=int, default=50)
     subparsers.add_parser("resolution_summary")
     subparsers.add_parser("governance_operational")
+    subparsers.add_parser("governance_snapshot")
     subparsers.add_parser("governance_attention")
     waiting = subparsers.add_parser("runs_waiting_operator")
     waiting.add_argument("--limit", type=int, default=50)
@@ -100,7 +101,7 @@ def main() -> int:
         return _emit({"status": "ok", "runs": runs})
     if args.command == "resolution_summary":
         return _emit({"status": "ok", "summary": registry.get_resolution_summary()})
-    if args.command == "governance_operational":
+    if args.command in {"governance_operational", "governance_snapshot"}:
         return _emit({"status": "ok", "governance": build_operational_governance_snapshot(registry)})
     if args.command == "governance_attention":
         return _emit({"status": "ok", "operator_attention_runs": list_operator_attention_runs(registry)})

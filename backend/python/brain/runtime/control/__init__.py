@@ -13,6 +13,15 @@ from .governance_taxonomy import (
     normalize_governance_source,
 )
 from .governance_controller import GovernanceResolutionController
+from .program_closure import (
+    GOVERNANCE_TAXONOMY_VERSION,
+    OMNI_RUNTIME_CONVERGENCE_PHASE,
+    OMNI_RUNTIME_CONVERGENCE_PROGRAM,
+    assert_operational_governance_contract,
+    empty_operational_governance_fallback,
+    empty_resolution_summary_fallback,
+    validate_operational_governance_shape,
+)
 from .governance_read_model import (
     attention_priority_for_run,
     build_governance_run_view,
@@ -26,6 +35,13 @@ from .governance_read_model import (
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
 
 __all__ = [
+    "GOVERNANCE_TAXONOMY_VERSION",
+    "OMNI_RUNTIME_CONVERGENCE_PHASE",
+    "OMNI_RUNTIME_CONVERGENCE_PROGRAM",
+    "assert_operational_governance_contract",
+    "empty_operational_governance_fallback",
+    "empty_resolution_summary_fallback",
+    "validate_operational_governance_shape",
     "GovernanceResolutionController",
     "attention_priority_for_run",
     "build_governance_run_view",
