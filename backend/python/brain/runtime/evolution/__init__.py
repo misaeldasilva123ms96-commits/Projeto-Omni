@@ -1,5 +1,6 @@
 from .evolution_executor import EvolutionExecutor
 from .evolution_models import EvolutionProposalRecord, EvolutionProposalStatus, EvolutionRiskLevel
+from .evolution_application import EvolutionApplicationAttempt, EvolutionApplicationStatus
 from .evolution_registry import EvolutionRegistry
 from .evolution_service import EvolutionService
 from .evolution_validation import (
@@ -29,6 +30,8 @@ __all__ = [
     "EvolutionProposalRecord",
     "EvolutionProposalStatus",
     "EvolutionRiskLevel",
+    "EvolutionApplicationAttempt",
+    "EvolutionApplicationStatus",
     "EvolutionRegistry",
     "EvolutionService",
     "EvolutionValidationOutcome",

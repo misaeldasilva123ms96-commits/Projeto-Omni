@@ -240,6 +240,7 @@ class ObservabilitySnapshot:
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
+        governed_evolution = dict(self.governed_evolution or {})
         return {
             "generated_at": self.generated_at,
             "goal": self.goal.as_dict() if self.goal else None,
@@ -266,6 +267,6 @@ class ObservabilitySnapshot:
             "recent_governance_timeline_events": [dict(item) for item in self.recent_governance_timeline_events],
             "latest_governance_event_by_run": {str(k): dict(v) for k, v in self.latest_governance_event_by_run.items()},
             "operational_governance": dict(self.operational_governance),
-            "governed_evolution": dict(self.governed_evolution or {}),
+            "governed_evolution": governed_evolution,
             "warnings": list(self.warnings),
         }

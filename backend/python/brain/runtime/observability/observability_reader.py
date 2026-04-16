@@ -50,7 +50,7 @@ class ObservabilityReader:
         recent_governance_timeline_events = read_recent_governance_timeline_events(self.root, limit=25)
         latest_governance_event_by_run = read_latest_governance_event_by_run(self.root)
         operational_governance = read_operational_governance(self.root, timeline_limit=25)
-        governed_evolution = dict(read_evolution_summary(self.root, recent_limit=10))
+        governed_evolution = self._normalize_governed_evolution(read_evolution_summary(self.root, recent_limit=10))
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -135,3 +135,18 @@ class ObservabilityReader:
         progress_score = validator.metadata.get("progress_score")
         if isinstance(progress_score, (int, float)):
             goal.progress_score = max(0.0, min(1.0, float(progress_score)))
+
+    @staticmethod
+    def _normalize_governed_evolution(payload: dict[str, object] | None) -> dict[str, object]:
+        data = dict(payload or {})
+        data.setdefault("validation_counts", {"valid": 0, "invalid": 0, "risky": 0, "inconclusive": 0})
+        data.setdefault(
+            "application_counts",
+            {"pending": 0, "applying": 0, "applied": 0, "failed": 0, "rolled_back": 0},
+        )
+        data.setdefault("rollback_counts", {"executed": 0, "available": 0})
+        data.setdefault("latest_validation_by_proposal", {})
+        data.setdefault("latest_application_by_proposal", {})
+        data.setdefault("proposals_with_recent_validation", [])
+        data.setdefault("proposals_with_recent_application", [])
+        return data

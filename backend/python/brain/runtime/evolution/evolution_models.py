@@ -75,6 +75,8 @@ class EvolutionProposalRecord:
     validation: dict[str, Any] = field(default_factory=dict)
     latest_validation: dict[str, Any] | None = None
     validation_history: list[dict[str, Any]] = field(default_factory=list)
+    latest_application: dict[str, Any] | None = None
+    application_history: list[dict[str, Any]] = field(default_factory=list)
     extensions: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -133,6 +135,8 @@ class EvolutionProposalRecord:
             validation=dict(validation or {"shape_valid": True, "checked_at": now, "errors": []}),
             latest_validation=None,
             validation_history=[],
+            latest_application=None,
+            application_history=[],
             extensions=dict(extensions or {}),
         )
 
@@ -149,6 +153,12 @@ class EvolutionProposalRecord:
         validation_history = [
             dict(item)
             for item in (payload.get("validation_history", []) or [])
+            if isinstance(item, dict)
+        ]
+        latest_application = payload.get("latest_application", None)
+        application_history = [
+            dict(item)
+            for item in (payload.get("application_history", []) or [])
             if isinstance(item, dict)
         ]
         extensions = dict(payload.get("extensions", {}) or {})
@@ -180,6 +190,8 @@ class EvolutionProposalRecord:
             validation=validation,
             latest_validation=dict(latest_validation) if isinstance(latest_validation, dict) else None,
             validation_history=validation_history,
+            latest_application=dict(latest_application) if isinstance(latest_application, dict) else None,
+            application_history=application_history,
             extensions=extensions,
         )
 
@@ -201,6 +213,8 @@ class EvolutionProposalRecord:
             "validation": dict(self.validation),
             "latest_validation": dict(self.latest_validation) if isinstance(self.latest_validation, dict) else None,
             "validation_history": [dict(item) for item in self.validation_history],
+            "latest_application": dict(self.latest_application) if isinstance(self.latest_application, dict) else None,
+            "application_history": [dict(item) for item in self.application_history],
             "extensions": dict(self.extensions),
         }
 
@@ -211,6 +225,15 @@ class EvolutionProposalRecord:
             raise ValueError("validation_result must be a non-empty object")
         self.validation_history = [*self.validation_history, entry][-100:]
         self.latest_validation = dict(entry)
+        self.updated_at = utc_now_iso()
+
+    def append_application_attempt(self, application_attempt: dict[str, Any]) -> None:
+        """Append-only application history with latest pointer update."""
+        entry = dict(application_attempt or {})
+        if not entry:
+            raise ValueError("application_attempt must be a non-empty object")
+        self.application_history = [*self.application_history, entry][-100:]
+        self.latest_application = dict(entry)
         self.updated_at = utc_now_iso()
 
     def transition_status(

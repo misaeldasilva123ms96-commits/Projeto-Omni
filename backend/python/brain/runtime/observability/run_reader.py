@@ -119,6 +119,19 @@ def read_evolution_summary(root: Path, *, recent_limit: int = 10) -> dict[str, A
             },
             "proposals_with_recent_validation": [],
             "latest_validation_by_proposal": {},
+            "application_counts": {
+                "pending": 0,
+                "applying": 0,
+                "applied": 0,
+                "failed": 0,
+                "rolled_back": 0,
+            },
+            "proposals_with_recent_application": [],
+            "latest_application_by_proposal": {},
+            "rollback_counts": {
+                "executed": 0,
+                "available": 0,
+            },
             "lifecycle": {
                 "allowed_statuses": ["proposed", "under_review", "approved", "rejected", "deferred"],
                 "terminal_statuses": ["approved", "rejected", "deferred"],
