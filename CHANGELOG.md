@@ -12,10 +12,16 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - Professional repository documentation and contribution guides
 - GitHub issue and pull request templates
 - CI workflow for Python and Node validation
+- Governed evolution proposal baseline (Phase 30.17)
+- Deterministic proposal validation loop with history tracking (Phase 30.18)
+- Governed bounded patch application path with rollback safety (Phase 30.19)
+- Evolution control-plane closure helpers and contract normalization (Phase 30.20)
 
 ### Changed
 
 - Deployment workflow now includes post-deploy health verification
+- Governed evolution observability block aligned with proposal/validation/application/rollback lifecycle summaries
+- Runtime governance/evolution documentation refreshed for Phase 30.20 repository maturity
 
 ## [1.0.0] - 2026-04-03
 

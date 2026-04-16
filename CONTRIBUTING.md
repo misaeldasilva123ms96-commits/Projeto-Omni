@@ -44,6 +44,13 @@ Use Conventional Commits:
 - `docs: rewrite architecture guide`
 - `chore: update CI workflow`
 
+## Governance Expectations
+
+- Work one phase at a time; keep scope aligned with active phase objective.
+- Do not bypass governance controls or observability requirements.
+- Do not introduce uncontrolled self-modification behavior.
+- Preserve runtime behavior unless the phase explicitly requires logic changes.
+
 ## Adding a New Swarm Agent
 
 1. Create a new file in `backend/python/brain/swarm/`.
@@ -101,3 +108,5 @@ docker compose ps
 - [ ] The relevant runtime path was tested locally
 - [ ] Documentation was updated when behavior changed
 - [ ] The PR title follows Conventional Commits
+- [ ] Phase/gate scope is explicit in PR description
+- [ ] Control-plane/observability contracts remain backward compatible (or are explicitly versioned)

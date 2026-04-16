@@ -2,287 +2,72 @@
 
 ## Overview
 
-Omini is structured as a layered runtime rather than a single process with mixed responsibilities. Each layer has a narrow contract:
+Omni is a layered cognitive runtime.  
+Each layer has a clear contract and bounded responsibility, with governance and observability integrated into control-plane reads.
 
 ```text
 Client
-  |
-  v
-Rust API
-  |
-  v
-Python Brain
-  |
-  v
-Swarm Orchestrator
-  |
-  v
-Node Runner
-  |
-  v
-Persistent State
+  -> Rust API boundary
+  -> Python runtime orchestration
+  -> Node agent runtime
+  -> Persisted control + memory state
 ```
 
-This design keeps the Rust-facing contract simple while letting Python and Node handle orchestration and reasoning.
+## Runtime Layers
 
-## Architectural Decisions
+### 1) OIL Layer
 
-### 1. Rust handles the external HTTP boundary
+Primary location: `backend/python/brain/runtime/language/`
 
-Why:
+- Defines typed runtime I/O contracts (`OILRequest`, `OILResult`, `OILError`)
+- Normalizes input and composes output envelopes
+- Preserves structured protocol boundaries across runtime flows
 
-- strong typing and predictable request/response handling
-- process isolation from the cognitive runtime
-- clear subprocess boundary for Python
+### 2) Orchestration Layer
 
-Tradeoff:
+Primary location: `backend/python/brain/runtime/`
 
-- one more layer to operate
-- subprocess orchestration must remain stable
+- `BrainOrchestrator` coordinates planning, execution routing, specialists, continuation, learning, and governance integration
+- Control-plane state is persisted through runtime services and registries
+- Runtime behavior is governed through explicit transitions rather than implicit side effects
 
-### 2. Python owns orchestration and persistence
+### 3) Node Agent Runtime
 
-Why:
+Primary locations: `js-runner/`, `src/`, runtime Node adapters
 
-- it is the best fit for memory, sessions, transcripts, scoring, and strategy control
-- orchestration logic is easier to audit and evolve in Python
+- Executes Node-based reasoning/agent logic
+- Uses schema-validated payload contracts from Python
+- Remains isolated behind explicit bridge interfaces
 
-Tradeoff:
+### 4) Memory Layer
 
-- subprocess calls to Node require strict contracts
+Primary locations: `backend/python/brain/runtime/memory/`, `backend/python/memory/`, transcript/session stores
 
-### 3. Node owns the explicit reasoning pipeline
+- Stores operational memory artifacts: sessions, transcripts, learning signals, and related snapshots
+- Supports runtime recall and operational auditability
+- Keeps memory persistence explicit and inspectable
 
-Why:
+### 5) Evolution Layer
 
-- the adapter pipeline is easier to express and iterate in JavaScript
-- delegate resolution and runner schema validation fit naturally in the Node layer
+Primary location: `backend/python/brain/runtime/evolution/`
 
-Tradeoff:
+- Governed proposal lifecycle (proposal, validation, explicit review, bounded application, rollback)
+- Bounded sandbox mutation only (`.logs/fusion-runtime/evolution/sandbox`)
+- No autonomous self-modification loop in production runtime paths
 
-- interop requires schema stability
+## Governance and Control Plane
 
-### 4. Swarm is internal, not vendor-managed
+Primary location: `backend/python/brain/runtime/control/`
 
-Why:
-
-- no dependence on hosted swarm APIs
-- complete control over traces, messages, and agent lifecycle
-- deterministic local execution on CPU-only infrastructure
+- Canonical taxonomy: reason/source/severity
+- Run-level source of truth: `RunRegistry`
+- Read model: operational governance snapshot and attention views
+- Strictly controlled transitions through explicit service/controller paths
 
-### 5. Strategy evolution is parameter-based
+## Observability
 
-Why:
+Primary location: `backend/python/brain/runtime/observability/`
 
-- no fine-tuning, no GPU assumptions
-- changes remain auditable and reversible
-- production safety is higher than direct code mutation
-
-## Full Flow
-
-```text
-HTTP request
-  |
-  v
-Rust POST /chat
-  |
-  v
-python main.py
-  |
-  v
-BrainOrchestrator
-  |
-  +--> memory lookup
-  +--> transcript merge
-  +--> strategy state read
-  |
-  v
-SwarmOrchestrator
-  |
-  +--> RouterAgent
-  +--> PlannerAgent
-  +--> ExecutorAgent(s)
-  +--> CriticAgent
-  +--> MemoryAgent
-  |
-  v
-Node runner + reasoning adapter
-  |
-  v
-final text response
-  |
-  +--> evaluation
-  +--> learning update
-  +--> session snapshot
-  +--> transcript append
-  +--> swarm log append
-```
-
-## Interface Contracts
-
-### Rust -> Python
-
-Contract:
-
-- input: CLI argument with user message
-- output: stdout only, final response text only
-
-Guarantee:
-
-- Rust never needs to understand internal swarm or evolution structures
-
-### Python -> Node
-
-Contract file:
-
-- [`contract/runner-schema.v1.json`](./contract/runner-schema.v1.json)
-
-Payload shape:
-
-```json
-{
-  "message": "string",
-  "memory": {
-    "nome": "string",
-    "preferencias": ["string"]
-  },
-  "history": [
-    {
-      "role": "user | assistant",
-      "content": "string"
-    }
-  ],
-  "summary": "string",
-  "capabilities": [
-    {
-      "name": "string",
-      "description": "string",
-      "category": "string"
-    }
-  ],
-  "session": {
-    "session_id": "string",
-    "summary": "string"
-  }
-}
-```
-
-Validation:
-
-- performed in `js-runner/queryEngineRunner.js` using `ajv`
-
-## Hybrid Memory Strategy
-
-Omini uses two complementary memory forms:
-
-### Structured memory
-
-Files:
-
-- `backend/python/memory.json`
-- `backend/python/memory/user.json`
-- `backend/python/memory/preferences.json`
-
-Used for:
-
-- user identity
-- explicit preferences
-- short structured state
-
-### Operational memory
-
-Files:
-
-- `backend/python/transcripts/*.jsonl`
-- `backend/python/brain/runtime/sessions/*.json`
-- `backend/python/brain/runtime/swarm_log.json`
-- `backend/python/memory/learning.json`
-
-Used for:
-
-- recent dialogue recall
-- agent trace reconstruction
-- evaluation history
-- strategy evolution
-
-## Swarm Task Distribution
-
-Internal agent order:
-
-```text
-RouterAgent
-  -> PlannerAgent
-  -> ExecutorAgent(s)
-  -> CriticAgent
-  -> MemoryAgent
-```
-
-Communication model:
-
-- in-memory `asyncio.Queue`
-- typed messages
-- session-scoped payloads
-- persisted communication trace in `swarm_log.json`
-
-Message shape:
-
-```json
-{
-  "from": "agent_id",
-  "to": "agent_id | broadcast",
-  "type": "task | result | critique | memory_op",
-  "payload": {},
-  "timestamp": "ISO8601",
-  "session_id": "string"
-}
-```
-
-## Self-Evolution Loop
-
-The evolution loop never rewrites orchestrator code. It only updates strategy files that the orchestrator reads.
-
-```text
-Response
-  |
-  v
-Evaluator
-  |
-  v
-Pattern Analyzer
-  |
-  v
-Strategy Updater
-  |
-  +--> strategy_state.json
-  +--> snapshots/strategy_vN.json
-  +--> strategy_log.json
-  |
-  v
-Future requests read the new parameters
-```
-
-Current adjustable parameters:
-
-- capability weights
-- decision thresholds
-- memory history limits
-- orchestrator hints
-
-Rollback:
-
-```text
-python -m brain.evolution.dashboard rollback <version>
-```
-
-## Auditability
-
-Omini keeps every major adaptive artifact inspectable:
-
-- session snapshots
-- transcripts
-- swarm communication logs
-- evaluations
-- strategy snapshots
-- strategy logs
-
-That makes it possible to trace why a response happened and what parameter version shaped it.
+- Consolidated runtime snapshot across goals, traces, simulations, governance, and governed evolution
+- Stable read surfaces for operational tooling and CLI consumers
+- Additive contract evolution with fallback-normalized shapes
