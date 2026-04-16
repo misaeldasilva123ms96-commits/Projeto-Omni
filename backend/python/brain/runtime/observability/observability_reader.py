@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from brain.runtime.control.governance_taxonomy import GovernanceReason
+from brain.runtime.evolution.evolution_program_closure import normalize_governed_evolution_summary
 
 from .engine_adoption_reader import read_engine_adoption
 from .goal_reader import GoalReader
@@ -10,6 +11,7 @@ from .memory_reader import MemoryReader
 from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_iso
 from .run_reader import (
     read_active_runs,
+    read_evolution_summary,
     read_latest_governance_event_by_run,
     read_operational_governance,
     read_recent_governance_timeline_events,
@@ -49,6 +51,7 @@ class ObservabilityReader:
         recent_governance_timeline_events = read_recent_governance_timeline_events(self.root, limit=25)
         latest_governance_event_by_run = read_latest_governance_event_by_run(self.root)
         operational_governance = read_operational_governance(self.root, timeline_limit=25)
+        governed_evolution = normalize_governed_evolution_summary(read_evolution_summary(self.root, recent_limit=10))
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -87,6 +90,7 @@ class ObservabilityReader:
             recent_governance_timeline_events=recent_governance_timeline_events,
             latest_governance_event_by_run=latest_governance_event_by_run,
             operational_governance=operational_governance,
+            governed_evolution=governed_evolution,
             warnings=[],
         )
 
@@ -132,3 +136,4 @@ class ObservabilityReader:
         progress_score = validator.metadata.get("progress_score")
         if isinstance(progress_score, (int, float)):
             goal.progress_score = max(0.0, min(1.0, float(progress_score)))
+
