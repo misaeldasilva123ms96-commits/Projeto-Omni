@@ -50,6 +50,12 @@ from .run_identity import (
     validate_run_id_for_operator_cli,
 )
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
+from .run_registry_backend import (
+    FileSystemRunRegistryBackend,
+    InMemoryRunRegistryBackend,
+    RunRegistryBackend,
+    RunRegistryBackendMetadata,
+)
 from .governed_tools import (
     GOVERNED_TOOLS_STRICT_BLOCK_KIND,
     GovernedToolSpec,
@@ -93,6 +99,10 @@ __all__ = [
     "summarize_governance",
     "RunRecord",
     "RunRegistry",
+    "FileSystemRunRegistryBackend",
+    "InMemoryRunRegistryBackend",
+    "RunRegistryBackend",
+    "RunRegistryBackendMetadata",
     "coerce_runtime_run_id",
     "normalize_run_id",
     "resolve_run_id_for_registry_lookup",

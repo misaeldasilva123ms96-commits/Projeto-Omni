@@ -1,4 +1,3 @@
-import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ from .governance_timeline import (
     synthesize_timeline_from_legacy,
 )
 from .run_identity import run_id_lookup_keys, validate_run_id_for_new_write
+from .run_registry_backend import FileSystemRunRegistryBackend, RunRegistryBackend
 
 
 def utc_now_iso() -> str:
@@ -334,14 +334,29 @@ class RunRecord:
 
 
 class RunRegistry:
-    def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "control"
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.base_dir / "run_registry.json"
+    def __init__(self, root: Path, *, backend: RunRegistryBackend | None = None) -> None:
         self._lock = threading.RLock()
         self._runs: dict[str, RunRecord] = {}
-        if self.path.exists():
+        if backend is None:
+            fs_backend = FileSystemRunRegistryBackend(root)
+            self._backend: RunRegistryBackend = fs_backend
+            self.base_dir = fs_backend.control_dir
+            self.path = fs_backend.registry_path
+        else:
+            self._backend = backend
+            if isinstance(backend, FileSystemRunRegistryBackend):
+                self.base_dir = backend.control_dir
+                self.path = backend.registry_path
+            else:
+                self.base_dir = root / ".logs" / "fusion-runtime" / "control"
+                self.path = self.base_dir / "run_registry.json"
+        if self._backend.exists():
             self.reload_from_disk()
+
+    @property
+    def persistence_backend(self) -> RunRegistryBackend:
+        """Persistence driver for load/flush (Phase 30.16)."""
+        return self._backend
 
     def register(self, run: RunRecord) -> RunRecord:
         with self._lock:
@@ -581,7 +596,9 @@ class RunRegistry:
     def reload_from_disk(self) -> None:
         with self._lock:
             try:
-                payload = json.loads(self.path.read_text(encoding="utf-8"))
+                payload = self._backend.load()
+            except ValueError:
+                raise
             except Exception as error:
                 raise ValueError(f"Invalid run registry data: {error}") from error
             if not isinstance(payload, dict):
@@ -600,11 +617,9 @@ class RunRegistry:
             payload = {
                 "runs": {run_id: record.as_dict() for run_id, record in self._runs.items()},
             }
-            temp_path = self.path.with_suffix(".tmp")
-            temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            temp_path.replace(self.path)
+            self._backend.save(payload)
 
     def _reload_if_available(self) -> None:
-        if not self.path.exists():
+        if not self._backend.exists():
             return
         self.reload_from_disk()
