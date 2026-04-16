@@ -63,6 +63,18 @@ class GovernanceIntegrationService:
             "progress_score": progress_score,
         }
 
+    def apply_governance_hold_after_specialist(self, *, run_id: str, progress_score: float) -> None:
+        ctrl = self._get_controller()
+        if ctrl is not None:
+            ctrl.handle_governance_hold(run_id=run_id, progress=progress_score)
+        else:
+            self._run_lifecycle.update_run_status(
+                run_id=run_id,
+                status=RunStatus.AWAITING_APPROVAL,
+                last_action="governance_hold",
+                progress_score=progress_score,
+            )
+
     def await_run_control_clearance(self, *, run_id: str) -> dict[str, Any]:
         if self._run_registry is None:
             return {"status": "running"}
