@@ -1858,6 +1858,7 @@ class BrainOrchestrator:
         return False
 
     def _await_run_control_clearance(self, *, run_id: str) -> dict[str, Any]:
+        """Delegate to governance integration (bounded poll; Phase 30.15)."""
         return self._governance_integration.await_run_control_clearance(run_id=run_id)
 
     def _control_block_result(

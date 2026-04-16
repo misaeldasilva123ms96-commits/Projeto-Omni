@@ -13,6 +13,15 @@ from .governance_taxonomy import (
     normalize_governance_source,
 )
 from .governance_controller import GovernanceResolutionController
+from .governance_wait import (
+    GOVERNANCE_POLL_INTERVAL_MAX,
+    GOVERNANCE_POLL_INTERVAL_MIN,
+    GovernanceWaitEndReason,
+    GovernanceWaitPollResult,
+    GovernanceWaitTick,
+    bounded_governance_poll,
+    clamp_governance_poll_interval_seconds,
+)
 from .program_closure import (
     GOVERNANCE_TAXONOMY_VERSION,
     OMNI_RUNTIME_CONVERGENCE_PHASE,
@@ -67,6 +76,13 @@ __all__ = [
     "empty_resolution_summary_fallback",
     "validate_operational_governance_shape",
     "GovernanceResolutionController",
+    "GOVERNANCE_POLL_INTERVAL_MAX",
+    "GOVERNANCE_POLL_INTERVAL_MIN",
+    "GovernanceWaitEndReason",
+    "GovernanceWaitPollResult",
+    "GovernanceWaitTick",
+    "bounded_governance_poll",
+    "clamp_governance_poll_interval_seconds",
     "attention_priority_for_run",
     "build_governance_run_view",
     "build_operational_governance_snapshot",
