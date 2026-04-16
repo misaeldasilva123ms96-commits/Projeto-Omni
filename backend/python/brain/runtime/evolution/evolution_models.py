@@ -73,6 +73,8 @@ class EvolutionProposalRecord:
     updated_at: str
     governance: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
+    latest_validation: dict[str, Any] | None = None
+    validation_history: list[dict[str, Any]] = field(default_factory=list)
     extensions: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -129,6 +131,8 @@ class EvolutionProposalRecord:
                 ],
             },
             validation=dict(validation or {"shape_valid": True, "checked_at": now, "errors": []}),
+            latest_validation=None,
+            validation_history=[],
             extensions=dict(extensions or {}),
         )
 
@@ -141,6 +145,12 @@ class EvolutionProposalRecord:
         risk = EvolutionRiskLevel(_as_clean_text("risk_level", payload.get("risk_level"), max_len=24).lower()).value
         governance = dict(payload.get("governance", {}) or {})
         validation = dict(payload.get("validation", {}) or {})
+        latest_validation = payload.get("latest_validation", None)
+        validation_history = [
+            dict(item)
+            for item in (payload.get("validation_history", []) or [])
+            if isinstance(item, dict)
+        ]
         extensions = dict(payload.get("extensions", {}) or {})
         reason, source, severity = _normalize_governance_triplet(
             str(governance.get("reason", GovernanceReason.UNSAFE_STATE.value)),
@@ -168,6 +178,8 @@ class EvolutionProposalRecord:
             updated_at=_as_clean_text("updated_at", payload.get("updated_at"), max_len=80),
             governance=governance,
             validation=validation,
+            latest_validation=dict(latest_validation) if isinstance(latest_validation, dict) else None,
+            validation_history=validation_history,
             extensions=extensions,
         )
 
@@ -187,8 +199,19 @@ class EvolutionProposalRecord:
             "updated_at": self.updated_at,
             "governance": dict(self.governance),
             "validation": dict(self.validation),
+            "latest_validation": dict(self.latest_validation) if isinstance(self.latest_validation, dict) else None,
+            "validation_history": [dict(item) for item in self.validation_history],
             "extensions": dict(self.extensions),
         }
+
+    def append_validation_result(self, validation_result: dict[str, Any]) -> None:
+        """Append-only validation history with latest pointer update."""
+        entry = dict(validation_result or {})
+        if not entry:
+            raise ValueError("validation_result must be a non-empty object")
+        self.validation_history = [*self.validation_history, entry][-100:]
+        self.latest_validation = dict(entry)
+        self.updated_at = utc_now_iso()
 
     def transition_status(
         self,
