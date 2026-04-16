@@ -13,6 +13,7 @@ from .evolution_application import (
     execute_explicit_rollback,
 )
 from .evolution_models import EvolutionProposalRecord, EvolutionProposalStatus
+from .evolution_program_closure import normalize_governed_evolution_summary
 from .evolution_registry import EvolutionRegistry
 from .evolution_validation import EvolutionValidationOutcome, validate_evolution_proposal
 
@@ -303,7 +304,7 @@ class EvolutionService:
         return self._registry.register(proposal)
 
     def summary(self, *, recent_limit: int = 10) -> dict[str, Any]:
-        summary = self._registry.get_summary(recent_limit=recent_limit)
+        summary = dict(self._registry.get_summary(recent_limit=recent_limit))
         validation_counts = {outcome.value: 0 for outcome in EvolutionValidationOutcome}
         latest_validation_by_proposal: dict[str, dict[str, Any]] = {}
         proposals_with_recent_validation: list[dict[str, Any]] = []
@@ -374,4 +375,5 @@ class EvolutionService:
         summary["proposals_with_recent_application"] = proposals_with_recent_application
         summary["latest_application_by_proposal"] = latest_application_by_proposal
         summary["rollback_counts"] = rollback_counts
-        return summary
+        summary["proposal_counts"] = dict(summary.get("status_counts", {}) or {})
+        return normalize_governed_evolution_summary(summary)

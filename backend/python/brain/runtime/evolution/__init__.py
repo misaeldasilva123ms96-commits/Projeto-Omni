@@ -1,6 +1,13 @@
 from .evolution_executor import EvolutionExecutor
 from .evolution_models import EvolutionProposalRecord, EvolutionProposalStatus, EvolutionRiskLevel
 from .evolution_application import EvolutionApplicationAttempt, EvolutionApplicationStatus
+from .evolution_program_closure import (
+    CONTROLLED_SELF_EVOLUTION_PHASE,
+    CONTROLLED_SELF_EVOLUTION_PROGRAM,
+    empty_governed_evolution_summary,
+    normalize_governed_evolution_summary,
+    validate_governed_evolution_summary_shape,
+)
 from .evolution_registry import EvolutionRegistry
 from .evolution_service import EvolutionService
 from .evolution_validation import (
@@ -32,6 +39,11 @@ __all__ = [
     "EvolutionRiskLevel",
     "EvolutionApplicationAttempt",
     "EvolutionApplicationStatus",
+    "CONTROLLED_SELF_EVOLUTION_PHASE",
+    "CONTROLLED_SELF_EVOLUTION_PROGRAM",
+    "empty_governed_evolution_summary",
+    "normalize_governed_evolution_summary",
+    "validate_governed_evolution_summary_shape",
     "EvolutionRegistry",
     "EvolutionService",
     "EvolutionValidationOutcome",
