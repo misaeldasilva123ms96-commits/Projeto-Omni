@@ -3,6 +3,7 @@ from typing import Any
 
 from brain.runtime.control import RunRegistry
 from brain.runtime.control.run_identity import normalize_run_id
+from brain.runtime.evolution import EvolutionService
 from brain.runtime.control.governance_read_model import build_operational_governance_snapshot
 from brain.runtime.control.program_closure import (
     empty_operational_governance_fallback,
@@ -92,3 +93,39 @@ def read_operational_governance(root: Path, *, timeline_limit: int = 25) -> dict
         return build_operational_governance_snapshot(registry, timeline_limit=timeline_limit)
     except Exception:
         return empty_operational_governance_fallback(summary=read_resolution_summary(root))
+
+
+def read_evolution_summary(root: Path, *, recent_limit: int = 10) -> dict[str, Any]:
+    try:
+        service = EvolutionService(root)
+        return service.summary(recent_limit=max(1, int(recent_limit or 10)))
+    except Exception:
+        return {
+            "governed": True,
+            "total_proposals": 0,
+            "status_counts": {
+                "proposed": 0,
+                "under_review": 0,
+                "approved": 0,
+                "rejected": 0,
+                "deferred": 0,
+            },
+            "recent_proposals": [],
+            "lifecycle": {
+                "allowed_statuses": ["proposed", "under_review", "approved", "rejected", "deferred"],
+                "terminal_statuses": ["approved", "rejected", "deferred"],
+                "auto_apply_enabled": False,
+            },
+        }
+
+
+def read_evolution_proposal(root: Path, proposal_id: str) -> dict[str, Any] | None:
+    proposal_key = str(proposal_id or "").strip()
+    if not proposal_key:
+        return None
+    try:
+        service = EvolutionService(root)
+        proposal = service.get_proposal(proposal_key)
+        return proposal.as_dict() if proposal is not None else None
+    except Exception:
+        return None
