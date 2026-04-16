@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.control import RunRegistry
+from brain.runtime.control.run_identity import normalize_run_id
 from brain.runtime.control.governance_read_model import build_operational_governance_snapshot
 from brain.runtime.control.program_closure import (
     empty_operational_governance_fallback,
@@ -18,11 +19,12 @@ def read_active_runs(root: Path) -> list[dict[str, Any]]:
 
 
 def read_run(root: Path, run_id: str) -> dict[str, Any] | None:
-    if not str(run_id or "").strip():
+    raw = normalize_run_id(str(run_id or ""))
+    if not raw:
         return None
     try:
         registry = RunRegistry(root)
-        record = registry.get(str(run_id).strip())
+        record = registry.get(raw)
     except Exception:
         return None
     return record.as_dict() if record is not None else None

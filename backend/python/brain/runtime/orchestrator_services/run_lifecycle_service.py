@@ -65,6 +65,8 @@ class RunLifecycleService:
                 promotion_metadata=dict((metadata or {}).get("promotion_metadata", {}) or {}),
             )
             self._run_registry.flush()
+        except ValueError:
+            raise
         except Exception:
             return
 
@@ -101,5 +103,7 @@ class RunLifecycleService:
                 decision_source=decision_source,
                 operator_id=operator_id,
             )
+        except ValueError:
+            raise
         except Exception:
             return

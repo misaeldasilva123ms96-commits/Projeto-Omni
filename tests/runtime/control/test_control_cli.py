@@ -228,6 +228,35 @@ class ControlCliTest(unittest.TestCase):
                 if argv[3] == "governance_attention":
                     self.assertIsInstance(payload.get("operator_attention_runs"), list)
 
+    def test_pause_rejects_invalid_run_id_without_mutating_registry(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            registry = RunRegistry(workspace_root)
+            registry.register(
+                RunRecord.build(
+                    run_id="run-control",
+                    goal_id="goal-control",
+                    session_id="sess-control",
+                    status=RunStatus.AWAITING_APPROVAL,
+                    last_action="governance_hold",
+                    progress_score=0.2,
+                )
+            )
+            stream = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["control-cli", "--root", str(workspace_root), "pause", "bad/run"],
+            ):
+                with redirect_stdout(stream):
+                    result = control_cli_main()
+            self.assertEqual(result, 0)
+            payload = json.loads(stream.getvalue())
+            self.assertEqual(payload["status"], "error")
+            self.assertEqual(payload["error"], "invalid_run_id")
+            stored = registry.get("run-control")
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored.status, RunStatus.AWAITING_APPROVAL)
+
 
 if __name__ == "__main__":
     unittest.main()

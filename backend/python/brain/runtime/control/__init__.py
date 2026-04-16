@@ -32,6 +32,14 @@ from .governance_read_model import (
     list_waiting_operator_runs,
     summarize_governance,
 )
+from .run_identity import (
+    coerce_runtime_run_id,
+    normalize_run_id,
+    resolve_run_id_for_registry_lookup,
+    run_id_lookup_keys,
+    validate_run_id_for_new_write,
+    validate_run_id_for_operator_cli,
+)
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
 from .governed_tools import (
     GOVERNED_TOOLS_STRICT_BLOCK_KIND,
@@ -69,6 +77,12 @@ __all__ = [
     "summarize_governance",
     "RunRecord",
     "RunRegistry",
+    "coerce_runtime_run_id",
+    "normalize_run_id",
+    "resolve_run_id_for_registry_lookup",
+    "run_id_lookup_keys",
+    "validate_run_id_for_new_write",
+    "validate_run_id_for_operator_cli",
     "RunStatus",
     "ResolutionState",
     "ResolutionReason",

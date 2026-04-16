@@ -34,6 +34,7 @@ from brain.registry import describe_agents, describe_capabilities, recommend_cap
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor
 from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
+from brain.runtime.control.run_identity import coerce_runtime_run_id, validate_run_id_for_new_write
 from brain.runtime.control.governed_tools import (
     GOVERNED_TOOLS_STRICT_BLOCK_KIND,
     build_strict_block_evaluation,
@@ -1643,7 +1644,10 @@ class BrainOrchestrator:
         self.last_runtime_reason = "node_execution_request"
 
         task_id = str(execution_request.get("task_id", f"task-{session_id}"))
-        run_id = str(execution_request.get("run_id", f"run-{session_id}"))
+        run_id = coerce_runtime_run_id(
+            run_id=str(execution_request.get("run_id", "")),
+            session_id=session_id,
+        )
         memory_hints = execution_request.get("memory_hints", {})
         step_results = self._execute_runtime_actions(
             session_id=session_id,
@@ -1799,8 +1803,11 @@ class BrainOrchestrator:
         progress_score: float,
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        if not str(run_id or "").strip():
+            return
+        rid = validate_run_id_for_new_write(run_id)
         self._run_lifecycle.register_run_start(
-            run_id=run_id,
+            run_id=rid,
             session_id=session_id,
             goal_id=goal_id,
             status=status,
@@ -1817,8 +1824,11 @@ class BrainOrchestrator:
         last_action: str,
         progress_score: float,
     ) -> None:
+        if not str(run_id or "").strip():
+            return
+        rid = validate_run_id_for_new_write(run_id)
         self._run_lifecycle.update_run_status(
-            run_id=run_id,
+            run_id=rid,
             status=status,
             last_action=last_action,
             progress_score=progress_score,

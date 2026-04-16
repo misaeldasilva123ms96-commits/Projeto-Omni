@@ -21,6 +21,7 @@ from .governance_timeline import (
     infer_event_type_from_transition,
     synthesize_timeline_from_legacy,
 )
+from .run_identity import run_id_lookup_keys, validate_run_id_for_new_write
 
 
 def utc_now_iso() -> str:
@@ -217,6 +218,7 @@ class RunRecord:
         resolution: ResolutionRecord | None = None,
         resolution_history: list[dict[str, Any]] | None = None,
         governance_timeline: list[dict[str, Any]] | None = None,
+        strict_run_id: bool = True,
     ) -> "RunRecord":
         now = utc_now_iso()
         fallback_reason = infer_reason_from_action(last_action, status=status)
@@ -228,8 +230,9 @@ class RunRecord:
             decision_source="runtime_orchestrator",
             timestamp=now,
         )
+        resolved_run_id = validate_run_id_for_new_write(run_id) if strict_run_id else str(run_id)
         record = cls(
-            run_id=str(run_id).strip(),
+            run_id=resolved_run_id,
             goal_id=str(goal_id).strip() if goal_id else None,
             session_id=str(session_id).strip(),
             status=status,
@@ -342,7 +345,12 @@ class RunRegistry:
 
     def register(self, run: RunRecord) -> RunRecord:
         with self._lock:
-            existing = self._runs.get(run.run_id)
+            existing = None
+            for key in run_id_lookup_keys(run.run_id):
+                candidate = self._runs.get(key)
+                if candidate is not None:
+                    existing = candidate
+                    break
             if existing is not None:
                 merged_timeline = list(existing.governance_timeline)
                 if not merged_timeline:
@@ -354,7 +362,7 @@ class RunRegistry:
                 if not merged_timeline:
                     merged_timeline = None
                 run = RunRecord.build(
-                    run_id=run.run_id,
+                    run_id=existing.run_id,
                     goal_id=run.goal_id or existing.goal_id,
                     session_id=run.session_id or existing.session_id,
                     status=run.status,
@@ -364,6 +372,7 @@ class RunRegistry:
                     started_at=existing.started_at,
                     resolution_history=list(existing.resolution_history),
                     governance_timeline=merged_timeline,
+                    strict_run_id=False,
                 )
             self._runs[run.run_id] = run
             self.flush()
@@ -382,7 +391,11 @@ class RunRegistry:
         engine_mode: str | None = None,
     ) -> RunRecord | None:
         with self._lock:
-            record = self._runs.get(str(run_id).strip())
+            record = None
+            for key in run_id_lookup_keys(run_id):
+                record = self._runs.get(key)
+                if record is not None:
+                    break
             if record is None:
                 return None
             record.status = status
@@ -404,7 +417,11 @@ class RunRegistry:
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
             self._reload_if_available()
-            return self._runs.get(str(run_id).strip())
+            for key in run_id_lookup_keys(run_id):
+                rec = self._runs.get(key)
+                if rec is not None:
+                    return rec
+            return None
 
     def get_active(self) -> list[RunRecord]:
         with self._lock:

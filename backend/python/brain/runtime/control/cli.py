@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
+from brain.runtime.control.run_identity import validate_run_id_for_operator_cli
 from brain.runtime.control.governance_read_model import build_operational_governance_snapshot, list_operator_attention_runs
 from brain.runtime.memory import MemoryFacade
 
@@ -61,6 +62,10 @@ def _record_operator_event(root: Path, *, action: str, run_id: str) -> None:
         memory.close()
 
 
+def _parse_cli_run_id(run_id: str | None) -> str:
+    return validate_run_id_for_operator_cli(run_id)
+
+
 def _update_run(root: Path, *, run_id: str, status: RunStatus, action: str) -> dict[str, object]:
     registry = RunRegistry(root)
     current = registry.get(run_id)
@@ -87,13 +92,29 @@ def main() -> int:
     registry = RunRegistry(root)
 
     if args.command == "pause":
-        return _emit(_update_run(root, run_id=args.run_id, status=RunStatus.PAUSED, action="pause"))
+        try:
+            rid = _parse_cli_run_id(args.run_id)
+        except ValueError as exc:
+            return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
+        return _emit(_update_run(root, run_id=rid, status=RunStatus.PAUSED, action="pause"))
     if args.command == "resume":
-        return _emit(_update_run(root, run_id=args.run_id, status=RunStatus.RUNNING, action="resume"))
+        try:
+            rid = _parse_cli_run_id(args.run_id)
+        except ValueError as exc:
+            return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
+        return _emit(_update_run(root, run_id=rid, status=RunStatus.RUNNING, action="resume"))
     if args.command == "approve":
-        return _emit(_update_run(root, run_id=args.run_id, status=RunStatus.RUNNING, action="approve"))
+        try:
+            rid = _parse_cli_run_id(args.run_id)
+        except ValueError as exc:
+            return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
+        return _emit(_update_run(root, run_id=rid, status=RunStatus.RUNNING, action="approve"))
     if args.command in {"show", "inspect_run"}:
-        record = registry.get(args.run_id)
+        try:
+            rid = _parse_cli_run_id(args.run_id)
+        except ValueError as exc:
+            return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
+        record = registry.get(rid)
         if record is None:
             return _emit({"status": "error", "error": "run_not_found", "run": None})
         return _emit({"status": "ok", "run": record.as_dict()})
