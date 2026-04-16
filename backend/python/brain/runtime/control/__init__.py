@@ -33,6 +33,22 @@ from .governance_read_model import (
     summarize_governance,
 )
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
+from .governed_tools import (
+    GOVERNED_TOOLS_STRICT_BLOCK_KIND,
+    GovernedToolSpec,
+    ToolGovernanceAudit,
+    evaluate_tool_governance,
+    get_governed_tool_metadata,
+    governed_tool,
+    is_governed_tool,
+    is_strict_governed_tools_mode,
+    list_governed_tools,
+    list_governed_tools_as_dicts,
+    register_governed_tool,
+    reset_governed_tool_registry_for_tests,
+    sync_governed_tools_from_trusted_executor_surface,
+    validate_tool_governance,
+)
 
 __all__ = [
     "GOVERNANCE_TAXONOMY_VERSION",
@@ -69,4 +85,18 @@ __all__ = [
     "normalize_governance_source",
     "governance_dict_for_resolution",
     "build_governance_decision",
+    "GOVERNED_TOOLS_STRICT_BLOCK_KIND",
+    "GovernedToolSpec",
+    "ToolGovernanceAudit",
+    "evaluate_tool_governance",
+    "get_governed_tool_metadata",
+    "governed_tool",
+    "is_governed_tool",
+    "is_strict_governed_tools_mode",
+    "list_governed_tools",
+    "list_governed_tools_as_dicts",
+    "register_governed_tool",
+    "reset_governed_tool_registry_for_tests",
+    "sync_governed_tools_from_trusted_executor_surface",
+    "validate_tool_governance",
 ]

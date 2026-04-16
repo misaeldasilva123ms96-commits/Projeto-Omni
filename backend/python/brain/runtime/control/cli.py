@@ -29,6 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     waiting.add_argument("--limit", type=int, default=50)
     rollback = subparsers.add_parser("runs_with_rollback")
     rollback.add_argument("--limit", type=int, default=50)
+    subparsers.add_parser("list_governed_tools")
     return parser
 
 
@@ -111,6 +112,10 @@ def main() -> int:
     if args.command == "runs_with_rollback":
         runs = [item.as_dict() for item in registry.get_runs_with_rollback()]
         return _emit({"status": "ok", "runs": runs[: max(1, args.limit)]})
+    if args.command == "list_governed_tools":
+        from brain.runtime.control.governed_tools import list_governed_tools_as_dicts
+
+        return _emit({"status": "ok", "governed_tools": list_governed_tools_as_dicts()})
     return _emit({"status": "error", "error": "unsupported_command"})
 
 
