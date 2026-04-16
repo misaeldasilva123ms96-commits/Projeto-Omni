@@ -13,6 +13,15 @@ from .governance_taxonomy import (
     normalize_governance_source,
 )
 from .governance_controller import GovernanceResolutionController
+from .governance_wait import (
+    GOVERNANCE_POLL_INTERVAL_MAX,
+    GOVERNANCE_POLL_INTERVAL_MIN,
+    GovernanceWaitEndReason,
+    GovernanceWaitPollResult,
+    GovernanceWaitTick,
+    bounded_governance_poll,
+    clamp_governance_poll_interval_seconds,
+)
 from .program_closure import (
     GOVERNANCE_TAXONOMY_VERSION,
     OMNI_RUNTIME_CONVERGENCE_PHASE,
@@ -32,7 +41,37 @@ from .governance_read_model import (
     list_waiting_operator_runs,
     summarize_governance,
 )
+from .run_identity import (
+    coerce_runtime_run_id,
+    normalize_run_id,
+    resolve_run_id_for_registry_lookup,
+    run_id_lookup_keys,
+    validate_run_id_for_new_write,
+    validate_run_id_for_operator_cli,
+)
 from .run_registry import ResolutionReason, ResolutionState, RunRecord, RunRegistry, RunStatus, infer_reason_from_action
+from .run_registry_backend import (
+    FileSystemRunRegistryBackend,
+    InMemoryRunRegistryBackend,
+    RunRegistryBackend,
+    RunRegistryBackendMetadata,
+)
+from .governed_tools import (
+    GOVERNED_TOOLS_STRICT_BLOCK_KIND,
+    GovernedToolSpec,
+    ToolGovernanceAudit,
+    evaluate_tool_governance,
+    get_governed_tool_metadata,
+    governed_tool,
+    is_governed_tool,
+    is_strict_governed_tools_mode,
+    list_governed_tools,
+    list_governed_tools_as_dicts,
+    register_governed_tool,
+    reset_governed_tool_registry_for_tests,
+    sync_governed_tools_from_trusted_executor_surface,
+    validate_tool_governance,
+)
 
 __all__ = [
     "GOVERNANCE_TAXONOMY_VERSION",
@@ -43,6 +82,13 @@ __all__ = [
     "empty_resolution_summary_fallback",
     "validate_operational_governance_shape",
     "GovernanceResolutionController",
+    "GOVERNANCE_POLL_INTERVAL_MAX",
+    "GOVERNANCE_POLL_INTERVAL_MIN",
+    "GovernanceWaitEndReason",
+    "GovernanceWaitPollResult",
+    "GovernanceWaitTick",
+    "bounded_governance_poll",
+    "clamp_governance_poll_interval_seconds",
     "attention_priority_for_run",
     "build_governance_run_view",
     "build_operational_governance_snapshot",
@@ -53,6 +99,16 @@ __all__ = [
     "summarize_governance",
     "RunRecord",
     "RunRegistry",
+    "FileSystemRunRegistryBackend",
+    "InMemoryRunRegistryBackend",
+    "RunRegistryBackend",
+    "RunRegistryBackendMetadata",
+    "coerce_runtime_run_id",
+    "normalize_run_id",
+    "resolve_run_id_for_registry_lookup",
+    "run_id_lookup_keys",
+    "validate_run_id_for_new_write",
+    "validate_run_id_for_operator_cli",
     "RunStatus",
     "ResolutionState",
     "ResolutionReason",
@@ -69,4 +125,18 @@ __all__ = [
     "normalize_governance_source",
     "governance_dict_for_resolution",
     "build_governance_decision",
+    "GOVERNED_TOOLS_STRICT_BLOCK_KIND",
+    "GovernedToolSpec",
+    "ToolGovernanceAudit",
+    "evaluate_tool_governance",
+    "get_governed_tool_metadata",
+    "governed_tool",
+    "is_governed_tool",
+    "is_strict_governed_tools_mode",
+    "list_governed_tools",
+    "list_governed_tools_as_dicts",
+    "register_governed_tool",
+    "reset_governed_tool_registry_for_tests",
+    "sync_governed_tools_from_trusted_executor_surface",
+    "validate_tool_governance",
 ]

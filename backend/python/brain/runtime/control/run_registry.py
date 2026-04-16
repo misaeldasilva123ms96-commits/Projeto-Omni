@@ -1,4 +1,3 @@
-import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,6 +20,8 @@ from .governance_timeline import (
     infer_event_type_from_transition,
     synthesize_timeline_from_legacy,
 )
+from .run_identity import run_id_lookup_keys, validate_run_id_for_new_write
+from .run_registry_backend import FileSystemRunRegistryBackend, RunRegistryBackend
 
 
 def utc_now_iso() -> str:
@@ -217,6 +218,7 @@ class RunRecord:
         resolution: ResolutionRecord | None = None,
         resolution_history: list[dict[str, Any]] | None = None,
         governance_timeline: list[dict[str, Any]] | None = None,
+        strict_run_id: bool = True,
     ) -> "RunRecord":
         now = utc_now_iso()
         fallback_reason = infer_reason_from_action(last_action, status=status)
@@ -228,8 +230,9 @@ class RunRecord:
             decision_source="runtime_orchestrator",
             timestamp=now,
         )
+        resolved_run_id = validate_run_id_for_new_write(run_id) if strict_run_id else str(run_id)
         record = cls(
-            run_id=str(run_id).strip(),
+            run_id=resolved_run_id,
             goal_id=str(goal_id).strip() if goal_id else None,
             session_id=str(session_id).strip(),
             status=status,
@@ -331,18 +334,38 @@ class RunRecord:
 
 
 class RunRegistry:
-    def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "control"
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.base_dir / "run_registry.json"
+    def __init__(self, root: Path, *, backend: RunRegistryBackend | None = None) -> None:
         self._lock = threading.RLock()
         self._runs: dict[str, RunRecord] = {}
-        if self.path.exists():
+        if backend is None:
+            fs_backend = FileSystemRunRegistryBackend(root)
+            self._backend: RunRegistryBackend = fs_backend
+            self.base_dir = fs_backend.control_dir
+            self.path = fs_backend.registry_path
+        else:
+            self._backend = backend
+            if isinstance(backend, FileSystemRunRegistryBackend):
+                self.base_dir = backend.control_dir
+                self.path = backend.registry_path
+            else:
+                self.base_dir = root / ".logs" / "fusion-runtime" / "control"
+                self.path = self.base_dir / "run_registry.json"
+        if self._backend.exists():
             self.reload_from_disk()
+
+    @property
+    def persistence_backend(self) -> RunRegistryBackend:
+        """Persistence driver for load/flush (Phase 30.16)."""
+        return self._backend
 
     def register(self, run: RunRecord) -> RunRecord:
         with self._lock:
-            existing = self._runs.get(run.run_id)
+            existing = None
+            for key in run_id_lookup_keys(run.run_id):
+                candidate = self._runs.get(key)
+                if candidate is not None:
+                    existing = candidate
+                    break
             if existing is not None:
                 merged_timeline = list(existing.governance_timeline)
                 if not merged_timeline:
@@ -354,7 +377,7 @@ class RunRegistry:
                 if not merged_timeline:
                     merged_timeline = None
                 run = RunRecord.build(
-                    run_id=run.run_id,
+                    run_id=existing.run_id,
                     goal_id=run.goal_id or existing.goal_id,
                     session_id=run.session_id or existing.session_id,
                     status=run.status,
@@ -364,6 +387,7 @@ class RunRegistry:
                     started_at=existing.started_at,
                     resolution_history=list(existing.resolution_history),
                     governance_timeline=merged_timeline,
+                    strict_run_id=False,
                 )
             self._runs[run.run_id] = run
             self.flush()
@@ -382,7 +406,11 @@ class RunRegistry:
         engine_mode: str | None = None,
     ) -> RunRecord | None:
         with self._lock:
-            record = self._runs.get(str(run_id).strip())
+            record = None
+            for key in run_id_lookup_keys(run_id):
+                record = self._runs.get(key)
+                if record is not None:
+                    break
             if record is None:
                 return None
             record.status = status
@@ -404,7 +432,11 @@ class RunRegistry:
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
             self._reload_if_available()
-            return self._runs.get(str(run_id).strip())
+            for key in run_id_lookup_keys(run_id):
+                rec = self._runs.get(key)
+                if rec is not None:
+                    return rec
+            return None
 
     def get_active(self) -> list[RunRecord]:
         with self._lock:
@@ -564,7 +596,9 @@ class RunRegistry:
     def reload_from_disk(self) -> None:
         with self._lock:
             try:
-                payload = json.loads(self.path.read_text(encoding="utf-8"))
+                payload = self._backend.load()
+            except ValueError:
+                raise
             except Exception as error:
                 raise ValueError(f"Invalid run registry data: {error}") from error
             if not isinstance(payload, dict):
@@ -583,11 +617,9 @@ class RunRegistry:
             payload = {
                 "runs": {run_id: record.as_dict() for run_id, record in self._runs.items()},
             }
-            temp_path = self.path.with_suffix(".tmp")
-            temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            temp_path.replace(self.path)
+            self._backend.save(payload)
 
     def _reload_if_available(self) -> None:
-        if not self.path.exists():
+        if not self._backend.exists():
             return
         self.reload_from_disk()

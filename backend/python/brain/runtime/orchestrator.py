@@ -34,6 +34,15 @@ from brain.registry import describe_agents, describe_capabilities, recommend_cap
 from brain.runtime.checkpoint_store import CheckpointStore
 from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor
 from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
+from brain.runtime.control.run_identity import coerce_runtime_run_id, validate_run_id_for_new_write
+from brain.runtime.control.governed_tools import (
+    GOVERNED_TOOLS_STRICT_BLOCK_KIND,
+    build_strict_block_evaluation,
+    evaluate_tool_governance,
+    governance_dict_for_strict_block,
+    is_strict_governed_tools_mode,
+    sync_governed_tools_from_trusted_executor_surface,
+)
 from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
@@ -220,6 +229,7 @@ class BrainOrchestrator:
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
             policy=self._trusted_execution_policy(),
         )
+        sync_governed_tools_from_trusted_executor_surface(self.trusted_executor.available_tools)
         self.evolution_executor = EvolutionExecutor(self.paths.root)
         self.memory_facade = MemoryFacade(self.paths.root)
         self.engine_adoption_store = EngineAdoptionStore(self.paths.root)
@@ -1634,7 +1644,10 @@ class BrainOrchestrator:
         self.last_runtime_reason = "node_execution_request"
 
         task_id = str(execution_request.get("task_id", f"task-{session_id}"))
-        run_id = str(execution_request.get("run_id", f"run-{session_id}"))
+        run_id = coerce_runtime_run_id(
+            run_id=str(execution_request.get("run_id", "")),
+            session_id=session_id,
+        )
         memory_hints = execution_request.get("memory_hints", {})
         step_results = self._execute_runtime_actions(
             session_id=session_id,
@@ -1790,8 +1803,11 @@ class BrainOrchestrator:
         progress_score: float,
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        if not str(run_id or "").strip():
+            return
+        rid = validate_run_id_for_new_write(run_id)
         self._run_lifecycle.register_run_start(
-            run_id=run_id,
+            run_id=rid,
             session_id=session_id,
             goal_id=goal_id,
             status=status,
@@ -1808,8 +1824,11 @@ class BrainOrchestrator:
         last_action: str,
         progress_score: float,
     ) -> None:
+        if not str(run_id or "").strip():
+            return
+        rid = validate_run_id_for_new_write(run_id)
         self._run_lifecycle.update_run_status(
-            run_id=run_id,
+            run_id=rid,
             status=status,
             last_action=last_action,
             progress_score=progress_score,
@@ -1839,6 +1858,7 @@ class BrainOrchestrator:
         return False
 
     def _await_run_control_clearance(self, *, run_id: str) -> dict[str, Any]:
+        """Delegate to governance integration (bounded poll; Phase 30.15)."""
         return self._governance_integration.await_run_control_clearance(run_id=run_id)
 
     def _control_block_result(
@@ -3432,6 +3452,33 @@ class BrainOrchestrator:
         if operational_plan is not None and getattr(operational_plan, "goal_id", None):
             current_action["goal_id"] = operational_plan.goal_id
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
+        selected_tool = str(current_action.get("selected_tool", "") or "").strip()
+        tool_audit = evaluate_tool_governance(
+            selected_tool=selected_tool,
+            trusted_known_tools=self.trusted_executor.available_tools,
+            strict_mode=is_strict_governed_tools_mode(),
+        )
+        current_action["tool_governance_audit"] = tool_audit.as_dict()
+        if not tool_audit.allowed:
+            blocked_result: dict[str, Any] = {
+                "ok": False,
+                "error_payload": {
+                    "kind": GOVERNED_TOOLS_STRICT_BLOCK_KIND,
+                    "message": (
+                        "Tool execution blocked: strict governed-tools mode requires an explicit "
+                        f"governed declaration for tool {selected_tool!r}."
+                    ),
+                    "governance": governance_dict_for_strict_block(),
+                    "tool_governance_audit": tool_audit.as_dict(),
+                },
+            }
+            blocked_result["selected_tool"] = current_action.get("selected_tool")
+            blocked_result["selected_agent"] = current_action.get("selected_agent")
+            blocked_result["evaluation"] = build_strict_block_evaluation(tool_audit=tool_audit)
+            blocked_result["correction_events"] = [blocked_result["evaluation"]]
+            blocked_result["orchestration"] = None
+            return blocked_result
+
         latest_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
         latest_summary = self.planning_executor.store.load_summary(operational_plan.plan_id) if operational_plan else None
         goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
