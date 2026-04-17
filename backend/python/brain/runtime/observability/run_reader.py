@@ -13,6 +13,7 @@ from brain.runtime.control.program_closure import (
     empty_operational_governance_fallback,
     empty_resolution_summary_fallback,
 )
+from brain.runtime.observability._reader_utils import read_tail_jsonl
 
 
 def read_active_runs(root: Path) -> list[dict[str, Any]]:
@@ -119,3 +120,32 @@ def read_evolution_proposal(root: Path, proposal_id: str) -> dict[str, Any] | No
         return proposal.as_dict() if proposal is not None else None
     except Exception:
         return None
+
+
+def read_recent_reasoning_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    payloads = read_tail_jsonl(path, limit=max(1, int(limit or 10)))
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.reasoning.trace":
+            continue
+        trace = payload.get("trace")
+        if not isinstance(trace, dict):
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "trace": dict(trace),
+                "handoff": dict(payload.get("handoff", {}) or {}),
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_reasoning_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_reasoning_traces(root, limit=1)
+    return traces[0] if traces else None

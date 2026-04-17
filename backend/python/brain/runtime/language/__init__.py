@@ -28,6 +28,11 @@ from brain.runtime.language.protocol import (
     runtime_protocol_to_legacy_dict,
     runtime_protocol_to_oil_request,
 )
+from brain.runtime.language.reasoning_contract import (
+    ReasoningHandoffContract,
+    build_reasoning_oil_result,
+    normalize_input_to_oil_request,
+)
 from brain.runtime.language.types import (
     OIL_VERSION,
     OILContext,
@@ -68,4 +73,7 @@ __all__ = [
     "runtime_protocol_from_legacy_dict",
     "runtime_protocol_to_oil_request",
     "runtime_protocol_to_communication_envelope",
+    "ReasoningHandoffContract",
+    "normalize_input_to_oil_request",
+    "build_reasoning_oil_result",
 ]
