@@ -96,27 +96,47 @@ class ObservabilityReaderTest(unittest.TestCase):
                     encoding='utf-8',
                 )
                 (workspace_root / '.logs' / 'fusion-runtime' / 'execution-audit.jsonl').write_text(
-                    json.dumps(
-                        {
-                            'timestamp': '2026-04-15T00:00:00+00:00',
-                            'event_type': 'runtime.reasoning.trace',
-                            'session_id': 'sess-obs',
-                            'task_id': '',
-                            'run_id': 'run-obs',
-                            'trace': {
-                                'trace_id': 'reason-obs',
-                                'mode': 'deep',
-                                'interpreted_intent': 'analyze',
-                                'validation_result': 'valid',
-                                'handoff_decision': 'proceed',
-                            },
-                            'handoff': {
-                                'proceed': True,
-                                'intent': 'analyze',
-                                'mode': 'deep',
-                            },
-                        },
-                        ensure_ascii=False,
+                    '\n'.join(
+                        [
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:00+00:00',
+                                    'event_type': 'runtime.reasoning.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'trace': {
+                                        'trace_id': 'reason-obs',
+                                        'mode': 'deep',
+                                        'interpreted_intent': 'analyze',
+                                        'validation_result': 'valid',
+                                        'handoff_decision': 'proceed',
+                                    },
+                                    'handoff': {
+                                        'proceed': True,
+                                        'intent': 'analyze',
+                                        'mode': 'deep',
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:01+00:00',
+                                    'event_type': 'runtime.memory_intelligence.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'context_id': 'mem-obs',
+                                    'selected_count': 3,
+                                    'total_candidates': 6,
+                                    'sources_used': ['semantic_memory', 'transcript'],
+                                    'context_summary': 'Selected 3 of 6 memory signals.',
+                                    'scoring': {'max_score': 0.8, 'min_score': 0.3},
+                                },
+                                ensure_ascii=False,
+                            ),
+                        ]
                     )
                     + '\n',
                     encoding='utf-8',
@@ -161,6 +181,11 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertEqual(snapshot.recent_reasoning_traces[0].get('trace', {}).get('mode'), 'deep')
                 self.assertIn('latest_reasoning_trace', snap_dict)
                 self.assertIn('recent_reasoning_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_memory_intelligence_trace, dict)
+                self.assertEqual(snapshot.latest_memory_intelligence_trace.get('context_id'), 'mem-obs')
+                self.assertGreaterEqual(len(snapshot.recent_memory_intelligence_traces), 1)
+                self.assertIn('latest_memory_intelligence_trace', snap_dict)
+                self.assertIn('recent_memory_intelligence_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

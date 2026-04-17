@@ -8,6 +8,7 @@ from brain.runtime.language import (
     build_reasoning_oil_result,
     normalize_input_to_oil_request,
 )
+from brain.runtime.language.oil_schema import OILRequest
 from brain.runtime.reasoning.models import ReasoningOutcome, ReasoningTrace
 
 _TASK_TYPE_BY_INTENT = {
@@ -40,10 +41,12 @@ class ReasoningEngine:
         run_id: str | None,
         source_component: str,
         preferred_mode: str | None = None,
+        oil_request: OILRequest | None = None,
+        memory_context: dict[str, Any] | None = None,
     ) -> ReasoningOutcome:
         normalized_input = str(raw_input or "").strip()
         mode = self._select_mode(normalized_input, preferred_mode=preferred_mode)
-        oil_request = normalize_input_to_oil_request(
+        active_oil_request = oil_request or normalize_input_to_oil_request(
             normalized_input,
             session_id=session_id,
             run_id=run_id,
@@ -53,17 +56,35 @@ class ReasoningEngine:
                 "reasoning_phase": "interpret",
             },
         )
-        interpretation = self._interpret(oil_request=oil_request, mode=mode, normalized_input=normalized_input)
-        plan = self._plan(oil_request=oil_request, interpretation=interpretation, mode=mode)
-        reasoning = self._reason(oil_request=oil_request, interpretation=interpretation, plan=plan, mode=mode)
-        validation = self._validate(oil_request=oil_request, plan=plan, reasoning=reasoning, mode=mode)
+        active_memory_context = dict(memory_context or {})
+        interpretation = self._interpret(
+            oil_request=active_oil_request,
+            mode=mode,
+            normalized_input=normalized_input,
+            memory_context=active_memory_context,
+        )
+        plan = self._plan(
+            oil_request=active_oil_request,
+            interpretation=interpretation,
+            mode=mode,
+            memory_context=active_memory_context,
+        )
+        reasoning = self._reason(
+            oil_request=active_oil_request,
+            interpretation=interpretation,
+            plan=plan,
+            mode=mode,
+            memory_context=active_memory_context,
+        )
+        validation = self._validate(oil_request=active_oil_request, plan=plan, reasoning=reasoning, mode=mode)
         handoff = self._handoff(
-            oil_request=oil_request,
+            oil_request=active_oil_request,
             interpretation=interpretation,
             plan=plan,
             reasoning=reasoning,
             validation=validation,
             mode=mode,
+            memory_context=active_memory_context,
         )
         oil_result = build_reasoning_oil_result(
             handoff=handoff,
@@ -83,11 +104,12 @@ class ReasoningEngine:
         return ReasoningOutcome(
             mode=mode,
             normalized_input=normalized_input,
-            oil_request=oil_request,
+            oil_request=active_oil_request,
             oil_result=oil_result,
             execution_handoff=handoff.as_dict(),
             trace=trace,
             confidence=max(0.0, min(1.0, float(interpretation.get("confidence", 0.0)))),
+            memory_context=active_memory_context,
         )
 
     @staticmethod
@@ -105,20 +127,41 @@ class ReasoningEngine:
         return "fast"
 
     @staticmethod
-    def _interpret(*, oil_request: Any, mode: str, normalized_input: str) -> dict[str, Any]:
+    def _interpret(
+        *,
+        oil_request: Any,
+        mode: str,
+        normalized_input: str,
+        memory_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         confidence = float(oil_request.extensions.get("confidence", 0.0) or 0.0)
-        summary = f"intent={oil_request.intent} mode={mode} confidence={confidence:.2f}"
+        memory_selected_count = int((memory_context or {}).get("selected_count", 0) or 0)
+        memory_bonus = min(0.2, memory_selected_count * 0.02)
+        confidence = max(0.0, min(1.0, confidence + memory_bonus))
+        summary = (
+            f"intent={oil_request.intent} mode={mode} confidence={confidence:.2f} "
+            f"memory_selected={memory_selected_count}"
+        )
         return {
             "intent": oil_request.intent,
-            "confidence": max(0.0, min(1.0, confidence)),
+            "confidence": confidence,
             "summary": summary,
             "normalized_input": normalized_input,
             "requested_output": str(oil_request.requested_output or "answer"),
+            "memory_selected_count": memory_selected_count,
         }
 
     @staticmethod
-    def _plan(*, oil_request: Any, interpretation: dict[str, Any], mode: str) -> dict[str, Any]:
+    def _plan(
+        *,
+        oil_request: Any,
+        interpretation: dict[str, Any],
+        mode: str,
+        memory_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         steps = ["interpret", "plan", "reason", "validate", "handoff_to_execution"]
+        if int((memory_context or {}).get("selected_count", 0) or 0) > 0:
+            steps.insert(1, "memory_contextualization")
         if mode == "deep":
             steps.insert(3, "review_assumptions")
         if mode == "critical":
@@ -133,14 +176,27 @@ class ReasoningEngine:
             "summary": f"{task_type}:{execution_strategy} ({len(steps)} stages)",
             "requested_output": interpretation.get("requested_output", "answer"),
             "intent": oil_request.intent,
+            "memory_context_id": str((memory_context or {}).get("context_id", "")).strip(),
         }
 
     @staticmethod
-    def _reason(*, oil_request: Any, interpretation: dict[str, Any], plan: dict[str, Any], mode: str) -> dict[str, Any]:
+    def _reason(
+        *,
+        oil_request: Any,
+        interpretation: dict[str, Any],
+        plan: dict[str, Any],
+        mode: str,
+        memory_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         confidence = float(interpretation.get("confidence", 0.0))
         suggested_capabilities = list(_CAPABILITY_HINTS_BY_INTENT.get(oil_request.intent, ["read_file"]))
         if mode in {"deep", "critical"} and "code_search" not in suggested_capabilities:
             suggested_capabilities.append("code_search")
+        sources = list((memory_context or {}).get("sources_used", []))
+        if "semantic_memory" in sources and "code_search" not in suggested_capabilities:
+            suggested_capabilities.append("code_search")
+        if "transcript" in sources and "read_file" not in suggested_capabilities:
+            suggested_capabilities.append("read_file")
         return {
             "should_execute": True,
             "task_type": str(plan["task_type"]),
@@ -148,9 +204,11 @@ class ReasoningEngine:
             "suggested_capabilities": suggested_capabilities,
             "reasoning_summary": (
                 f"Intent {oil_request.intent} routed as {plan['task_type']} with "
-                f"{plan['execution_strategy']} strategy under {mode} mode."
+                f"{plan['execution_strategy']} strategy under {mode} mode "
+                f"(memory_sources={len(sources)})."
             ),
             "confidence": confidence,
+            "memory_sources": sources,
         }
 
     @staticmethod
@@ -186,14 +244,18 @@ class ReasoningEngine:
         reasoning: dict[str, Any],
         validation: dict[str, Any],
         mode: str,
+        memory_context: dict[str, Any] | None = None,
     ) -> ReasoningHandoffContract:
         proceed = bool(validation.get("valid", False) and reasoning.get("should_execute", False))
         governance = dict(validation.get("governance", {}))
+        memory_payload = dict(memory_context or {})
         observability = {
             "reasoning_mode": mode,
             "intent": oil_request.intent,
             "validation_outcome": validation.get("outcome", "invalid"),
             "plan_stage_count": len(plan.get("steps", [])),
+            "memory_consulted": bool(memory_payload),
+            "memory_selected_count": int(memory_payload.get("selected_count", 0) or 0),
         }
         return ReasoningHandoffContract(
             proceed=proceed,
@@ -214,6 +276,8 @@ class ReasoningEngine:
                 "requested_output": interpretation.get("requested_output", "answer"),
                 "confidence": interpretation.get("confidence", 0.0),
                 "input_entities": len(getattr(oil_request, "entities", {}) or {}),
+                "memory_context_id": str(memory_payload.get("context_id", "")).strip() or None,
+                "memory_summary": str(memory_payload.get("context_summary", "")).strip(),
             },
         )
 

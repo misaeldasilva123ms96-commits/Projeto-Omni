@@ -66,6 +66,29 @@ class ReasoningEngineTest(unittest.TestCase):
         self.assertIn(trace["handoff_decision"], {"proceed", "blocked"})
         self.assertEqual(trace["mode"], outcome.mode)
 
+    def test_reasoning_accepts_memory_context_enrichment(self) -> None:
+        outcome = self.engine.reason(
+            raw_input="Analise risco operacional",
+            session_id="sess-memory",
+            run_id="run-memory",
+            source_component="tests.reasoning",
+            memory_context={
+                "context_id": "mem-1",
+                "selected_count": 3,
+                "sources_used": ["semantic_memory", "transcript"],
+                "context_summary": "Selected 3 signals.",
+            },
+        )
+        payload = outcome.as_dict()
+        self.assertIn("memory_context", payload)
+        self.assertEqual(payload["memory_context"].get("context_id"), "mem-1")
+        self.assertIn("memory_context_id", payload["execution_handoff"].get("metadata", {}))
+        self.assertTrue(
+            payload["execution_handoff"]
+            .get("observability", {})
+            .get("memory_consulted")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

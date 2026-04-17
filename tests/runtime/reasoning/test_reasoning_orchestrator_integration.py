@@ -54,11 +54,16 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 latest_reasoning = reasoning_events[-1]
                 self.assertIn("trace", latest_reasoning)
                 self.assertIn("handoff", latest_reasoning)
+                memory_events = [item for item in lines if item.get("event_type") == "runtime.memory_intelligence.trace"]
+                self.assertGreaterEqual(len(memory_events), 1)
+                self.assertIn("selected_count", memory_events[-1])
 
                 session_path = orchestrator.session_store.path_for("sess-r31-int")
                 payload = json.loads(session_path.read_text(encoding="utf-8"))
                 self.assertIn("reasoning", payload)
                 self.assertIn("execution_handoff", payload["reasoning"])
+                self.assertIn("memory_intelligence", payload)
+                self.assertIn("selected_count", payload["memory_intelligence"])
 
 
 if __name__ == "__main__":

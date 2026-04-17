@@ -52,6 +52,7 @@ class ReasoningOutcome:
     execution_handoff: dict[str, Any]
     trace: ReasoningTrace
     confidence: float
+    memory_context: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -62,4 +63,5 @@ class ReasoningOutcome:
             "oil_result": self.oil_result.serialize(),
             "execution_handoff": dict(self.execution_handoff),
             "trace": self.trace.as_dict(),
+            "memory_context": dict(self.memory_context),
         }
