@@ -29,6 +29,7 @@ from brain.memory.store import (
     load_memory_store,
     save_memory_store,
 )
+from brain.runtime.language import normalize_input_to_oil_request
 from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
@@ -51,7 +52,7 @@ from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningExecutor
-from brain.runtime.memory import MemoryFacade
+from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.orchestrator_services import (
     CompletionService,
@@ -278,6 +279,14 @@ class BrainOrchestrator:
         )
         self.js_runtime_adapter = JSRuntimeAdapter(self.paths.root)
         self.reasoning_engine = ReasoningEngine()
+        self.unified_memory = UnifiedMemoryLayer(
+            transcript_store=self.transcript_store,
+            memory_facade=self.memory_facade,
+            working_store=self.working_memory,
+            decision_store=self.decision_memory,
+            evidence_store=self.evidence_memory,
+            run_registry=self.run_registry,
+        )
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -404,12 +413,47 @@ class BrainOrchestrator:
 
         reasoning_handoff: dict[str, Any]
         reasoning_payload: dict[str, Any]
+        memory_context_payload: dict[str, Any]
         try:
+            reasoning_oil_request = normalize_input_to_oil_request(
+                message,
+                session_id=session_id,
+                run_id="",
+                metadata={
+                    "source_component": "runtime.orchestrator",
+                    "reasoning_phase": "memory_context_build",
+                },
+            )
+            memory_context = self.unified_memory.build_reasoning_context(
+                session_id=session_id,
+                run_id="",
+                query=message,
+                oil_request=reasoning_oil_request,
+                memory_store=memory_store,
+                max_items=8,
+            )
+            memory_context_payload = memory_context.as_dict()
+            self._append_runtime_event(
+                event_type="runtime.memory_intelligence.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "context_id": memory_context_payload.get("context_id"),
+                    "selected_count": memory_context_payload.get("selected_count", 0),
+                    "total_candidates": memory_context_payload.get("total_candidates", 0),
+                    "sources_used": memory_context_payload.get("sources_used", []),
+                    "context_summary": memory_context_payload.get("context_summary", ""),
+                    "scoring": memory_context_payload.get("scoring", {}),
+                },
+            )
             reasoning_outcome = self.reasoning_engine.reason(
                 raw_input=message,
                 session_id=session_id,
                 run_id="",
                 source_component="runtime.orchestrator",
+                oil_request=reasoning_oil_request,
+                memory_context=memory_context_payload,
             )
             reasoning_handoff = dict(reasoning_outcome.execution_handoff)
             reasoning_payload = reasoning_outcome.as_dict()
@@ -435,6 +479,12 @@ class BrainOrchestrator:
                 "suggested_capabilities": [],
                 "validation": {"outcome": "fallback"},
             }
+            memory_context_payload = {
+                "context_id": "",
+                "selected_count": 0,
+                "sources_used": [],
+                "context_summary": "memory_context_build_failed",
+            }
             reasoning_payload = {
                 "mode": "fast",
                 "normalized_input": message.strip(),
@@ -446,6 +496,7 @@ class BrainOrchestrator:
                     "handoff_decision": "proceed",
                 },
                 "error": str(exc),
+                "memory_context": dict(memory_context_payload),
             }
             self._append_runtime_event(
                 event_type="runtime.reasoning.trace",
@@ -464,6 +515,7 @@ class BrainOrchestrator:
             return SAFE_FALLBACK_RESPONSE
         control_metadata = self._build_control_metadata(message=runtime_message)
         control_metadata["reasoning"] = reasoning_payload
+        control_metadata["memory_intelligence"] = dict(memory_context_payload)
         control_result = self._evaluate_control_layer(
             session_id=session_id,
             message=runtime_message,
@@ -647,6 +699,7 @@ class BrainOrchestrator:
                             "retrieval_plan": self._retrieval_plan_to_dict(retrieval_plan),
                             "structured_memory": memory_context["retrieved_context"],
                             "reasoning_handoff": dict(reasoning_handoff),
+                            "memory_intelligence": dict(memory_context_payload),
                         },
                     ),
                 )
@@ -706,6 +759,7 @@ class BrainOrchestrator:
                 "memory_signal": swarm_result.get("memory_signal", {}),
             },
             "reasoning": reasoning_payload,
+            "memory_intelligence": dict(memory_context_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }

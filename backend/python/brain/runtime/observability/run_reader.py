@@ -124,7 +124,8 @@ def read_evolution_proposal(root: Path, proposal_id: str) -> dict[str, Any] | No
 
 def read_recent_reasoning_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    payloads = read_tail_jsonl(path, limit=max(1, int(limit or 10)))
+    scan_limit = max(6, int(limit or 10) * 5)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
         if str(payload.get("event_type", "")).strip() != "runtime.reasoning.trace":
@@ -148,4 +149,35 @@ def read_recent_reasoning_traces(root: Path, *, limit: int = 10) -> list[dict[st
 
 def read_latest_reasoning_trace(root: Path) -> dict[str, Any] | None:
     traces = read_recent_reasoning_traces(root, limit=1)
+    return traces[0] if traces else None
+
+
+def read_recent_memory_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    scan_limit = max(6, int(limit or 10) * 5)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.memory_intelligence.trace":
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "context_id": str(payload.get("context_id", "")).strip(),
+                "selected_count": int(payload.get("selected_count", 0) or 0),
+                "total_candidates": int(payload.get("total_candidates", 0) or 0),
+                "sources_used": list(payload.get("sources_used", []) or []),
+                "context_summary": str(payload.get("context_summary", "")).strip(),
+                "scoring": dict(payload.get("scoring", {}) or {}),
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_memory_intelligence_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_memory_intelligence_traces(root, limit=1)
     return traces[0] if traces else None

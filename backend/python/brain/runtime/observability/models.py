@@ -239,6 +239,8 @@ class ObservabilitySnapshot:
     governed_evolution: dict[str, Any] = field(default_factory=dict)
     latest_reasoning_trace: dict[str, Any] | None = None
     recent_reasoning_traces: list[dict[str, Any]] = field(default_factory=list)
+    latest_memory_intelligence_trace: dict[str, Any] | None = None
+    recent_memory_intelligence_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -274,5 +276,11 @@ class ObservabilitySnapshot:
                 dict(self.latest_reasoning_trace) if isinstance(self.latest_reasoning_trace, dict) else None
             ),
             "recent_reasoning_traces": [dict(item) for item in self.recent_reasoning_traces],
+            "latest_memory_intelligence_trace": (
+                dict(self.latest_memory_intelligence_trace)
+                if isinstance(self.latest_memory_intelligence_trace, dict)
+                else None
+            ),
+            "recent_memory_intelligence_traces": [dict(item) for item in self.recent_memory_intelligence_traces],
             "warnings": list(self.warnings),
         }
