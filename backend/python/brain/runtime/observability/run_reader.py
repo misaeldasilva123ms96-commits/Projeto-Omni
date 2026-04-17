@@ -243,3 +243,37 @@ def read_recent_learning_intelligence_traces(root: Path, *, limit: int = 10) -> 
 def read_latest_learning_intelligence_trace(root: Path) -> dict[str, Any] | None:
     traces = read_recent_learning_intelligence_traces(root, limit=1)
     return traces[0] if traces else None
+
+
+def read_recent_strategy_adaptation_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    scan_limit = max(6, int(limit or 10) * 5)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.strategy_adaptation.trace":
+            continue
+        st = payload.get("strategy_trace")
+        if not isinstance(st, dict):
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "strategy_trace": dict(st),
+                "selected_strategy": dict(payload.get("selected_strategy", {}) or {}),
+                "fallback_strategy": dict(payload.get("fallback_strategy", {}) or {}),
+                "reason": str(payload.get("reason", "")).strip(),
+                "confidence": float(payload.get("confidence", 0.0) or 0.0),
+                "signals_used": list(payload.get("signals_used", []) or []),
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_strategy_adaptation_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_strategy_adaptation_traces(root, limit=1)
+    return traces[0] if traces else None

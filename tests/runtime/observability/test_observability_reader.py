@@ -192,6 +192,38 @@ class ObservabilityReaderTest(unittest.TestCase):
                                 },
                                 ensure_ascii=False,
                             ),
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:04+00:00',
+                                    'event_type': 'runtime.strategy_adaptation.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'strategy_trace': {
+                                        'trace_id': 'strat35-test',
+                                        'selected_mode': 'deep',
+                                        'selected_path': 'swarm',
+                                    },
+                                    'selected_strategy': {
+                                        'mode': 'deep',
+                                        'path': 'swarm',
+                                        'validation_level': 'medium',
+                                        'reasoning_depth': 4,
+                                        'risk_tolerance': 0.6,
+                                    },
+                                    'fallback_strategy': {
+                                        'mode': 'fast',
+                                        'path': 'swarm',
+                                        'validation_level': 'medium',
+                                        'reasoning_depth': 2,
+                                        'risk_tolerance': 0.65,
+                                    },
+                                    'reason': 'baseline',
+                                    'confidence': 0.7,
+                                    'signals_used': ['learning:absent'],
+                                },
+                                ensure_ascii=False,
+                            ),
                         ]
                     )
                     + '\n',
@@ -258,6 +290,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_learning_intelligence_traces), 1)
                 self.assertIn('latest_learning_intelligence_trace', snap_dict)
                 self.assertIn('recent_learning_intelligence_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_strategy_adaptation_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_strategy_adaptation_trace.get('strategy_trace', {}).get('trace_id'),
+                    'strat35-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_strategy_adaptation_traces), 1)
+                self.assertIn('latest_strategy_adaptation_trace', snap_dict)
+                self.assertIn('recent_strategy_adaptation_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

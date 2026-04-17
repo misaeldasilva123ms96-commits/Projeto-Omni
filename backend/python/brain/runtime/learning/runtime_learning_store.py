@@ -24,3 +24,23 @@ class RuntimeLearningStore:
             return True
         except OSError:
             return False
+
+    def read_latest_record(self) -> dict[str, Any] | None:
+        """Return the most recent Phase 34 runtime learning record, if any."""
+        if not self._path.exists():
+            return None
+        try:
+            text = self._path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        for line in reversed(text.splitlines()):
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                return payload
+        return None

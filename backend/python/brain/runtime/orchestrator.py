@@ -52,6 +52,7 @@ from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningEngine, LearningExecutor
+from brain.runtime.strategy import StrategyEngine
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.orchestrator_services import (
@@ -289,6 +290,7 @@ class BrainOrchestrator:
         )
         self.planning_engine = PlanningEngine()
         self.runtime_learning_engine = LearningEngine(self.paths.root)
+        self.strategy_engine = StrategyEngine(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -420,6 +422,7 @@ class BrainOrchestrator:
         memory_context_payload: dict[str, Any]
         planning_payload: dict[str, Any] = {}
         learning_payload: dict[str, Any] = {}
+        strategy_payload: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -453,11 +456,50 @@ class BrainOrchestrator:
                     "scoring": memory_context_payload.get("scoring", {}),
                 },
             )
+            preferred_reasoning_mode: str | None = None
+            try:
+                strategy_decision = self.strategy_engine.select(
+                    session_id=session_id,
+                    run_id="",
+                    message=message,
+                    oil_request=reasoning_oil_request,
+                    memory_context=memory_context_payload,
+                    learning_record=None,
+                )
+                strategy_payload = strategy_decision.as_dict()
+                preferred_reasoning_mode = str(strategy_decision.selected_strategy.mode)
+                reasoning_oil_request.extensions["strategy_adaptation"] = {
+                    "mode": strategy_decision.selected_strategy.mode,
+                    "path": strategy_decision.selected_strategy.path,
+                    "validation_level": strategy_decision.selected_strategy.validation_level,
+                    "reasoning_depth": strategy_decision.selected_strategy.reasoning_depth,
+                    "risk_tolerance": strategy_decision.selected_strategy.risk_tolerance,
+                    "trace_id": strategy_decision.trace.trace_id,
+                    "fallback_mode": strategy_decision.fallback_strategy.mode,
+                    "fallback_path": strategy_decision.fallback_strategy.path,
+                }
+                self._append_runtime_event(
+                    event_type="runtime.strategy_adaptation.trace",
+                    session_id=session_id,
+                    task_id="",
+                    run_id="",
+                    payload={
+                        "strategy_trace": strategy_decision.trace.as_dict(),
+                        "selected_strategy": strategy_decision.selected_strategy.as_dict(),
+                        "fallback_strategy": strategy_decision.fallback_strategy.as_dict(),
+                        "reason": strategy_decision.reason,
+                        "confidence": strategy_decision.confidence,
+                        "signals_used": list(strategy_decision.signals_used),
+                    },
+                )
+            except Exception as strat_exc:
+                strategy_payload = {"error": str(strat_exc), "degraded": True}
             reasoning_outcome = self.reasoning_engine.reason(
                 raw_input=message,
                 session_id=session_id,
                 run_id="",
                 source_component="runtime.orchestrator",
+                preferred_mode=preferred_reasoning_mode,
                 oil_request=reasoning_oil_request,
                 memory_context=memory_context_payload,
             )
@@ -522,6 +564,7 @@ class BrainOrchestrator:
         control_metadata = self._build_control_metadata(message=runtime_message)
         control_metadata["reasoning"] = reasoning_payload
         control_metadata["memory_intelligence"] = dict(memory_context_payload)
+        control_metadata["strategy_adaptation"] = dict(strategy_payload)
         control_result = self._evaluate_control_layer(
             session_id=session_id,
             message=runtime_message,
@@ -828,6 +871,7 @@ class BrainOrchestrator:
             "memory_intelligence": dict(memory_context_payload),
             "planning_intelligence": dict(planning_payload),
             "runtime_learning": dict(learning_payload),
+            "strategy_adaptation": dict(strategy_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }
