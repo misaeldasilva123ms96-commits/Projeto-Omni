@@ -63,6 +63,12 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("planning_trace", pe)
                 self.assertIn("execution_plan", pe)
                 self.assertGreaterEqual(int(pe["planning_trace"].get("step_count", 0)), 1)
+                strategy_events = [item for item in lines if item.get("event_type") == "runtime.strategy_adaptation.trace"]
+                self.assertGreaterEqual(len(strategy_events), 1)
+                se = strategy_events[-1]
+                self.assertIn("strategy_trace", se)
+                self.assertIn("selected_strategy", se)
+                self.assertIn("fallback_strategy", se)
 
                 session_path = orchestrator.session_store.path_for("sess-r31-int")
                 payload = json.loads(session_path.read_text(encoding="utf-8"))
@@ -80,6 +86,8 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("learning_record", le)
                 self.assertIn("runtime_learning", payload)
                 self.assertIn("learning_record", payload["runtime_learning"])
+                self.assertIn("strategy_adaptation", payload)
+                self.assertIn("selected_strategy", payload["strategy_adaptation"])
 
 
 if __name__ == "__main__":
