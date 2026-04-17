@@ -136,6 +136,33 @@ class ObservabilityReaderTest(unittest.TestCase):
                                 },
                                 ensure_ascii=False,
                             ),
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:02+00:00',
+                                    'event_type': 'runtime.planning_intelligence.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'planning_trace': {
+                                        'trace_id': 'plan-obs-1',
+                                        'plan_id': 'p33-plan-test',
+                                        'step_count': 2,
+                                        'dependency_edge_count': 1,
+                                        'checkpoint_count': 1,
+                                        'fallback_count': 1,
+                                        'execution_ready': True,
+                                        'fallback_branch_defined': True,
+                                        'degraded': False,
+                                        'error': '',
+                                    },
+                                    'execution_plan': {
+                                        'plan_id': 'p33-plan-test',
+                                        'steps': [{'step_id': 'a'}, {'step_id': 'b'}],
+                                        'execution_ready': True,
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
                         ]
                     )
                     + '\n',
@@ -186,6 +213,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_memory_intelligence_traces), 1)
                 self.assertIn('latest_memory_intelligence_trace', snap_dict)
                 self.assertIn('recent_memory_intelligence_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_planning_intelligence_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_planning_intelligence_trace.get('planning_trace', {}).get('plan_id'),
+                    'p33-plan-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_planning_intelligence_traces), 1)
+                self.assertIn('latest_planning_intelligence_trace', snap_dict)
+                self.assertIn('recent_planning_intelligence_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

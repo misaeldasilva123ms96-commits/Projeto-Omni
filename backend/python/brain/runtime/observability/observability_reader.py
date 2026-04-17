@@ -13,10 +13,12 @@ from .run_reader import (
     read_active_runs,
     read_evolution_summary,
     read_latest_memory_intelligence_trace,
+    read_latest_planning_intelligence_trace,
     read_latest_reasoning_trace,
     read_latest_governance_event_by_run,
     read_operational_governance,
     read_recent_memory_intelligence_traces,
+    read_recent_planning_intelligence_traces,
     read_recent_reasoning_traces,
     read_recent_governance_timeline_events,
     read_recent_resolution_events,
@@ -60,6 +62,8 @@ class ObservabilityReader:
         recent_reasoning_traces = read_recent_reasoning_traces(self.root, limit=10)
         latest_memory_intelligence_trace = read_latest_memory_intelligence_trace(self.root)
         recent_memory_intelligence_traces = read_recent_memory_intelligence_traces(self.root, limit=10)
+        latest_planning_intelligence_trace = read_latest_planning_intelligence_trace(self.root)
+        recent_planning_intelligence_traces = read_recent_planning_intelligence_traces(self.root, limit=10)
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -103,6 +107,8 @@ class ObservabilityReader:
             recent_reasoning_traces=recent_reasoning_traces,
             latest_memory_intelligence_trace=latest_memory_intelligence_trace,
             recent_memory_intelligence_traces=recent_memory_intelligence_traces,
+            latest_planning_intelligence_trace=latest_planning_intelligence_trace,
+            recent_planning_intelligence_traces=recent_planning_intelligence_traces,
             warnings=[],
         )
 

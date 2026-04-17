@@ -57,6 +57,12 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 memory_events = [item for item in lines if item.get("event_type") == "runtime.memory_intelligence.trace"]
                 self.assertGreaterEqual(len(memory_events), 1)
                 self.assertIn("selected_count", memory_events[-1])
+                planning_events = [item for item in lines if item.get("event_type") == "runtime.planning_intelligence.trace"]
+                self.assertGreaterEqual(len(planning_events), 1)
+                pe = planning_events[-1]
+                self.assertIn("planning_trace", pe)
+                self.assertIn("execution_plan", pe)
+                self.assertGreaterEqual(int(pe["planning_trace"].get("step_count", 0)), 1)
 
                 session_path = orchestrator.session_store.path_for("sess-r31-int")
                 payload = json.loads(session_path.read_text(encoding="utf-8"))
@@ -64,6 +70,9 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("execution_handoff", payload["reasoning"])
                 self.assertIn("memory_intelligence", payload)
                 self.assertIn("selected_count", payload["memory_intelligence"])
+                self.assertIn("planning_intelligence", payload)
+                self.assertIn("execution_plan", payload["planning_intelligence"])
+                self.assertIn("planning_trace", payload["planning_intelligence"])
 
 
 if __name__ == "__main__":
