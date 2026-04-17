@@ -224,6 +224,30 @@ class ObservabilityReaderTest(unittest.TestCase):
                                 },
                                 ensure_ascii=False,
                             ),
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:05+00:00',
+                                    'event_type': 'runtime.performance_optimization.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'trace': {
+                                        'trace_id': 'perf36-test',
+                                        'cache_hit': False,
+                                        'compression_applied': ['memory_intelligence', 'reasoning_handoff'],
+                                        'estimated_bytes_before': 5000,
+                                        'estimated_bytes_after': 1200,
+                                        'estimated_bytes_saved': 3800,
+                                    },
+                                    'stats': {
+                                        'steps_applied': ['memory_intelligence'],
+                                        'estimated_bytes_before': 5000,
+                                        'estimated_bytes_after': 1200,
+                                        'estimated_bytes_saved': 3800,
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
                         ]
                     )
                     + '\n',
@@ -298,6 +322,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_strategy_adaptation_traces), 1)
                 self.assertIn('latest_strategy_adaptation_trace', snap_dict)
                 self.assertIn('recent_strategy_adaptation_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_performance_optimization_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_performance_optimization_trace.get('trace', {}).get('trace_id'),
+                    'perf36-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_performance_optimization_traces), 1)
+                self.assertIn('latest_performance_optimization_trace', snap_dict)
+                self.assertIn('recent_performance_optimization_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

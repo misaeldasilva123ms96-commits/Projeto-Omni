@@ -52,6 +52,7 @@ from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningEngine, LearningExecutor
+from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
@@ -291,6 +292,7 @@ class BrainOrchestrator:
         self.planning_engine = PlanningEngine()
         self.runtime_learning_engine = LearningEngine(self.paths.root)
         self.strategy_engine = StrategyEngine(self.paths.root)
+        self.performance_engine = PerformanceEngine()
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -423,6 +425,7 @@ class BrainOrchestrator:
         planning_payload: dict[str, Any] = {}
         learning_payload: dict[str, Any] = {}
         strategy_payload: dict[str, Any] = {}
+        performance_payload: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -756,16 +759,30 @@ class BrainOrchestrator:
         }
 
         if not direct_response:
-            swarm_context: dict[str, Any] = {
-                "context_budget": self._budget_to_dict(context_budget),
-                "retrieval_plan": self._retrieval_plan_to_dict(retrieval_plan),
-                "structured_memory": memory_context["retrieved_context"],
-                "reasoning_handoff": dict(reasoning_handoff),
-                "memory_intelligence": dict(memory_context_payload),
+            budget_dict = self._budget_to_dict(context_budget)
+            retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
+            perf_result = self.performance_engine.optimize_swarm_boundary(
+                session_id=session_id,
+                message=runtime_message,
+                budget_dict=budget_dict,
+                retrieval_dict=retrieval_dict,
+                structured_memory=memory_context["retrieved_context"],
+                memory_intelligence=memory_context_payload,
+                reasoning_handoff=reasoning_handoff,
+                planning_payload=planning_payload,
+            )
+            swarm_context = perf_result.slim_swarm_context
+            performance_payload = {
+                "trace": perf_result.trace.as_dict(),
+                "stats": perf_result.stats.as_dict(),
             }
-            if planning_payload:
-                swarm_context["execution_plan"] = planning_payload["execution_plan"]
-                swarm_context["planning_trace"] = planning_payload["planning_trace"]
+            self._append_runtime_event(
+                event_type="runtime.performance_optimization.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload=dict(performance_payload),
+            )
             swarm_result = asyncio.run(
                 self.swarm_orchestrator.run(
                     message=runtime_message,
@@ -783,6 +800,31 @@ class BrainOrchestrator:
                         context_session=swarm_context,
                     ),
                 )
+            )
+        else:
+            skip_tid = "perf36-skip-" + hashlib.sha1(str(session_id or "").encode("utf-8")).hexdigest()[:10]
+            performance_payload = {
+                "trace": {
+                    "trace_id": skip_tid,
+                    "session_id": session_id,
+                    "cache_hit": False,
+                    "cache_key_fingerprint": "",
+                    "compression_applied": ["skipped_direct_memory"],
+                    "estimated_bytes_before": 0,
+                    "estimated_bytes_after": 0,
+                    "estimated_bytes_saved": 0,
+                    "redundant_dict_copies_avoided": 0,
+                    "degraded": False,
+                    "error": "",
+                },
+                "stats": {"steps_applied": ["skipped_direct_memory"], "estimated_bytes_before": 0, "estimated_bytes_after": 0, "estimated_bytes_saved": 0},
+            }
+            self._append_runtime_event(
+                event_type="runtime.performance_optimization.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload=dict(performance_payload),
             )
 
         response = str(swarm_result.get("response", "")).strip() or SAFE_FALLBACK_RESPONSE
@@ -810,8 +852,8 @@ class BrainOrchestrator:
             message=message,
             response=response,
             reasoning_payload=dict(reasoning_payload),
-            memory_context_payload=dict(memory_context_payload),
-            planning_payload=dict(planning_payload),
+            memory_context_payload=memory_context_payload,
+            planning_payload=planning_payload,
             swarm_result=dict(swarm_result),
             evaluation=dict(evaluation),
             duration_ms=duration_ms,
@@ -872,6 +914,7 @@ class BrainOrchestrator:
             "planning_intelligence": dict(planning_payload),
             "runtime_learning": dict(learning_payload),
             "strategy_adaptation": dict(strategy_payload),
+            "performance_optimization": dict(performance_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }

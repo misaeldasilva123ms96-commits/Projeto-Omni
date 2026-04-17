@@ -14,6 +14,7 @@ from .run_reader import (
     read_evolution_summary,
     read_latest_learning_intelligence_trace,
     read_latest_memory_intelligence_trace,
+    read_latest_performance_optimization_trace,
     read_latest_planning_intelligence_trace,
     read_latest_reasoning_trace,
     read_latest_strategy_adaptation_trace,
@@ -21,6 +22,7 @@ from .run_reader import (
     read_operational_governance,
     read_recent_learning_intelligence_traces,
     read_recent_memory_intelligence_traces,
+    read_recent_performance_optimization_traces,
     read_recent_planning_intelligence_traces,
     read_recent_reasoning_traces,
     read_recent_strategy_adaptation_traces,
@@ -72,6 +74,8 @@ class ObservabilityReader:
         recent_learning_intelligence_traces = read_recent_learning_intelligence_traces(self.root, limit=10)
         latest_strategy_adaptation_trace = read_latest_strategy_adaptation_trace(self.root)
         recent_strategy_adaptation_traces = read_recent_strategy_adaptation_traces(self.root, limit=10)
+        latest_performance_optimization_trace = read_latest_performance_optimization_trace(self.root)
+        recent_performance_optimization_traces = read_recent_performance_optimization_traces(self.root, limit=10)
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -121,6 +125,8 @@ class ObservabilityReader:
             recent_learning_intelligence_traces=recent_learning_intelligence_traces,
             latest_strategy_adaptation_trace=latest_strategy_adaptation_trace,
             recent_strategy_adaptation_traces=recent_strategy_adaptation_traces,
+            latest_performance_optimization_trace=latest_performance_optimization_trace,
+            recent_performance_optimization_traces=recent_performance_optimization_traces,
             warnings=[],
         )
 

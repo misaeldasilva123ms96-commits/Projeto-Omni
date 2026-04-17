@@ -247,6 +247,8 @@ class ObservabilitySnapshot:
     recent_learning_intelligence_traces: list[dict[str, Any]] = field(default_factory=list)
     latest_strategy_adaptation_trace: dict[str, Any] | None = None
     recent_strategy_adaptation_traces: list[dict[str, Any]] = field(default_factory=list)
+    latest_performance_optimization_trace: dict[str, Any] | None = None
+    recent_performance_optimization_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -306,5 +308,11 @@ class ObservabilitySnapshot:
                 else None
             ),
             "recent_strategy_adaptation_traces": [dict(item) for item in self.recent_strategy_adaptation_traces],
+            "latest_performance_optimization_trace": (
+                dict(self.latest_performance_optimization_trace)
+                if isinstance(self.latest_performance_optimization_trace, dict)
+                else None
+            ),
+            "recent_performance_optimization_traces": [dict(item) for item in self.recent_performance_optimization_traces],
             "warnings": list(self.warnings),
         }
