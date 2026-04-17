@@ -73,6 +73,13 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("planning_intelligence", payload)
                 self.assertIn("execution_plan", payload["planning_intelligence"])
                 self.assertIn("planning_trace", payload["planning_intelligence"])
+                learning_events = [item for item in lines if item.get("event_type") == "runtime.learning_intelligence.trace"]
+                self.assertGreaterEqual(len(learning_events), 1)
+                le = learning_events[-1]
+                self.assertIn("learning_trace", le)
+                self.assertIn("learning_record", le)
+                self.assertIn("runtime_learning", payload)
+                self.assertIn("learning_record", payload["runtime_learning"])
 
 
 if __name__ == "__main__":

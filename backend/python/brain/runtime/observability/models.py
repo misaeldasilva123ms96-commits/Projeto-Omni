@@ -243,6 +243,8 @@ class ObservabilitySnapshot:
     recent_memory_intelligence_traces: list[dict[str, Any]] = field(default_factory=list)
     latest_planning_intelligence_trace: dict[str, Any] | None = None
     recent_planning_intelligence_traces: list[dict[str, Any]] = field(default_factory=list)
+    latest_learning_intelligence_trace: dict[str, Any] | None = None
+    recent_learning_intelligence_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -290,5 +292,11 @@ class ObservabilitySnapshot:
                 else None
             ),
             "recent_planning_intelligence_traces": [dict(item) for item in self.recent_planning_intelligence_traces],
+            "latest_learning_intelligence_trace": (
+                dict(self.latest_learning_intelligence_trace)
+                if isinstance(self.latest_learning_intelligence_trace, dict)
+                else None
+            ),
+            "recent_learning_intelligence_traces": [dict(item) for item in self.recent_learning_intelligence_traces],
             "warnings": list(self.warnings),
         }
