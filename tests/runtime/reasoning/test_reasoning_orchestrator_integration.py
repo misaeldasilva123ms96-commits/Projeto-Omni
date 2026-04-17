@@ -88,6 +88,11 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("learning_record", payload["runtime_learning"])
                 self.assertIn("strategy_adaptation", payload)
                 self.assertIn("selected_strategy", payload["strategy_adaptation"])
+                perf_events = [item for item in lines if item.get("event_type") == "runtime.performance_optimization.trace"]
+                self.assertGreaterEqual(len(perf_events), 1)
+                self.assertIn("trace", perf_events[-1])
+                self.assertIn("performance_optimization", payload)
+                self.assertIn("trace", payload["performance_optimization"])
 
 
 if __name__ == "__main__":

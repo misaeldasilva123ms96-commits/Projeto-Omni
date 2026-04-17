@@ -277,3 +277,34 @@ def read_recent_strategy_adaptation_traces(root: Path, *, limit: int = 10) -> li
 def read_latest_strategy_adaptation_trace(root: Path) -> dict[str, Any] | None:
     traces = read_recent_strategy_adaptation_traces(root, limit=1)
     return traces[0] if traces else None
+
+
+def read_recent_performance_optimization_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    scan_limit = max(6, int(limit or 10) * 5)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.performance_optimization.trace":
+            continue
+        tr = payload.get("trace")
+        st = payload.get("stats")
+        if not isinstance(tr, dict):
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "trace": dict(tr),
+                "stats": dict(st) if isinstance(st, dict) else {},
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_performance_optimization_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_performance_optimization_traces(root, limit=1)
+    return traces[0] if traces else None
