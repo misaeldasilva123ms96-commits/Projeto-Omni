@@ -63,7 +63,7 @@ from brain.runtime.orchestrator_services import (
 )
 from brain.runtime.reasoning import ReasoningEngine
 from brain.runtime.milestone_manager import MilestoneManager
-from brain.runtime.planning import PlanningExecutor
+from brain.runtime.planning import PlanningEngine, PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
 from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
@@ -287,6 +287,7 @@ class BrainOrchestrator:
             evidence_store=self.evidence_memory,
             run_registry=self.run_registry,
         )
+        self.planning_engine = PlanningEngine()
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -414,6 +415,7 @@ class BrainOrchestrator:
         reasoning_handoff: dict[str, Any]
         reasoning_payload: dict[str, Any]
         memory_context_payload: dict[str, Any]
+        planning_payload: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -641,6 +643,33 @@ class BrainOrchestrator:
             },
         )
 
+        rd = control_result["routing_decision"]
+        execution_plan, planning_trace = self.planning_engine.build_execution_plan(
+            handoff=dict(reasoning_handoff),
+            reasoning_trace=dict(reasoning_payload.get("trace") or {}),
+            session_id=session_id,
+            run_id="",
+            task_id="",
+            normalized_input=str(runtime_message).strip(),
+            control_routing={
+                "task_type": rd.task_type,
+                "risk_level": rd.risk_level,
+                "execution_strategy": rd.execution_strategy,
+                "verification_intensity": rd.verification_intensity,
+            },
+        )
+        planning_payload = {
+            "execution_plan": execution_plan.as_dict(),
+            "planning_trace": planning_trace.as_dict(),
+        }
+        self._append_runtime_event(
+            event_type="runtime.planning_intelligence.trace",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload=dict(planning_payload),
+        )
+
         self._extract_user_learning(memory_store, message)
         append_history(
             memory_store,
@@ -680,6 +709,16 @@ class BrainOrchestrator:
         }
 
         if not direct_response:
+            swarm_context: dict[str, Any] = {
+                "context_budget": self._budget_to_dict(context_budget),
+                "retrieval_plan": self._retrieval_plan_to_dict(retrieval_plan),
+                "structured_memory": memory_context["retrieved_context"],
+                "reasoning_handoff": dict(reasoning_handoff),
+                "memory_intelligence": dict(memory_context_payload),
+            }
+            if planning_payload:
+                swarm_context["execution_plan"] = planning_payload["execution_plan"]
+                swarm_context["planning_trace"] = planning_payload["planning_trace"]
             swarm_result = asyncio.run(
                 self.swarm_orchestrator.run(
                     message=runtime_message,
@@ -694,13 +733,7 @@ class BrainOrchestrator:
                         available_capabilities=available_capabilities,
                         session_id=session_id,
                         swarm_payload=payload,
-                        context_session={
-                            "context_budget": self._budget_to_dict(context_budget),
-                            "retrieval_plan": self._retrieval_plan_to_dict(retrieval_plan),
-                            "structured_memory": memory_context["retrieved_context"],
-                            "reasoning_handoff": dict(reasoning_handoff),
-                            "memory_intelligence": dict(memory_context_payload),
-                        },
+                        context_session=swarm_context,
                     ),
                 )
             )
@@ -760,6 +793,7 @@ class BrainOrchestrator:
             },
             "reasoning": reasoning_payload,
             "memory_intelligence": dict(memory_context_payload),
+            "planning_intelligence": dict(planning_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }
