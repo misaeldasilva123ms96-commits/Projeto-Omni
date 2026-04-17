@@ -163,6 +163,35 @@ class ObservabilityReaderTest(unittest.TestCase):
                                 },
                                 ensure_ascii=False,
                             ),
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:03+00:00',
+                                    'event_type': 'runtime.learning_intelligence.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'learning_trace': {
+                                        'trace_id': 'ltr34-test',
+                                        'learning_record_id': 'lr34-test',
+                                        'signal_count': 4,
+                                        'positive_count': 2,
+                                        'negative_count': 0,
+                                        'mixed_count': 1,
+                                        'neutral_count': 1,
+                                        'outcome_class': 'success',
+                                        'execution_degraded': False,
+                                        'persisted': True,
+                                        'degraded_assessment': False,
+                                        'error': '',
+                                    },
+                                    'learning_record': {
+                                        'record_id': 'lr34-test',
+                                        'persisted': True,
+                                        'assessment': {'outcome_class': 'success'},
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
                         ]
                     )
                     + '\n',
@@ -221,6 +250,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_planning_intelligence_traces), 1)
                 self.assertIn('latest_planning_intelligence_trace', snap_dict)
                 self.assertIn('recent_planning_intelligence_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_learning_intelligence_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_learning_intelligence_trace.get('learning_trace', {}).get('learning_record_id'),
+                    'lr34-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_learning_intelligence_traces), 1)
+                self.assertIn('latest_learning_intelligence_trace', snap_dict)
+                self.assertIn('recent_learning_intelligence_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

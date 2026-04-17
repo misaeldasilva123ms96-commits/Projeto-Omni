@@ -51,7 +51,7 @@ from brain.runtime.engine_adoption_store import EngineAdoptionStore
 from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
-from brain.runtime.learning import LearningExecutor
+from brain.runtime.learning import LearningEngine, LearningExecutor
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.orchestrator_services import (
@@ -288,6 +288,7 @@ class BrainOrchestrator:
             run_registry=self.run_registry,
         )
         self.planning_engine = PlanningEngine()
+        self.runtime_learning_engine = LearningEngine(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -403,6 +404,8 @@ class BrainOrchestrator:
             self.last_runtime_reason = "empty_message"
             return SAFE_FALLBACK_RESPONSE
 
+        run_started_monotonic = time.monotonic()
+
         if self.last_runtime_mode == "mock":
             self._record_runtime_mode_event(
                 session_id=session_id,
@@ -416,6 +419,7 @@ class BrainOrchestrator:
         reasoning_payload: dict[str, Any]
         memory_context_payload: dict[str, Any]
         planning_payload: dict[str, Any] = {}
+        learning_payload: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -756,6 +760,35 @@ class BrainOrchestrator:
             history=memory_store.get("history", []) if isinstance(memory_store.get("history", []), list) else [],
         )
 
+        duration_ms = max(0, int((time.monotonic() - run_started_monotonic) * 1000))
+        learning_record, learning_trace = self.runtime_learning_engine.assess_chat_turn(
+            session_id=session_id,
+            run_id="",
+            message=message,
+            response=response,
+            reasoning_payload=dict(reasoning_payload),
+            memory_context_payload=dict(memory_context_payload),
+            planning_payload=dict(planning_payload),
+            swarm_result=dict(swarm_result),
+            evaluation=dict(evaluation),
+            duration_ms=duration_ms,
+            last_runtime_reason=str(self.last_runtime_reason or ""),
+            last_runtime_mode=str(self.last_runtime_mode or ""),
+            safe_fallback_response=SAFE_FALLBACK_RESPONSE,
+            direct_memory_hit=bool(direct_response),
+        )
+        learning_payload = {
+            "learning_record": learning_record.as_dict(),
+            "learning_trace": learning_trace.as_dict(),
+        }
+        self._append_runtime_event(
+            event_type="runtime.learning_intelligence.trace",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload=dict(learning_payload),
+        )
+
         append_history(
             memory_store,
             "assistant",
@@ -794,6 +827,7 @@ class BrainOrchestrator:
             "reasoning": reasoning_payload,
             "memory_intelligence": dict(memory_context_payload),
             "planning_intelligence": dict(planning_payload),
+            "runtime_learning": dict(learning_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }

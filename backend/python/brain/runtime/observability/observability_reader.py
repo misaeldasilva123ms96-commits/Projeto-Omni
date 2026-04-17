@@ -12,11 +12,13 @@ from .models import GoalSnapshot, ObservabilitySnapshot, TraceSnapshot, utc_now_
 from .run_reader import (
     read_active_runs,
     read_evolution_summary,
+    read_latest_learning_intelligence_trace,
     read_latest_memory_intelligence_trace,
     read_latest_planning_intelligence_trace,
     read_latest_reasoning_trace,
     read_latest_governance_event_by_run,
     read_operational_governance,
+    read_recent_learning_intelligence_traces,
     read_recent_memory_intelligence_traces,
     read_recent_planning_intelligence_traces,
     read_recent_reasoning_traces,
@@ -64,6 +66,8 @@ class ObservabilityReader:
         recent_memory_intelligence_traces = read_recent_memory_intelligence_traces(self.root, limit=10)
         latest_planning_intelligence_trace = read_latest_planning_intelligence_trace(self.root)
         recent_planning_intelligence_traces = read_recent_planning_intelligence_traces(self.root, limit=10)
+        latest_learning_intelligence_trace = read_latest_learning_intelligence_trace(self.root)
+        recent_learning_intelligence_traces = read_recent_learning_intelligence_traces(self.root, limit=10)
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -109,6 +113,8 @@ class ObservabilityReader:
             recent_memory_intelligence_traces=recent_memory_intelligence_traces,
             latest_planning_intelligence_trace=latest_planning_intelligence_trace,
             recent_planning_intelligence_traces=recent_planning_intelligence_traces,
+            latest_learning_intelligence_trace=latest_learning_intelligence_trace,
+            recent_learning_intelligence_traces=recent_learning_intelligence_traces,
             warnings=[],
         )
 
