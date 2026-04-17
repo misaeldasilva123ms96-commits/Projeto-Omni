@@ -60,6 +60,7 @@ from brain.runtime.orchestrator_services import (
     RunLifecycleService,
     SessionService,
 )
+from brain.runtime.reasoning import ReasoningEngine
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
@@ -276,6 +277,7 @@ class BrainOrchestrator:
             progress_fn=BrainOrchestrator._progress_from_step_results,
         )
         self.js_runtime_adapter = JSRuntimeAdapter(self.paths.root)
+        self.reasoning_engine = ReasoningEngine()
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -400,10 +402,71 @@ class BrainOrchestrator:
             )
             return MOCK_RUNTIME_RESPONSE
 
-        control_metadata = self._build_control_metadata(message=message)
+        reasoning_handoff: dict[str, Any]
+        reasoning_payload: dict[str, Any]
+        try:
+            reasoning_outcome = self.reasoning_engine.reason(
+                raw_input=message,
+                session_id=session_id,
+                run_id="",
+                source_component="runtime.orchestrator",
+            )
+            reasoning_handoff = dict(reasoning_outcome.execution_handoff)
+            reasoning_payload = reasoning_outcome.as_dict()
+            self._append_runtime_event(
+                event_type="runtime.reasoning.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "trace": reasoning_outcome.trace.as_dict(),
+                    "handoff": reasoning_handoff,
+                    "oil_request": reasoning_outcome.oil_request.serialize(),
+                    "oil_result": reasoning_outcome.oil_result.serialize(),
+                },
+            )
+            runtime_message = reasoning_outcome.normalized_input or message
+        except Exception as exc:
+            runtime_message = message
+            reasoning_handoff = {
+                "proceed": True,
+                "mode": "fast",
+                "intent": self._predict_intent(message),
+                "suggested_capabilities": [],
+                "validation": {"outcome": "fallback"},
+            }
+            reasoning_payload = {
+                "mode": "fast",
+                "normalized_input": message.strip(),
+                "execution_handoff": reasoning_handoff,
+                "trace": {
+                    "trace_id": "",
+                    "mode": "fast",
+                    "validation_result": "fallback",
+                    "handoff_decision": "proceed",
+                },
+                "error": str(exc),
+            }
+            self._append_runtime_event(
+                event_type="runtime.reasoning.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "trace": reasoning_payload["trace"],
+                    "handoff": reasoning_handoff,
+                    "error": str(exc),
+                },
+            )
+        if not reasoning_handoff.get("proceed", False):
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = "reasoning_validation_block"
+            return SAFE_FALLBACK_RESPONSE
+        control_metadata = self._build_control_metadata(message=runtime_message)
+        control_metadata["reasoning"] = reasoning_payload
         control_result = self._evaluate_control_layer(
             session_id=session_id,
-            message=message,
+            message=runtime_message,
             task_id="",
             run_id="",
             metadata=control_metadata,
@@ -415,7 +478,7 @@ class BrainOrchestrator:
             session_id=session_id,
             task_id="",
             run_id="",
-            message=message,
+            message=runtime_message,
             control_metadata=control_metadata,
             control_result=control_result,
             budget=context_budget,
@@ -538,17 +601,23 @@ class BrainOrchestrator:
             describe_capabilities(),
             strategy_state,
         )
+        reasoning_capabilities = [
+            str(item).strip()
+            for item in reasoning_handoff.get("suggested_capabilities", [])
+            if str(item).strip()
+        ]
+        recommended_capabilities = recommend_capabilities(runtime_message)
         suggested_capabilities = self._weighted_capability_names(
-            recommend_capabilities(message),
+            reasoning_capabilities + recommended_capabilities,
             strategy_state,
         )
-        predicted_intent = self._predict_intent(message)
+        predicted_intent = str(reasoning_handoff.get("intent", "")).strip() or self._predict_intent(runtime_message)
         budgeted_history = self._slice_history_for_budget(
             memory_store.get("history", []),
             context_budget.budget_level,
         )
         summary = self.summarize_history(budgeted_history)
-        direct_response = self._answer_from_memory(memory_store, message)
+        direct_response = self._answer_from_memory(memory_store, runtime_message)
 
         swarm_result: dict[str, Any] = {
             "response": direct_response,
@@ -561,14 +630,14 @@ class BrainOrchestrator:
         if not direct_response:
             swarm_result = asyncio.run(
                 self.swarm_orchestrator.run(
-                    message=message,
+                    message=runtime_message,
                     session_id=session_id,
                     memory_store=memory_store,
                     history=budgeted_history,
                     summary=summary,
                     capabilities=available_capabilities,
                     executor=lambda payload: self._async_node_execution(
-                        message=message,
+                        message=runtime_message,
                         memory_store=memory_store,
                         available_capabilities=available_capabilities,
                         session_id=session_id,
@@ -577,6 +646,7 @@ class BrainOrchestrator:
                             "context_budget": self._budget_to_dict(context_budget),
                             "retrieval_plan": self._retrieval_plan_to_dict(retrieval_plan),
                             "structured_memory": memory_context["retrieved_context"],
+                            "reasoning_handoff": dict(reasoning_handoff),
                         },
                     ),
                 )
@@ -635,6 +705,7 @@ class BrainOrchestrator:
                 "delegates": swarm_result.get("delegates", []),
                 "memory_signal": swarm_result.get("memory_signal", {}),
             },
+            "reasoning": reasoning_payload,
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }

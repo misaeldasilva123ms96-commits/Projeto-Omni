@@ -237,6 +237,8 @@ class ObservabilitySnapshot:
     latest_governance_event_by_run: dict[str, dict[str, Any]] = field(default_factory=dict)
     operational_governance: dict[str, Any] = field(default_factory=dict)
     governed_evolution: dict[str, Any] = field(default_factory=dict)
+    latest_reasoning_trace: dict[str, Any] | None = None
+    recent_reasoning_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -268,5 +270,9 @@ class ObservabilitySnapshot:
             "latest_governance_event_by_run": {str(k): dict(v) for k, v in self.latest_governance_event_by_run.items()},
             "operational_governance": dict(self.operational_governance),
             "governed_evolution": governed_evolution,
+            "latest_reasoning_trace": (
+                dict(self.latest_reasoning_trace) if isinstance(self.latest_reasoning_trace, dict) else None
+            ),
+            "recent_reasoning_traces": [dict(item) for item in self.recent_reasoning_traces],
             "warnings": list(self.warnings),
         }

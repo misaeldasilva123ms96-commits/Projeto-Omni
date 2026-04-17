@@ -95,6 +95,32 @@ class ObservabilityReaderTest(unittest.TestCase):
                     ),
                     encoding='utf-8',
                 )
+                (workspace_root / '.logs' / 'fusion-runtime' / 'execution-audit.jsonl').write_text(
+                    json.dumps(
+                        {
+                            'timestamp': '2026-04-15T00:00:00+00:00',
+                            'event_type': 'runtime.reasoning.trace',
+                            'session_id': 'sess-obs',
+                            'task_id': '',
+                            'run_id': 'run-obs',
+                            'trace': {
+                                'trace_id': 'reason-obs',
+                                'mode': 'deep',
+                                'interpreted_intent': 'analyze',
+                                'validation_result': 'valid',
+                                'handoff_decision': 'proceed',
+                            },
+                            'handoff': {
+                                'proceed': True,
+                                'intent': 'analyze',
+                                'mode': 'deep',
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                    + '\n',
+                    encoding='utf-8',
+                )
                 SimulationStore(workspace_root).append(
                     SimulationResult.build(
                         recommended_route=RouteType.RETRY,
@@ -129,6 +155,12 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertIsInstance(snapshot.operational_governance, dict)
                 self.assertIn('operational_governance', snap_dict)
                 self.assertIn('waiting_operator_runs', snapshot.operational_governance)
+                self.assertIsInstance(snapshot.latest_reasoning_trace, dict)
+                self.assertEqual(snapshot.latest_reasoning_trace.get('trace', {}).get('trace_id'), 'reason-obs')
+                self.assertGreaterEqual(len(snapshot.recent_reasoning_traces), 1)
+                self.assertEqual(snapshot.recent_reasoning_traces[0].get('trace', {}).get('mode'), 'deep')
+                self.assertIn('latest_reasoning_trace', snap_dict)
+                self.assertIn('recent_reasoning_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
