@@ -1,7 +1,7 @@
 # Omni Frontend ↔ Backend Integration Matrix
 
 **Scope:** React/Vite frontend (`frontend/`) ↔ Rust HTTP API (`backend/rust/src/main.rs` and related modules).  
-**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
+**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `docs/backend/public-api-roadmap.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
 **Not in scope:** Supabase-backed persistence in `frontend/src/lib/omniData.ts` (separate product surface; not Omni Rust routes).
 
 ---
@@ -14,7 +14,9 @@
 | Chat — client `metadata` (e.g. `sessionId`) | Same POST body field `metadata` | `POST /chat` | ⚠️ PARTIAL | **Frontend no longer sends `metadata`.** Rust `ChatRequest` only deserializes `message`; optional UI context stays client-side until contract + subprocess design supports it | Explicit `metadata` field in contract + subprocess stdin/argv design | HIGH | MEDIUM |
 | Chat — `session_id` in response | Stable session id from runtime | `POST /chat` | ⚠️ PARTIAL | Yes — Rust returns fixed `session_id` (`python-session` / `mock-session`) from `call_python` / mock paths, not values parsed from Python stdout | Propagate orchestrator `session_id` through Python stdout JSON or side-channel | MEDIUM | MEDIUM |
 | Chat — `matched_commands`, `matched_tools`, `usage`, `stop_reason` | Enriched assistant metadata | `POST /chat` | ⚠️ PARTIAL | Yes — Rust `call_python` sets these to empty / defaults; only mock mode sets sample `usage` | Return structured `ChatResponse` parsed from Python JSON when present | MEDIUM | MEDIUM |
-| Runtime status (Dashboard hero / health strip) | `status`, `runtime_mode`, `python` / `node` dependency health | `GET /health` | ✅ AVAILABLE | None for fields defined in `HealthResponse` | Same, versioned under `/api/v1/health` if public API hardening | HIGH | LOW |
+| Chat — `runtime_session_version` | Rust runtime epoch (aligns with `/health`) | `POST /chat` | ✅ AVAILABLE | Optional in TS adapters — additive JSON field | Same field on any future `/api/v1/chat` envelope | LOW | LOW |
+| Runtime status (Dashboard hero / health strip) | `status`, `runtime_mode`, `python` / `node` dependency health | `GET /health` | ✅ AVAILABLE | None for fields defined in `HealthResponse` | Supplemented by `GET /api/v1/status` (minimal public read model) | HIGH | LOW |
+| Public status (minimal) | `status`, `runtime_mode`, `python_status`, `node_status`, `timestamp_ms` | `GET /api/v1/status` | ✅ AVAILABLE | Optional client module — shape is `PublicStatusResponseV1` in Rust | Harden + rate-limit if exposed broadly | MEDIUM | LOW |
 | Runtime signals (recent audit lines, mode transitions, latest run summary) | `recent_signals`, `recent_mode_transitions`, `latest_run_summary` | `GET /internal/runtime-signals` | 🧪 INTERNAL ONLY | None — shape is `serde_json::Value` arrays/object; UI treats as `Record<string, unknown>[]` | Move behind authenticated `/api/runtime/signals` if exposed publicly | MEDIUM | MEDIUM |
 | Swarm / multi-agent log (Dashboard) | `events`, `total_events` | `GET /internal/swarm-log` | 🧪 INTERNAL ONLY | None — reads JSONL into `Vec<Value>` | Same as above | MEDIUM | MEDIUM |
 | Strategy / reasoning state (Dashboard) | `strategy_state`, `recent_changes` | `GET /internal/strategy-state` | 🧪 INTERNAL ONLY | None | Authenticated read model endpoint | MEDIUM | MEDIUM |
@@ -43,7 +45,7 @@
 ## Current architecture summary
 
 1. **Base URL:** `VITE_OMNI_API_URL` (`frontend/src/lib/env.ts`) points to the Rust listener (default patterns described in frontend env docs).
-2. **Unauthenticated JSON:** `GET /health`, `POST /chat`, `GET /internal/*` — browser calls with simple `fetch` (no Supabase header).
+2. **Unauthenticated JSON:** `GET /health`, `GET /api/v1/status`, `POST /chat`, `GET /internal/*` — browser calls with simple `fetch` (no Supabase header).
 3. **Authenticated JSON / SSE:** `GET /api/observability/snapshot`, `GET /api/observability/traces`, `GET /api/observability/stream` — `Authorization: Bearer <Supabase access_token>` except SSE, which passes the same token as `?token=` (supported in `observability_auth.rs`).
 4. **Observability implementation:** Rust spawns `python -m brain.runtime.observability.cli` (`observability.rs`); responses are generic `serde_json::Value` wrapped by CLI stdout shape consumed as typed JSON on the client.
 5. **Chat implementation:** Rust spawns `python <entry> <message>` (positional argv only). Response text is parsed for first matching key among `response` / `message` / `text` / `answer`; structured fields on `ChatResponse` are largely **not** sourced from Python JSON today.
@@ -56,7 +58,7 @@
 | --- | --- |
 | **No OIL over HTTP** | OIL types live under Python `brain/runtime/language/`; Rust `/chat` does not expose `OILRequest` / `OILResult` envelopes. |
 | **Chat metadata not forwarded** | `ChatRequest` in `main.rs` is `{ message }` only; UI session hints are not on the wire (see `lib/api/chat.ts` + compatibility-layer doc). |
-| **Session identity mismatch** | UI generates its own `sessionId` (`ChatPage.tsx`); Rust returns static `session_id` for subprocess path — not orchestrator session store. |
+| **Session identity mismatch** | UI generates its own `sessionId` (`ChatPage.tsx`); Rust returns static `session_id` for subprocess path — not orchestrator session store. **`runtime_session_version` on `ChatResponse` (Phase 5) helps correlate with `/health` but does not replace UI session.** |
 | **Internal routes are unauthenticated** | `/internal/*` registered on the same public `Router` without `require_supabase_auth` — safe only behind network policy / private bind. |
 | **Control plane API unused** | `/api/control/*` exists and is protected, but **no** `frontend/src` references; no operator UI. |
 | **Observability TS model drift** | Python `ObservabilityReader` / `as_dict()` can add keys (e.g. newer runtime traces); `ObservabilitySnapshot` in TS may not list them — runtime still works, typing incomplete. |
@@ -93,6 +95,7 @@
 **Public (no Supabase middleware on these paths)**
 
 - `GET /health`
+- `GET /api/v1/status`
 - `POST /chat`
 - `GET /internal/runtime-signals`
 - `GET /internal/swarm-log`

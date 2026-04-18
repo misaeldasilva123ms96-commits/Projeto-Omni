@@ -54,6 +54,9 @@ struct ChatResponse {
     response: String,
     session_id: String,
     source: String,
+    /// Rust runtime session epoch; aligns chat envelope with `/health` and `GET /api/v1/status` (additive field).
+    #[serde(default)]
+    runtime_session_version: u32,
     #[serde(default)]
     matched_commands: Vec<String>,
     #[serde(default)]
@@ -96,6 +99,18 @@ struct HealthResponse {
     timestamp_ms: u64,
     python: DependencyHealth,
     node: DependencyHealth,
+}
+
+/// Stable public read model for product UIs (`GET /api/v1/status`). Intentionally omits file paths and binary locations.
+#[derive(Debug, Serialize)]
+struct PublicStatusResponseV1 {
+    api_version: &'static str,
+    status: String,
+    runtime_mode: String,
+    rust_service: String,
+    python_status: String,
+    node_status: String,
+    timestamp_ms: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -217,8 +232,13 @@ async fn main() -> Result<(), AppError> {
             require_supabase_auth,
         ));
 
+    // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
+    // Public: /health, /chat, /api/v1/status
+    // Internal (no auth middleware): /internal/*
+    // Protected (Supabase JWT): merged /api/observability/*, /api/control/*
     let app = Router::new()
         .route("/health", get(health))
+        .route("/api/v1/status", get(public_v1_status))
         .route("/chat", post(chat))
         .route("/internal/runtime-signals", get(runtime_signals))
         .route("/internal/swarm-log", get(swarm_log))
@@ -387,7 +407,8 @@ fn unix_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
-async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
+/// Shared liveness snapshot used by `/health` and derived public contracts.
+async fn build_health_snapshot(state: &AppState) -> HealthResponse {
     let python_status = state.python_health.read().await.clone();
     let node_observable = binary_observable(&state.node_bin);
     let python_ready = matches!(
@@ -400,36 +421,55 @@ async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRespon
         "degraded"
     };
 
+    HealthResponse {
+        status: status.to_string(),
+        rust_service: "ok",
+        runtime_mode: state.runtime_mode.clone(),
+        runtime_session_version: state.runtime_session_version,
+        timestamp_ms: unix_timestamp_ms(),
+        python: DependencyHealth {
+            configured_bin: state.python_bin.clone(),
+            entry: state.python_entry.display().to_string(),
+            entry_exists: state.python_entry.exists(),
+            observable: python_status.observable,
+            last_status: python_status.last_status,
+            last_error: python_status.last_error,
+            last_checked_ms: python_status.last_checked_ms,
+        },
+        node: DependencyHealth {
+            configured_bin: state.node_bin.clone(),
+            entry: String::new(),
+            entry_exists: false,
+            observable: node_observable,
+            last_status: if node_observable {
+                "observable".to_string()
+            } else {
+                "unavailable".to_string()
+            },
+            last_error: None,
+            last_checked_ms: Some(unix_timestamp_ms()),
+        },
+    }
+}
+
+async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
+    let snapshot = build_health_snapshot(&state).await;
+    (StatusCode::OK, Json(snapshot))
+}
+
+/// Versioned public status — subset of `/health` without paths or internal-only diagnostics.
+async fn public_v1_status(State(state): State<AppState>) -> (StatusCode, Json<PublicStatusResponseV1>) {
+    let h = build_health_snapshot(&state).await;
     (
         StatusCode::OK,
-        Json(HealthResponse {
-            status: status.to_string(),
-            rust_service: "ok",
-            runtime_mode: state.runtime_mode.clone(),
-            runtime_session_version: state.runtime_session_version,
-            timestamp_ms: unix_timestamp_ms(),
-            python: DependencyHealth {
-                configured_bin: state.python_bin.clone(),
-                entry: state.python_entry.display().to_string(),
-                entry_exists: state.python_entry.exists(),
-                observable: python_status.observable,
-                last_status: python_status.last_status,
-                last_error: python_status.last_error,
-                last_checked_ms: python_status.last_checked_ms,
-            },
-            node: DependencyHealth {
-                configured_bin: state.node_bin.clone(),
-                entry: String::new(),
-                entry_exists: false,
-                observable: node_observable,
-                last_status: if node_observable {
-                    "observable".to_string()
-                } else {
-                    "unavailable".to_string()
-                },
-                last_error: None,
-                last_checked_ms: Some(unix_timestamp_ms()),
-            },
+        Json(PublicStatusResponseV1 {
+            api_version: "1",
+            status: h.status.clone(),
+            runtime_mode: h.runtime_mode.clone(),
+            rust_service: h.rust_service.to_string(),
+            python_status: h.python.last_status.clone(),
+            node_status: h.node.last_status.clone(),
+            timestamp_ms: h.timestamp_ms,
         }),
     )
 }
@@ -654,11 +694,12 @@ fn extract_response_from_python_output(stdout: &str) -> String {
     }
 }
 
-fn build_python_fallback_response(source: &str) -> ChatResponse {
+fn build_python_fallback_response(state: &AppState, source: &str) -> ChatResponse {
     ChatResponse {
         response: PYTHON_FALLBACK_RESPONSE.to_string(),
         session_id: "python-session".to_string(),
         source: source.to_string(),
+        runtime_session_version: state.runtime_session_version,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("completed".to_string()),
@@ -669,7 +710,7 @@ fn build_python_fallback_response(source: &str) -> ChatResponse {
 async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, AppError> {
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
-        return Ok(build_mock_response(message, "mock-env"));
+        return Ok(build_mock_response(&state, message, "mock-env"));
     }
 
     let mut command = Command::new(&state.python_bin);
@@ -686,7 +727,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             let message = format!("failed to spawn or await python subprocess: {err}");
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
-            return Ok(build_python_fallback_response("python-subprocess"));
+            return Ok(build_python_fallback_response(&state, "python-subprocess"));
         }
         Err(_) => {
             let message = format!(
@@ -695,7 +736,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             );
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
-            return Ok(build_python_fallback_response("python-subprocess"));
+            return Ok(build_python_fallback_response(&state, "python-subprocess"));
         }
     };
 
@@ -716,7 +757,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             Some(if stderr.is_empty() { message.clone() } else { stderr.clone() }),
         )
         .await;
-        return Ok(build_python_fallback_response("python-subprocess"));
+        return Ok(build_python_fallback_response(&state, "python-subprocess"));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -730,7 +771,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
         let message = "python adapter returned empty stdout".to_string();
         warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
-        return Ok(build_python_fallback_response("python-subprocess"));
+        return Ok(build_python_fallback_response(&state, "python-subprocess"));
     }
 
     update_python_health(state, "ready", None).await;
@@ -739,6 +780,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
         response: extract_response_from_python_output(&stdout),
         session_id: "python-session".to_string(),
         source: "python-subprocess".to_string(),
+        runtime_session_version: state.runtime_session_version,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("completed".to_string()),
@@ -746,11 +788,12 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
     })
 }
 
-fn build_mock_response(message: &str, source: &str) -> ChatResponse {
+fn build_mock_response(state: &AppState, message: &str, source: &str) -> ChatResponse {
     ChatResponse {
         response: format!("Mock response from Rust backend: {message}"),
         session_id: "mock-session".to_string(),
         source: source.to_string(),
+        runtime_session_version: state.runtime_session_version,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("mock_completed".to_string()),
