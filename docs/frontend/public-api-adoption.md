@@ -54,6 +54,7 @@ This document tracks how the Omni frontend uses **stable public** HTTP surfaces 
 | Area | Status |
 |------|--------|
 | Public runtime status for dashboard + cognitive rails | **Migrated** to `GET /api/v1/status`. |
+| Public telemetry summaries (signals / milestones / strategy) | **Migrated** for headline cards and cognitive summary blocks — see [`telemetry-migration-status.md`](telemetry-migration-status.md). |
 | `/chat` | Same path; optional `client_session_id` echo + `runtime_session_version` in wire/UI metadata. |
 | Internal telemetry blocks | **Still internal**; explicitly scoped in components. |
 | `/health` | **Available**, not removed; default UI paths prefer `/api/v1/status`. |
@@ -61,5 +62,6 @@ This document tracks how the Omni frontend uses **stable public** HTTP surfaces 
 
 ## 5. Related docs
 
+- [`telemetry-migration-status.md`](telemetry-migration-status.md) — `/api/v1/*/summary` vs `/internal/*` on dashboard and cognitive rail (Phase 9).
 - `docs/frontend/compatibility-layer.md` — adapter and wire vs UI boundaries.
 - `docs/frontend/cognitive-panels.md` — panel composition and trust labeling.

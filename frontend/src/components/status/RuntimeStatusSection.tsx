@@ -1,15 +1,17 @@
 import type { PublicStatusResponseV1, RuntimeSignalsResponse } from '../../types/api/wire'
+import type { UiRuntimeSignalsSummary } from '../../types/ui/telemetry'
 import { MetricRow } from '../ui/MetricRow'
 import { PanelCard } from '../ui/PanelCard'
 import { CognitiveSectionHeader } from './CognitiveSectionHeader'
 
 export type RuntimeStatusSectionProps = {
   publicRuntime: PublicStatusResponseV1 | null
+  /** Public summary (`GET /api/v1/runtime/signals/summary`). */
+  signalsSummary: UiRuntimeSignalsSummary | null
   runtimeSignals: RuntimeSignalsResponse | null
 }
 
-export function RuntimeStatusSection({ publicRuntime, runtimeSignals }: RuntimeStatusSectionProps) {
-  const summary = runtimeSignals?.latest_run_summary ?? {}
+export function RuntimeStatusSection({ publicRuntime, signalsSummary, runtimeSignals }: RuntimeStatusSectionProps) {
   const signalCount = runtimeSignals?.recent_signals?.length ?? 0
 
   return (
@@ -25,11 +27,17 @@ export function RuntimeStatusSection({ publicRuntime, runtimeSignals }: RuntimeS
           value={publicRuntime != null ? String(publicRuntime.runtime_session_version) : '—'}
         />
       </div>
-      <CognitiveSectionHeader scope="internal" title="Runtime signals (read model)" />
+      <CognitiveSectionHeader scope="live" title="Signals summary (/api/v1/runtime/signals/summary)" />
       <div className="status-grid">
-        <MetricRow label="Recent signals" value={String(signalCount)} />
-        <MetricRow label="Latest run id" value={String(summary.run_id ?? '—')} />
-        <MetricRow label="Plan kind" value={String(summary.plan_kind ?? '—')} />
+        <MetricRow label="Signals (sample)" value={String(signalsSummary?.recentSignalCount ?? '—')} />
+        <MetricRow label="Mode transitions" value={String(signalsSummary?.recentModeTransitionCount ?? '—')} />
+        <MetricRow label="Latest run id" value={signalsSummary?.latestRunId || '—'} />
+        <MetricRow label="Plan kind" value={signalsSummary?.latestPlanKind || '—'} />
+        <MetricRow label="Message preview" value={signalsSummary?.latestRunMessagePreview || '—'} />
+      </div>
+      <CognitiveSectionHeader scope="internal" title="Signals detail (internal sample)" />
+      <div className="status-grid">
+        <MetricRow label="Internal sample rows" value={String(signalCount)} />
       </div>
     </PanelCard>
   )

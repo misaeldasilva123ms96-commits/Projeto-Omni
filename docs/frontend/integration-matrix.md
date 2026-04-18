@@ -1,7 +1,7 @@
 # Omni Frontend ↔ Backend Integration Matrix
 
 **Scope:** React/Vite frontend (`frontend/`) ↔ Rust HTTP API (`backend/rust/src/main.rs` and related modules).  
-**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `docs/frontend/public-api-adoption.md`, `docs/backend/public-api-roadmap.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
+**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `docs/frontend/public-api-adoption.md`, `docs/frontend/telemetry-migration-status.md`, `docs/backend/public-api-roadmap.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
 **Not in scope:** Supabase-backed persistence in `frontend/src/lib/omniData.ts` (separate product surface; not Omni Rust routes).
 
 ---
@@ -18,6 +18,9 @@
 | Runtime status (Dashboard system health card, cognitive strip) | `status`, `runtime_mode`, `python_status`, `node_status`, `runtime_session_version`, `timestamp_ms` | `GET /api/v1/status` | ✅ AVAILABLE | `publicStatusV1ToUiRuntimeStatus` | Typed OpenAPI when stabilized | HIGH | LOW |
 | Runtime status (full dependency detail) | Paths, `observable`, last errors | `GET /health` | ✅ AVAILABLE | `healthResponseToUiRuntimeStatus` when used | Same | MEDIUM | LOW |
 | Public status (minimal wire) | `api_version`, `status`, `runtime_mode`, `rust_service`, `python_status`, `node_status`, `runtime_session_version`, `timestamp_ms` | `GET /api/v1/status` | ✅ AVAILABLE | `fetchPublicRuntimeStatusV1` + `PublicStatusResponseV1` | Harden + rate-limit if exposed broadly | MEDIUM | LOW |
+| Runtime signals **summary** (dashboard + cognitive) | Bounded counts + latest run preview | `GET /api/v1/runtime/signals/summary` | ✅ AVAILABLE | `fetchPublicRuntimeSignalsSummaryV1` + `publicRuntimeSignalsSummaryV1ToUi` | Paged authenticated feed when ready | MEDIUM | LOW |
+| Milestones **summary** (dashboard + cognitive) | Counts + checkpoint status string | `GET /api/v1/milestones/summary` | ✅ AVAILABLE | `fetchPublicMilestonesSummaryV1` + `publicMilestonesSummaryV1ToUi` | Stronger typing + auth | MEDIUM | LOW |
+| Strategy **summary** (dashboard + cognitive) | Version, change log size, `create_plan` weight | `GET /api/v1/strategy/summary` | ✅ AVAILABLE | `fetchPublicStrategySummaryV1` + `publicStrategySummaryV1ToUi` | Expand allowlisted scalars | MEDIUM | LOW |
 | Runtime signals (recent audit lines, mode transitions, latest run summary) | `recent_signals`, `recent_mode_transitions`, `latest_run_summary` | `GET /internal/runtime-signals` | 🧪 INTERNAL ONLY | None — shape is `serde_json::Value` arrays/object; UI treats as `Record<string, unknown>[]` | Move behind authenticated `/api/runtime/signals` if exposed publicly | MEDIUM | MEDIUM |
 | Swarm / multi-agent log (Dashboard) | `events`, `total_events` | `GET /internal/swarm-log` | 🧪 INTERNAL ONLY | None — reads JSONL into `Vec<Value>` | Same as above | MEDIUM | MEDIUM |
 | Strategy / reasoning state (Dashboard) | `strategy_state`, `recent_changes` | `GET /internal/strategy-state` | 🧪 INTERNAL ONLY | None | Authenticated read model endpoint | MEDIUM | MEDIUM |
@@ -71,7 +74,7 @@
 
 | Integration | Notes |
 | ----------- | ----- |
-| **Dashboard** | System health uses `GET /api/v1/status`; detail cards use `/internal/*`. Works when API URL points to a trusted Rust instance and logs exist under workspace `.logs/fusion-runtime/`. |
+| **Dashboard** | System health + milestone/strategy/runtime **summary** cards use `GET /api/v1/status` and `GET /api/v1/*/summary`; list/detail cards still use `/internal/*`. See `docs/frontend/telemetry-migration-status.md`. |
 | **Chat text** | `POST /chat` with `{ "message": "..." }` is the supported minimal contract. |
 | **Observability (authenticated)** | Snapshot + SSE stream once Supabase session + env (`SUPABASE_JWT_SECRET`, `SUPABASE_URL` / `VITE_SUPABASE_URL` on server) are configured — already implemented. |
 | **Reuse `fetchObservabilityTraces`** | Client helper ready; can power a dedicated traces view without backend change. |
