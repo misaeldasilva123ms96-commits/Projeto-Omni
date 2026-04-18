@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
-import { AppShell } from '../components/AppShell'
-import { Sidebar } from '../components/Sidebar'
+import { AppShell } from '../components/layout/AppShell'
+import { Sidebar } from '../components/layout/Sidebar'
+import { PageHero } from '../components/ui/PageHero'
+import { PanelCard } from '../components/ui/PanelCard'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import { GoalStatePanel } from '../components/observability/GoalStatePanel'
 import { LearningSignalsPanel } from '../components/observability/LearningSignalsPanel'
 import { OperationalTimeline } from '../components/observability/OperationalTimeline'
@@ -49,25 +52,29 @@ export function ObservabilityPage({
         />
       )}
     >
-      <section className="dashboard-page">
-        <section className="panel-card hero-card dashboard-hero">
-          <div>
-            <p className="eyebrow">Cognitive observability</p>
-            <h2>Inspect goals, memory, simulation and specialist coordination in one read-only surface.</h2>
-            <p className="subtitle">This panel only exposes persisted runtime artifacts. It does not mutate the cognitive runtime.</p>
-          </div>
-          <div className="hero-meta">
-            <span className={status === 'live' ? 'status-pill active' : 'status-pill'}>{loading ? 'Loading' : connectionLabel}</span>
-            {snapshotError || streamError ? <span className="status-pill danger">{streamError || snapshotError}</span> : null}
-          </div>
-        </section>
+      <section className="dashboard-page omni-observability">
+        <PageHero
+          eyebrow="Cognitive observability"
+          meta={(
+            <>
+              <StatusBadge tone={status === 'live' ? 'active' : 'default'}>
+                {loading ? 'Loading' : connectionLabel}
+              </StatusBadge>
+              {snapshotError || streamError ? (
+                <StatusBadge tone="danger">{streamError || snapshotError}</StatusBadge>
+              ) : null}
+            </>
+          )}
+          subtitle="This panel only exposes persisted runtime artifacts. It does not mutate the cognitive runtime."
+          title="Inspect goals, memory, simulation and specialist coordination in one read-only surface."
+        />
 
         {!apiReady ? (
-          <section className="panel-card metric-card observability-card">
+          <PanelCard className="metric-card observability-card">
             <p className="card-eyebrow">Configuration</p>
             <h3>Observability API unavailable</h3>
             <p className="muted-copy">Configure VITE_OMNI_API_URL so the panel can consume the Rust observability endpoints.</p>
-          </section>
+          </PanelCard>
         ) : (
           <div className="dashboard-grid observability-grid">
             <GoalStatePanel goal={snapshot?.goal ?? null} />

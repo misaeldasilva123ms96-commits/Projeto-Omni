@@ -1,5 +1,8 @@
 ﻿import { useEffect, useState } from 'react'
-import { AppShell } from '../components/AppShell'
+import { MetricCard } from '../components/dashboard/MetricCard'
+import { SignalList } from '../components/dashboard/SignalList'
+import { AppShell } from '../components/layout/AppShell'
+import { Sidebar } from '../components/layout/Sidebar'
 import {
   fetchHealth,
   fetchMilestones,
@@ -9,9 +12,9 @@ import {
   fetchSwarmLog,
 } from '../features/runtime'
 import { canUseApi } from '../lib/env'
-import { Sidebar } from '../components/Sidebar'
-import { MetricCard } from '../components/MetricCard'
-import { SignalList } from '../components/SignalList'
+import { MetricRow } from '../components/ui/MetricRow'
+import { PageHero } from '../components/ui/PageHero'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import type { ChatMode, ConversationSummary } from '../types'
 import type {
   HealthResponse,
@@ -128,96 +131,59 @@ export function DashboardPage({
         />
       )}
     >
-      <section className="dashboard-page">
-        <section className="panel-card hero-card dashboard-hero">
-          <div>
-            <p className="eyebrow">Runtime observability</p>
-            <h2>Inspect health, strategy, milestones and recent execution activity.</h2>
-            <p className="subtitle">
-              Read-only telemetry for operators and engineering users. No mutation
-              controls are exposed here.
-            </p>
-          </div>
-          <div className="hero-meta">
-            <span className="status-pill">{loading ? 'Refreshing' : 'Live snapshot'}</span>
-            {error ? <span className="status-pill danger">{error}</span> : null}
-          </div>
-        </section>
+      <section className="dashboard-page omni-dashboard">
+        <PageHero
+          eyebrow="Runtime observability"
+          meta={(
+            <>
+              <StatusBadge tone={loading ? 'active' : 'default'}>
+                {loading ? 'Refreshing' : 'Live snapshot'}
+              </StatusBadge>
+              {error ? <StatusBadge tone="danger">{error}</StatusBadge> : null}
+            </>
+          )}
+          subtitle="Read-only telemetry for operators and engineering users. No mutation controls are exposed here."
+          title="Inspect health, strategy, milestones and recent execution activity."
+        />
 
         <div className="dashboard-grid">
           <MetricCard eyebrow="System health" title="Rust, Python and Node status">
             <div className="metric-stack">
-              <div className="metric-row">
-                <span>Rust service</span>
-                <strong>{data.health?.rust_service ?? 'unknown'}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Runtime mode</span>
-                <strong>{data.health?.runtime_mode ?? 'unknown'}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Python</span>
-                <strong>{data.health?.python.last_status ?? 'not checked'}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Node</span>
-                <strong>{data.health?.node.last_status ?? 'unknown'}</strong>
-              </div>
+              <MetricRow label="Rust service" value={data.health?.rust_service ?? 'unknown'} />
+              <MetricRow label="Runtime mode" value={data.health?.runtime_mode ?? 'unknown'} />
+              <MetricRow label="Python" value={data.health?.python.last_status ?? 'not checked'} />
+              <MetricRow label="Node" value={data.health?.node.last_status ?? 'unknown'} />
             </div>
           </MetricCard>
 
           <MetricCard eyebrow="Milestones" title="Phase 10 engineering state">
             <div className="metric-stack">
-              <div className="metric-row">
-                <span>Latest run</span>
-                <strong>{data.milestones?.latest_run_id ?? 'none'}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Completed</span>
-                <strong>{String(data.milestones?.milestone_state?.completed_milestones ?? 0)}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Blocked</span>
-                <strong>{String(data.milestones?.milestone_state?.blocked_milestones ?? 0)}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Patch sets</span>
-                <strong>{String(data.milestones?.patch_sets?.length ?? 0)}</strong>
-              </div>
+              <MetricRow label="Latest run" value={data.milestones?.latest_run_id ?? 'none'} />
+              <MetricRow label="Completed" value={String(data.milestones?.milestone_state?.completed_milestones ?? 0)} />
+              <MetricRow label="Blocked" value={String(data.milestones?.milestone_state?.blocked_milestones ?? 0)} />
+              <MetricRow label="Patch sets" value={String(data.milestones?.patch_sets?.length ?? 0)} />
             </div>
           </MetricCard>
 
           <MetricCard eyebrow="Strategy state" title="Current optimization posture">
             <div className="metric-stack">
-              <div className="metric-row">
-                <span>Version</span>
-                <strong>{String(data.strategyState?.strategy_state?.version ?? 0)}</strong>
-              </div>
-              <div className="metric-row">
-                <span>History limit</span>
-                <strong>{String((data.strategyState?.strategy_state?.memory_rules as Record<string, unknown> | undefined)?.history_limit ?? 'n/a')}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Plan weight</span>
-                <strong>{String((data.strategyState?.strategy_state?.capability_weights as Record<string, unknown> | undefined)?.create_plan ?? 'n/a')}</strong>
-              </div>
+              <MetricRow label="Version" value={String(data.strategyState?.strategy_state?.version ?? 0)} />
+              <MetricRow
+                label="History limit"
+                value={String((data.strategyState?.strategy_state?.memory_rules as Record<string, unknown> | undefined)?.history_limit ?? 'n/a')}
+              />
+              <MetricRow
+                label="Plan weight"
+                value={String((data.strategyState?.strategy_state?.capability_weights as Record<string, unknown> | undefined)?.create_plan ?? 'n/a')}
+              />
             </div>
           </MetricCard>
 
           <MetricCard eyebrow="Runtime summary" title="Latest executed run">
             <div className="metric-stack">
-              <div className="metric-row">
-                <span>Run id</span>
-                <strong>{String(latestSummary.run_id ?? 'none')}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Plan kind</span>
-                <strong>{String(latestSummary.plan_kind ?? 'unknown')}</strong>
-              </div>
-              <div className="metric-row">
-                <span>Message</span>
-                <strong>{String(latestSummary.message ?? 'n/a')}</strong>
-              </div>
+              <MetricRow label="Run id" value={String(latestSummary.run_id ?? 'none')} />
+              <MetricRow label="Plan kind" value={String(latestSummary.plan_kind ?? 'unknown')} />
+              <MetricRow label="Message" value={String(latestSummary.message ?? 'n/a')} />
             </div>
           </MetricCard>
 

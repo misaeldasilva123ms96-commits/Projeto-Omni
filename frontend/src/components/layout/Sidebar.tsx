@@ -1,5 +1,5 @@
-import { API_BASE_URL } from '../lib/env'
-import type { ChatMode, ConversationSummary } from '../types'
+import { API_BASE_URL } from '../../lib/env'
+import type { ChatMode, ConversationSummary } from '../../types'
 import { ModeSwitcher } from './ModeSwitcher'
 
 type View = 'chat' | 'dashboard' | 'observability'
@@ -24,17 +24,21 @@ export function Sidebar({
   view,
 }: SidebarProps) {
   return (
-    <div className="sidebar-card">
+    <div className="sidebar-card omni-sidebar">
       <div className="sidebar-brand">
-        <div className="brand-mark">O</div>
+        <div className="brand-mark" aria-hidden>
+          O
+        </div>
         <div>
           <p className="eyebrow">Projeto Omni</p>
           <h1>Omni Runtime</h1>
-          <p className="sidebar-copy">Cognitive platform for chat, research and engineering workflows.</p>
+          <p className="sidebar-copy">
+            Cognitive operating layer for chat, telemetry, and operator observability.
+          </p>
         </div>
       </div>
 
-      <nav className="sidebar-nav" aria-label="Workspace sections">
+      <nav className="sidebar-nav omni-sidebar-nav" aria-label="Workspace sections">
         <button
           className={view === 'chat' ? 'sidebar-nav-button active' : 'sidebar-nav-button'}
           onClick={() => onSelectView('chat')}
@@ -70,12 +74,14 @@ export function Sidebar({
         <p className="sidebar-label">Sessoes locais</p>
         <div className="conversation-list">
           {conversations.length === 0 ? (
-            <p className="sidebar-copy">A conversa ativa vai aparecer aqui quando voce comecar.</p>
+            <p className="sidebar-copy">A conversa ativa aparece aqui quando voce comecar.</p>
           ) : (
             conversations.map((conversation) => (
               <article
                 key={conversation.id}
-                className={conversation.id === activeConversationId ? 'conversation-item active' : 'conversation-item'}
+                className={
+                  conversation.id === activeConversationId ? 'conversation-item active' : 'conversation-item'
+                }
               >
                 <div className="conversation-title-row">
                   <strong>{conversation.title}</strong>
