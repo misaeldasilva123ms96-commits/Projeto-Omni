@@ -1,5 +1,5 @@
 /**
- * UI-normalized public telemetry summaries (GET /api/v1/*/summary).
+ * UI-normalized public telemetry summaries (GET /api/v1/.../summary routes).
  * Populated via adapters from wire types in types.ts.
  */
 
