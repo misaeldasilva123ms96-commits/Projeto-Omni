@@ -144,6 +144,9 @@ def main() -> int:
     raw_response = orchestrator.run(message)
     LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
     safe_response = sanitize_for_user(raw_response)
+    inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
+    if isinstance(inspection, dict):
+        safe_response["cognitive_runtime_inspection"] = inspection
     print(json.dumps(safe_response, ensure_ascii=False), flush=True)
     return 0
 

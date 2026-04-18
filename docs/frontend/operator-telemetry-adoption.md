@@ -16,7 +16,7 @@
    Each uses **`getSupabaseAuthHeaders()`** + **`getJsonWithAuth`**.
 3. If any operator call fails (no session, expired JWT, 401/404/500, network), the helper returns **`null`** and the bundle loader uses the existing **`/internal/*`** fetch for that slice only.
 
-Swarm log and PR summaries **always** use `/internal/*` today (no operator route in Phase 13).
+Swarm log and PR summaries **still use `/internal/*` in the bundle loader** until a follow-up wires **`GET /api/v1/operator/swarm`** and **`GET /api/v1/operator/pr-digest`** (available on the API from Phase 15).
 
 ---
 
@@ -52,16 +52,15 @@ Cognitive sections:
 
 | Data | Why still internal |
 | ---- | ------------------- |
-| **Swarm log** | No operator endpoint yet; unstructured events. |
-| **PR summaries** | No operator digest route yet. |
+| **Swarm log** | Backend **`/api/v1/operator/swarm`** exists (Phase 15); frontend bundle not switched yet. |
+| **PR summaries** | Backend **`/api/v1/operator/pr-digest`** exists (Phase 15); frontend bundle not switched yet. |
 | **Rich runtime / strategy / milestones** | Only when operator fetch returned `null` (no auth or error). |
 
 ---
 
 ## 5. Next migration opportunities
 
-- Add **`GET /api/v1/operator/pr-summaries`** (or digest) and switch `fetchPrSummaries` to the same try/fallback pattern.
-- Add **operator swarm** read model after schema + redaction review.
+- Extend **`loadCognitiveTelemetryBundle`** to try **`/api/v1/operator/swarm`** and **`/api/v1/operator/pr-digest`** with the same try/`null`/internal pattern as runtime signals (Phase 15 backend is ready).
 - **Drop `/internal/*` fetches** from the browser once all rich slices have operator (or public) replacements and proxies enforce JWT at the edge.
 - Optional **env flag** to force internal-only (debug) mirroring `VITE_OMNI_CHAT_LEGACY_ONLY`.
 
@@ -72,3 +71,4 @@ Cognitive sections:
 | Phase | Change |
 | ----- | ------ |
 | Phase 14 | `loadCognitiveTelemetryBundle`, operator try/fetch helpers, UI provenance badges + copy. |
+| Phase 15 (backend) | `GET /api/v1/operator/swarm`, `GET /api/v1/operator/pr-digest` — frontend adoption pending. |

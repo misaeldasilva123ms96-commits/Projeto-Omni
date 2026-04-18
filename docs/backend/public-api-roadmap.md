@@ -1,7 +1,7 @@
 # Omni Public API Roadmap (Phase 5)
 
 **Scope:** Classify the current Rust HTTP boundary, document **session semantics**, define a **versioned public path** (`/api/v1/*`), and plan migration off `/internal/*` **without** inventing goals/simulation/evolution payloads or exposing OIL prematurely.  
-**Implementation touchpoints:** `backend/rust/src/main.rs`, `backend/rust/src/observability*.rs`, `backend/rust/src/run_control.rs`. **Phase 13:** authenticated operator telemetry under `/api/v1/operator/*` (see [`operator-telemetry-api.md`](operator-telemetry-api.md)).
+**Implementation touchpoints:** `backend/rust/src/main.rs`, `backend/rust/src/observability*.rs`, `backend/rust/src/run_control.rs`. **Phases 13–15:** authenticated operator telemetry under `/api/v1/operator/*` (see [`operator-telemetry-api.md`](operator-telemetry-api.md)).
 
 ---
 
@@ -28,6 +28,8 @@
 | `/api/v1/operator/runtime/signals` | GET | **Operator (v1)** | Supabase JWT (Bearer) | Redacted runtime audit + run summary (Phase 13) |
 | `/api/v1/operator/strategy/changes` | GET | **Operator (v1)** | Supabase JWT | Recent strategy log entries only (Phase 13) |
 | `/api/v1/operator/milestones` | GET | **Operator (v1)** | Supabase JWT | Bounded milestone checkpoint + redaction (Phase 13) |
+| `/api/v1/operator/swarm` | GET | **Operator (v1)** | Supabase JWT | Redacted tail of swarm log (Phase 15) |
+| `/api/v1/operator/pr-digest` | GET | **Operator (v1)** | Supabase JWT | Redacted PR-style run-summary digest (Phase 15) |
 
 **Legend**
 
@@ -40,7 +42,7 @@
 
 **Candidates for versioned public API:** `/health` (superseded in product copy by `/api/v1/status` for minimal fields), internal read-models (signals, milestones) **after** auth + schema hardening. **Phase 8:** first **summary** read models ship under `/api/v1/*/summary` (see [Public telemetry wave 1](#public-telemetry-wave-1) and [`public-telemetry-contracts.md`](public-telemetry-contracts.md)).
 
-**Phase 13 — operator telemetry:** richer reads than public summaries, **JWT-required**, still **not** raw internal dumps — see [`operator-telemetry-api.md`](operator-telemetry-api.md). `/internal/*` stays for backward compatibility until the frontend migrates callers.
+**Operator telemetry (Phases 13–15):** richer reads than public summaries, **JWT-required**, still **not** raw internal dumps — see [`operator-telemetry-api.md`](operator-telemetry-api.md). Phase 15 adds **swarm** and **PR digest** operator routes mirroring `/internal/swarm-log` and `/internal/pr-summaries`. `/internal/*` stays for backward compatibility until the frontend migrates callers.
 
 ---
 
@@ -85,6 +87,8 @@
 | `/api/v1/operator/runtime/signals` | GET | Supabase JWT | Redacted audit lines + mode transitions + latest run summary | Same files as `/internal/runtime-signals` | **Implemented** (Phase 13) |
 | `/api/v1/operator/strategy/changes` | GET | Supabase JWT | `strategy_version` + up to 12 redacted `changes` entries | `strategy_log.json` (+ version from `strategy_state.json`) | **Implemented** (Phase 13) |
 | `/api/v1/operator/milestones` | GET | Supabase JWT | Checkpoint slice, capped `patch_sets`, redacted nested JSON | Same as `/internal/milestones` sources | **Implemented** (Phase 13) |
+| `/api/v1/operator/swarm` | GET | Supabase JWT | Redacted swarm `events` tail (10) + counts | `brain/runtime/swarm_log.json` (same as `/internal/swarm-log`) | **Implemented** (Phase 15) |
+| `/api/v1/operator/pr-digest` | GET | Supabase JWT | Up to 6 redacted PR-style rows | `run-summaries.jsonl` projection (same as `/internal/pr-summaries`) | **Implemented** (Phase 15) |
 | `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events (full feed) | `.logs/fusion-runtime/*.jsonl` | **Planned** — superseded in part by operator route |
 | `/api/v1/goals` | GET | TBD | — | Python goal store | **Blocked** — no safe HTTP mapping yet |
 | `/api/v1/simulation/routes` | GET | TBD | — | Simulation reader | **Blocked** |

@@ -79,6 +79,7 @@ from brain.runtime.specialists import SpecialistCoordinator
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
 from brain.runtime.transcript_store import TranscriptStore
+from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
 
 
@@ -232,6 +233,8 @@ class BrainOrchestrator:
         self.current_control_mode = RuntimeMode.EXPLORE
         self.last_runtime_mode = "live"
         self.last_runtime_reason = "startup"
+        self.last_cognitive_runtime_inspection: dict[str, Any] | None = None
+        self._last_node_cognitive_hint: dict[str, Any] | None = None
         self.trusted_executor = TrustedExecutor(
             available_capabilities={item["name"] for item in describe_capabilities()},
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
@@ -388,7 +391,47 @@ class BrainOrchestrator:
             metadata={"expected_fields": expected_fields},
         )
 
+    def _emit_cognitive_runtime_inspection(
+        self,
+        response: str,
+        *,
+        reasoning_payload: dict[str, Any] | None,
+        strategy_payload: dict[str, Any] | None,
+        memory_context_payload: dict[str, Any] | None,
+        planning_payload: dict[str, Any] | None,
+        swarm_result: dict[str, Any] | None,
+        learning_record: dict[str, Any] | None,
+        coordination_payload: dict[str, Any] | None,
+        self_improving_system_trace: dict[str, Any] | None,
+        controlled_evolution_payload: dict[str, Any] | None,
+        direct_memory_hit: bool,
+        duration_ms: int,
+    ) -> str:
+        self.last_cognitive_runtime_inspection = build_cognitive_runtime_inspection(
+            response=response,
+            safe_fallback=SAFE_FALLBACK_RESPONSE,
+            node_fallback=NODE_FALLBACK_RESPONSE,
+            mock_response=MOCK_RUNTIME_RESPONSE,
+            last_runtime_mode=str(self.last_runtime_mode or ""),
+            last_runtime_reason=str(self.last_runtime_reason or ""),
+            reasoning_payload=reasoning_payload,
+            strategy_payload=strategy_payload,
+            memory_context_payload=memory_context_payload,
+            planning_payload=planning_payload,
+            swarm_result=swarm_result,
+            learning_record=learning_record,
+            node_cognitive_hint=getattr(self, "_last_node_cognitive_hint", None),
+            direct_memory_hit=direct_memory_hit,
+            self_improving_system_trace=self_improving_system_trace,
+            controlled_evolution_payload=controlled_evolution_payload,
+            coordination_payload=coordination_payload,
+            duration_ms=duration_ms,
+        )
+        return response
+
     def run(self, message: str) -> str:
+        self.last_cognitive_runtime_inspection = None
+        self._last_node_cognitive_hint = None
         self.last_runtime_mode = self._selected_runtime_mode()
         self.last_runtime_reason = "configured_mode"
         strategy_state = self.strategy_updater.load_current_state()
@@ -414,7 +457,20 @@ class BrainOrchestrator:
         if not message.strip():
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "empty_message"
-            return SAFE_FALLBACK_RESPONSE
+            return self._emit_cognitive_runtime_inspection(
+                SAFE_FALLBACK_RESPONSE,
+                reasoning_payload=None,
+                strategy_payload=None,
+                memory_context_payload=None,
+                planning_payload=None,
+                swarm_result=None,
+                learning_record=None,
+                coordination_payload=None,
+                self_improving_system_trace=None,
+                controlled_evolution_payload=None,
+                direct_memory_hit=False,
+                duration_ms=0,
+            )
 
         run_started_monotonic = time.monotonic()
 
@@ -425,7 +481,20 @@ class BrainOrchestrator:
                 reason_code="mock_mode_configured",
                 details={"message_preview": message[:120]},
             )
-            return MOCK_RUNTIME_RESPONSE
+            return self._emit_cognitive_runtime_inspection(
+                MOCK_RUNTIME_RESPONSE,
+                reasoning_payload=None,
+                strategy_payload=None,
+                memory_context_payload=None,
+                planning_payload=None,
+                swarm_result=None,
+                learning_record=None,
+                coordination_payload=None,
+                self_improving_system_trace=None,
+                controlled_evolution_payload=None,
+                direct_memory_hit=False,
+                duration_ms=max(0, int((time.monotonic() - run_started_monotonic) * 1000)),
+            )
 
         reasoning_handoff: dict[str, Any]
         reasoning_payload: dict[str, Any]
@@ -574,7 +643,20 @@ class BrainOrchestrator:
         if not reasoning_handoff.get("proceed", False):
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "reasoning_validation_block"
-            return SAFE_FALLBACK_RESPONSE
+            return self._emit_cognitive_runtime_inspection(
+                SAFE_FALLBACK_RESPONSE,
+                reasoning_payload=reasoning_payload,
+                strategy_payload=strategy_payload,
+                memory_context_payload=memory_context_payload,
+                planning_payload=planning_payload,
+                swarm_result=None,
+                learning_record=None,
+                coordination_payload=coordination_payload,
+                self_improving_system_trace=None,
+                controlled_evolution_payload=None,
+                direct_memory_hit=False,
+                duration_ms=max(0, int((time.monotonic() - run_started_monotonic) * 1000)),
+            )
         control_metadata = self._build_control_metadata(message=runtime_message)
         control_metadata["reasoning"] = reasoning_payload
         control_metadata["memory_intelligence"] = dict(memory_context_payload)
@@ -664,7 +746,21 @@ class BrainOrchestrator:
                 self.current_control_mode = RuntimeMode.REPORT
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "control_layer_block"
-            return str(control_result["blocked_response"])
+            blocked = str(control_result["blocked_response"])
+            return self._emit_cognitive_runtime_inspection(
+                blocked,
+                reasoning_payload=reasoning_payload,
+                strategy_payload=strategy_payload,
+                memory_context_payload=memory_context_payload,
+                planning_payload=planning_payload,
+                swarm_result=None,
+                learning_record=None,
+                coordination_payload=coordination_payload,
+                self_improving_system_trace=None,
+                controlled_evolution_payload=None,
+                direct_memory_hit=False,
+                duration_ms=max(0, int((time.monotonic() - run_started_monotonic) * 1000)),
+            )
 
         if control_result["mode_transition"] is not None:
             self._emit_control_event(
@@ -1118,7 +1214,20 @@ class BrainOrchestrator:
             "evolution_version": evolution_version,
         }
         self.session_store.save(session_id, session_payload)
-        return response
+        return self._emit_cognitive_runtime_inspection(
+            response,
+            reasoning_payload=reasoning_payload,
+            strategy_payload=strategy_payload,
+            memory_context_payload=memory_context_payload,
+            planning_payload=planning_payload,
+            swarm_result=swarm_result,
+            learning_record=learning_record.as_dict(),
+            coordination_payload=coordination_payload,
+            self_improving_system_trace=self_improving_system_trace,
+            controlled_evolution_payload=controlled_evolution_payload,
+            direct_memory_hit=bool(direct_response),
+            duration_ms=duration_ms,
+        )
 
     async def _async_node_execution(
         self,
@@ -1850,6 +1959,7 @@ class BrainOrchestrator:
         session_id: str,
         extra_session: dict[str, Any] | None = None,
     ) -> str:
+        self._last_node_cognitive_hint = None
         if self._selected_runtime_mode() == "fallback":
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "configured_fallback_mode"
@@ -2067,6 +2177,12 @@ class BrainOrchestrator:
                 details=details,
                 )
             return NODE_FALLBACK_RESPONSE
+
+        self._last_node_cognitive_hint = None
+        if isinstance(parsed, dict):
+            hint = parsed.get("cognitive_runtime_hint")
+            if isinstance(hint, dict):
+                self._last_node_cognitive_hint = hint
 
         self._append_runtime_event(
             event_type="runtime.node.subprocess_diagnostics",
