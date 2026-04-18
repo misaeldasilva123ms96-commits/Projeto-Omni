@@ -9,6 +9,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Professional `docs/` tree: architecture, governance, evolution, operations, setup, product, and phase index (`docs/README.md`, `docs/phases/README.md`).
+- Archive of legacy root Markdown reports under `docs/reports/repository-archive/` (git history preserved via `git mv`).
 - Professional repository documentation and contribution guides
 - GitHub issue and pull request templates
 - CI workflow for Python and Node validation
@@ -19,6 +21,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Root documentation minimalism: long-form Markdown moved from repository root into `docs/` (contributing guide at `docs/setup/contributing.md`; GitHub entry via `.github/CONTRIBUTING.md`).
+- `README.md`, `ARCHITECTURE.md`, and `ROADMAP.md` updated for **Phase 40** positioning and cross-links.
 - Deployment workflow now includes post-deploy health verification
 - Governed evolution observability block aligned with proposal/validation/application/rollback lifecycle summaries
 - Runtime governance/evolution documentation refreshed for Phase 30.20 repository maturity

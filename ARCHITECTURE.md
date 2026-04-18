@@ -1,73 +1,35 @@
-# Architecture
+# Architecture (summary)
 
-## Overview
+Omni is a **layered cognitive runtime** with an explicit **control plane** and **read-model observability**. This file is intentionally short; deeper material lives under [`docs/architecture/`](docs/architecture/).
 
-Omni is a layered cognitive runtime.  
-Each layer has a clear contract and bounded responsibility, with governance and observability integrated into control-plane reads.
+## Control and data flow
 
 ```text
 Client
-  -> Rust API boundary
-  -> Python runtime orchestration
-  -> Node agent runtime
-  -> Persisted control + memory state
+  → Rust API boundary
+  → Python runtime orchestration (BrainOrchestrator)
+  → Node agent runtime (where applicable)
+  → Persisted control + memory + audit artifacts
 ```
 
-## Runtime Layers
+## Runtime layers
 
-### 1) OIL Layer
+1. **OIL** — typed runtime I/O contracts (`backend/python/brain/runtime/language/`)
+2. **Orchestration** — planning, routing, specialists, continuation (`backend/python/brain/runtime/`)
+3. **Node runtime** — JS execution surfaces (`js-runner/`, `src/`, adapters)
+4. **Memory** — sessions, transcripts, unified memory (`backend/python/brain/runtime/memory/`)
+5. **Evolution (governed)** — proposals, validation, bounded apply, rollback (`backend/python/brain/runtime/evolution/`)
+6. **Improvement (Phase 40)** — simulation, approval, staged rollout, monitoring (`backend/python/brain/runtime/improvement/`)
 
-Primary location: `backend/python/brain/runtime/language/`
+## Governance and observability
 
-- Defines typed runtime I/O contracts (`OILRequest`, `OILResult`, `OILError`)
-- Normalizes input and composes output envelopes
-- Preserves structured protocol boundaries across runtime flows
+- **Governance** — `backend/python/brain/runtime/control/` (taxonomy, run registry, resolution)
+- **Observability** — `backend/python/brain/runtime/observability/` (snapshots, JSONL tail readers)
 
-### 2) Orchestration Layer
+## Further reading
 
-Primary location: `backend/python/brain/runtime/`
-
-- `BrainOrchestrator` coordinates planning, execution routing, specialists, continuation, learning, and governance integration
-- Control-plane state is persisted through runtime services and registries
-- Runtime behavior is governed through explicit transitions rather than implicit side effects
-
-### 3) Node Agent Runtime
-
-Primary locations: `js-runner/`, `src/`, runtime Node adapters
-
-- Executes Node-based reasoning/agent logic
-- Uses schema-validated payload contracts from Python
-- Remains isolated behind explicit bridge interfaces
-
-### 4) Memory Layer
-
-Primary locations: `backend/python/brain/runtime/memory/`, `backend/python/memory/`, transcript/session stores
-
-- Stores operational memory artifacts: sessions, transcripts, learning signals, and related snapshots
-- Supports runtime recall and operational auditability
-- Keeps memory persistence explicit and inspectable
-
-### 5) Evolution Layer
-
-Primary location: `backend/python/brain/runtime/evolution/`
-
-- Governed proposal lifecycle (proposal, validation, explicit review, bounded application, rollback)
-- Bounded sandbox mutation only (`.logs/fusion-runtime/evolution/sandbox`)
-- No autonomous self-modification loop in production runtime paths
-
-## Governance and Control Plane
-
-Primary location: `backend/python/brain/runtime/control/`
-
-- Canonical taxonomy: reason/source/severity
-- Run-level source of truth: `RunRegistry`
-- Read model: operational governance snapshot and attention views
-- Strictly controlled transitions through explicit service/controller paths
-
-## Observability
-
-Primary location: `backend/python/brain/runtime/observability/`
-
-- Consolidated runtime snapshot across goals, traces, simulations, governance, and governed evolution
-- Stable read surfaces for operational tooling and CLI consumers
-- Additive contract evolution with fallback-normalized shapes
+- [docs/architecture/system-overview.md](docs/architecture/system-overview.md)
+- [docs/architecture/runtime.md](docs/architecture/runtime.md)
+- [docs/architecture/evolution.md](docs/architecture/evolution.md)
+- [docs/architecture/improvement-system.md](docs/architecture/improvement-system.md)
+- Control layer brief: [docs/architecture/OMNI_COGNITIVE_CONTROL_LAYER.md](docs/architecture/OMNI_COGNITIVE_CONTROL_LAYER.md)

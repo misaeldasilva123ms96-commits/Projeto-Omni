@@ -1,27 +1,30 @@
-# Omni Roadmap
+# Roadmap (summary)
 
-## Scope
+Omni’s roadmap is **governance-first** and **runtime-safe**. Detailed narrative and phase references: [`docs/product/roadmap.md`](docs/product/roadmap.md).
 
-This roadmap tracks the cognitive runtime maturation path from Phase 30 onward.
-It is intentionally governance-first and runtime-safe.
+## Current state
 
-## Phases 30–40
+The documented implementation ladder reaches **Phase 40** (governed self-improving cognitive system). Per-phase implementation notes live under [`docs/phases/`](docs/phases/) (see [`docs/phases/README.md`](docs/phases/README.md)).
 
-| Phase Band | Focus |
-| --- | --- |
-| 30.x | Runtime governance convergence and controlled self-evolution preparation (proposal, validation, bounded application, rollback safety, control-plane closure). |
-| 31 | Operational hardening and control-plane ergonomics for enterprise operation. |
-| 32 | Reliability and failure-domain containment improvements across runtime services. |
-| 33 | Expanded observability quality, lifecycle explainability, and operator workflows. |
-| 34 | Control-plane scalability and service boundary hardening. |
-| 35 | Policy refinement and governance automation support (still bounded and explicit). |
-| 36 | Runtime performance optimization with deterministic safety constraints. |
-| 37 | Compliance/audit depth and traceability maturation. |
-| 38 | Production resilience and recovery automation hardening. |
-| 39 | Multi-environment operational consistency and release discipline improvements. |
-| 40 | Enterprise-grade cognitive runtime closure target and long-horizon sustainment baseline. |
+## Phases 31–40 (concise)
 
-## Notes
+| Phase | Focus |
+|------|--------|
+| 31 | Cognitive reasoning layer |
+| 32 | Memory intelligence layer |
+| 33 | Planning intelligence |
+| 34 | Runtime learning |
+| 35 | Strategy adaptation |
+| 36 | Performance optimization |
+| 37 | Multi-agent coordination |
+| 38 | Task decomposition |
+| 39 | Controlled self-evolution |
+| 40 | Governed continuous improvement (simulation → approval → rollout → monitor) |
 
-- Phase progression is gated; no phase is considered complete without passing required tests and closure checks.
-- Roadmap entries describe direction, not authorization for autonomous behavior.
+## Phase 30.x (historical)
+
+Governance convergence and evolution-control preparation — documented primarily for audit history (`docs/phases/phase-30.md`, archived reports). It is not the live definition of phases 31–40.
+
+## Beyond Phase 40
+
+No Phase 41 is scoped in-repository; future work remains explicitly governed and operator-compatible.
