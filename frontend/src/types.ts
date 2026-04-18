@@ -18,6 +18,10 @@ export type RuntimeMetadata = {
   usage?: ChatUsage
   /** From `POST /chat` (`runtime_session_version`); Rust runtime epoch, not UI session. */
   runtimeSessionVersion?: number
+  /** Server/orchestrator id when returned on the wire; not the UI-owned session key. */
+  conversationId?: string
+  /** `api_version` when the response came from `POST /api/v1/chat`. */
+  chatApiVersion?: string
 }
 
 export type ChatMessage = {
@@ -41,6 +45,10 @@ export type ChatApiResponse = {
   usage?: ChatUsage
   /** Rust runtime epoch; aligns with `GET /api/v1/status.runtime_session_version` / `/health`. */
   runtime_session_version?: number
+  /** Truthful server/orchestrator conversation id when present (Phase 11+). */
+  conversation_id?: string
+  /** Present on `POST /api/v1/chat` responses (`api_version` in JSON). */
+  api_version?: string
 }
 
 export type ChatRequestState = 'idle' | 'loading' | 'error'

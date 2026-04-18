@@ -44,6 +44,16 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     throw new Error('Omni returned an empty response.')
   }
 
+  const conversation_id =
+    typeof record.conversation_id === 'string' && record.conversation_id.trim()
+      ? record.conversation_id.trim()
+      : undefined
+
+  const api_version =
+    typeof record.api_version === 'string' && record.api_version.trim()
+      ? record.api_version.trim()
+      : undefined
+
   return {
     response,
     session_id:
@@ -71,6 +81,8 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
       typeof record.runtime_session_version === 'number'
         ? record.runtime_session_version
         : undefined,
+    conversation_id,
+    api_version,
   }
 }
 
@@ -93,6 +105,8 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
     tools: res.matched_tools ?? [],
     stopReason: res.stop_reason,
     runtimeSessionVersion: res.runtime_session_version,
+    conversationId: res.conversation_id,
+    chatApiVersion: res.api_version,
     usage: res.usage
       ? {
         inputTokens: res.usage.input_tokens,

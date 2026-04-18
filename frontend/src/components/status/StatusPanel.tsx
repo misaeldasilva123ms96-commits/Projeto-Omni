@@ -64,6 +64,15 @@ export function StatusPanel({
             label="Tokens"
             value={(lastMetadata?.usage?.input_tokens ?? 0) + (lastMetadata?.usage?.output_tokens ?? 0)}
           />
+          {lastMetadata?.chatApiVersion ? (
+            <MetricRow label="Chat API" value={`v${lastMetadata.chatApiVersion}`} />
+          ) : null}
+          {lastMetadata?.conversationId ? (
+            <MetricRow
+              label="ID servidor (corr.)"
+              value={lastMetadata.conversationId}
+            />
+          ) : null}
         </div>
       </section>
 
