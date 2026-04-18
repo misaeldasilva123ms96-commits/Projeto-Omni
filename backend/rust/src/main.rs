@@ -163,6 +163,46 @@ struct PrSummariesResponse {
     summaries: Vec<Value>,
 }
 
+/// Public summary of runtime signals — counts and latest run labels only (no raw audit lines).
+#[derive(Debug, Serialize)]
+struct PublicRuntimeSignalsSummaryV1 {
+    api_version: &'static str,
+    status: &'static str,
+    /// Max JSONL lines read from the audit file for this summary (bounded read).
+    recent_signal_sample_size: usize,
+    recent_signal_count: usize,
+    recent_mode_transition_count: usize,
+    latest_run_id: String,
+    latest_plan_kind: String,
+    latest_run_message_preview: String,
+    timestamp_ms: u64,
+}
+
+/// Public milestone checkpoint summary — counts and status label only.
+#[derive(Debug, Serialize)]
+struct PublicMilestonesSummaryV1 {
+    api_version: &'static str,
+    status: &'static str,
+    latest_run_id: String,
+    completed_milestone_count: u32,
+    blocked_milestone_count: u32,
+    patch_set_count: usize,
+    checkpoint_status: String,
+    timestamp_ms: u64,
+}
+
+/// Public strategy file summary — version, one safe weight, change log size only.
+#[derive(Debug, Serialize)]
+struct PublicStrategySummaryV1 {
+    api_version: &'static str,
+    status: &'static str,
+    strategy_version: u64,
+    /// Entries in `strategy_log.json` `changes` array (capped for bounded JSON).
+    recent_change_log_count: usize,
+    create_plan_weight: Option<f64>,
+    timestamp_ms: u64,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
     init_tracing();
@@ -245,12 +285,18 @@ async fn main() -> Result<(), AppError> {
         ));
 
     // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
-    // Public: /health, /chat, /api/v1/status
+    // Public: /health, /chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
     // Internal (no auth middleware): /internal/*
     // Protected (Supabase JWT): merged /api/observability/*, /api/control/*
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/status", get(public_v1_status))
+        .route(
+            "/api/v1/runtime/signals/summary",
+            get(public_v1_runtime_signals_summary),
+        )
+        .route("/api/v1/milestones/summary", get(public_v1_milestones_summary))
+        .route("/api/v1/strategy/summary", get(public_v1_strategy_summary))
         .route("/chat", post(chat))
         .route("/internal/runtime-signals", get(runtime_signals))
         .route("/internal/swarm-log", get(swarm_log))
@@ -483,6 +529,185 @@ async fn public_v1_status(State(state): State<AppState>) -> (StatusCode, Json<Pu
             node_status: h.node.last_status.clone(),
             runtime_session_version: h.runtime_session_version,
             timestamp_ms: h.timestamp_ms,
+        }),
+    )
+}
+
+fn truncate_preview(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max_chars).collect::<String>())
+    }
+}
+
+/// Product-safe subset of `/internal/runtime-signals` — no raw audit JSONL rows.
+async fn public_v1_runtime_signals_summary(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicRuntimeSignalsSummaryV1>) {
+    const SAMPLE: usize = 20;
+    let audit_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("execution-audit.jsonl");
+    let run_summary_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("run-summaries.jsonl");
+    let recent_signals = read_recent_jsonl(&audit_path, SAMPLE);
+    let recent_mode_transition_count = recent_signals
+        .iter()
+        .filter(|item| item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition"))
+        .count();
+    let latest_run_summary = read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({}));
+    let latest_run_id = latest_run_summary
+        .get("run_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let latest_plan_kind = latest_run_summary
+        .get("plan_kind")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let latest_run_message_preview = latest_run_summary
+        .get("message")
+        .and_then(Value::as_str)
+        .map(|s| truncate_preview(s, 200))
+        .unwrap_or_default();
+
+    (
+        StatusCode::OK,
+        Json(PublicRuntimeSignalsSummaryV1 {
+            api_version: "1",
+            status: "ok",
+            recent_signal_sample_size: SAMPLE,
+            recent_signal_count: recent_signals.len(),
+            recent_mode_transition_count,
+            latest_run_id,
+            latest_plan_kind,
+            latest_run_message_preview,
+            timestamp_ms: unix_timestamp_ms(),
+        }),
+    )
+}
+
+/// Product-safe subset of `/internal/milestones` — counts and checkpoint status string only.
+async fn public_v1_milestones_summary(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicMilestonesSummaryV1>) {
+    let latest_run_summary = read_latest_jsonl(
+        &state
+            .project_root
+            .join(".logs")
+            .join("fusion-runtime")
+            .join("run-summaries.jsonl"),
+    );
+    let latest_run_id = latest_run_summary
+        .as_ref()
+        .and_then(|value| value.get("run_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let checkpoint = if latest_run_id.is_empty() {
+        json!({})
+    } else {
+        read_json_value(
+            &state
+                .project_root
+                .join(".logs")
+                .join("fusion-runtime")
+                .join("checkpoints")
+                .join(format!("{latest_run_id}.json")),
+        )
+        .unwrap_or_else(|| json!({}))
+    };
+    let engineering = checkpoint
+        .get("engineering_data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let milestone_state = engineering
+        .get("milestone_state")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let completed_milestone_count = milestone_state
+        .get("completed_milestones")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as u32;
+    let blocked_milestone_count = milestone_state
+        .get("blocked_milestones")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as u32;
+    let patch_set_count = engineering
+        .get("patch_sets")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let checkpoint_status = checkpoint
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+
+    (
+        StatusCode::OK,
+        Json(PublicMilestonesSummaryV1 {
+            api_version: "1",
+            status: "ok",
+            latest_run_id,
+            completed_milestone_count,
+            blocked_milestone_count,
+            patch_set_count,
+            checkpoint_status,
+            timestamp_ms: unix_timestamp_ms(),
+        }),
+    )
+}
+
+/// Product-safe subset of `/internal/strategy-state` — no full rules blob or change payloads.
+async fn public_v1_strategy_summary(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicStrategySummaryV1>) {
+    const MAX_CHANGE_LOG_COUNT: usize = 10_000;
+    let strategy_state_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_state.json");
+    let strategy_log_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_log.json");
+    let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
+    let strategy_version = strategy_state.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let create_plan_weight = strategy_state
+        .get("capability_weights")
+        .and_then(|cw| cw.get("create_plan"))
+        .and_then(Value::as_f64);
+    let recent_change_log_count = read_json_value(&strategy_log_path)
+        .and_then(|value| {
+            value
+                .get("changes")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+        })
+        .unwrap_or(0)
+        .min(MAX_CHANGE_LOG_COUNT);
+
+    (
+        StatusCode::OK,
+        Json(PublicStrategySummaryV1 {
+            api_version: "1",
+            status: "ok",
+            strategy_version,
+            recent_change_log_count,
+            create_plan_weight,
+            timestamp_ms: unix_timestamp_ms(),
         }),
     )
 }
