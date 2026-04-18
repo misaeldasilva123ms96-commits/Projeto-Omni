@@ -16,6 +16,7 @@ from .run_reader import (
     read_latest_memory_intelligence_trace,
     read_latest_multi_agent_coordination_trace,
     read_latest_controlled_self_evolution_trace,
+    read_latest_self_improving_system_trace,
     read_latest_task_decomposition_trace,
     read_latest_performance_optimization_trace,
     read_latest_planning_intelligence_trace,
@@ -27,6 +28,7 @@ from .run_reader import (
     read_recent_memory_intelligence_traces,
     read_recent_multi_agent_coordination_traces,
     read_recent_controlled_self_evolution_traces,
+    read_recent_self_improving_system_traces,
     read_recent_task_decomposition_traces,
     read_recent_performance_optimization_traces,
     read_recent_planning_intelligence_traces,
@@ -88,6 +90,8 @@ class ObservabilityReader:
         recent_task_decomposition_traces = read_recent_task_decomposition_traces(self.root, limit=10)
         latest_controlled_self_evolution_trace = read_latest_controlled_self_evolution_trace(self.root)
         recent_controlled_self_evolution_traces = read_recent_controlled_self_evolution_traces(self.root, limit=10)
+        latest_self_improving_system_trace = read_latest_self_improving_system_trace(self.root)
+        recent_self_improving_system_traces = read_recent_self_improving_system_traces(self.root, limit=10)
         policy = GovernanceReason.POLICY_BLOCK.value
 
         def _is_policy_block(item: dict) -> bool:
@@ -145,6 +149,8 @@ class ObservabilityReader:
             recent_task_decomposition_traces=recent_task_decomposition_traces,
             latest_controlled_self_evolution_trace=latest_controlled_self_evolution_trace,
             recent_controlled_self_evolution_traces=recent_controlled_self_evolution_traces,
+            latest_self_improving_system_trace=latest_self_improving_system_trace,
+            recent_self_improving_system_traces=recent_self_improving_system_traces,
             warnings=[],
         )
 

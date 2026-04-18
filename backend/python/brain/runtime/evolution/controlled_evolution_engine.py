@@ -22,7 +22,13 @@ class ControlledEvolutionEngine:
         self.detector = ControlledOpportunityDetector()
         self.builder = ControlledProposalBuilder()
 
-    def evaluate_turn(self, *, session_id: str, evidence: dict[str, Any]) -> dict[str, Any]:
+    def evaluate_turn(
+        self,
+        *,
+        session_id: str,
+        evidence: dict[str, Any],
+        skip_apply: bool = False,
+    ) -> dict[str, Any]:
         trace_id = f"ce39-{uuid.uuid4().hex[:18]}"
         disabled = str(os.getenv("OMINI_PHASE39_DISABLE", "")).strip().lower() in ("1", "true", "yes")
         if disabled:
@@ -110,6 +116,8 @@ class ControlledEvolutionEngine:
         prop = proposals_built[0]
         vr = validate_governed_proposal(prop)
         apply_enabled = str(os.getenv("OMINI_PHASE39_APPLY", "")).strip().lower() in ("1", "true", "yes")
+        if skip_apply:
+            apply_enabled = False
         apply_status = "skipped_policy"
         if vr.accepted and apply_enabled:
             try:

@@ -109,6 +109,11 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("trace", ce_events[-1])
                 self.assertIn("controlled_self_evolution", payload)
                 self.assertIn("apply_status", payload["controlled_self_evolution"])
+                sis_events = [item for item in lines if item.get("event_type") == "runtime.self_improving_system.trace"]
+                self.assertGreaterEqual(len(sis_events), 1)
+                self.assertIn("trace", sis_events[-1])
+                self.assertIn("self_improving_system", payload)
+                self.assertIn("approval_decision", payload["self_improving_system"])
 
 
 if __name__ == "__main__":

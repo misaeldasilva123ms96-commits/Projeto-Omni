@@ -301,6 +301,30 @@ class ObservabilityReaderTest(unittest.TestCase):
                             ),
                             json.dumps(
                                 {
+                                    'timestamp': '2026-04-15T00:00:05d+00:00',
+                                    'event_type': 'runtime.self_improving_system.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'trace': {
+                                        'trace_id': 'p40-test',
+                                        'session_id': 'sess-obs',
+                                        'disabled': False,
+                                        'idle': True,
+                                        'cycle': None,
+                                        'simulation_outcome': {},
+                                        'approval_decision': 'idle',
+                                        'rollout_stage': 'idle',
+                                        'monitoring_result': {},
+                                        'rollback_status': 'n_a',
+                                        'degraded': False,
+                                        'error': '',
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
+                            json.dumps(
+                                {
                                     'timestamp': '2026-04-15T00:00:06+00:00',
                                     'event_type': 'runtime.multi_agent_coordination.trace',
                                     'session_id': 'sess-obs',
@@ -431,6 +455,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_controlled_self_evolution_traces), 1)
                 self.assertIn('latest_controlled_self_evolution_trace', snap_dict)
                 self.assertIn('recent_controlled_self_evolution_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_self_improving_system_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_self_improving_system_trace.get('trace', {}).get('trace_id'),
+                    'p40-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_self_improving_system_traces), 1)
+                self.assertIn('latest_self_improving_system_trace', snap_dict)
+                self.assertIn('recent_self_improving_system_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

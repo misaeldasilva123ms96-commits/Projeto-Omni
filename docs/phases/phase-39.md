@@ -19,9 +19,9 @@ Phase 39 adds a **strictly bounded, auditable** loop that turns **runtime eviden
 
 Evolution **never** bypasses control-plane execution allow/block, does **not** rewrite code or schemas, and does **not** connect learning signals directly to behavior without the proposal + validation + optional apply path.
 
-## Phase 40+ (not implemented)
+## Phase 40 (implemented separately)
 
-- Open-ended self-improving cognition, autonomous multi-file refactors, recursive evolution waves, continuous background mutation — **out of scope**.
+See `docs/phases/phase-40.md` — governed **continuous improvement orchestration** (simulation, approval, gradual rollout, monitoring) layered on top of Phase 39 proposals. Still **no** uncontrolled code mutation or architecture-wide autonomous refactors.
 
 ## Tests
 

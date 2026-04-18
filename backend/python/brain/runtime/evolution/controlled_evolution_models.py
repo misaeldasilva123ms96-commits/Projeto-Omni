@@ -77,3 +77,22 @@ class ControlledSelfEvolutionTrace:
             "opportunities": list(self.opportunities),
             "proposals": list(self.proposals),
         }
+
+
+def governed_proposal_from_dict(d: dict[str, Any]) -> GovernedProposal:
+    """Rehydrate a proposal emitted in CE traces (Phase 39+) for Phase 40 pipelines."""
+    return GovernedProposal(
+        proposal_id=str(d.get("proposal_id", "") or ""),
+        opportunity_id=str(d.get("opportunity_id", "") or ""),
+        proposal_type=str(d.get("proposal_type", "") or ""),
+        scope=str(d.get("scope", "") or ""),
+        target_layer=str(d.get("target_layer", "") or ""),
+        change_summary=str(d.get("change_summary", "") or ""),
+        risk_class=str(d.get("risk_class", "") or ""),
+        validation_requirements=list(d.get("validation_requirements") or []),
+        approval_state=str(d.get("approval_state", "") or ""),
+        apply_status=str(d.get("apply_status", "") or ""),
+        monitor_status=str(d.get("monitor_status", "") or ""),
+        rollback_status=str(d.get("rollback_status", "") or ""),
+        payload=dict(d.get("payload") or {}) if isinstance(d.get("payload"), dict) else {},
+    )

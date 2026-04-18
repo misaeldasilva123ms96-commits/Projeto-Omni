@@ -55,6 +55,7 @@ from brain.runtime.learning import LearningEngine, LearningExecutor
 from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.decomposition import TaskDecomposer
 from brain.runtime.evolution import ControlledEvolutionEngine
+from brain.runtime.improvement import ImprovementOrchestrator
 from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
@@ -299,6 +300,7 @@ class BrainOrchestrator:
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
         self.controlled_evolution_engine = ControlledEvolutionEngine(self.paths.root)
+        self.improvement_orchestrator = ImprovementOrchestrator(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -434,6 +436,7 @@ class BrainOrchestrator:
         performance_payload: dict[str, Any] = {}
         coordination_payload: dict[str, Any] = {}
         controlled_evolution_payload: dict[str, Any] = {}
+        self_improving_system_trace: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -992,8 +995,9 @@ class BrainOrchestrator:
             payload=dict(learning_payload),
         )
 
+        evidence_bundle: dict[str, Any] = {}
         try:
-            evidence_bundle: dict[str, Any] = {
+            evidence_bundle = {
                 "session_id": session_id,
                 "learning_trace": dict(learning_trace.as_dict()),
                 "learning_record": dict(learning_record.as_dict()),
@@ -1005,9 +1009,11 @@ class BrainOrchestrator:
                 "last_runtime_reason": str(self.last_runtime_reason or ""),
                 "duration_ms": duration_ms,
             }
+            phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
             controlled_evolution_payload = self.controlled_evolution_engine.evaluate_turn(
                 session_id=session_id,
                 evidence=evidence_bundle,
+                skip_apply=phase40_enable,
             )
         except Exception as evo_exc:
             controlled_evolution_payload = {
@@ -1033,6 +1039,35 @@ class BrainOrchestrator:
             task_id="",
             run_id="",
             payload={"trace": dict(controlled_evolution_payload)},
+        )
+
+        try:
+            self_improving_system_trace = self.improvement_orchestrator.run_cycle(
+                session_id=session_id,
+                ce_trace=dict(controlled_evolution_payload),
+                evidence=dict(evidence_bundle),
+            )
+        except Exception as sis_exc:
+            self_improving_system_trace = {
+                "trace_id": "",
+                "session_id": session_id,
+                "disabled": False,
+                "idle": True,
+                "cycle": None,
+                "simulation_outcome": {},
+                "approval_decision": "orchestrator_wrap_failed",
+                "rollout_stage": "idle",
+                "monitoring_result": {},
+                "rollback_status": "n_a",
+                "degraded": True,
+                "error": str(sis_exc),
+            }
+        self._append_runtime_event(
+            event_type="runtime.self_improving_system.trace",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={"trace": dict(self_improving_system_trace)},
         )
 
         append_history(
@@ -1078,6 +1113,7 @@ class BrainOrchestrator:
             "performance_optimization": dict(performance_payload),
             "multi_agent_coordination": dict(coordination_payload),
             "controlled_self_evolution": dict(controlled_evolution_payload),
+            "self_improving_system": dict(self_improving_system_trace),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }
