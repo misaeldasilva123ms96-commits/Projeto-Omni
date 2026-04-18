@@ -66,7 +66,7 @@
 
 | Path | Method | Auth | Response / contract | Backing source | Maturity |
 | ---- | ------ | ----- | --------------------- | ---------------- | -------- |
-| `/api/v1/status` | GET | None | `PublicStatusResponseV1` (`api_version`, `status`, `runtime_mode`, `rust_service`, `python_status`, `node_status`, `timestamp_ms`) | Same logic as `/health` | **Implemented** |
+| `/api/v1/status` | GET | None | `PublicStatusResponseV1` (`api_version`, `status`, `runtime_mode`, `rust_service`, `python_status`, `node_status`, `runtime_session_version`, `timestamp_ms`) | Same logic as `/health` | **Implemented** |
 | `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events | `.logs/fusion-runtime/*.jsonl` | **Planned** — blocked on auth + payload review |
 | `/api/v1/goals` | GET | TBD | — | Python goal store | **Blocked** — no safe HTTP mapping yet |
 | `/api/v1/simulation/routes` | GET | TBD | — | Simulation reader | **Blocked** |

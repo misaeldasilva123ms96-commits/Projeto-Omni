@@ -1,7 +1,7 @@
 /**
  * Wire → UI adapters. Centralizes parsing of Rust/Python subprocess quirks.
  */
-import type { ChatApiResponse, ChatUsage, HealthResponse } from '../../types'
+import type { ChatApiResponse, ChatUsage, HealthResponse, PublicStatusResponseV1 } from '../../types'
 import type {
   ObservabilityApiResponse,
   ObservabilityTracesResponse,
@@ -56,6 +56,10 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
       record.usage && typeof record.usage === 'object'
         ? adaptUsage(record.usage as Record<string, unknown>)
         : undefined,
+    runtime_session_version:
+      typeof record.runtime_session_version === 'number'
+        ? record.runtime_session_version
+        : undefined,
   }
 }
 
@@ -77,12 +81,28 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
     commands: res.matched_commands ?? [],
     tools: res.matched_tools ?? [],
     stopReason: res.stop_reason,
+    runtimeSessionVersion: res.runtime_session_version,
     usage: res.usage
       ? {
         inputTokens: res.usage.input_tokens,
         outputTokens: res.usage.output_tokens,
       }
       : undefined,
+  }
+}
+
+/** Map versioned public status into the shared `UiRuntimeStatus` surface (observable flags not on wire — inferred). */
+export function publicStatusV1ToUiRuntimeStatus(p: PublicStatusResponseV1): UiRuntimeStatus {
+  return {
+    overallStatus: p.status,
+    rustService: p.rust_service,
+    runtimeMode: p.runtime_mode,
+    sessionVersion: p.runtime_session_version,
+    pythonStatus: p.python_status,
+    pythonObservable: true,
+    nodeStatus: p.node_status,
+    nodeObservable: p.node_status === 'observable',
+    timestampMs: p.timestamp_ms,
   }
 }
 

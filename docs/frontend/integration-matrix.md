@@ -1,7 +1,7 @@
 # Omni Frontend ↔ Backend Integration Matrix
 
 **Scope:** React/Vite frontend (`frontend/`) ↔ Rust HTTP API (`backend/rust/src/main.rs` and related modules).  
-**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `docs/backend/public-api-roadmap.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
+**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `docs/frontend/public-api-adoption.md`, `docs/backend/public-api-roadmap.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
 **Not in scope:** Supabase-backed persistence in `frontend/src/lib/omniData.ts` (separate product surface; not Omni Rust routes).
 
 ---
@@ -14,9 +14,10 @@
 | Chat — client `metadata` (e.g. `sessionId`) | Same POST body field `metadata` | `POST /chat` | ⚠️ PARTIAL | **Frontend no longer sends `metadata`.** Rust `ChatRequest` only deserializes `message`; optional UI context stays client-side until contract + subprocess design supports it | Explicit `metadata` field in contract + subprocess stdin/argv design | HIGH | MEDIUM |
 | Chat — `session_id` in response | Stable session id from runtime | `POST /chat` | ⚠️ PARTIAL | Yes — Rust returns fixed `session_id` (`python-session` / `mock-session`) from `call_python` / mock paths, not values parsed from Python stdout | Propagate orchestrator `session_id` through Python stdout JSON or side-channel | MEDIUM | MEDIUM |
 | Chat — `matched_commands`, `matched_tools`, `usage`, `stop_reason` | Enriched assistant metadata | `POST /chat` | ⚠️ PARTIAL | Yes — Rust `call_python` sets these to empty / defaults; only mock mode sets sample `usage` | Return structured `ChatResponse` parsed from Python JSON when present | MEDIUM | MEDIUM |
-| Chat — `runtime_session_version` | Rust runtime epoch (aligns with `/health`) | `POST /chat` | ✅ AVAILABLE | Optional in TS adapters — additive JSON field | Same field on any future `/api/v1/chat` envelope | LOW | LOW |
-| Runtime status (Dashboard hero / health strip) | `status`, `runtime_mode`, `python` / `node` dependency health | `GET /health` | ✅ AVAILABLE | None for fields defined in `HealthResponse` | Supplemented by `GET /api/v1/status` (minimal public read model) | HIGH | LOW |
-| Public status (minimal) | `status`, `runtime_mode`, `python_status`, `node_status`, `timestamp_ms` | `GET /api/v1/status` | ✅ AVAILABLE | Optional client module — shape is `PublicStatusResponseV1` in Rust | Harden + rate-limit if exposed broadly | MEDIUM | LOW |
+| Chat — `runtime_session_version` | Rust runtime epoch (aligns with `/health` and `/api/v1/status`) | `POST /chat` | ✅ AVAILABLE | `parseWireChatPayload` / `chatApiResponseToUi` / `RuntimeMetadata` | Same field on any future `/api/v1/chat` envelope | LOW | LOW |
+| Runtime status (Dashboard system health card, cognitive strip) | `status`, `runtime_mode`, `python_status`, `node_status`, `runtime_session_version`, `timestamp_ms` | `GET /api/v1/status` | ✅ AVAILABLE | `publicStatusV1ToUiRuntimeStatus` | Typed OpenAPI when stabilized | HIGH | LOW |
+| Runtime status (full dependency detail) | Paths, `observable`, last errors | `GET /health` | ✅ AVAILABLE | `healthResponseToUiRuntimeStatus` when used | Same | MEDIUM | LOW |
+| Public status (minimal wire) | `api_version`, `status`, `runtime_mode`, `rust_service`, `python_status`, `node_status`, `runtime_session_version`, `timestamp_ms` | `GET /api/v1/status` | ✅ AVAILABLE | `fetchPublicRuntimeStatusV1` + `PublicStatusResponseV1` | Harden + rate-limit if exposed broadly | MEDIUM | LOW |
 | Runtime signals (recent audit lines, mode transitions, latest run summary) | `recent_signals`, `recent_mode_transitions`, `latest_run_summary` | `GET /internal/runtime-signals` | 🧪 INTERNAL ONLY | None — shape is `serde_json::Value` arrays/object; UI treats as `Record<string, unknown>[]` | Move behind authenticated `/api/runtime/signals` if exposed publicly | MEDIUM | MEDIUM |
 | Swarm / multi-agent log (Dashboard) | `events`, `total_events` | `GET /internal/swarm-log` | 🧪 INTERNAL ONLY | None — reads JSONL into `Vec<Value>` | Same as above | MEDIUM | MEDIUM |
 | Strategy / reasoning state (Dashboard) | `strategy_state`, `recent_changes` | `GET /internal/strategy-state` | 🧪 INTERNAL ONLY | None | Authenticated read model endpoint | MEDIUM | MEDIUM |
@@ -58,7 +59,7 @@
 | --- | --- |
 | **No OIL over HTTP** | OIL types live under Python `brain/runtime/language/`; Rust `/chat` does not expose `OILRequest` / `OILResult` envelopes. |
 | **Chat metadata not forwarded** | `ChatRequest` in `main.rs` is `{ message }` only; UI session hints are not on the wire (see `lib/api/chat.ts` + compatibility-layer doc). |
-| **Session identity mismatch** | UI generates its own `sessionId` (`ChatPage.tsx`); Rust returns static `session_id` for subprocess path — not orchestrator session store. **`runtime_session_version` on `ChatResponse` (Phase 5) helps correlate with `/health` but does not replace UI session.** |
+| **Session identity mismatch** | UI generates its own `sessionId` (`ChatPage.tsx`); Rust returns static `session_id` for subprocess path — not orchestrator session store. **`runtime_session_version` on `ChatResponse` helps correlate with `/api/v1/status` / `/health` but does not replace UI session.** |
 | **Internal routes are unauthenticated** | `/internal/*` registered on the same public `Router` without `require_supabase_auth` — safe only behind network policy / private bind. |
 | **Control plane API unused** | `/api/control/*` exists and is protected, but **no** `frontend/src` references; no operator UI. |
 | **Observability TS model drift** | Python `ObservabilityReader` / `as_dict()` can add keys (e.g. newer runtime traces); `ObservabilitySnapshot` in TS may not list them — runtime still works, typing incomplete. |
@@ -70,7 +71,7 @@
 
 | Integration | Notes |
 | ----------- | ----- |
-| **Dashboard** | Uses only `/health` + `/internal/*` — works when API URL points to trusted Rust instance and logs exist under workspace `.logs/fusion-runtime/`. |
+| **Dashboard** | System health uses `GET /api/v1/status`; detail cards use `/internal/*`. Works when API URL points to a trusted Rust instance and logs exist under workspace `.logs/fusion-runtime/`. |
 | **Chat text** | `POST /chat` with `{ "message": "..." }` is the supported minimal contract. |
 | **Observability (authenticated)** | Snapshot + SSE stream once Supabase session + env (`SUPABASE_JWT_SECRET`, `SUPABASE_URL` / `VITE_SUPABASE_URL` on server) are configured — already implemented. |
 | **Reuse `fetchObservabilityTraces`** | Client helper ready; can power a dedicated traces view without backend change. |

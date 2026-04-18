@@ -9,6 +9,7 @@ export { fetchHealth } from './api/health'
 export {
   fetchMilestones,
   fetchPrSummaries,
+  fetchPublicRuntimeStatusV1,
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
@@ -20,4 +21,5 @@ export {
   observabilityApiEnvelopeToUi,
   observabilityTracesResponseToUi,
   parseWireChatPayload,
+  publicStatusV1ToUiRuntimeStatus,
 } from './api/adapters'
