@@ -1,15 +1,19 @@
-"""Centralized provider secret configuration (read surface + Node env normalization)."""
+"""Centralized provider secret configuration."""
 
-from .secrets_manager import SecretLookup, apply_runtime_provider_secrets, configured, describe_configuration_safe, get_secret
-from .providers import LOGICAL_IDS, PROVIDERS, spec_for
+from .secrets_manager import (
+    SecretError,
+    build_controlled_os_environ_base,
+    describe_configuration,
+    describe_configuration_safe,
+    get_secret,
+    merge_provider_credentials,
+)
 
 __all__ = [
-    "LOGICAL_IDS",
-    "PROVIDERS",
-    "SecretLookup",
-    "apply_runtime_provider_secrets",
-    "configured",
+    "SecretError",
+    "build_controlled_os_environ_base",
+    "describe_configuration",
     "describe_configuration_safe",
     "get_secret",
-    "spec_for",
+    "merge_provider_credentials",
 ]

@@ -1,7 +1,8 @@
 # Environment and secrets
 .env
-frontend/.env
 .env.local
+.env.production
+frontend/.env
 .env.*.local
 .env.openclaude.local
 .env.openclaude.*.local

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from config.secrets_manager import apply_runtime_provider_secrets
+from config.secrets_manager import build_controlled_os_environ_base, merge_provider_credentials
 
 
 @dataclass(slots=True)
@@ -80,7 +80,7 @@ class JSRuntimeAdapter:
         )
 
     def build_env(self) -> tuple[dict[str, str], JSRuntimeSelection]:
-        env = apply_runtime_provider_secrets(os.environ.copy())
+        env = merge_provider_credentials(build_controlled_os_environ_base())
         selection = self.select_runtime()
         root = str(self.root)
         env["BASE_DIR"] = root
