@@ -34,7 +34,8 @@ class PerformanceEngine:
     """Phase 36 — bounded caching, structured compression, and measurable swarm boundary shaping."""
 
     def __init__(self, *, max_cache_entries: int = 48) -> None:
-        self._slim_cache: BoundedLRUCache = BoundedLRUCache(max_entries=max_cache_entries)
+        self._max_cache_entries = max(16, min(128, int(max_cache_entries or 48)))
+        self._slim_cache: BoundedLRUCache = BoundedLRUCache(max_entries=self._max_cache_entries)
 
     def optimize_swarm_boundary(
         self,
@@ -47,7 +48,16 @@ class PerformanceEngine:
         memory_intelligence: dict[str, Any],
         reasoning_handoff: dict[str, Any],
         planning_payload: dict[str, Any],
+        cache_max_override: int | None = None,
     ) -> PerformanceOptimizationResult:
+        if cache_max_override is not None:
+            try:
+                cap = max(16, min(128, int(cache_max_override)))
+                if cap != self._max_cache_entries:
+                    self._max_cache_entries = cap
+                    self._slim_cache = BoundedLRUCache(max_entries=cap)
+            except (TypeError, ValueError):
+                pass
         trace_id = f"perf36-{_fingerprint_key(session_id=session_id, message=message, memory_intelligence=memory_intelligence, reasoning_handoff=reasoning_handoff, planning_payload=planning_payload)[:18]}"
         fp = _fingerprint_key(
             session_id=session_id,

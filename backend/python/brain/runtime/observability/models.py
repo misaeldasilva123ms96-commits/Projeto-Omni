@@ -253,6 +253,8 @@ class ObservabilitySnapshot:
     recent_multi_agent_coordination_traces: list[dict[str, Any]] = field(default_factory=list)
     latest_task_decomposition_trace: dict[str, Any] | None = None
     recent_task_decomposition_traces: list[dict[str, Any]] = field(default_factory=list)
+    latest_controlled_self_evolution_trace: dict[str, Any] | None = None
+    recent_controlled_self_evolution_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -330,5 +332,11 @@ class ObservabilitySnapshot:
                 else None
             ),
             "recent_task_decomposition_traces": [dict(item) for item in self.recent_task_decomposition_traces],
+            "latest_controlled_self_evolution_trace": (
+                dict(self.latest_controlled_self_evolution_trace)
+                if isinstance(self.latest_controlled_self_evolution_trace, dict)
+                else None
+            ),
+            "recent_controlled_self_evolution_traces": [dict(item) for item in self.recent_controlled_self_evolution_traces],
             "warnings": list(self.warnings),
         }

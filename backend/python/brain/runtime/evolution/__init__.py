@@ -1,3 +1,4 @@
+from .controlled_evolution_engine import ControlledEvolutionEngine
 from .evolution_executor import EvolutionExecutor
 from .evolution_models import EvolutionProposalRecord, EvolutionProposalStatus, EvolutionRiskLevel
 from .evolution_application import EvolutionApplicationAttempt, EvolutionApplicationStatus
@@ -33,6 +34,7 @@ from .models import (
 )
 
 __all__ = [
+    "ControlledEvolutionEngine",
     "EvolutionExecutor",
     "EvolutionProposalRecord",
     "EvolutionProposalStatus",

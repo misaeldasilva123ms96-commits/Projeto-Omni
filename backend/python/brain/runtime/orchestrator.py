@@ -54,6 +54,7 @@ from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningEngine, LearningExecutor
 from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.decomposition import TaskDecomposer
+from brain.runtime.evolution import ControlledEvolutionEngine
 from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
@@ -297,6 +298,7 @@ class BrainOrchestrator:
         self.performance_engine = PerformanceEngine()
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
+        self.controlled_evolution_engine = ControlledEvolutionEngine(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -431,6 +433,7 @@ class BrainOrchestrator:
         strategy_payload: dict[str, Any] = {}
         performance_payload: dict[str, Any] = {}
         coordination_payload: dict[str, Any] = {}
+        controlled_evolution_payload: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -725,12 +728,14 @@ class BrainOrchestrator:
             payload=dict(planning_payload),
         )
 
+        phase39_tuning = self.controlled_evolution_engine.store.read()
         try:
             dresult = self.task_decomposer.decompose(
                 execution_plan=dict(planning_payload["execution_plan"]),
                 reasoning_trace=dict(reasoning_payload.get("trace") or {}),
                 strategy_summary=dict(strategy_payload),
                 coordination_hint=None,
+                tuning_overrides=phase39_tuning,
             )
             planning_payload["task_decomposition"] = dresult.as_dict()
             if isinstance(planning_payload["execution_plan"], dict):
@@ -861,6 +866,13 @@ class BrainOrchestrator:
         if not direct_response:
             budget_dict = self._budget_to_dict(context_budget)
             retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
+            pcache = phase39_tuning.get("performance_max_cache_entries")
+            cache_override = None
+            try:
+                if pcache is not None:
+                    cache_override = int(pcache)
+            except (TypeError, ValueError):
+                cache_override = None
             perf_result = self.performance_engine.optimize_swarm_boundary(
                 session_id=session_id,
                 message=runtime_message,
@@ -870,6 +882,7 @@ class BrainOrchestrator:
                 memory_intelligence=memory_context_payload,
                 reasoning_handoff=reasoning_handoff,
                 planning_payload=planning_payload,
+                cache_max_override=cache_override,
             )
             swarm_context = dict(perf_result.slim_swarm_context)
             hb = coordination_payload.get("handoff_bundle")
@@ -979,6 +992,49 @@ class BrainOrchestrator:
             payload=dict(learning_payload),
         )
 
+        try:
+            evidence_bundle: dict[str, Any] = {
+                "session_id": session_id,
+                "learning_trace": dict(learning_trace.as_dict()),
+                "learning_record": dict(learning_record.as_dict()),
+                "performance": dict(performance_payload),
+                "strategy": dict(strategy_payload),
+                "coordination": dict(coordination_payload),
+                "task_decomposition": planning_payload.get("task_decomposition"),
+                "planning_trace": planning_payload.get("planning_trace"),
+                "last_runtime_reason": str(self.last_runtime_reason or ""),
+                "duration_ms": duration_ms,
+            }
+            controlled_evolution_payload = self.controlled_evolution_engine.evaluate_turn(
+                session_id=session_id,
+                evidence=evidence_bundle,
+            )
+        except Exception as evo_exc:
+            controlled_evolution_payload = {
+                "trace_id": "",
+                "session_id": session_id,
+                "disabled": False,
+                "opportunity_count": 0,
+                "proposal_count": 0,
+                "validation_passed": False,
+                "validation_messages": ["controlled_evolution_orchestrator_wrap_failed"],
+                "apply_status": "skipped",
+                "monitor_status": "degraded",
+                "rollback_recommended": False,
+                "rollback_applied": False,
+                "degraded": True,
+                "error": str(evo_exc),
+                "opportunities": [],
+                "proposals": [],
+            }
+        self._append_runtime_event(
+            event_type="runtime.controlled_self_evolution.trace",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={"trace": dict(controlled_evolution_payload)},
+        )
+
         append_history(
             memory_store,
             "assistant",
@@ -1021,6 +1077,7 @@ class BrainOrchestrator:
             "strategy_adaptation": dict(strategy_payload),
             "performance_optimization": dict(performance_payload),
             "multi_agent_coordination": dict(coordination_payload),
+            "controlled_self_evolution": dict(controlled_evolution_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }

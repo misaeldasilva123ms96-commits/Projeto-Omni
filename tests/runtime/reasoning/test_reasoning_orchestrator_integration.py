@@ -6,6 +6,7 @@ import shutil
 import sys
 import unittest
 from contextlib import contextmanager
+from unittest.mock import patch
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,7 +30,7 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
 
     def test_run_emits_reasoning_trace_and_persists_reasoning_payload(self) -> None:
         with self.temp_workspace() as workspace_root:
-            with unittest.mock.patch.dict(
+            with patch.dict(
                 os.environ,
                 {
                     "BASE_DIR": str(workspace_root),
@@ -103,6 +104,11 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("trace", dec_events[-1])
                 self.assertIn("task_decomposition", payload["planning_intelligence"])
                 self.assertIn("subtasks", payload["planning_intelligence"]["execution_plan"])
+                ce_events = [item for item in lines if item.get("event_type") == "runtime.controlled_self_evolution.trace"]
+                self.assertGreaterEqual(len(ce_events), 1)
+                self.assertIn("trace", ce_events[-1])
+                self.assertIn("controlled_self_evolution", payload)
+                self.assertIn("apply_status", payload["controlled_self_evolution"])
 
 
 if __name__ == "__main__":

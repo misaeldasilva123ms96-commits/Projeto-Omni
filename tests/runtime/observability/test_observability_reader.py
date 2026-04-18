@@ -274,6 +274,33 @@ class ObservabilityReaderTest(unittest.TestCase):
                             ),
                             json.dumps(
                                 {
+                                    'timestamp': '2026-04-15T00:00:05c+00:00',
+                                    'event_type': 'runtime.controlled_self_evolution.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'trace': {
+                                        'trace_id': 'ce39-test',
+                                        'session_id': 'sess-obs',
+                                        'disabled': False,
+                                        'opportunity_count': 1,
+                                        'proposal_count': 0,
+                                        'validation_passed': True,
+                                        'validation_messages': ['no_actionable_proposal'],
+                                        'apply_status': 'skipped_policy',
+                                        'monitor_status': 'idle',
+                                        'rollback_recommended': False,
+                                        'rollback_applied': False,
+                                        'degraded': False,
+                                        'error': '',
+                                        'opportunities': [],
+                                        'proposals': [],
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
+                            json.dumps(
+                                {
                                     'timestamp': '2026-04-15T00:00:06+00:00',
                                     'event_type': 'runtime.multi_agent_coordination.trace',
                                     'session_id': 'sess-obs',
@@ -396,6 +423,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_task_decomposition_traces), 1)
                 self.assertIn('latest_task_decomposition_trace', snap_dict)
                 self.assertIn('recent_task_decomposition_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_controlled_self_evolution_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_controlled_self_evolution_trace.get('trace', {}).get('trace_id'),
+                    'ce39-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_controlled_self_evolution_traces), 1)
+                self.assertIn('latest_controlled_self_evolution_trace', snap_dict)
+                self.assertIn('recent_controlled_self_evolution_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
