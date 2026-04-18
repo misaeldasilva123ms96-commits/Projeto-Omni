@@ -233,6 +233,29 @@ struct OperatorMilestonesV1 {
     execution_state: Value,
 }
 
+/// Authenticated operator — bounded, redacted tail of `swarm_log.json` events.
+#[derive(Debug, Serialize)]
+struct OperatorSwarmV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    /// Events in this response after redaction (≤ tail cap).
+    events_returned: usize,
+    /// Total events in the backing log before tailing.
+    total_events: usize,
+    events: Vec<Value>,
+}
+
+/// Authenticated operator — PR / merge digest rows from `run-summaries.jsonl` (same projection as `/internal/pr-summaries`, redacted).
+#[derive(Debug, Serialize)]
+struct OperatorPrDigestV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    summaries_returned: usize,
+    summaries: Vec<Value>,
+}
+
 /// Public summary of runtime signals — counts and latest run labels only (no raw audit lines).
 #[derive(Debug, Serialize)]
 struct PublicRuntimeSignalsSummaryV1 {
@@ -341,6 +364,8 @@ async fn main() -> Result<(), AppError> {
             get(operator_v1_strategy_changes),
         )
         .route("/api/v1/operator/milestones", get(operator_v1_milestones))
+        .route("/api/v1/operator/swarm", get(operator_v1_swarm))
+        .route("/api/v1/operator/pr-digest", get(operator_v1_pr_digest))
         .route_layer(from_fn_with_state(
             state.clone(),
             require_supabase_auth,
@@ -901,6 +926,63 @@ fn fusion_latest_checkpoint(state: &AppState) -> (Option<String>, Value) {
     (latest_run_id, checkpoint)
 }
 
+/// Latest `tail` swarm events (chronological order preserved), plus total count in file.
+fn fusion_swarm_events_tail(state: &AppState, tail: usize) -> (Vec<Value>, usize) {
+    let swarm_path = state
+        .python_root
+        .join("brain")
+        .join("runtime")
+        .join("swarm_log.json");
+    let payload = read_json_value(&swarm_path).unwrap_or_else(|| json!({ "events": [] }));
+    let events = payload
+        .get("events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total_events = events.len();
+    let events = events
+        .into_iter()
+        .rev()
+        .take(tail)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    (events, total_events)
+}
+
+/// Recent run-summary rows projected like `/internal/pr-summaries` (bounded `limit`).
+fn fusion_pr_digest_rows(state: &AppState, limit: usize) -> Vec<Value> {
+    read_recent_jsonl(
+        &state
+            .project_root
+            .join(".logs")
+            .join("fusion-runtime")
+            .join("run-summaries.jsonl"),
+        limit,
+    )
+    .into_iter()
+    .map(|entry| {
+        json!({
+            "run_id": entry.get("run_id").cloned().unwrap_or_else(|| json!("")),
+            "timestamp": entry.get("timestamp").cloned().unwrap_or_else(|| json!("")),
+            "message": entry.get("message").cloned().unwrap_or_else(|| json!("")),
+            "pr_summary": entry
+                .get("execution_state")
+                .and_then(|value| value.get("pr_summary"))
+                .cloned()
+                .or_else(|| entry.get("engineering_data").and_then(|value| value.get("pr_summary")).cloned())
+                .unwrap_or_else(|| json!({})),
+            "merge_readiness": entry
+                .get("execution_state")
+                .and_then(|value| value.get("merge_readiness"))
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        })
+    })
+    .collect()
+}
+
 async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<RuntimeSignalsResponse>) {
     let audit_path = state.project_root.join(".logs").join("fusion-runtime").join("execution-audit.jsonl");
     let run_summary_path = state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl");
@@ -924,15 +1006,8 @@ async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<Run
 }
 
 async fn swarm_log(State(state): State<AppState>) -> (StatusCode, Json<SwarmLogResponse>) {
-    let swarm_path = state.python_root.join("brain").join("runtime").join("swarm_log.json");
-    let payload = read_json_value(&swarm_path).unwrap_or_else(|| json!({ "events": [] }));
-    let events = payload
-        .get("events")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let total_events = events.len();
-    let events = events.into_iter().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect();
+    const TAIL: usize = 12;
+    let (events, total_events) = fusion_swarm_events_tail(&state, TAIL);
 
     (
         StatusCode::OK,
@@ -995,30 +1070,8 @@ async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<Mileston
 }
 
 async fn pr_summaries(State(state): State<AppState>) -> (StatusCode, Json<PrSummariesResponse>) {
-    let summaries = read_recent_jsonl(
-        &state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl"),
-        6,
-    )
-    .into_iter()
-    .map(|entry| {
-        json!({
-            "run_id": entry.get("run_id").cloned().unwrap_or_else(|| json!("")),
-            "timestamp": entry.get("timestamp").cloned().unwrap_or_else(|| json!("")),
-            "message": entry.get("message").cloned().unwrap_or_else(|| json!("")),
-            "pr_summary": entry
-                .get("execution_state")
-                .and_then(|value| value.get("pr_summary"))
-                .cloned()
-                .or_else(|| entry.get("engineering_data").and_then(|value| value.get("pr_summary")).cloned())
-                .unwrap_or_else(|| json!({})),
-            "merge_readiness": entry
-                .get("execution_state")
-                .and_then(|value| value.get("merge_readiness"))
-                .cloned()
-                .unwrap_or_else(|| json!({})),
-        })
-    })
-    .collect();
+    const LIMIT: usize = 6;
+    let summaries = fusion_pr_digest_rows(&state, LIMIT);
 
     (
         StatusCode::OK,
@@ -1166,6 +1219,50 @@ async fn operator_v1_milestones(
             patch_sets_total,
             patch_sets_returned,
             execution_state,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/swarm` — redacted tail of `swarm_log.json` (same source as `/internal/swarm-log`).
+async fn operator_v1_swarm(State(state): State<AppState>) -> (StatusCode, Json<OperatorSwarmV1>) {
+    const TAIL: usize = 10;
+    let (raw_events, total_events) = fusion_swarm_events_tail(&state, TAIL);
+    let events: Vec<Value> = raw_events
+        .iter()
+        .map(|e| operator_redact_json(e, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let events_returned = events.len();
+
+    (
+        StatusCode::OK,
+        Json(OperatorSwarmV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            events_returned,
+            total_events,
+            events,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/pr-digest` — redacted PR-style rows from `run-summaries.jsonl` (same projection as `/internal/pr-summaries`).
+async fn operator_v1_pr_digest(State(state): State<AppState>) -> (StatusCode, Json<OperatorPrDigestV1>) {
+    const LIMIT: usize = 6;
+    let summaries: Vec<Value> = fusion_pr_digest_rows(&state, LIMIT)
+        .iter()
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let summaries_returned = summaries.len();
+
+    (
+        StatusCode::OK,
+        Json(OperatorPrDigestV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            summaries_returned,
+            summaries,
         }),
     )
 }
@@ -1798,6 +1895,20 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
         assert!(out.get("password").is_none());
         assert!(out.get("access_token").is_none());
         assert_eq!(out["keep"], 1);
+    }
+
+    #[test]
+    fn operator_redact_pr_digest_like_row_masks_path_in_message() {
+        let row = json!({
+            "run_id": "run-1",
+            "message": "/home/user/secret.txt",
+            "pr_summary": {"title": "ok"},
+            "merge_readiness": {}
+        });
+        let out = operator_redact_json(&row, OPERATOR_JSON_MAX_DEPTH);
+        assert_eq!(out["run_id"], "run-1");
+        assert_eq!(out["message"], "[PATH_REDACTED]");
+        assert_eq!(out["pr_summary"]["title"], "ok");
     }
 }
 

@@ -1,9 +1,9 @@
-# Operator telemetry API (Phase 13)
+# Operator telemetry API (Phase 13+)
 
 **Scope:** Authenticated, versioned read endpoints for **operator-grade** telemetry — richer than public `/api/v1/*/summary` routes, **redacted** compared to raw `/internal/*`.  
-**Implementation:** `backend/rust/src/main.rs` (routes under `/api/v1/operator/*`, `operator_redact_json`, `fusion_latest_checkpoint`).  
+**Implementation:** `backend/rust/src/main.rs` (routes under `/api/v1/operator/*`, `operator_redact_json`, `fusion_*` loaders).  
 **Auth:** Same Supabase JWT middleware as `/api/observability/*` and `/api/control/*` (`require_supabase_auth` in `observability_auth.rs`).  
-**Related:** [`public-api-roadmap.md`](public-api-roadmap.md), [`public-telemetry-contracts.md`](public-telemetry-contracts.md).
+**Related:** [`public-api-roadmap.md`](public-api-roadmap.md), [`public-telemetry-contracts.md`](public-telemetry-contracts.md), [`../frontend/operator-telemetry-adoption.md`](../frontend/operator-telemetry-adoption.md).
 
 ---
 
@@ -13,7 +13,7 @@
 | ----- | -------- | ---- | ------- |
 | **Public product telemetry** | Browser / product UI | None | Counts, short previews, no paths (`/api/v1/status`, `/api/v1/*/summary`, `/api/v1/chat`). |
 | **Operator telemetry (this doc)** | Signed-in operators / internal dashboards | **Supabase JWT** (Bearer) | Bounded JSON derived from the same files as `/internal/*`, passed through **redaction** (paths, secrets, depth/array limits). |
-| **Internal-only routes** | Same network as API; **no JWT today** | None on the route | Full `Value` payloads as implemented historically (`/internal/*`). **Unchanged** in Phase 13. |
+| **Internal-only routes** | Same network as API; **no JWT today** | None on the route | Full `Value` payloads as implemented historically (`/internal/*`). **Unchanged** when operator routes ship. |
 
 Operator routes exist so the **frontend can migrate** off unconditional `/internal/*` fetches toward **JWT-gated** reads without exposing those shapes on the public internet.
 
@@ -50,6 +50,24 @@ All require:
 | **Response** | `api_version`, `status`, `timestamp_ms`, `latest_run_id`, `checkpoint_status` (small scalar object: status, next_step_index, total_actions), `milestone_state` (redacted), `patch_sets` (at most **5** entries, redacted), `patch_sets_total`, `patch_sets_returned`, `execution_state` (redacted). |
 | **Redactions** | `patch_sets` truncated; nested structures passed through `operator_redact_json`. |
 
+### `GET /api/v1/operator/swarm` (Phase 15)
+
+| | |
+| --- | --- |
+| **Source** | Same as `GET /internal/swarm-log`: `brain/runtime/swarm_log.json` → `events` array. |
+| **Response** | `api_version`, `status`, `timestamp_ms`, `events_returned`, `total_events`, `events` (last **10** events, each passed through `operator_redact_json`). Internal route still returns **12** events unchanged. |
+| **Redactions** | Per-event `operator_redact_json`; same path/secret/string caps as other operator routes. |
+| **Frontend** | Prefer when JWT present; fall back to `/internal/swarm-log` until the bundle loader is extended (see frontend adoption doc). |
+
+### `GET /api/v1/operator/pr-digest` (Phase 15)
+
+| | |
+| --- | --- |
+| **Source** | Same projection as `GET /internal/pr-summaries`: last **6** lines of `.logs/fusion-runtime/run-summaries.jsonl` mapped to `run_id`, `timestamp`, `message`, `pr_summary`, `merge_readiness`. |
+| **Response** | `api_version`, `status`, `timestamp_ms`, `summaries_returned`, `summaries` (each object redacted). |
+| **Redactions** | `operator_redact_json` on each summary row (paths in `message`, nested blobs in `pr_summary` / `merge_readiness`). |
+| **Frontend** | Prefer when JWT present; fall back to `/internal/pr-summaries` until the bundle loader is extended. |
+
 ---
 
 ## 3. Deferred endpoints (grounded, not implemented here)
@@ -57,8 +75,6 @@ All require:
 | Candidate | Reason deferred |
 | --------- | ---------------- |
 | `GET /api/v1/operator/runtime/signals/paged` | Needs cursor/query contract + product review. |
-| `GET /api/v1/operator/swarm/events` | Swarm log events are unstructured `Value` — schema + redaction policy TBD (see roadmap). |
-| `GET /api/v1/operator/pr-summaries` | PR / merge payloads need operator UX review; can wrap existing `run-summaries` projection with redaction in a follow-up. |
 | `GET /api/v1/operator/strategy/state` | Full `strategy_state` remains high-risk; public summary stays on `/api/v1/strategy/summary`. |
 
 ---
@@ -67,9 +83,11 @@ All require:
 
 | Current internal usage | Suggested migration |
 | ----------------------- | -------------------- |
-| `GET /internal/runtime-signals` (dashboard / cognitive rail) | Prefer `GET /api/v1/operator/runtime/signals` when JWT available; keep public **summary** for unauthenticated headline widgets. |
-| `GET /internal/strategy-state` (recent changes only) | Prefer `GET /api/v1/operator/strategy/changes` for change list; keep `/api/v1/strategy/summary` for version/weight headline. |
-| `GET /internal/milestones` | Prefer `GET /api/v1/operator/milestones` when detail is needed with auth; keep `/api/v1/milestones/summary` for counts. |
+| `GET /internal/runtime-signals` | Prefer `GET /api/v1/operator/runtime/signals` when JWT available (Phase 14). |
+| `GET /internal/strategy-state` (changes) | Prefer `GET /api/v1/operator/strategy/changes` (Phase 14). |
+| `GET /internal/milestones` | Prefer `GET /api/v1/operator/milestones` (Phase 14). |
+| `GET /internal/swarm-log` | Prefer `GET /api/v1/operator/swarm` when JWT available (Phase 15). |
+| `GET /internal/pr-summaries` | Prefer `GET /api/v1/operator/pr-digest` when JWT available (Phase 15). |
 
 `/internal/*` remains for **backward compatibility** until the frontend switches callers.
 
@@ -89,3 +107,4 @@ All require:
 | Phase | Change |
 | ----- | ------ |
 | Phase 13 | `/api/v1/operator/runtime/signals`, `/api/v1/operator/strategy/changes`, `/api/v1/operator/milestones` + `operator_redact_json` + docs. |
+| Phase 15 | `/api/v1/operator/swarm`, `/api/v1/operator/pr-digest`; shared `fusion_swarm_events_tail` / `fusion_pr_digest_rows` with internal handlers. |
