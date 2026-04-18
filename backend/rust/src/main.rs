@@ -24,7 +24,7 @@ use error::AppError;
 use observability_auth::{require_supabase_auth, sanitize_uri_for_logs, SupabaseAuthConfig};
 use runtime::Session;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::{
     io::AsyncWriteExt,
     net::TcpListener,
@@ -196,6 +196,43 @@ struct PrSummariesResponse {
     summaries: Vec<Value>,
 }
 
+/// Authenticated operator read model — redacted runtime audit + run summary (see `docs/backend/operator-telemetry-api.md`).
+#[derive(Debug, Serialize)]
+struct OperatorRuntimeSignalsV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    recent_signal_sample_size: usize,
+    recent_signals: Vec<Value>,
+    recent_mode_transitions: Vec<Value>,
+    latest_run_summary: Value,
+}
+
+/// Authenticated operator — recent strategy log entries only (no full `strategy_state` blob).
+#[derive(Debug, Serialize)]
+struct OperatorStrategyChangesV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    strategy_version: u64,
+    recent_changes: Vec<Value>,
+}
+
+/// Authenticated operator — milestone checkpoint slice with bounded `patch_sets` and redacted nested JSON.
+#[derive(Debug, Serialize)]
+struct OperatorMilestonesV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    latest_run_id: Option<String>,
+    checkpoint_status: Value,
+    milestone_state: Value,
+    patch_sets: Vec<Value>,
+    patch_sets_total: usize,
+    patch_sets_returned: usize,
+    execution_state: Value,
+}
+
 /// Public summary of runtime signals — counts and latest run labels only (no raw audit lines).
 #[derive(Debug, Serialize)]
 struct PublicRuntimeSignalsSummaryV1 {
@@ -294,6 +331,21 @@ async fn main() -> Result<(), AppError> {
             state.clone(),
             require_supabase_auth,
         ));
+    let protected_operator = Router::new()
+        .route(
+            "/api/v1/operator/runtime/signals",
+            get(operator_v1_runtime_signals),
+        )
+        .route(
+            "/api/v1/operator/strategy/changes",
+            get(operator_v1_strategy_changes),
+        )
+        .route("/api/v1/operator/milestones", get(operator_v1_milestones))
+        .route_layer(from_fn_with_state(
+            state.clone(),
+            require_supabase_auth,
+        ));
+
     let protected_control = Router::new()
         .route("/api/control/runs", get(run_control::list_runs))
         .route("/api/control/runs/:run_id", get(run_control::get_run))
@@ -320,7 +372,7 @@ async fn main() -> Result<(), AppError> {
     // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
     // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
     // Internal (no auth middleware): /internal/*
-    // Protected (Supabase JWT): merged /api/observability/*, /api/control/*
+    // Protected (Supabase JWT): /api/observability/*, /api/control/*, /api/v1/operator/*
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/status", get(public_v1_status))
@@ -338,6 +390,7 @@ async fn main() -> Result<(), AppError> {
         .route("/internal/milestones", get(milestones))
         .route("/internal/pr-summaries", get(pr_summaries))
         .merge(protected_observability)
+        .merge(protected_operator)
         .merge(protected_control)
         .layer(CorsLayer::permissive())
         .layer(
@@ -746,6 +799,108 @@ async fn public_v1_strategy_summary(
     )
 }
 
+const OPERATOR_JSON_MAX_DEPTH: usize = 14;
+const OPERATOR_JSON_MAX_ARRAY_LEN: usize = 48;
+const OPERATOR_JSON_MAX_STRING_CHARS: usize = 1200;
+
+fn string_looks_like_filesystem_path(s: &str) -> bool {
+    let t = s.trim();
+    if t.len() < 2 {
+        return false;
+    }
+    if t.starts_with('/') && !t.starts_with("//") {
+        return true;
+    }
+    let b = t.as_bytes();
+    b.len() >= 3 && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+}
+
+fn operator_redact_sensitive_key(key: &str) -> bool {
+    let k = key.to_lowercase();
+    matches!(
+        k.as_str(),
+        "authorization" | "password" | "api_key" | "apikey" | "access_token" | "refresh_token"
+    ) || k.ends_with("_secret")
+        || k == "jwt"
+}
+
+/// Bounded-depth JSON redaction for operator telemetry (paths, secrets, oversized strings/arrays).
+fn operator_redact_json(value: &Value, depth: usize) -> Value {
+    if depth == 0 {
+        return json!("[DEPTH_LIMIT]");
+    }
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => value.clone(),
+        Value::String(s) => {
+            if string_looks_like_filesystem_path(s) {
+                json!("[PATH_REDACTED]")
+            } else {
+                Value::String(truncate_preview(s, OPERATOR_JSON_MAX_STRING_CHARS))
+            }
+        }
+        Value::Array(arr) => Value::Array(
+            arr.iter()
+                .take(OPERATOR_JSON_MAX_ARRAY_LEN)
+                .map(|item| operator_redact_json(item, depth - 1))
+                .collect(),
+        ),
+        Value::Object(map) => {
+            let mut out = Map::new();
+            for (k, v) in map.iter() {
+                if operator_redact_sensitive_key(k) {
+                    continue;
+                }
+                let kl = k.to_lowercase();
+                if kl == "cwd" || kl == "executable" {
+                    out.insert(k.clone(), json!("[REDACTED]"));
+                    continue;
+                }
+                if kl.contains("path")
+                    && v.as_str().is_some_and(string_looks_like_filesystem_path)
+                {
+                    out.insert(k.clone(), json!("[PATH_REDACTED]"));
+                    continue;
+                }
+                if (kl == "env" || kl == "environment") && v.is_object() {
+                    out.insert(k.clone(), json!({}));
+                    continue;
+                }
+                out.insert(k.clone(), operator_redact_json(v, depth - 1));
+            }
+            Value::Object(out)
+        }
+    }
+}
+
+fn fusion_latest_checkpoint(state: &AppState) -> (Option<String>, Value) {
+    let latest_run_summary = read_latest_jsonl(
+        &state
+            .project_root
+            .join(".logs")
+            .join("fusion-runtime")
+            .join("run-summaries.jsonl"),
+    );
+    let latest_run_id = latest_run_summary
+        .as_ref()
+        .and_then(|value| value.get("run_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let checkpoint = latest_run_id
+        .as_ref()
+        .and_then(|run_id| {
+            read_json_value(
+                &state
+                    .project_root
+                    .join(".logs")
+                    .join("fusion-runtime")
+                    .join("checkpoints")
+                    .join(format!("{run_id}.json")),
+            )
+        })
+        .unwrap_or_else(|| json!({}));
+    (latest_run_id, checkpoint)
+}
+
 async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<RuntimeSignalsResponse>) {
     let audit_path = state.project_root.join(".logs").join("fusion-runtime").join("execution-audit.jsonl");
     let run_summary_path = state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl");
@@ -815,27 +970,7 @@ async fn strategy_state(State(state): State<AppState>) -> (StatusCode, Json<Stra
 }
 
 async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<MilestonesResponse>) {
-    let latest_run_summary = read_latest_jsonl(
-        &state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl"),
-    );
-    let latest_run_id = latest_run_summary
-        .as_ref()
-        .and_then(|value| value.get("run_id"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let checkpoint = latest_run_id
-        .as_ref()
-        .and_then(|run_id| {
-            read_json_value(
-                &state
-                    .project_root
-                    .join(".logs")
-                    .join("fusion-runtime")
-                    .join("checkpoints")
-                    .join(format!("{run_id}.json")),
-            )
-        })
-        .unwrap_or_else(|| json!({}));
+    let (latest_run_id, checkpoint) = fusion_latest_checkpoint(&state);
     let engineering = checkpoint.get("engineering_data").cloned().unwrap_or_else(|| json!({}));
 
     (
@@ -890,6 +1025,147 @@ async fn pr_summaries(State(state): State<AppState>) -> (StatusCode, Json<PrSumm
         Json(PrSummariesResponse {
             status: "ok",
             summaries,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/runtime/signals` — Supabase JWT; same sources as `/internal/runtime-signals` with redaction.
+async fn operator_v1_runtime_signals(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorRuntimeSignalsV1>) {
+    const SAMPLE: usize = 20;
+    let audit_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("execution-audit.jsonl");
+    let run_summary_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("run-summaries.jsonl");
+    let raw_signals = read_recent_jsonl(&audit_path, SAMPLE);
+    let recent_signals: Vec<Value> = raw_signals
+        .iter()
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let recent_mode_transitions: Vec<Value> = raw_signals
+        .iter()
+        .filter(|item| {
+            item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition")
+        })
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let latest_run_summary = operator_redact_json(
+        &read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({})),
+        OPERATOR_JSON_MAX_DEPTH,
+    );
+
+    (
+        StatusCode::OK,
+        Json(OperatorRuntimeSignalsV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            recent_signal_sample_size: SAMPLE,
+            recent_signals,
+            recent_mode_transitions,
+            latest_run_summary,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/strategy/changes` — recent `strategy_log.json` entries only (no full rules blob).
+async fn operator_v1_strategy_changes(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorStrategyChangesV1>) {
+    const MAX_CHANGES: usize = 12;
+    let strategy_state_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_state.json");
+    let strategy_log_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_log.json");
+    let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
+    let strategy_version = strategy_state.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let recent_changes: Vec<Value> = read_json_value(&strategy_log_path)
+        .and_then(|value| value.get("changes").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .rev()
+        .take(MAX_CHANGES)
+        .map(|v| operator_redact_json(&v, OPERATOR_JSON_MAX_DEPTH))
+        .rev()
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(OperatorStrategyChangesV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            strategy_version,
+            recent_changes,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/milestones` — latest checkpoint slice; `patch_sets` capped; nested JSON redacted.
+async fn operator_v1_milestones(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorMilestonesV1>) {
+    const MAX_PATCH: usize = 5;
+    let (latest_run_id, checkpoint) = fusion_latest_checkpoint(&state);
+    let engineering = checkpoint.get("engineering_data").cloned().unwrap_or_else(|| json!({}));
+    let milestone_state = operator_redact_json(
+        &engineering
+            .get("milestone_state")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+        OPERATOR_JSON_MAX_DEPTH,
+    );
+    let patch_sets_full = engineering
+        .get("patch_sets")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let patch_sets_total = patch_sets_full.len();
+    let patch_sets: Vec<Value> = patch_sets_full
+        .iter()
+        .take(MAX_PATCH)
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let patch_sets_returned = patch_sets.len();
+    let checkpoint_status = json!({
+        "status": checkpoint.get("status").cloned().unwrap_or_else(|| json!("unknown")),
+        "next_step_index": checkpoint.get("next_step_index").cloned().unwrap_or_else(|| json!(0)),
+        "total_actions": checkpoint.get("total_actions").cloned().unwrap_or_else(|| json!(0)),
+    });
+    let execution_state = operator_redact_json(
+        &checkpoint
+            .get("execution_state")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+        OPERATOR_JSON_MAX_DEPTH,
+    );
+
+    (
+        StatusCode::OK,
+        Json(OperatorMilestonesV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            latest_run_id,
+            checkpoint_status,
+            milestone_state,
+            patch_sets,
+            patch_sets_total,
+            patch_sets_returned,
+            execution_state,
         }),
     )
 }
@@ -1504,6 +1780,24 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             .expect("python success");
         assert_eq!(response.response, "ok");
         assert_eq!(response.conversation_id.as_deref(), Some("real-1"));
+    }
+
+    #[test]
+    fn operator_redact_masks_paths_and_cwd() {
+        let v = json!({"cwd": "/tmp/x", "msg": "ok", "nested": {"repo_path": "/usr/bin"}});
+        let out = operator_redact_json(&v, OPERATOR_JSON_MAX_DEPTH);
+        assert_eq!(out["cwd"], "[REDACTED]");
+        assert_eq!(out["msg"], "ok");
+        assert_eq!(out["nested"]["repo_path"], "[PATH_REDACTED]");
+    }
+
+    #[test]
+    fn operator_redact_drops_sensitive_keys() {
+        let v = json!({"password": "x", "access_token": "y", "keep": 1});
+        let out = operator_redact_json(&v, 10);
+        assert!(out.get("password").is_none());
+        assert!(out.get("access_token").is_none());
+        assert_eq!(out["keep"], 1);
     }
 }
 

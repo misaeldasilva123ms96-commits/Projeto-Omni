@@ -1,7 +1,7 @@
 # Omni Public API Roadmap (Phase 5)
 
 **Scope:** Classify the current Rust HTTP boundary, document **session semantics**, define a **versioned public path** (`/api/v1/*`), and plan migration off `/internal/*` **without** inventing goals/simulation/evolution payloads or exposing OIL prematurely.  
-**Implementation touchpoints:** `backend/rust/src/main.rs`, `backend/rust/src/observability*.rs`, `backend/rust/src/run_control.rs`.
+**Implementation touchpoints:** `backend/rust/src/main.rs`, `backend/rust/src/observability*.rs`, `backend/rust/src/run_control.rs`. **Phase 13:** authenticated operator telemetry under `/api/v1/operator/*` (see [`operator-telemetry-api.md`](operator-telemetry-api.md)).
 
 ---
 
@@ -25,16 +25,22 @@
 | `/api/observability/stream` | GET | **Protected** | JWT via `token` query | Observability page |
 | `/api/observability/traces` | GET | **Protected** | Supabase JWT | Optional tooling |
 | `/api/control/*` | GET/POST | **Protected** | Supabase JWT | Not wired in frontend today |
+| `/api/v1/operator/runtime/signals` | GET | **Operator (v1)** | Supabase JWT (Bearer) | Redacted runtime audit + run summary (Phase 13) |
+| `/api/v1/operator/strategy/changes` | GET | **Operator (v1)** | Supabase JWT | Recent strategy log entries only (Phase 13) |
+| `/api/v1/operator/milestones` | GET | **Operator (v1)** | Supabase JWT | Bounded milestone checkpoint + redaction (Phase 13) |
 
 **Legend**
 
 - **Public** — reachable by any client that can hit the listener; not a security boundary by itself.
 - **Internal** — path prefix is advisory; **no auth middleware** in Rust today — must be network-restricted.
-- **Protected** — `require_supabase_auth` middleware.
+- **Protected** — `require_supabase_auth` middleware (observability, control).
+- **Operator (v1)** — same JWT middleware as **Protected**; JSON is **redacted** and bounded vs `/internal/*` (Phase 13).
 
 **Legacy public:** `/chat` and `/health` predate `/api/v1/*`; they remain stable compatibility endpoints. **`POST /api/v1/chat`** is the versioned twin of `/chat` (additive contract; see [`public-chat-api.md`](public-chat-api.md)).
 
 **Candidates for versioned public API:** `/health` (superseded in product copy by `/api/v1/status` for minimal fields), internal read-models (signals, milestones) **after** auth + schema hardening. **Phase 8:** first **summary** read models ship under `/api/v1/*/summary` (see [Public telemetry wave 1](#public-telemetry-wave-1) and [`public-telemetry-contracts.md`](public-telemetry-contracts.md)).
+
+**Phase 13 — operator telemetry:** richer reads than public summaries, **JWT-required**, still **not** raw internal dumps — see [`operator-telemetry-api.md`](operator-telemetry-api.md). `/internal/*` stays for backward compatibility until the frontend migrates callers.
 
 ---
 
@@ -76,7 +82,10 @@
 | `/api/v1/milestones/summary` | GET | None | `PublicMilestonesSummaryV1` — counts + checkpoint status string | Same derivation as `/internal/milestones` | **Implemented** (Phase 8) |
 | `/api/v1/strategy/summary` | GET | None | `PublicStrategySummaryV1` — version, change log size, optional `create_plan` weight | Same files as `/internal/strategy-state` | **Implemented** (Phase 8) |
 | `/api/v1/chat` | POST | None | `api_version` + flattened `ChatResponse` (same fields as `/chat`, optional `conversation_id`) | Same `call_python` / Python entry as `/chat` | **Implemented** (Phase 11) |
-| `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events (full feed) | `.logs/fusion-runtime/*.jsonl` | **Planned** — blocked on auth + payload review |
+| `/api/v1/operator/runtime/signals` | GET | Supabase JWT | Redacted audit lines + mode transitions + latest run summary | Same files as `/internal/runtime-signals` | **Implemented** (Phase 13) |
+| `/api/v1/operator/strategy/changes` | GET | Supabase JWT | `strategy_version` + up to 12 redacted `changes` entries | `strategy_log.json` (+ version from `strategy_state.json`) | **Implemented** (Phase 13) |
+| `/api/v1/operator/milestones` | GET | Supabase JWT | Checkpoint slice, capped `patch_sets`, redacted nested JSON | Same as `/internal/milestones` sources | **Implemented** (Phase 13) |
+| `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events (full feed) | `.logs/fusion-runtime/*.jsonl` | **Planned** — superseded in part by operator route |
 | `/api/v1/goals` | GET | TBD | — | Python goal store | **Blocked** — no safe HTTP mapping yet |
 | `/api/v1/simulation/routes` | GET | TBD | — | Simulation reader | **Blocked** |
 | `/api/v1/evolution/metrics` | GET | TBD | — | Evolution pipeline | **Blocked** |
@@ -161,6 +170,7 @@ Full semantics: [`chat-session-contract.md`](chat-session-contract.md), versione
 
 - [`docs/backend/python-bridge-contract.md`](python-bridge-contract.md)
 - [`docs/backend/public-chat-api.md`](public-chat-api.md)
+- [`docs/backend/operator-telemetry-api.md`](operator-telemetry-api.md)
 - [`docs/backend/chat-session-contract.md`](chat-session-contract.md)
 - [`docs/backend/public-telemetry-contracts.md`](public-telemetry-contracts.md)
 - [`docs/frontend/integration-matrix.md`](../frontend/integration-matrix.md)
