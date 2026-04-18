@@ -7,7 +7,7 @@ import { AppShell } from '../components/layout/AppShell'
 import { Sidebar } from '../components/layout/Sidebar'
 import { CognitivePanel } from '../components/status/CognitivePanel'
 import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
-import { healthResponseToUiRuntimeStatus } from '../features/runtime'
+import { publicStatusV1ToUiRuntimeStatus } from '../features/runtime'
 import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
 import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
@@ -83,6 +83,7 @@ function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): Runti
     matchedCommands: ui.commands,
     matchedTools: ui.tools,
     stopReason: ui.stopReason,
+    runtimeSessionVersion: ui.runtimeSessionVersion,
     usage: ui.usage
       ? {
         input_tokens: ui.usage.inputTokens,
@@ -158,8 +159,8 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const bottomRef = useRef<HTMLDivElement>(null)
   const apiReady = canUseApi()
   const telemetry = useCognitiveTelemetry(apiReady, telemetryTick)
-  const healthUi: UiRuntimeStatus | null = telemetry.health
-    ? healthResponseToUiRuntimeStatus(telemetry.health)
+  const healthUi: UiRuntimeStatus | null = telemetry.publicRuntime
+    ? publicStatusV1ToUiRuntimeStatus(telemetry.publicRuntime)
     : null
   const {
     snapshot: observabilitySnapshot,
@@ -350,7 +351,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         message.id === loadingMessageId
           ? {
             ...message,
-            content: 'NÃ£o consegui processar sua mensagem. Tente novamente.',
+            content: 'Não consegui processar sua mensagem. Tente novamente.',
             isLoading: false,
             isNew: true,
             requestState: 'failed' as const,

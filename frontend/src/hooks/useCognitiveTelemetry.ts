@@ -1,23 +1,24 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchHealth,
   fetchMilestones,
   fetchPrSummaries,
+  fetchPublicRuntimeStatusV1,
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
 } from '../features/runtime'
 import type {
-  HealthResponse,
   MilestonesResponse,
   PrSummariesResponse,
+  PublicStatusResponseV1,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
 } from '../types/api/wire'
 
 export type CognitiveTelemetryState = {
-  health: HealthResponse | null
+  /** Preferred product-safe runtime snapshot (`GET /api/v1/status`). */
+  publicRuntime: PublicStatusResponseV1 | null
   milestones: MilestonesResponse | null
   prSummaries: PrSummariesResponse | null
   runtimeSignals: RuntimeSignalsResponse | null
@@ -28,7 +29,7 @@ export type CognitiveTelemetryState = {
 }
 
 const EMPTY: CognitiveTelemetryState = {
-  health: null,
+  publicRuntime: null,
   milestones: null,
   prSummaries: null,
   runtimeSignals: null,
@@ -55,19 +56,19 @@ export function useCognitiveTelemetry(apiReady: boolean, refreshToken: number | 
     setState((previous) => ({ ...previous, loading: true, error: null }))
 
     Promise.all([
-      fetchHealth(),
+      fetchPublicRuntimeStatusV1(),
       fetchRuntimeSignals(),
       fetchSwarmLog(),
       fetchStrategyState(),
       fetchMilestones(),
       fetchPrSummaries(),
     ])
-      .then(([health, runtimeSignals, swarmLog, strategyState, milestones, prSummaries]) => {
+      .then(([publicRuntime, runtimeSignals, swarmLog, strategyState, milestones, prSummaries]) => {
         if (cancelled) {
           return
         }
         setState({
-          health,
+          publicRuntime,
           milestones,
           prSummaries,
           runtimeSignals,

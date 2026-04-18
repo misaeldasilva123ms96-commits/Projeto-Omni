@@ -45,8 +45,9 @@ export function CognitivePanel({
   const telemetryHint = useMemo(
     () => (
       <p className="cognitive-trust-hint muted-copy">
-        Seções abaixo usam apenas fontes reais: <strong>/health</strong>, <strong>/internal/*</strong> e snapshot
-        protegido quando autenticado. Dados futuros aparecem como módulos pendentes de contrato público.
+        Seções abaixo usam fontes reais: <strong>/api/v1/status</strong> (runtime público),{' '}
+        <strong>/internal/*</strong> (telemetria operacional) e snapshot protegido quando autenticado. Dados futuros
+        aparecem como módulos pendentes de contrato público.
       </p>
     ),
     [],
@@ -66,7 +67,7 @@ export function CognitivePanel({
 
       {telemetryHint}
 
-      {!apiConfigured ? null : telemetry.loading && !telemetry.health ? (
+      {!apiConfigured ? null : telemetry.loading && !telemetry.publicRuntime ? (
         <LoadingState label="Sincronizando telemetria…" />
       ) : null}
 
@@ -74,7 +75,7 @@ export function CognitivePanel({
 
       {!apiConfigured ? null : (
         <>
-          <RuntimeStatusSection health={telemetry.health} runtimeSignals={telemetry.runtimeSignals} />
+          <RuntimeStatusSection publicRuntime={telemetry.publicRuntime} runtimeSignals={telemetry.runtimeSignals} />
           <StrategyStateSection strategyState={telemetry.strategyState} />
           <MilestoneStateSection milestones={telemetry.milestones} prSummaries={telemetry.prSummaries} />
           <ExecutionSignalsSection runtimeSignals={telemetry.runtimeSignals} swarmLog={telemetry.swarmLog} />

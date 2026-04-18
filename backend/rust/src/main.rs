@@ -110,6 +110,7 @@ struct PublicStatusResponseV1 {
     rust_service: String,
     python_status: String,
     node_status: String,
+    runtime_session_version: u32,
     timestamp_ms: u64,
 }
 
@@ -469,6 +470,7 @@ async fn public_v1_status(State(state): State<AppState>) -> (StatusCode, Json<Pu
             rust_service: h.rust_service.to_string(),
             python_status: h.python.last_status.clone(),
             node_status: h.node.last_status.clone(),
+            runtime_session_version: h.runtime_session_version,
             timestamp_ms: h.timestamp_ms,
         }),
     )

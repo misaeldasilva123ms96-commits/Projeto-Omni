@@ -4,9 +4,9 @@ import { SignalList } from '../components/dashboard/SignalList'
 import { AppShell } from '../components/layout/AppShell'
 import { Sidebar } from '../components/layout/Sidebar'
 import {
-  fetchHealth,
   fetchMilestones,
   fetchPrSummaries,
+  fetchPublicRuntimeStatusV1,
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
@@ -19,9 +19,9 @@ import { PageHero } from '../components/ui/PageHero'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import type { ChatMode, ConversationSummary } from '../types'
 import type {
-  HealthResponse,
   MilestonesResponse,
   PrSummariesResponse,
+  PublicStatusResponseV1,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
@@ -37,7 +37,7 @@ type DashboardPageProps = {
 }
 
 type DashboardState = {
-  health: HealthResponse | null
+  publicRuntime: PublicStatusResponseV1 | null
   milestones: MilestonesResponse | null
   prSummaries: PrSummariesResponse | null
   runtimeSignals: RuntimeSignalsResponse | null
@@ -46,7 +46,7 @@ type DashboardState = {
 }
 
 const EMPTY_STATE: DashboardState = {
-  health: null,
+  publicRuntime: null,
   milestones: null,
   prSummaries: null,
   runtimeSignals: null,
@@ -77,19 +77,19 @@ export function DashboardPage({
     setError(null)
 
     Promise.all([
-      fetchHealth(),
+      fetchPublicRuntimeStatusV1(),
       fetchRuntimeSignals(),
       fetchSwarmLog(),
       fetchStrategyState(),
       fetchMilestones(),
       fetchPrSummaries(),
     ])
-      .then(([health, runtimeSignals, swarmLog, strategyState, milestones, prSummaries]) => {
+      .then(([publicRuntime, runtimeSignals, swarmLog, strategyState, milestones, prSummaries]) => {
         if (cancelled) {
           return
         }
         setData({
-          health,
+          publicRuntime,
           milestones,
           prSummaries,
           runtimeSignals,
@@ -152,17 +152,22 @@ export function DashboardPage({
           <DataScopeBadge variant="live" />
           <DataScopeBadge variant="internal" />
           <span className="muted-copy">
-            Cards below map to <code>/health</code> and <code>/internal/*</code> only — no speculative public API.
+            System health row uses <code>/api/v1/status</code>; detailed cards use <code>/internal/*</code> only — no
+            speculative endpoints.
           </span>
         </div>
 
         <div className="dashboard-grid">
-          <MetricCard eyebrow="System health" title="Rust, Python and Node status">
+          <MetricCard eyebrow="System health" title="Public runtime snapshot (/api/v1/status)">
             <div className="metric-stack">
-              <MetricRow label="Rust service" value={data.health?.rust_service ?? 'unknown'} />
-              <MetricRow label="Runtime mode" value={data.health?.runtime_mode ?? 'unknown'} />
-              <MetricRow label="Python" value={data.health?.python.last_status ?? 'not checked'} />
-              <MetricRow label="Node" value={data.health?.node.last_status ?? 'unknown'} />
+              <MetricRow label="Rust service" value={data.publicRuntime?.rust_service ?? 'unknown'} />
+              <MetricRow label="Runtime mode" value={data.publicRuntime?.runtime_mode ?? 'unknown'} />
+              <MetricRow label="Python" value={data.publicRuntime?.python_status ?? 'not checked'} />
+              <MetricRow label="Node" value={data.publicRuntime?.node_status ?? 'unknown'} />
+              <MetricRow
+                label="Runtime epoch"
+                value={data.publicRuntime != null ? String(data.publicRuntime.runtime_session_version) : 'unknown'}
+              />
             </div>
           </MetricCard>
 
@@ -224,8 +229,8 @@ export function DashboardPage({
 
         <section className="cognitive-future-grid omni-dashboard-future" aria-label="Future public API modules">
           <FutureModuleCard
-            description="Will consume a versioned public status contract instead of raw internal JSON."
-            title="Public runtime status (/api/v1/...)"
+            description="v1 status is adopted; further public read models (goals, evolution) remain future work."
+            title="Extended public read APIs"
           />
           <FutureModuleCard
             description="Goal graph read model is not exposed on current HTTP routes."

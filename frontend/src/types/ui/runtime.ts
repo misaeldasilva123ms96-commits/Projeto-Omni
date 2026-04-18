@@ -1,9 +1,9 @@
 /**
  * Condensed runtime / dependency status for dashboard and status surfaces.
  *
- * **Minimum UI contract** (stable across refactors): `rustService`, `runtimeMode`,
- * `pythonStatus`, `nodeStatus`, optional `timestampMs` — all derived from `GET /health`.
- * Extra fields mirror the current `HealthResponse` envelope for panels that need them.
+ * **Preferred public source**: `GET /api/v1/status` → `publicStatusV1ToUiRuntimeStatus`.
+ * **`GET /health`**: richer Python/Node envelopes (`observable`, paths); use where internal detail is required.
+ * **Minimum UI contract**: `rustService`, `runtimeMode`, `pythonStatus`, `nodeStatus`, `sessionVersion`, optional `timestampMs`.
  */
 export type UiRuntimeStatus = {
   overallStatus: string

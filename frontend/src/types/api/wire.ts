@@ -7,6 +7,7 @@ export type {
   HealthResponse,
   MilestonesResponse,
   PrSummariesResponse,
+  PublicStatusResponseV1,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,

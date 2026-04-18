@@ -16,6 +16,8 @@ export type RuntimeMetadata = {
   matchedTools: string[]
   stopReason?: string
   usage?: ChatUsage
+  /** From `POST /chat` (`runtime_session_version`); Rust runtime epoch, not UI session. */
+  runtimeSessionVersion?: number
 }
 
 export type ChatMessage = {
@@ -35,6 +37,8 @@ export type ChatApiResponse = {
   matched_tools?: string[]
   stop_reason?: string
   usage?: ChatUsage
+  /** Rust runtime epoch; aligns with `GET /api/v1/status.runtime_session_version` / `/health`. */
+  runtime_session_version?: number
 }
 
 export type ChatRequestState = 'idle' | 'loading' | 'error'
@@ -45,6 +49,18 @@ export type ConversationSummary = {
   updatedAt: string
   messageCount: number
   mode: ChatMode
+}
+
+/** Product-safe public snapshot (`GET /api/v1/status`). */
+export type PublicStatusResponseV1 = {
+  api_version: string
+  status: string
+  runtime_mode: string
+  rust_service: string
+  python_status: string
+  node_status: string
+  runtime_session_version: number
+  timestamp_ms: number
 }
 
 export type HealthResponse = {

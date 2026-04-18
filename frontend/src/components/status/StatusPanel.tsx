@@ -36,12 +36,16 @@ export function StatusPanel({
       </section>
 
       <section className="status-section">
-        <p className="sidebar-label">Runtime</p>
+        <p className="sidebar-label">Runtime (/api/v1/status)</p>
         <div className="status-grid">
           <MetricRow label="Rust" value={health?.rustService ?? 'desconhecido'} />
           <MetricRow label="Python" value={health?.pythonStatus ?? 'nao checado'} />
           <MetricRow label="Node" value={health?.nodeStatus ?? 'nao checado'} />
           <MetricRow label="Modo runtime" value={health?.runtimeMode ?? 'desconhecido'} />
+          <MetricRow
+            label="Epoch (Rust)"
+            value={health != null ? String(health.sessionVersion) : 'desconhecido'}
+          />
         </div>
       </section>
 
@@ -49,6 +53,10 @@ export function StatusPanel({
         <p className="sidebar-label">Ultima resposta</p>
         <div className="status-grid">
           <MetricRow label="Fonte" value={lastMetadata?.source ?? 'n/a'} />
+          <MetricRow
+            label="Epoch (chat)"
+            value={lastMetadata?.runtimeSessionVersion != null ? String(lastMetadata.runtimeSessionVersion) : 'n/a'}
+          />
           <MetricRow label="Stop reason" value={lastMetadata?.stopReason ?? 'n/a'} />
           <MetricRow label="Ferramentas" value={lastMetadata?.matchedTools.length ?? 0} />
           <MetricRow label="Comandos" value={lastMetadata?.matchedCommands.length ?? 0} />

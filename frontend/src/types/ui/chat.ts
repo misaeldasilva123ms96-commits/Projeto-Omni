@@ -8,6 +8,8 @@ export type UiChatResponse = {
   commands: string[]
   tools: string[]
   stopReason?: string
+  /** Rust runtime epoch from `POST /chat` when present; aligns with public status snapshot. */
+  runtimeSessionVersion?: number
   usage?: {
     inputTokens?: number
     outputTokens?: number

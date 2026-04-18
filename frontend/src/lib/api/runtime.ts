@@ -5,11 +5,17 @@
 import type {
   MilestonesResponse,
   PrSummariesResponse,
+  PublicStatusResponseV1,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
 } from '../../types'
 import { getJson } from './client'
+
+/** Preferred public runtime status (`GET /api/v1/status`). */
+export function fetchPublicRuntimeStatusV1() {
+  return getJson<PublicStatusResponseV1>('/api/v1/status')
+}
 
 export function fetchRuntimeSignals() {
   return getJson<RuntimeSignalsResponse>('/internal/runtime-signals')
