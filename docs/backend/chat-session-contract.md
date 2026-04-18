@@ -1,7 +1,7 @@
 # Omni chat session contract
 
 **Scope:** `POST /chat` on the Rust HTTP API (`backend/rust/src/main.rs`), the browser client, and how this relates to a future versioned public chat API.  
-**Related:** [`public-api-roadmap.md`](public-api-roadmap.md), [`../frontend/integration-matrix.md`](../frontend/integration-matrix.md).
+**Related:** [`public-api-roadmap.md`](public-api-roadmap.md), [`python-bridge-contract.md`](python-bridge-contract.md), [`../frontend/integration-matrix.md`](../frontend/integration-matrix.md).
 
 ---
 
@@ -12,15 +12,15 @@
 1. Client sends `POST /chat` with `Content-Type: application/json`.
 2. Rust deserializes into `ChatRequest` (see `main.rs`).
 3. `message` is trimmed; empty messages return `400` (`InvalidRequest`).
-4. Rust invokes Python via **positional argv only**: `python <entry> <message>` — no stdin JSON envelope today.
-5. Python stdout is parsed for assistant text (first non-empty string among JSON keys `response` \| `message` \| `text` \| `answer`, or a fallback string). Structured fields from Python JSON are **not** merged into `ChatResponse` on the success path today.
+4. Rust invokes Python as `python <entry> <message>` **and** writes a **JSON envelope on stdin** (Phase 10): `message`, `runtime_session_version`, `request_source`, optional `client_session_id` — see [`python-bridge-contract.md`](python-bridge-contract.md).
+5. Python reads stdin when present, else falls back to argv-only message. Stdout is parsed for assistant text (first non-empty string among JSON keys `response` \| `message` \| `text` \| `answer`, or a fallback string). Structured fields from Python JSON are **not** merged into `ChatResponse` on the success path today.
 
 ### Response path
 
 1. Rust builds `ChatResponse` JSON for every outcome (success, timeout, stderr, empty stdout, mock).
 2. `session_id` is a **fixed placeholder** per path (`python-session`, `mock-session`) — not derived from the client and not from Python orchestrator storage.
 3. `runtime_session_version` is copied from `AppState` — the same epoch surfaced on `GET /health` and `GET /api/v1/status`.
-4. Optional **`client_session_id`** (Phase 7): when the client sends it, Rust **echoes** it on the response for correlation and logging; Python is still invoked with **message only**.
+4. Optional **`client_session_id`** (Phase 7): when the client sends it, Rust **echoes** it on the response for correlation and logging; Rust also forwards it on the **stdin bridge** when present (Phase 10).
 
 ---
 
@@ -40,7 +40,7 @@
 | Topic | Issue |
 | ----- | ----- |
 | **Placeholder `session_id`** | Clients may assume `session_id` is their conversation id; it is not. |
-| **Python bridge** | No channel for `client_session_id` into Python without changing argv/stdin contract — intentionally deferred. |
+| **Python bridge** | **Phase 10:** stdin JSON + env (`OMNI_BRIDGE_*`) propagates client id and runtime epoch; orchestrator HTTP response still does not return a distinct server conversation id. |
 | **Orchestrator store** | No HTTP-visible orchestrator session id is merged into responses today. |
 | **Epoch vs session** | `runtime_session_version` answers “which Rust runtime generation answered?” not “which human conversation?”. |
 
@@ -53,7 +53,7 @@
 | Field | Required | Notes |
 | ----- | -------- | ----- |
 | `message` | Yes | Non-empty after trim. |
-| `client_session_id` | No | Opaque string; trimmed; empty treated as absent; **max 256 UTF-8 scalar characters** (truncated server-side if longer). Ignored by the Python subprocess invocation until a future stdin/contract exists. |
+| `client_session_id` | No | Opaque string; trimmed; empty treated as absent; **max 256 UTF-8 scalar characters** (truncated server-side if longer). Forwarded on the **Python stdin JSON bridge** when present (Phase 10). |
 
 Clients sending only `{ "message": "..." }` remain fully supported.
 
@@ -99,3 +99,4 @@ Until Python accepts structured stdin or a side channel, **server-side** correla
 | ----- | ------ |
 | Phase 5 | `runtime_session_version` on `ChatResponse`. |
 | Phase 7 | Optional `client_session_id` on request; optional echo on response; this document. |
+| Phase 10 | Stdin JSON bridge to Python + env correlation; see [`python-bridge-contract.md`](python-bridge-contract.md). |

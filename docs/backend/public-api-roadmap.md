@@ -154,6 +154,7 @@ Full semantics: [`chat-session-contract.md`](chat-session-contract.md).
 
 ## 8. Related docs
 
+- [`docs/backend/python-bridge-contract.md`](python-bridge-contract.md)
 - [`docs/backend/chat-session-contract.md`](chat-session-contract.md)
 - [`docs/backend/public-telemetry-contracts.md`](public-telemetry-contracts.md)
 - [`docs/frontend/integration-matrix.md`](../frontend/integration-matrix.md)

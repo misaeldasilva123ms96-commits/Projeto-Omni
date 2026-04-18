@@ -25,7 +25,13 @@ use observability_auth::{require_supabase_auth, sanitize_uri_for_logs, SupabaseA
 use runtime::Session;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::{net::TcpListener, process::Command, sync::RwLock, time::timeout};
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpListener,
+    process::Command,
+    sync::RwLock,
+    time::timeout,
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
 
@@ -954,6 +960,28 @@ fn extract_response_from_python_output(stdout: &str) -> String {
     }
 }
 
+/// JSON body written to Python stdin (see `docs/backend/python-bridge-contract.md`).
+fn build_python_stdin_json(
+    message: &str,
+    client_session_id: &Option<String>,
+    runtime_session_version: u32,
+) -> Vec<u8> {
+    let mut m = serde_json::Map::new();
+    m.insert("message".into(), Value::String(message.to_string()));
+    m.insert(
+        "runtime_session_version".into(),
+        Value::Number(runtime_session_version.into()),
+    );
+    m.insert(
+        "request_source".into(),
+        Value::String("rust_boundary".to_string()),
+    );
+    if let Some(id) = client_session_id {
+        m.insert("client_session_id".into(), Value::String(id.clone()));
+    }
+    serde_json::to_vec(&Value::Object(m)).unwrap_or_else(|_| br#"{"message":""}"#.to_vec())
+}
+
 fn build_python_fallback_response(
     state: &AppState,
     source: &str,
@@ -987,18 +1015,57 @@ async fn call_python(
         ));
     }
 
+    let stdin_body = build_python_stdin_json(message, &client_session_id, state.runtime_session_version);
+
     let mut command = Command::new(&state.python_bin);
     command
         .arg(&state.python_entry)
         .arg(message)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-    let output = match timeout(Duration::from_millis(state.python_timeout_ms), command.output()).await {
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            let message = format!("failed to spawn python subprocess: {err}");
+            error!("{message}");
+            update_python_health(state, "failed", Some(message.clone())).await;
+            return Ok(build_python_fallback_response(
+                &state,
+                "python-subprocess",
+                client_session_id.clone(),
+            ));
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(err) = stdin.write_all(&stdin_body).await {
+            let message = format!("failed to write python stdin: {err}");
+            error!("{message}");
+            let _ = child.kill().await;
+            update_python_health(state, "failed", Some(message.clone())).await;
+            return Ok(build_python_fallback_response(
+                &state,
+                "python-subprocess",
+                client_session_id.clone(),
+            ));
+        }
+        if let Err(err) = stdin.flush().await {
+            warn!("python stdin flush: {err}");
+        }
+    }
+
+    let output = match timeout(
+        Duration::from_millis(state.python_timeout_ms),
+        child.wait_with_output(),
+    )
+    .await
+    {
         Ok(Ok(output)) => output,
         Ok(Err(err)) => {
-            let message = format!("failed to spawn or await python subprocess: {err}");
+            let message = format!("failed to await python subprocess: {err}");
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
@@ -1179,6 +1246,35 @@ mod tests {
             .expect("python success");
         assert_eq!(response.response, "ok from python");
         assert_eq!(response.source, "python-subprocess");
+    }
+
+    #[tokio::test]
+    async fn call_python_stdin_bridge_echoes_message_and_client_session() {
+        let script = r#"import json,sys
+raw=sys.stdin.read()
+d=json.loads(raw)
+cid=d.get("client_session_id") or ""
+print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime_session_version')}"}))
+"#;
+        let state = build_test_state(temp_script(script, "stdin-bridge"), 15_000);
+        let response = call_python(&state, "hello", Some("sess-9".to_string()))
+            .await
+            .expect("python stdin bridge");
+        assert_eq!(response.response, "msg=hello;cid=sess-9;rsv=1");
+        assert_eq!(response.client_session_id.as_deref(), Some("sess-9"));
+    }
+
+    #[test]
+    fn build_python_stdin_json_includes_optional_client_session() {
+        let v = build_python_stdin_json("hi", &Some("c1".into()), 42);
+        let parsed: Value = serde_json::from_slice(&v).expect("json");
+        assert_eq!(parsed["message"].as_str(), Some("hi"));
+        assert_eq!(parsed["client_session_id"].as_str(), Some("c1"));
+        assert_eq!(parsed["runtime_session_version"].as_u64(), Some(42));
+        assert_eq!(parsed["request_source"].as_str(), Some("rust_boundary"));
+        let v2 = build_python_stdin_json("x", &None, 0);
+        let p2: Value = serde_json::from_slice(&v2).unwrap();
+        assert!(p2.get("client_session_id").is_none());
     }
 
     #[tokio::test]

@@ -8,6 +8,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 
 USER_FALLBACK_RESPONSE = "Entendido. Como posso ajudá-lo?"
@@ -115,7 +116,8 @@ def main() -> int:
     os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
     os.environ.setdefault("BASE_DIR", str(project_root))
 
-    message = sys.argv[1] if len(sys.argv) > 1 else ""
+    message, bridge = resolve_entry_message()
+    apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
     raw_response = orchestrator.run(message)
     LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
