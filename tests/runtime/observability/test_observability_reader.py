@@ -248,6 +248,32 @@ class ObservabilityReaderTest(unittest.TestCase):
                                 },
                                 ensure_ascii=False,
                             ),
+                            json.dumps(
+                                {
+                                    'timestamp': '2026-04-15T00:00:06+00:00',
+                                    'event_type': 'runtime.multi_agent_coordination.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'trace': {
+                                        'coordination_id': 'mac37-testcoord-abc',
+                                        'session_id': 'sess-obs',
+                                        'run_id': 'run-obs',
+                                        'coordination_mode': 'full',
+                                        'role_order': ['planner', 'executor', 'validator', 'critic'],
+                                        'participations': [],
+                                        'execution_readiness': 'ready',
+                                        'governance_authority_preserved': True,
+                                        'control_execution_allowed': True,
+                                        'issues_aggregate': [],
+                                        'degraded': False,
+                                        'error': '',
+                                        'summary': 'test',
+                                    },
+                                    'handoff_bundle': {'phase': '37', 'execution_readiness': 'ready'},
+                                },
+                                ensure_ascii=False,
+                            ),
                         ]
                     )
                     + '\n',
@@ -330,6 +356,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_performance_optimization_traces), 1)
                 self.assertIn('latest_performance_optimization_trace', snap_dict)
                 self.assertIn('recent_performance_optimization_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_multi_agent_coordination_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_multi_agent_coordination_trace.get('trace', {}).get('coordination_id'),
+                    'mac37-testcoord-abc',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_multi_agent_coordination_traces), 1)
+                self.assertIn('latest_multi_agent_coordination_trace', snap_dict)
+                self.assertIn('recent_multi_agent_coordination_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:

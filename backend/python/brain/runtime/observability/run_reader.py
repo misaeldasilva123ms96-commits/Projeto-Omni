@@ -16,6 +16,11 @@ from brain.runtime.control.program_closure import (
 from brain.runtime.observability._reader_utils import read_tail_jsonl
 
 
+def _audit_tail_scan_limit(limit: int) -> int:
+    """Wide enough tail window so mixed event_type lines are not truncated (Phase 37+ audit reality)."""
+    return max(96, int(limit or 10) * 12)
+
+
 def read_active_runs(root: Path) -> list[dict[str, Any]]:
     try:
         registry = RunRegistry(root)
@@ -124,7 +129,7 @@ def read_evolution_proposal(root: Path, proposal_id: str) -> dict[str, Any] | No
 
 def read_recent_reasoning_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    scan_limit = max(6, int(limit or 10) * 5)
+    scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
@@ -154,7 +159,7 @@ def read_latest_reasoning_trace(root: Path) -> dict[str, Any] | None:
 
 def read_recent_memory_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    scan_limit = max(6, int(limit or 10) * 5)
+    scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
@@ -185,7 +190,7 @@ def read_latest_memory_intelligence_trace(root: Path) -> dict[str, Any] | None:
 
 def read_recent_planning_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    scan_limit = max(6, int(limit or 10) * 5)
+    scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
@@ -216,7 +221,7 @@ def read_latest_planning_intelligence_trace(root: Path) -> dict[str, Any] | None
 
 def read_recent_learning_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    scan_limit = max(6, int(limit or 10) * 5)
+    scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
@@ -247,7 +252,7 @@ def read_latest_learning_intelligence_trace(root: Path) -> dict[str, Any] | None
 
 def read_recent_strategy_adaptation_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    scan_limit = max(6, int(limit or 10) * 5)
+    scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
@@ -281,7 +286,7 @@ def read_latest_strategy_adaptation_trace(root: Path) -> dict[str, Any] | None:
 
 def read_recent_performance_optimization_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
     path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
-    scan_limit = max(6, int(limit or 10) * 5)
+    scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
     for payload in reversed(payloads):
@@ -307,4 +312,35 @@ def read_recent_performance_optimization_traces(root: Path, *, limit: int = 10) 
 
 def read_latest_performance_optimization_trace(root: Path) -> dict[str, Any] | None:
     traces = read_recent_performance_optimization_traces(root, limit=1)
+    return traces[0] if traces else None
+
+
+def read_recent_multi_agent_coordination_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    scan_limit = _audit_tail_scan_limit(limit)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.multi_agent_coordination.trace":
+            continue
+        tr = payload.get("trace")
+        hb = payload.get("handoff_bundle")
+        if not isinstance(tr, dict):
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "trace": dict(tr),
+                "handoff_bundle": dict(hb) if isinstance(hb, dict) else {},
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_multi_agent_coordination_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_multi_agent_coordination_traces(root, limit=1)
     return traces[0] if traces else None

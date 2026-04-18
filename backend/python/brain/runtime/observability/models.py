@@ -249,6 +249,8 @@ class ObservabilitySnapshot:
     recent_strategy_adaptation_traces: list[dict[str, Any]] = field(default_factory=list)
     latest_performance_optimization_trace: dict[str, Any] | None = None
     recent_performance_optimization_traces: list[dict[str, Any]] = field(default_factory=list)
+    latest_multi_agent_coordination_trace: dict[str, Any] | None = None
+    recent_multi_agent_coordination_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -314,5 +316,11 @@ class ObservabilitySnapshot:
                 else None
             ),
             "recent_performance_optimization_traces": [dict(item) for item in self.recent_performance_optimization_traces],
+            "latest_multi_agent_coordination_trace": (
+                dict(self.latest_multi_agent_coordination_trace)
+                if isinstance(self.latest_multi_agent_coordination_trace, dict)
+                else None
+            ),
+            "recent_multi_agent_coordination_traces": [dict(item) for item in self.recent_multi_agent_coordination_traces],
             "warnings": list(self.warnings),
         }
