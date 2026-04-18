@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { fetchObservabilitySnapshot } from '../lib/api'
-import type { ObservabilitySnapshot } from '../types/observability'
+import { fetchObservabilitySnapshot, observabilityApiEnvelopeToUi } from '../features/observability'
+import type { UiObservabilitySnapshot } from '../types/ui/observability'
 
 export function useObservabilitySnapshot(enabled: boolean) {
-  const [snapshot, setSnapshot] = useState<ObservabilitySnapshot | null>(null)
+  const [snapshot, setSnapshot] = useState<UiObservabilitySnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,9 +21,10 @@ export function useObservabilitySnapshot(enabled: boolean) {
         if (cancelled) {
           return
         }
-        setSnapshot(payload.snapshot)
-        if (payload.status !== 'ok' && payload.error) {
-          setError(payload.error)
+        const ui = observabilityApiEnvelopeToUi(payload)
+        setSnapshot(ui.snapshot)
+        if (ui.status !== 'ok' && ui.error) {
+          setError(ui.error)
         }
       })
       .catch((reason) => {

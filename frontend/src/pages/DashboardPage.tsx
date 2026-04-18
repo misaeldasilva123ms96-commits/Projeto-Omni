@@ -7,21 +7,20 @@ import {
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
-} from '../lib/api'
+} from '../features/runtime'
 import { canUseApi } from '../lib/env'
 import { Sidebar } from '../components/Sidebar'
 import { MetricCard } from '../components/MetricCard'
 import { SignalList } from '../components/SignalList'
+import type { ChatMode, ConversationSummary } from '../types'
 import type {
-  ChatMode,
-  ConversationSummary,
   HealthResponse,
   MilestonesResponse,
   PrSummariesResponse,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
-} from '../types'
+} from '../types/api/wire'
 
 type View = 'chat' | 'dashboard' | 'observability'
 

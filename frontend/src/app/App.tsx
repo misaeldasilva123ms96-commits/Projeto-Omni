@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ObservabilityAuthGate } from './components/ObservabilityAuthGate'
-import { ChatPage } from './pages/ChatPage'
-import { DashboardPage } from './pages/DashboardPage'
-import type { ChatMode } from './types'
+import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
+import { ChatPage } from '../pages/ChatPage'
+import { DashboardPage } from '../pages/DashboardPage'
+import type { ChatMode } from '../types'
 
 type View = 'chat' | 'dashboard' | 'observability'
 

@@ -6,11 +6,11 @@ import { EmptyState } from '../components/EmptyState'
 import { MessageBubble } from '../components/MessageBubble'
 import { Sidebar } from '../components/Sidebar'
 import { StatusPanel } from '../components/StatusPanel'
-import { fetchHealth, sendOmniMessage } from '../lib/api'
+import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
+import { fetchHealth, healthResponseToUiRuntimeStatus } from '../features/runtime'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
 import type {
-  ChatApiResponse,
   ChatMessage,
   ChatMode,
   ChatRequestState,
@@ -19,6 +19,8 @@ import type {
   RuntimeMetadata,
   SyncChatStatus,
 } from '../types'
+import type { UiChatResponse } from '../types/ui/chat'
+import type { UiRuntimeStatus } from '../types/ui/runtime'
 
 type View = 'chat' | 'dashboard' | 'observability'
 
@@ -49,35 +51,6 @@ function buildSessionId() {
   return `${DEFAULT_SESSION_PREFIX}-${crypto.randomUUID().slice(0, 8)}`
 }
 
-function extractResponseText(payload: unknown): string {
-  if (typeof payload === 'string') {
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>
-      return (
-        (typeof parsed?.response === 'string' && parsed.response.trim())
-        || (typeof parsed?.message === 'string' && parsed.message.trim())
-        || (typeof parsed?.text === 'string' && parsed.text.trim())
-        || (typeof parsed?.answer === 'string' && parsed.answer.trim())
-        || payload
-      )
-    } catch {
-      return payload
-    }
-  }
-
-  if (payload !== null && typeof payload === 'object') {
-    const p = payload as Record<string, unknown>
-    const candidates = ['response', 'message', 'text', 'answer']
-    for (const key of candidates) {
-      if (typeof p[key] === 'string' && (p[key] as string).trim()) {
-        return (p[key] as string).trim()
-      }
-    }
-  }
-
-  return ''
-}
-
 function createMessage(
   role: ChatMessage['role'],
   content: string,
@@ -101,14 +74,19 @@ function createMessage(
   }
 }
 
-function normalizeMetadata(response: ChatApiResponse, previousSessionId: string): RuntimeMetadata {
+function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): RuntimeMetadata {
   return {
-    sessionId: response.session_id ?? previousSessionId,
-    source: response.source,
-    matchedCommands: response.matched_commands ?? [],
-    matchedTools: response.matched_tools ?? [],
-    stopReason: response.stop_reason,
-    usage: response.usage,
+    sessionId: ui.sessionId ?? previousSessionId,
+    source: ui.source,
+    matchedCommands: ui.commands,
+    matchedTools: ui.tools,
+    stopReason: ui.stopReason,
+    usage: ui.usage
+      ? {
+        input_tokens: ui.usage.inputTokens,
+        output_tokens: ui.usage.outputTokens,
+      }
+      : undefined,
   }
 }
 
@@ -174,6 +152,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
+  const healthUi: UiRuntimeStatus | null = health ? healthResponseToUiRuntimeStatus(health) : null
   const bottomRef = useRef<HTMLDivElement>(null)
   const apiReady = canUseApi()
 
@@ -335,9 +314,9 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     try {
       const data = await sendWithRetry(prompt, { sessionId })
       console.debug('[omni:raw]', data)
-      const metadata = normalizeMetadata(data, sessionId)
-      const responseText = extractResponseText(data)
-      const displayText = responseText || '...'
+      const ui = chatApiResponseToUi(data)
+      const metadata = normalizeMetadata(ui, sessionId)
+      const displayText = ui.text.trim() || '...'
 
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
@@ -414,7 +393,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         <StatusPanel
           apiConfigured={apiReady}
           error={error}
-          health={health}
+          health={healthUi}
           lastMetadata={lastMetadata}
           modeLabel={MODE_LABELS[mode]}
           requestState={requestState}
