@@ -52,6 +52,7 @@ from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningEngine, LearningExecutor
+from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
@@ -293,6 +294,7 @@ class BrainOrchestrator:
         self.runtime_learning_engine = LearningEngine(self.paths.root)
         self.strategy_engine = StrategyEngine(self.paths.root)
         self.performance_engine = PerformanceEngine()
+        self.agent_coordinator = AgentCoordinator()
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -426,6 +428,7 @@ class BrainOrchestrator:
         learning_payload: dict[str, Any] = {}
         strategy_payload: dict[str, Any] = {}
         performance_payload: dict[str, Any] = {}
+        coordination_payload: dict[str, Any] = {}
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
@@ -720,6 +723,15 @@ class BrainOrchestrator:
             payload=dict(planning_payload),
         )
 
+        control_execution_summary: dict[str, Any] = {
+            "allowed": True,
+            "reason_code": "execution_allowed",
+            "task_type": str(rd.task_type),
+            "risk_level": str(rd.risk_level),
+            "execution_strategy": str(rd.execution_strategy),
+            "verification_intensity": str(rd.verification_intensity),
+        }
+
         self._extract_user_learning(memory_store, message)
         append_history(
             memory_store,
@@ -750,12 +762,54 @@ class BrainOrchestrator:
         summary = self.summarize_history(budgeted_history)
         direct_response = self._answer_from_memory(memory_store, runtime_message)
 
+        coord_mode = "skipped_direct_memory" if direct_response else "full"
+        try:
+            coord_result = self.agent_coordinator.coordinate(
+                session_id=session_id,
+                run_id="",
+                planning_payload=planning_payload,
+                reasoning_handoff=reasoning_handoff,
+                reasoning_payload=reasoning_payload,
+                memory_context_payload=memory_context_payload,
+                strategy_payload=strategy_payload,
+                control_execution_summary=control_execution_summary,
+                coordination_mode=coord_mode,
+            )
+            coordination_payload = coord_result.as_dict()
+        except Exception as coord_exc:
+            coordination_payload = {
+                "trace": {
+                    "coordination_id": "",
+                    "session_id": session_id,
+                    "run_id": "",
+                    "coordination_mode": coord_mode,
+                    "role_order": [],
+                    "participations": [],
+                    "execution_readiness": "degraded",
+                    "governance_authority_preserved": True,
+                    "control_execution_allowed": True,
+                    "issues_aggregate": ["coordination_orchestrator_wrap_failed"],
+                    "degraded": True,
+                    "error": str(coord_exc),
+                    "summary": "Coordination failed at orchestrator boundary; continuing without enrichment.",
+                },
+                "handoff_bundle": {"phase": "37", "fallback": True, "error": str(coord_exc)},
+            }
+        self._append_runtime_event(
+            event_type="runtime.multi_agent_coordination.trace",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload=dict(coordination_payload),
+        )
+
         swarm_result: dict[str, Any] = {
             "response": direct_response,
             "intent": predicted_intent,
             "delegates": [],
             "agent_trace": [],
             "memory_signal": {},
+            "multi_agent_coordination": dict(coordination_payload),
         }
 
         if not direct_response:
@@ -771,7 +825,10 @@ class BrainOrchestrator:
                 reasoning_handoff=reasoning_handoff,
                 planning_payload=planning_payload,
             )
-            swarm_context = perf_result.slim_swarm_context
+            swarm_context = dict(perf_result.slim_swarm_context)
+            hb = coordination_payload.get("handoff_bundle")
+            if isinstance(hb, dict):
+                swarm_context["multi_agent_coordination"] = hb
             performance_payload = {
                 "trace": perf_result.trace.as_dict(),
                 "stats": perf_result.stats.as_dict(),
@@ -801,6 +858,8 @@ class BrainOrchestrator:
                     ),
                 )
             )
+            if isinstance(swarm_result, dict):
+                swarm_result["multi_agent_coordination"] = dict(coordination_payload)
         else:
             skip_tid = "perf36-skip-" + hashlib.sha1(str(session_id or "").encode("utf-8")).hexdigest()[:10]
             performance_payload = {
@@ -915,6 +974,7 @@ class BrainOrchestrator:
             "runtime_learning": dict(learning_payload),
             "strategy_adaptation": dict(strategy_payload),
             "performance_optimization": dict(performance_payload),
+            "multi_agent_coordination": dict(coordination_payload),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
         }
