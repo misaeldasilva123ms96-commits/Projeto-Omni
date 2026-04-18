@@ -13,6 +13,7 @@ This directory is the **canonical home** for Omni documentation. The repository 
 | Evolution and improvement pipelines | [evolution/](evolution/) |
 | Operations (observability, tests, runtime behavior) | [operations/](operations/) |
 | Setup (dev, env, deploy) | [setup/](setup/) |
+| Frontend ↔ Rust API (compatibility matrix) | [frontend/integration-matrix.md](frontend/integration-matrix.md) |
 | Legacy reports, models, and phase notes (archived from root) | [reports/repository-archive/](reports/repository-archive/) |
 
 ## Repository root (minimal)
