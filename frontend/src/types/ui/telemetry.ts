@@ -1,6 +1,6 @@
 /**
- * UI-normalized public telemetry summaries (`/api/v1/*/summary`).
- * Populated via adapters from wire types in `types.ts`.
+ * UI-normalized public telemetry summaries (GET /api/v1/*/summary).
+ * Populated via adapters from wire types in types.ts.
  */
 
 export type UiRuntimeSignalsSummary = {
