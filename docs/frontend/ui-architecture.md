@@ -1,7 +1,7 @@
 # Omni Frontend UI Architecture (Phase 3)
 
 **Scope:** Visual shell, reusable presentational primitives, and component geography on top of the Phase 2 API layer.  
-**Companion docs:** [`compatibility-layer.md`](./compatibility-layer.md), [`integration-matrix.md`](./integration-matrix.md).
+**Companion docs:** [`compatibility-layer.md`](./compatibility-layer.md), [`integration-matrix.md`](./integration-matrix.md), [`cognitive-panels.md`](./cognitive-panels.md) (Phase 4).
 
 ---
 

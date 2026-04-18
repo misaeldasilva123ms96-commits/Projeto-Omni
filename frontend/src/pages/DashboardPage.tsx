@@ -12,6 +12,8 @@ import {
   fetchSwarmLog,
 } from '../features/runtime'
 import { canUseApi } from '../lib/env'
+import { FutureModuleCard } from '../components/status/FutureModuleCard'
+import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { MetricRow } from '../components/ui/MetricRow'
 import { PageHero } from '../components/ui/PageHero'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -146,6 +148,14 @@ export function DashboardPage({
           title="Inspect health, strategy, milestones and recent execution activity."
         />
 
+        <div className="cognitive-trust-strip" role="note">
+          <DataScopeBadge variant="live" />
+          <DataScopeBadge variant="internal" />
+          <span className="muted-copy">
+            Cards below map to <code>/health</code> and <code>/internal/*</code> only — no speculative public API.
+          </span>
+        </div>
+
         <div className="dashboard-grid">
           <MetricCard eyebrow="System health" title="Rust, Python and Node status">
             <div className="metric-stack">
@@ -211,6 +221,25 @@ export function DashboardPage({
             <SignalList emptyLabel="No milestone records available." items={milestoneItems} />
           </MetricCard>
         </div>
+
+        <section className="cognitive-future-grid omni-dashboard-future" aria-label="Future public API modules">
+          <FutureModuleCard
+            description="Will consume a versioned public status contract instead of raw internal JSON."
+            title="Public runtime status (/api/v1/...)"
+          />
+          <FutureModuleCard
+            description="Goal graph read model is not exposed on current HTTP routes."
+            title="Goals read API"
+          />
+          <FutureModuleCard
+            description="Evolution and learning metrics await stable, typed endpoints."
+            title="Evolution metrics"
+          />
+          <FutureModuleCard
+            description="OIL envelopes remain Python-internal until an explicit HTTP mapping ships."
+            title="OIL / memory contract"
+          />
+        </section>
       </section>
     </AppShell>
   )

@@ -5,17 +5,19 @@ import { EmptyState } from '../components/chat/EmptyState'
 import { MessageBubble } from '../components/chat/MessageBubble'
 import { AppShell } from '../components/layout/AppShell'
 import { Sidebar } from '../components/layout/Sidebar'
-import { StatusPanel } from '../components/status/StatusPanel'
+import { CognitivePanel } from '../components/status/CognitivePanel'
 import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
-import { fetchHealth, healthResponseToUiRuntimeStatus } from '../features/runtime'
+import { healthResponseToUiRuntimeStatus } from '../features/runtime'
+import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
+import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
+import { supabase } from '../lib/supabase'
 import type {
   ChatMessage,
   ChatMode,
   ChatRequestState,
   ConversationSummary,
-  HealthResponse,
   RuntimeMetadata,
   SyncChatStatus,
 } from '../types'
@@ -151,10 +153,19 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const healthUi: UiRuntimeStatus | null = health ? healthResponseToUiRuntimeStatus(health) : null
+  const [telemetryTick, setTelemetryTick] = useState(0)
+  const [observabilityAuth, setObservabilityAuth] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const apiReady = canUseApi()
+  const telemetry = useCognitiveTelemetry(apiReady, telemetryTick)
+  const healthUi: UiRuntimeStatus | null = telemetry.health
+    ? healthResponseToUiRuntimeStatus(telemetry.health)
+    : null
+  const {
+    snapshot: observabilitySnapshot,
+    loading: observabilityLoading,
+    error: observabilityError,
+  } = useObservabilitySnapshot(apiReady && observabilityAuth)
 
   useEffect(() => {
     const stored = loadStoredState()
@@ -216,28 +227,20 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }, [lastMetadata, messages, mode, requestState, sessionId])
 
   useEffect(() => {
-    if (!apiReady) {
-      setHealth(null)
-      return
-    }
-
     let cancelled = false
-    fetchHealth()
-      .then((data) => {
-        if (!cancelled) {
-          setHealth(data)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setHealth(null)
-        }
-      })
-
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled) {
+        setObservabilityAuth(Boolean(data.session?.access_token))
+      }
+    })
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      setObservabilityAuth(Boolean(session?.access_token))
+    })
     return () => {
       cancelled = true
+      subscription.subscription.unsubscribe()
     }
-  }, [apiReady, requestState])
+  }, [])
 
   const loading = requestState === 'loading'
   const trimmedInput = input.trim()
@@ -334,6 +337,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         )),
       ])
       setRequestState('idle')
+      setTelemetryTick((value) => value + 1)
     } catch (err) {
       setInput(previousInput)
       setRequestState('error')
@@ -390,14 +394,19 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         />
       )}
       statusPanel={(
-        <StatusPanel
+        <CognitivePanel
           apiConfigured={apiReady}
-          error={error}
+          chatError={error}
           health={healthUi}
           lastMetadata={lastMetadata}
           modeLabel={MODE_LABELS[mode]}
+          observabilityCanRequest={observabilityAuth}
+          observabilityError={observabilityError}
+          observabilityLoading={observabilityLoading}
+          observabilitySnapshot={observabilityAuth ? observabilitySnapshot : null}
           requestState={requestState}
           sessionId={sessionId}
+          telemetry={telemetry}
         />
       )}
     >
