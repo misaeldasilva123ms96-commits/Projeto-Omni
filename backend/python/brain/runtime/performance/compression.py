@@ -72,7 +72,7 @@ def compress_execution_plan(plan: dict[str, Any], *, max_steps: int = 28, desc_l
                     "requires_validation": bool(step.get("requires_validation", False)),
                 }
             )
-    return {
+    out: dict[str, Any] = {
         "plan_id": str(plan.get("plan_id", "")),
         "execution_ready": bool(plan.get("execution_ready", False)),
         "planning_summary": _trunc(str(plan.get("planning_summary", "")), 400),
@@ -86,6 +86,25 @@ def compress_execution_plan(plan: dict[str, Any], *, max_steps: int = 28, desc_l
         "linked_reasoning": dict(plan.get("linked_reasoning", {}) or {}),
         "compression": "phase36_execution_plan_v1",
     }
+    subs = plan.get("subtasks")
+    if isinstance(subs, list) and subs:
+        slim_sub: list[dict[str, Any]] = []
+        for s in subs[:8]:
+            if not isinstance(s, dict):
+                continue
+            slim_sub.append(
+                {
+                    "id": _trunc(str(s.get("id", "")), 48),
+                    "type": str(s.get("type", "")),
+                    "parent_step_id": str(s.get("parent_step_id", "")),
+                    "depth": int(s.get("depth", 0) or 0),
+                    "description": _trunc(str(s.get("description", "")), 140),
+                    "depends_on": [str(d)[:40] for d in (s.get("depends_on", []) or [])[:6]],
+                }
+            )
+        out["subtasks"] = slim_sub
+        out["subtask_compression"] = "phase38_bounded_v1"
+    return out
 
 
 def compress_planning_trace(pt: dict[str, Any]) -> dict[str, Any]:

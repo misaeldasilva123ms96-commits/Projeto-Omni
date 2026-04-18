@@ -98,6 +98,11 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("trace", mac_events[-1])
                 self.assertIn("multi_agent_coordination", payload)
                 self.assertIn("trace", payload["multi_agent_coordination"])
+                dec_events = [item for item in lines if item.get("event_type") == "runtime.task_decomposition.trace"]
+                self.assertGreaterEqual(len(dec_events), 1)
+                self.assertIn("trace", dec_events[-1])
+                self.assertIn("task_decomposition", payload["planning_intelligence"])
+                self.assertIn("subtasks", payload["planning_intelligence"]["execution_plan"])
 
 
 if __name__ == "__main__":

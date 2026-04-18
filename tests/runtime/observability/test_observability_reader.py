@@ -250,6 +250,30 @@ class ObservabilityReaderTest(unittest.TestCase):
                             ),
                             json.dumps(
                                 {
+                                    'timestamp': '2026-04-15T00:00:05b+00:00',
+                                    'event_type': 'runtime.task_decomposition.trace',
+                                    'session_id': 'sess-obs',
+                                    'task_id': '',
+                                    'run_id': 'run-obs',
+                                    'trace': {
+                                        'trace_id': 'dec38-test',
+                                        'plan_id': 'p33-plan-test',
+                                        'reasoning_link': 'reason-obs',
+                                        'subtask_count': 3,
+                                        'max_depth_observed': 1,
+                                        'truncated': False,
+                                        'max_depth_reached': False,
+                                        'warnings': [],
+                                        'strategy_trace_link': 'strat35-test',
+                                    },
+                                    'subtasks': [],
+                                    'degraded': False,
+                                    'error': '',
+                                },
+                                ensure_ascii=False,
+                            ),
+                            json.dumps(
+                                {
                                     'timestamp': '2026-04-15T00:00:06+00:00',
                                     'event_type': 'runtime.multi_agent_coordination.trace',
                                     'session_id': 'sess-obs',
@@ -364,6 +388,14 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_multi_agent_coordination_traces), 1)
                 self.assertIn('latest_multi_agent_coordination_trace', snap_dict)
                 self.assertIn('recent_multi_agent_coordination_traces', snap_dict)
+                self.assertIsInstance(snapshot.latest_task_decomposition_trace, dict)
+                self.assertEqual(
+                    snapshot.latest_task_decomposition_trace.get('trace', {}).get('trace_id'),
+                    'dec38-test',
+                )
+                self.assertGreaterEqual(len(snapshot.recent_task_decomposition_traces), 1)
+                self.assertIn('latest_task_decomposition_trace', snap_dict)
+                self.assertIn('recent_task_decomposition_traces', snap_dict)
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
