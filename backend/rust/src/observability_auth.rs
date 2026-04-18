@@ -1,3 +1,9 @@
+//! Supabase JWT validation for operator routes.
+//!
+//! **Secrets:** `SUPABASE_JWT_SECRET` is sensitive and must never appear in HTTP responses.
+//! Public issuer URL may come from `SUPABASE_URL` or `VITE_SUPABASE_URL` (same value as the browser anon project URL).
+//! Python-side provider keys are centralized under `backend/python/config/`; this Rust module only reads what the Axum process needs.
+
 use std::env;
 
 use axum::{
