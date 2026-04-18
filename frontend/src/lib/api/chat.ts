@@ -1,9 +1,8 @@
 /**
  * Chat transport — `POST /chat` (Rust → Python subprocess).
  *
- * Wire contract: Rust `ChatRequest` only deserializes `{ "message": string }`.
- * Client context (e.g. UI session id) is accepted for callers but is not sent on the wire
- * until the backend supports it (see `docs/frontend/integration-matrix.md`).
+ * Wire contract: `message` required; optional `client_session_id` echoed by Rust when present
+ * (see `docs/backend/chat-session-contract.md`).
  */
 import type { ChatApiResponse } from '../../types'
 import { parseWireChatPayload } from './adapters'
@@ -15,13 +14,13 @@ import {
 } from './client'
 
 export type ChatClientContext = {
-  /** Local UI session id; not forwarded to Rust today. */
+  /** Local UI session id; sent as `client_session_id` when set (optional on wire). */
   sessionId?: string
 }
 
 export async function sendOmniMessage(
   message: string,
-  _clientContext?: ChatClientContext,
+  clientContext?: ChatClientContext,
 ): Promise<ChatApiResponse> {
   if (!API_BASE_URL) {
     throw buildConfigurationError()
@@ -32,12 +31,18 @@ export async function sendOmniMessage(
     throw new Error('Message must not be empty.')
   }
 
+  const body: Record<string, string> = { message: trimmed }
+  const sid = clientContext?.sessionId?.trim()
+  if (sid) {
+    body.client_session_id = sid
+  }
+
   const res = await fetchWithTimeout(`${API_BASE_URL}/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message: trimmed }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
