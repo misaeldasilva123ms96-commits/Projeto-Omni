@@ -9,6 +9,7 @@ __all__ = [
     "SecretError",
     "build_controlled_os_environ_base",
     "describe_configuration",
+    "describe_configuration_safe",
     "get_secret",
     "merge_provider_credentials",
 ]
@@ -23,6 +24,8 @@ def _mapping() -> dict[str, str]:
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
         "groq": "GROQ_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
         "codex": "CODEX_API_KEY",
         "supabase_url": "SUPABASE_URL",
         "supabase_anon": "SUPABASE_ANON_KEY",
@@ -55,6 +58,8 @@ def describe_configuration() -> dict[str, str]:
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
         "groq": "GROQ_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
         "codex": "CODEX_API_KEY",
         "supabase": "SUPABASE_ANON_KEY",
     }
@@ -112,7 +117,17 @@ def build_controlled_os_environ_base() -> dict[str, str]:
 
 def merge_provider_credentials(env: dict[str, str]) -> dict[str, str]:
     """Merge validated provider keys into env; skips missing/invalid without raising."""
-    for logical in ("openai", "anthropic", "groq", "codex", "supabase_url", "supabase_anon", "ollama"):
+    for logical in (
+        "openai",
+        "anthropic",
+        "groq",
+        "gemini",
+        "deepseek",
+        "codex",
+        "supabase_url",
+        "supabase_anon",
+        "ollama",
+    ):
         try:
             val = get_secret(logical)
         except SecretError:

@@ -10,6 +10,7 @@ from typing import Any
 
 from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
+from config.provider_registry import get_available_providers
 
 USER_FALLBACK_RESPONSE = "Entendido. Como posso ajudá-lo?"
 RESPONSE_CANDIDATE_KEYS = ("response", "message", "text", "answer", "output", "result")
@@ -170,6 +171,8 @@ def main() -> int:
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
         safe_response["cognitive_runtime_inspection"] = inspection
+    # JSON-only stdout for Rust bridge — never print() diagnostics here.
+    safe_response["providers"] = get_available_providers()
     print(json.dumps(safe_response, ensure_ascii=False), flush=True)
     return 0
 
