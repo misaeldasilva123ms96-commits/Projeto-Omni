@@ -9,6 +9,8 @@ from .agent_roles import ROLE_ORDER, SpecialistRuntimeRole
 from .coordination_models import CoordinationResult, MultiAgentCoordinationTrace, SpecialistParticipation
 from .coordination_state import CoordinationState
 
+from brain.runtime.decomposition.decomposition_rules import validate_subtask_dependencies
+
 
 def _coordination_fingerprint(
     *,
@@ -88,6 +90,9 @@ class AgentCoordinator:
         )
         cid = _new_coordination_id(fingerprint=fp)
 
+        td = planning_payload.get("task_decomposition") if isinstance(planning_payload.get("task_decomposition"), dict) else {}
+        trd = td.get("trace") if isinstance(td.get("trace"), dict) else {}
+
         state = CoordinationState(
             coordination_id=cid,
             coordination_fingerprint=fp,
@@ -104,6 +109,9 @@ class AgentCoordinator:
             routing_execution_strategy=str(control_execution_summary.get("execution_strategy", "") or ""),
             routing_verification_intensity=str(control_execution_summary.get("verification_intensity", "") or ""),
             reasoning_trace_id=_reasoning_trace_id(reasoning_payload),
+            decomposition_subtask_count=int(trd.get("subtask_count", 0) or 0),
+            decomposition_truncated=bool(trd.get("truncated", False)),
+            decomposition_trace_id=str(trd.get("trace_id", "") or ""),
         )
 
         try:
@@ -188,14 +196,14 @@ class AgentCoordinator:
             planner_out = self._run_planner(state, plan, planning_payload)
             participations.append(planner_out)
 
-            executor_out = self._run_executor(state, plan, reasoning_handoff)
+            executor_out = self._run_executor(state, plan, reasoning_handoff, planning_payload)
             participations.append(executor_out)
 
-            validator_out = self._run_validator(state, plan, reasoning_handoff, control_execution_summary)
+            validator_out = self._run_validator(state, plan, reasoning_handoff, control_execution_summary, planning_payload)
             participations.append(validator_out)
             issues_aggregate.extend(list(validator_out.issues))
 
-            critic_out = self._run_critic(state, control_execution_summary, validator_out)
+            critic_out = self._run_critic(state, control_execution_summary, validator_out, planning_payload)
             participations.append(critic_out)
             issues_aggregate.extend(list(critic_out.issues))
 
@@ -229,6 +237,7 @@ class AgentCoordinator:
                 "validator": {"issues": validator_out.issues[:12]},
                 "critic": {"risks": critic_out.warnings[:12]},
             }
+            td_out = planning_payload.get("task_decomposition") if isinstance(planning_payload.get("task_decomposition"), dict) else {}
             bundle = {
                 "phase": "37",
                 "coordination_id": cid,
@@ -238,6 +247,15 @@ class AgentCoordinator:
                 "specialist_digest": digest,
                 "accumulated_notes": list(state.specialist_notes)[:24],
                 "state": state.as_dict(),
+                "task_decomposition_ref": {
+                    "trace_id": str((td_out.get("trace") or {}).get("trace_id", "") if isinstance(td_out.get("trace"), dict) else ""),
+                    "subtask_count": int((td_out.get("trace") or {}).get("subtask_count", 0) or 0)
+                    if isinstance(td_out.get("trace"), dict)
+                    else 0,
+                    "truncated": bool((td_out.get("trace") or {}).get("truncated", False))
+                    if isinstance(td_out.get("trace"), dict)
+                    else False,
+                },
             }
             return CoordinationResult(trace=trace, handoff_bundle=bundle)
         except Exception as exc:
@@ -285,13 +303,17 @@ class AgentCoordinator:
         pt = planning_payload.get("planning_trace")
         trace_steps = int(pt.get("step_count", 0) or 0) if isinstance(pt, dict) else 0
         state.record_note(f"planner:steps={step_count}")
+        td = planning_payload.get("task_decomposition") if isinstance(planning_payload.get("task_decomposition"), dict) else {}
+        stc = int((td.get("trace") or {}).get("subtask_count", 0) or 0) if isinstance(td.get("trace"), dict) else 0
+        trunc = bool((td.get("trace") or {}).get("truncated", False)) if isinstance(td.get("trace"), dict) else False
+        sub_note = f"; subtasks={stc}" + (" (truncated)" if trunc else "")
         return SpecialistParticipation(
             role=SpecialistRuntimeRole.PLANNER.value,
             status="completed",
-            input_ref="planning_payload.execution_plan",
+            input_ref="planning_payload.execution_plan+task_decomposition",
             output_summary=(
                 f"Structured plan: {step_count} step(s); planning_trace_steps={trace_steps}; "
-                f"summary={summary_plan or 'n/a'}"
+                f"summary={summary_plan or 'n/a'}{sub_note if stc else ''}"
             ),
             warnings=[],
             issues=[],
@@ -303,6 +325,7 @@ class AgentCoordinator:
         state: CoordinationState,
         plan: dict[str, Any],
         reasoning_handoff: dict[str, Any],
+        planning_payload: dict[str, Any],
     ) -> SpecialistParticipation:
         caps = reasoning_handoff.get("suggested_capabilities") if isinstance(reasoning_handoff.get("suggested_capabilities"), list) else []
         cap_names = [str(c).strip() for c in caps[:12] if str(c).strip()]
@@ -315,12 +338,22 @@ class AgentCoordinator:
             hints.append(f"{requires_validation_steps}_steps_require_validation")
         if cap_names:
             hints.append(f"capabilities:{','.join(cap_names[:6])}")
+        td = planning_payload.get("task_decomposition") if isinstance(planning_payload.get("task_decomposition"), dict) else {}
+        subs = td.get("subtasks") if isinstance(td.get("subtasks"), list) else []
+        stypes: dict[str, int] = {}
+        for s in subs:
+            if not isinstance(s, dict):
+                continue
+            k = str(s.get("type", "") or "unknown")
+            stypes[k] = stypes.get(k, 0) + 1
+        if stypes:
+            hints.append("subtask_mix:" + ",".join(f"{k}={v}" for k, v in list(stypes.items())[:6]))
         state.record_note("executor:handoff_prepared")
         return SpecialistParticipation(
             role=SpecialistRuntimeRole.EXECUTOR.value,
             status="completed",
-            input_ref="reasoning_handoff.suggested_capabilities+execution_plan.steps",
-            output_summary="Execution-oriented handoff: capability alignment and validation hooks enumerated.",
+            input_ref="reasoning_handoff+execution_plan+task_decomposition.subtasks",
+            output_summary="Execution-oriented handoff: capability alignment, validation hooks, and Phase 38 subtask ordering hints.",
             warnings=hints,
             issues=[],
             recommended_next_step="validator_consistency_check",
@@ -332,6 +365,7 @@ class AgentCoordinator:
         plan: dict[str, Any],
         reasoning_handoff: dict[str, Any],
         control_execution_summary: dict[str, Any],
+        planning_payload: dict[str, Any],
     ) -> SpecialistParticipation:
         issues: list[str] = []
         if not bool(reasoning_handoff.get("proceed", True)):
@@ -348,6 +382,11 @@ class AgentCoordinator:
             issues.append("missing_plan_id")
         if isinstance(plan.get("steps"), list) and len(plan["steps"]) == 0:
             issues.append("empty_execution_plan_steps")
+        valid_parents = {str(s.get("step_id", "")).strip() for s in plan.get("steps", []) if isinstance(s, dict)}
+        td = planning_payload.get("task_decomposition") if isinstance(planning_payload.get("task_decomposition"), dict) else {}
+        raw_subs = td.get("subtasks") if isinstance(td.get("subtasks"), list) else []
+        sub_dicts = [dict(s) for s in raw_subs if isinstance(s, dict)]
+        issues.extend(validate_subtask_dependencies(sub_dicts, valid_parents))
         status = "completed" if not issues else "completed_with_issues"
         state.record_note(f"validator:issues={len(issues)}")
         return SpecialistParticipation(
@@ -365,6 +404,7 @@ class AgentCoordinator:
         state: CoordinationState,
         control_execution_summary: dict[str, Any],
         validator: SpecialistParticipation,
+        planning_payload: dict[str, Any],
     ) -> SpecialistParticipation:
         risks: list[str] = []
         risk = str(control_execution_summary.get("risk_level", "") or "").lower()
@@ -375,6 +415,12 @@ class AgentCoordinator:
             risks.append(f"strict_verification:{ver}")
         if validator.issues:
             risks.append("validator_reported_issues")
+        td = planning_payload.get("task_decomposition") if isinstance(planning_payload.get("task_decomposition"), dict) else {}
+        tr = td.get("trace") if isinstance(td.get("trace"), dict) else {}
+        if bool(tr.get("truncated")):
+            risks.append("decomposition_truncated_incomplete_coverage")
+        if int(tr.get("subtask_count", 0) or 0) > 4 and risk in ("high", "critical"):
+            risks.append("many_subtasks_under_high_risk")
         state.record_note("critic:risks_scanned")
         return SpecialistParticipation(
             role=SpecialistRuntimeRole.CRITIC.value,

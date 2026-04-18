@@ -53,6 +53,7 @@ from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import LearningEngine, LearningExecutor
 from brain.runtime.coordination import AgentCoordinator
+from brain.runtime.decomposition import TaskDecomposer
 from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
@@ -295,6 +296,7 @@ class BrainOrchestrator:
         self.strategy_engine = StrategyEngine(self.paths.root)
         self.performance_engine = PerformanceEngine()
         self.agent_coordinator = AgentCoordinator()
+        self.task_decomposer = TaskDecomposer()
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
@@ -722,6 +724,50 @@ class BrainOrchestrator:
             run_id="",
             payload=dict(planning_payload),
         )
+
+        try:
+            dresult = self.task_decomposer.decompose(
+                execution_plan=dict(planning_payload["execution_plan"]),
+                reasoning_trace=dict(reasoning_payload.get("trace") or {}),
+                strategy_summary=dict(strategy_payload),
+                coordination_hint=None,
+            )
+            planning_payload["task_decomposition"] = dresult.as_dict()
+            if isinstance(planning_payload["execution_plan"], dict):
+                planning_payload["execution_plan"]["subtasks"] = [s.as_dict() for s in dresult.subtasks]
+        except Exception as dex:
+            planning_payload["task_decomposition"] = {
+                "subtasks": [],
+                "trace": {
+                    "trace_id": "",
+                    "plan_id": str(planning_payload.get("execution_plan", {}).get("plan_id", ""))
+                    if isinstance(planning_payload.get("execution_plan"), dict)
+                    else "",
+                    "reasoning_link": "",
+                    "subtask_count": 0,
+                    "max_depth_observed": 0,
+                    "truncated": False,
+                    "max_depth_reached": False,
+                    "warnings": ["decomposition_failed"],
+                    "strategy_trace_link": "",
+                },
+                "error": str(dex),
+                "degraded": True,
+            }
+        td_payload = planning_payload.get("task_decomposition")
+        if isinstance(td_payload, dict):
+            self._append_runtime_event(
+                event_type="runtime.task_decomposition.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "trace": dict(td_payload.get("trace") or {}),
+                    "subtasks": list(td_payload.get("subtasks") or [])[:12],
+                    "degraded": bool(td_payload.get("degraded", False)),
+                    "error": str(td_payload.get("error", "") or ""),
+                },
+            )
 
         control_execution_summary: dict[str, Any] = {
             "allowed": True,

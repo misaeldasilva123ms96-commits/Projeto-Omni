@@ -23,6 +23,9 @@ class CoordinationState:
     routing_execution_strategy: str
     routing_verification_intensity: str
     reasoning_trace_id: str
+    decomposition_subtask_count: int = 0
+    decomposition_truncated: bool = False
+    decomposition_trace_id: str = ""
     specialist_notes: list[str] = field(default_factory=list)
 
     def record_note(self, note: str) -> None:
