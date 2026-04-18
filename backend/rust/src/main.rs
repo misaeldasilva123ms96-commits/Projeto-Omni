@@ -112,6 +112,9 @@ struct ChatResponse {
     /// Conservative per-turn classification of cognitive vs degraded execution (Python `main.py` only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cognitive_runtime_inspection: Option<Value>,
+    /// Logical LLM provider ids with validated env keys (Python `main.py`); never secret values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    providers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -1416,10 +1419,24 @@ fn extract_response_text_from_python_json(json: &Value) -> String {
     PYTHON_FALLBACK_RESPONSE.to_string()
 }
 
-fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>, Option<Value>) {
+fn extract_providers_from_python_json(json: &Value) -> Option<Vec<String>> {
+    let arr = json.get("providers")?.as_array()?;
+    let out: Vec<String> = arr
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>, Option<Value>, Option<Vec<String>>) {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return (PYTHON_FALLBACK_RESPONSE.to_string(), None, None);
+        return (PYTHON_FALLBACK_RESPONSE.to_string(), None, None, None);
     }
 
     if python_debug_logging_enabled() {
@@ -1431,11 +1448,12 @@ fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>, Opt
             let conversation_id = extract_conversation_id_from_python_json(&json);
             let response = extract_response_text_from_python_json(&json);
             let inspection = json.get("cognitive_runtime_inspection").cloned();
-            (response, conversation_id, inspection)
+            let providers = extract_providers_from_python_json(&json);
+            (response, conversation_id, inspection, providers)
         }
         Err(err) => {
             warn!(error = %err, "failed to parse python output");
-            (PYTHON_FALLBACK_RESPONSE.to_string(), None, None)
+            (PYTHON_FALLBACK_RESPONSE.to_string(), None, None, None)
         }
     }
 }
@@ -1487,6 +1505,7 @@ fn build_python_fallback_response(
         usage: None,
         conversation_id: None,
         cognitive_runtime_inspection: None,
+        providers: None,
     }
 }
 
@@ -1629,7 +1648,7 @@ async fn call_python(
 
     update_python_health(state, "ready", None).await;
 
-    let (response, conversation_id, cognitive_runtime_inspection) =
+    let (response, conversation_id, cognitive_runtime_inspection, providers) =
         extract_chat_from_python_output(&stdout);
 
     Ok(ChatResponse {
@@ -1644,6 +1663,7 @@ async fn call_python(
         usage: None,
         conversation_id,
         cognitive_runtime_inspection,
+        providers,
     })
 }
 
@@ -1668,6 +1688,7 @@ fn build_mock_response(
         })),
         conversation_id: None,
         cognitive_runtime_inspection: None,
+        providers: None,
     }
 }
 
@@ -1791,7 +1812,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
     #[test]
     fn extract_chat_from_python_output_merges_optional_conversation_id() {
         let raw = r#"{"response":"hi","server_conversation_id":"srv-1","noise":true}"#;
-        let (text, cid, _insp) = extract_chat_from_python_output(raw);
+        let (text, cid, _insp, _prov) = extract_chat_from_python_output(raw);
         assert_eq!(text, "hi");
         assert_eq!(cid.as_deref(), Some("srv-1"));
     }
@@ -1802,8 +1823,30 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             r#"{{"response":"x","conversation_id":"{}"}}"#,
             "y".repeat(300)
         );
-        let (_text, cid, _insp) = extract_chat_from_python_output(&raw);
+        let (_text, cid, _insp, _prov) = extract_chat_from_python_output(&raw);
         assert!(cid.is_none());
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_parses_providers_array() {
+        let raw = r#"{"response":"hi","providers":["openai","groq","gemini"]}"#;
+        let (text, _cid, _insp, prov) = extract_chat_from_python_output(raw);
+        assert_eq!(text, "hi");
+        assert_eq!(
+            prov,
+            Some(vec![
+                "openai".to_string(),
+                "groq".to_string(),
+                "gemini".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_omits_empty_providers() {
+        let raw = r#"{"response":"x","providers":[]}"#;
+        let (_text, _cid, _insp, prov) = extract_chat_from_python_output(raw);
+        assert!(prov.is_none());
     }
 
     #[test]
@@ -1832,12 +1875,36 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
                 usage: None,
                 conversation_id: Some("conv-9".into()),
                 cognitive_runtime_inspection: None,
+                providers: None,
             },
         };
         let v = serde_json::to_value(&body).expect("serialize");
         assert_eq!(v["api_version"], "1");
         assert_eq!(v["response"], "hello");
         assert_eq!(v["conversation_id"], "conv-9");
+    }
+
+    #[test]
+    fn public_chat_response_v1_serializes_providers_when_present() {
+        let body = PublicChatResponseV1 {
+            api_version: "1",
+            chat: ChatResponse {
+                response: "hello".into(),
+                session_id: "python-session".into(),
+                source: "python-subprocess".into(),
+                runtime_session_version: 2,
+                client_session_id: None,
+                matched_commands: vec![],
+                matched_tools: vec![],
+                stop_reason: Some("completed".into()),
+                usage: None,
+                conversation_id: None,
+                cognitive_runtime_inspection: None,
+                providers: Some(vec!["openai".into(), "groq".into()]),
+            },
+        };
+        let v = serde_json::to_value(&body).expect("serialize");
+        assert_eq!(v["providers"], json!(["openai", "groq"]));
     }
 
     #[tokio::test]

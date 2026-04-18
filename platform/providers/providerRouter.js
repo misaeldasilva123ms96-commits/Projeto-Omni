@@ -7,11 +7,22 @@ function hasConfig(name) {
   return Boolean(envValue(name));
 }
 
+/**
+ * Comma-separated logical ids from Python (validated keys only). Used for routing order hints.
+ */
+function parseOmniAvailableProviders() {
+  const raw = envValue('OMINI_AVAILABLE_PROVIDERS');
+  if (!raw) {
+    return null;
+  }
+  return raw.split(/[,]+/).map(part => part.trim().toLowerCase()).filter(Boolean);
+}
+
 function getAvailableProviders() {
-  const providers = [];
+  const remote = [];
 
   if (hasConfig('OPENAI_API_KEY')) {
-    providers.push({
+    remote.push({
       name: 'openai',
       source: 'openclaude-main.zip',
       model: envValue('OPENAI_MODEL') || 'gpt-4.1-mini',
@@ -21,7 +32,7 @@ function getAvailableProviders() {
   }
 
   if (hasConfig('ANTHROPIC_API_KEY')) {
-    providers.push({
+    remote.push({
       name: 'anthropic',
       source: 'openclaude-main.zip',
       model: envValue('ANTHROPIC_MODEL') || 'claude-3-5-sonnet-latest',
@@ -30,18 +41,63 @@ function getAvailableProviders() {
     });
   }
 
+  if (hasConfig('GROQ_API_KEY')) {
+    remote.push({
+      name: 'groq',
+      source: 'project',
+      model: envValue('GROQ_MODEL') || 'llama-3.3-70b-versatile',
+      priority: 3,
+      kind: 'remote',
+    });
+  }
+
+  if (hasConfig('GEMINI_API_KEY')) {
+    remote.push({
+      name: 'gemini',
+      source: 'project',
+      model: envValue('GEMINI_MODEL') || 'gemini-2.0-flash',
+      priority: 4,
+      kind: 'remote',
+    });
+  }
+
+  if (hasConfig('DEEPSEEK_API_KEY')) {
+    remote.push({
+      name: 'deepseek',
+      source: 'project',
+      model: envValue('DEEPSEEK_MODEL') || 'deepseek-chat',
+      priority: 5,
+      kind: 'remote',
+    });
+  }
+
   if (hasConfig('OLLAMA_URL')) {
-    providers.push({
+    remote.push({
       name: 'ollama',
       source: 'openclaude-main.zip',
       model: envValue('OLLAMA_MODEL') || 'llama3:8b',
-      priority: 3,
+      priority: 6,
       kind: 'local',
       baseUrl: envValue('OLLAMA_URL'),
     });
   }
 
-  providers.push({
+  const order = parseOmniAvailableProviders();
+  if (order && order.length) {
+    const rank = new Map(order.map((name, index) => [name, index]));
+    remote.sort((a, b) => {
+      const ra = rank.has(a.name) ? rank.get(a.name) : 999;
+      const rb = rank.has(b.name) ? rank.get(b.name) : 999;
+      if (ra !== rb) {
+        return ra - rb;
+      }
+      return (a.priority || 99) - (b.priority || 99);
+    });
+  } else {
+    remote.sort((a, b) => (a.priority || 99) - (b.priority || 99));
+  }
+
+  remote.push({
     name: 'local-heuristic',
     source: 'project',
     model: 'native-heuristic',
@@ -49,7 +105,7 @@ function getAvailableProviders() {
     kind: 'embedded',
   });
 
-  return providers;
+  return remote;
 }
 
 function chooseProvider({ complexity = 'simple', preferred = '' } = {}) {
