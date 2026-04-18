@@ -276,7 +276,10 @@ class QueryEngineAuthority {
     const normalizedMessage = normalizeText(message);
     const directConversationResponse = resolveDirectConversational(normalizedMessage);
     if (directConversationResponse) {
-      return { response: directConversationResponse };
+      return {
+        response: directConversationResponse,
+        cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
+      };
     }
     const runtimeConfig = loadRuntimeConfig();
     const runtimeMode = resolveExecutionMode({
@@ -506,6 +509,7 @@ class QueryEngineAuthority {
 
       return {
         response: directResponse,
+        cognitive_runtime_hint: { lane: 'no_tool_local', detail: 'all_actions_tool_none' },
         confidence: 0.92,
         memory: {
           session: sessionSnapshot,
@@ -526,6 +530,7 @@ class QueryEngineAuthority {
     if (runtimeMode.primary.owner === 'python') {
       return {
         response: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
+        cognitive_runtime_hint: { lane: 'node_execution_graph', detail: 'python_executor_bridge' },
         execution_request: {
           task_id: taskId,
           run_id: runId,
@@ -770,6 +775,12 @@ class QueryEngineAuthority {
 
     return {
       response: synthesizedResponse,
+      cognitive_runtime_hint: {
+        lane: 'node_local_tool_run',
+        tool_steps: stepResults.filter(
+          item => item.action && item.action.selected_tool && item.action.selected_tool !== 'none',
+        ).length,
+      },
       confidence: stepResults.some(item => item.ok) || directMemoryResponse ? 0.9 : 0.55,
       memory: {
         session: sessionSnapshot,

@@ -109,6 +109,9 @@ struct ChatResponse {
     /// Server-issued or orchestrator-backed conversation id when truthfully available on the Python path; omitted otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     conversation_id: Option<String>,
+    /// Conservative per-turn classification of cognitive vs degraded execution (Python `main.py` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cognitive_runtime_inspection: Option<Value>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -1413,10 +1416,10 @@ fn extract_response_text_from_python_json(json: &Value) -> String {
     PYTHON_FALLBACK_RESPONSE.to_string()
 }
 
-fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>) {
+fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>, Option<Value>) {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return (PYTHON_FALLBACK_RESPONSE.to_string(), None);
+        return (PYTHON_FALLBACK_RESPONSE.to_string(), None, None);
     }
 
     if python_debug_logging_enabled() {
@@ -1427,11 +1430,12 @@ fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>) {
         Ok(json) => {
             let conversation_id = extract_conversation_id_from_python_json(&json);
             let response = extract_response_text_from_python_json(&json);
-            (response, conversation_id)
+            let inspection = json.get("cognitive_runtime_inspection").cloned();
+            (response, conversation_id, inspection)
         }
         Err(err) => {
             warn!(error = %err, "failed to parse python output");
-            (PYTHON_FALLBACK_RESPONSE.to_string(), None)
+            (PYTHON_FALLBACK_RESPONSE.to_string(), None, None)
         }
     }
 }
@@ -1482,6 +1486,7 @@ fn build_python_fallback_response(
         stop_reason: Some("completed".to_string()),
         usage: None,
         conversation_id: None,
+        cognitive_runtime_inspection: None,
     }
 }
 
@@ -1624,7 +1629,8 @@ async fn call_python(
 
     update_python_health(state, "ready", None).await;
 
-    let (response, conversation_id) = extract_chat_from_python_output(&stdout);
+    let (response, conversation_id, cognitive_runtime_inspection) =
+        extract_chat_from_python_output(&stdout);
 
     Ok(ChatResponse {
         response,
@@ -1637,6 +1643,7 @@ async fn call_python(
         stop_reason: Some("completed".to_string()),
         usage: None,
         conversation_id,
+        cognitive_runtime_inspection,
     })
 }
 
@@ -1660,6 +1667,7 @@ fn build_mock_response(
             "output_tokens": 0
         })),
         conversation_id: None,
+        cognitive_runtime_inspection: None,
     }
 }
 
@@ -1783,7 +1791,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
     #[test]
     fn extract_chat_from_python_output_merges_optional_conversation_id() {
         let raw = r#"{"response":"hi","server_conversation_id":"srv-1","noise":true}"#;
-        let (text, cid) = extract_chat_from_python_output(raw);
+        let (text, cid, _insp) = extract_chat_from_python_output(raw);
         assert_eq!(text, "hi");
         assert_eq!(cid.as_deref(), Some("srv-1"));
     }
@@ -1794,7 +1802,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             r#"{{"response":"x","conversation_id":"{}"}}"#,
             "y".repeat(300)
         );
-        let (_text, cid) = extract_chat_from_python_output(&raw);
+        let (_text, cid, _insp) = extract_chat_from_python_output(&raw);
         assert!(cid.is_none());
     }
 
@@ -1823,6 +1831,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
                 stop_reason: Some("completed".into()),
                 usage: None,
                 conversation_id: Some("conv-9".into()),
+                cognitive_runtime_inspection: None,
             },
         };
         let v = serde_json::to_value(&body).expect("serialize");
