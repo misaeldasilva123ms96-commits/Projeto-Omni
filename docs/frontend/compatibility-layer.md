@@ -1,7 +1,7 @@
 # Omni Frontend Compatibility Layer
 
 **Scope:** How the React/Vite client talks to the current Rust HTTP surface without coupling product UI to unstable wire JSON.  
-**Companion:** [`integration-matrix.md`](./integration-matrix.md) (endpoint inventory and risk notes).  
+**Companion:** [`integration-matrix.md`](./integration-matrix.md) (endpoint inventory and risk notes). **UI shell:** [`ui-architecture.md`](./ui-architecture.md) (Phase 3 layout and primitives).  
 **Implementation:** `frontend/src/app/App.tsx` (shell routing), `frontend/src/features/*` (feature-facing entrypoints), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `frontend/src/types/ui/*`, `frontend/src/types/api/wire.ts`.
 
 ---

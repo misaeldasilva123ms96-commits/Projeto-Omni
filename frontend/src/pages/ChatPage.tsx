@@ -1,11 +1,11 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import { AppShell } from '../components/AppShell'
-import { ChatHeader } from '../components/ChatHeader'
-import { Composer } from '../components/Composer'
-import { EmptyState } from '../components/EmptyState'
-import { MessageBubble } from '../components/MessageBubble'
-import { Sidebar } from '../components/Sidebar'
-import { StatusPanel } from '../components/StatusPanel'
+import { ChatHeader } from '../components/chat/ChatHeader'
+import { Composer } from '../components/chat/Composer'
+import { EmptyState } from '../components/chat/EmptyState'
+import { MessageBubble } from '../components/chat/MessageBubble'
+import { AppShell } from '../components/layout/AppShell'
+import { Sidebar } from '../components/layout/Sidebar'
+import { StatusPanel } from '../components/status/StatusPanel'
 import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
 import { fetchHealth, healthResponseToUiRuntimeStatus } from '../features/runtime'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
@@ -401,10 +401,10 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         />
       )}
     >
-      <div className="chat-page">
+      <div className="chat-page omni-chat-page">
         <ChatHeader loading={loading} mode={mode} sessionId={sessionId} />
-        <section className="chat-surface panel-card">
-          <section className="messages">
+        <section className="chat-surface panel-card omni-chat-surface">
+          <section className="messages omni-message-list">
             {messages.length === 0 ? (
               <EmptyState onSelectPrompt={(prompt) => setInput(prompt)} />
             ) : (

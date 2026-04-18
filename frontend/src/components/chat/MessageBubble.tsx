@@ -1,6 +1,6 @@
-import type { ChatMessage } from '../types'
-import { useTypewriter } from '../hooks/useTypewriter'
-import { MarkdownRenderer } from './MarkdownRenderer'
+import type { ChatMessage } from '../../types'
+import { useTypewriter } from '../../hooks/useTypewriter'
+import { MarkdownRenderer } from '../MarkdownRenderer'
 
 type BubbleMessage = ChatMessage & {
   isLoading?: boolean
@@ -15,7 +15,7 @@ type MessageBubbleProps = {
 const BUBBLE_ANIMATION_CSS = `
 @keyframes omni-bubble-blink {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  50% { opacity: 0.4; }
 }
 
 @keyframes omni-bubble-pulse {
@@ -34,8 +34,8 @@ function safeDisplayText(content: unknown): string {
         const parsed = JSON.parse(trimmed) as Record<string, unknown>
         const candidates = ['response', 'message', 'text', 'answer']
         for (const key of candidates) {
-          if (typeof parsed?.[key] === 'string' && parsed[key].trim()) {
-            return parsed[key].trim()
+          if (typeof parsed?.[key] === 'string' && (parsed[key] as string).trim()) {
+            return (parsed[key] as string).trim()
           }
         }
       } catch {
@@ -103,7 +103,11 @@ export function MessageBubble({ message, onTypingComplete }: MessageBubbleProps)
   return (
     <article style={articleStyle}>
       <style>{BUBBLE_ANIMATION_CSS}</style>
-      {isAssistant ? <div aria-hidden="true" style={avatarStyle}>O</div> : null}
+      {isAssistant ? (
+        <div aria-hidden="true" style={avatarStyle}>
+          O
+        </div>
+      ) : null}
       <div style={bubbleStyle}>
         <div className="message-meta" style={{ marginBottom: '0.5rem' }}>
           <span className="message-role">

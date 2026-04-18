@@ -1,3 +1,5 @@
+import { EmptyState as EmptyStateSurface } from '../ui/EmptyState'
+
 const QUICK_PROMPTS = [
   'Analise este erro de arquitetura',
   'Planeje uma nova feature',
@@ -11,13 +13,11 @@ type EmptyStateProps = {
 
 export function EmptyState({ onSelectPrompt }: EmptyStateProps) {
   return (
-    <div className="empty-state">
-      <p className="eyebrow">Omni</p>
-      <h2>Converse com o runtime cognitivo do projeto.</h2>
-      <p>
-        O chat agora prioriza fluxo confiavel, estado de sessao saneado e
-        metadados operacionais discretos.
-      </p>
+    <EmptyStateSurface
+      description="O chat prioriza fluxo confiavel, estado de sessao saneado e metadados operacionais discretos."
+      eyebrow="Omni"
+      title="Converse com o runtime cognitivo do projeto."
+    >
       <div className="quick-prompts">
         {QUICK_PROMPTS.map((prompt) => (
           <button
@@ -30,6 +30,6 @@ export function EmptyState({ onSelectPrompt }: EmptyStateProps) {
           </button>
         ))}
       </div>
-    </div>
+    </EmptyStateSurface>
   )
 }

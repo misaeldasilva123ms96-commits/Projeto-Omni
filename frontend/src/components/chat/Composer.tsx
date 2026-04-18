@@ -1,4 +1,6 @@
 import { KeyboardEvent } from 'react'
+import { ErrorNotice } from '../ui/ErrorNotice'
+import { PanelCard } from '../ui/PanelCard'
 
 type ComposerProps = {
   canSend: boolean
@@ -31,7 +33,7 @@ export function Composer({
   }
 
   return (
-    <section className="composer-shell panel-card">
+    <PanelCard className="composer-shell omni-composer">
       <div className="composer">
         <textarea
           aria-label="Enviar mensagem para o Omni"
@@ -47,7 +49,7 @@ export function Composer({
         />
         <div className="composer-footer">
           <div className="composer-copy">
-            {error ? <p className="error-text">{error}</p> : <p className="helper-text">{helperText}</p>}
+            {error ? <ErrorNotice message={error} /> : <p className="helper-text">{helperText}</p>}
             <span className="composer-hint">Enter envia. Shift + Enter cria uma nova linha.</span>
           </div>
           <button className="send-button" disabled={!canSend} onClick={onSubmit} type="button">
@@ -55,6 +57,6 @@ export function Composer({
           </button>
         </div>
       </div>
-    </section>
+    </PanelCard>
   )
 }

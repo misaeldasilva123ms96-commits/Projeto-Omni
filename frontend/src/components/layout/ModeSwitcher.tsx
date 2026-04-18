@@ -1,4 +1,4 @@
-import type { ChatMode } from '../types'
+import type { ChatMode } from '../../types'
 
 const MODES: Array<{ description: string; id: ChatMode; label: string }> = [
   { id: 'chat', label: 'Chat', description: 'General runtime conversation' },
