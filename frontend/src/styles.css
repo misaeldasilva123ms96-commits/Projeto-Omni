@@ -842,3 +842,105 @@ button {
 .omni-sidebar .sidebar-nav {
   margin-top: 4px;
 }
+
+/* —— Phase 4: cognitive panel & data scope —— */
+
+.omni-cognitive-stack {
+  display: grid;
+  gap: var(--omni-space-3);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cognitive-trust-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.cognitive-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.cognitive-section-card {
+  padding: 16px 18px;
+}
+
+.cognitive-section-card .status-grid + .cognitive-section-header {
+  margin-top: 14px;
+}
+
+.data-scope-badge--live {
+  border-color: rgba(85, 230, 208, 0.35);
+  color: #d4fff8;
+}
+
+.data-scope-badge--internal {
+  border-style: dashed;
+  color: #c5d4f5;
+}
+
+.data-scope-badge--protected {
+  background: rgba(120, 100, 255, 0.12);
+  border-color: rgba(160, 140, 255, 0.35);
+  color: #e8e2ff;
+}
+
+.data-scope-badge--future {
+  opacity: 0.9;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.cognitive-future-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--omni-space-3);
+}
+
+.cognitive-future-card {
+  padding: 14px 16px;
+}
+
+.cognitive-future-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cognitive-future-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.cognitive-trust-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: var(--omni-space-3);
+}
+
+.cognitive-trust-strip code {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.omni-dashboard-future {
+  margin-top: var(--omni-space-3);
+}
+
+@media (max-width: 900px) {
+  .cognitive-future-grid {
+    grid-template-columns: 1fr;
+  }
+}

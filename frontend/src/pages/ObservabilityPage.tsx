@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { AppShell } from '../components/layout/AppShell'
 import { Sidebar } from '../components/layout/Sidebar'
+import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { PageHero } from '../components/ui/PageHero'
 import { PanelCard } from '../components/ui/PanelCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -68,6 +69,14 @@ export function ObservabilityPage({
           subtitle="This panel only exposes persisted runtime artifacts. It does not mutate the cognitive runtime."
           title="Inspect goals, memory, simulation and specialist coordination in one read-only surface."
         />
+
+        <div className="cognitive-trust-strip" role="note">
+          <DataScopeBadge variant="protected" />
+          <span className="muted-copy">
+            Snapshot, traces, and SSE require Supabase JWT per Rust middleware — same data model as the Python
+            observability CLI.
+          </span>
+        </div>
 
         {!apiReady ? (
           <PanelCard className="metric-card observability-card">
