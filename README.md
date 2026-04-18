@@ -1,58 +1,45 @@
 # Omni — Cognitive Runtime System
 
-Omni is an enterprise-oriented **cognitive runtime**, not a chatbot-only project.  
-It provides governed orchestration, auditable control-plane state, bounded evolution workflows, and operational observability across runtime layers.
+Omni is a **production-grade cognitive runtime**: governed orchestration, auditable control-plane state, multi-agent coordination, structured memory and reasoning, and **bounded evolution** (Phase 39) with **governed continuous improvement** (Phase 40). It is designed as an industrial runtime, not a single-chatbot demo.
 
-## Current Status
+## Current maturity
 
-- **Maturity:** Phase **30.20**
-- **Program state:** Runtime governance and controlled self-evolution preparation blocks closed
-- **Safety posture:** Governed, bounded, auditable, non-autonomous mutation
+- **Documented system band:** Phases **31–40** (implemented in `backend/python/brain/runtime/`)
+- **Current consolidation point:** **Phase 40** — self-improving cognitive system under explicit simulation, approval, staged rollout, monitoring, and rollback (see `docs/phases/phase-40.md`)
 
-## Architecture Overview
+## What Omni provides
 
-Omni follows a layered runtime model:
+- **Governance-first execution** — run registry, taxonomy, policy evaluation, and strict tool governance
+- **Layered cognition** — OIL-normalized I/O, reasoning, planning, learning, strategy, performance, coordination, decomposition
+- **Controlled evolution** — evidence-linked proposals, validation, optional apply to bounded tuning stores, rollback
+- **Improvement orchestration** — Phase 40 pipeline on top of Phase 39 traces; no uncontrolled self-modification
+- **Operational observability** — consolidated snapshots and JSONL audit traces for SRE-style inspection
 
-1. **OIL Layer** — structured runtime input/output contracts and composition
-2. **Orchestration Layer** — planning, execution routing, governance-aware control flow
-3. **Node Agent Runtime** — JS runner and specialist-oriented execution integration
-4. **Memory Layer** — session, transcript, and learning memory surfaces
-5. **Evolution Layer** — governed proposal/validation/application/rollback control plane
+## Documentation map
 
-See `ARCHITECTURE.md` for a deeper layer-by-layer view.
+| Topic | Location |
+|--------|----------|
+| Documentation hub | [`docs/README.md`](docs/README.md) |
+| Architecture (detailed) | [`docs/architecture/`](docs/architecture/) |
+| Phases 31–40 + history index | [`docs/phases/README.md`](docs/phases/README.md) |
+| Governance deep dive | [`docs/governance/`](docs/governance/) |
+| Evolution & improvement | [`docs/evolution/`](docs/evolution/) |
+| Operations (tests, logs, env) | [`docs/operations/`](docs/operations/) |
+| Setup & contributing | [`docs/setup/`](docs/setup/) |
+| Product vision & detailed roadmap | [`docs/product/`](docs/product/) |
+| Legacy root markdown archive | [`docs/reports/repository-archive/`](docs/reports/repository-archive/) |
 
-## Core Capabilities
+## Repository layout (high level)
 
-- Governance-first run control (`RunRegistry`, governance taxonomy, timeline, read model)
-- Deterministic operational observability (`ObservabilityReader`, governed snapshots)
-- Controlled evolution lifecycle:
-  - proposal
-  - validation
-  - explicit review/promotion
-  - bounded sandbox application
-  - rollback recording
-- Cross-runtime execution boundaries (Python orchestrator, Node runtime, Rust bridge)
+- `backend/python/brain/runtime/` — orchestrator, control plane, observability, evolution, improvement, planning, learning, etc.
+- `backend/rust/` — API / bridge boundary
+- `js-runner/`, `src/` — Node runtime integration
+- `tests/` — runtime, control, and integration tests
+- `docs/` — **canonical documentation tree**
 
-## Technology Stack
+## Quick links
 
-- **Python 3.11+** — cognitive runtime orchestration and control plane
-- **Node.js 20+** — agent runtime and JS execution bridge
-- **Rust** — HTTP/API boundary and process integration
-- **Docker / Compose** — deployment and local parity
-
-## Repository Highlights
-
-- `backend/python/brain/runtime/` — runtime core
-- `backend/python/brain/runtime/control/` — governance control plane
-- `backend/python/brain/runtime/observability/` — operational read surfaces
-- `backend/python/brain/runtime/evolution/` — governed evolution control plane
-- `tests/` — runtime, control, observability, contracts
-
-## Roadmap Summary
-
-The current roadmap continues from governance hardening into enterprise closure and next maturity bands.
-
-- **Phase 30:** Runtime governance convergence + controlled evolution preparation (closed at 30.20)
-- **Phases 31–40:** Operational scaling, reliability hardening, and enterprise lifecycle maturation
-
-See `ROADMAP.md` for the phase-by-phase structure.
+- Architecture summary: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Roadmap summary: [`ROADMAP.md`](ROADMAP.md)
+- Governance rules: [`GOVERNANCE.md`](GOVERNANCE.md)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)

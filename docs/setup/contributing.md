@@ -1,6 +1,8 @@
 # Contributing
 
-Thank you for contributing to Omini.
+Thank you for contributing to **Omni**.
+
+This file lives at `docs/setup/contributing.md` (the repository root stays minimal).
 
 ## Development Setup
 
