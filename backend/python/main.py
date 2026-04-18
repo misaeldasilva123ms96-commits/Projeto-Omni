@@ -36,6 +36,28 @@ logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 
+def _load_project_dotenv(project_root: Path) -> None:
+    """Load repo-root ``.env`` into the process with ``setdefault`` (real env wins). Never logged."""
+    if str(os.getenv("CI", "")).strip().lower() in ("1", "true", "yes"):
+        return
+    path = project_root / ".env"
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, val = stripped.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, val)
+
+
 def _parse_structured_string(value: str) -> Any | None:
     trimmed = value.strip()
     if not trimmed:
@@ -137,6 +159,7 @@ def main() -> int:
     project_root = python_root.parents[1]
     os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
     os.environ.setdefault("BASE_DIR", str(project_root))
+    _load_project_dotenv(project_root)
 
     message, bridge = resolve_entry_message()
     apply_bridge_env(bridge)
