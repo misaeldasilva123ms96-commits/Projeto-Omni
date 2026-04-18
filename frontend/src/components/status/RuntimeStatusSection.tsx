@@ -4,11 +4,11 @@ import { PanelCard } from '../ui/PanelCard'
 import { CognitiveSectionHeader } from './CognitiveSectionHeader'
 
 export type RuntimeStatusSectionProps = {
-  health: HealthResponse | null
+  publicRuntime: PublicStatusResponseV1 | null
   runtimeSignals: RuntimeSignalsResponse | null
 }
 
-export function RuntimeStatusSection({ health, runtimeSignals }: RuntimeStatusSectionProps) {
+export function RuntimeStatusSection({ publicRuntime, runtimeSignals }: RuntimeStatusSectionProps) {
   const summary = runtimeSignals?.latest_run_summary ?? {}
   const signalCount = runtimeSignals?.recent_signals?.length ?? 0
 
