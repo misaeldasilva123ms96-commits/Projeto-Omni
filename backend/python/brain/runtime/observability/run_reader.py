@@ -376,3 +376,61 @@ def read_recent_task_decomposition_traces(root: Path, *, limit: int = 10) -> lis
 def read_latest_task_decomposition_trace(root: Path) -> dict[str, Any] | None:
     traces = read_recent_task_decomposition_traces(root, limit=1)
     return traces[0] if traces else None
+
+
+def read_recent_controlled_self_evolution_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    scan_limit = _audit_tail_scan_limit(limit)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.controlled_self_evolution.trace":
+            continue
+        tr = payload.get("trace")
+        if not isinstance(tr, dict):
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "trace": dict(tr),
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_controlled_self_evolution_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_controlled_self_evolution_traces(root, limit=1)
+    return traces[0] if traces else None
+
+
+def read_recent_self_improving_system_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
+    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    scan_limit = _audit_tail_scan_limit(limit)
+    payloads = read_tail_jsonl(path, limit=scan_limit)
+    traces: list[dict[str, Any]] = []
+    for payload in reversed(payloads):
+        if str(payload.get("event_type", "")).strip() != "runtime.self_improving_system.trace":
+            continue
+        tr = payload.get("trace")
+        if not isinstance(tr, dict):
+            continue
+        traces.append(
+            {
+                "timestamp": str(payload.get("timestamp", "")).strip(),
+                "session_id": str(payload.get("session_id", "")).strip() or None,
+                "run_id": str(payload.get("run_id", "")).strip() or None,
+                "trace": dict(tr),
+            }
+        )
+        if len(traces) >= max(1, int(limit or 10)):
+            break
+    return traces
+
+
+def read_latest_self_improving_system_trace(root: Path) -> dict[str, Any] | None:
+    traces = read_recent_self_improving_system_traces(root, limit=1)
+    return traces[0] if traces else None

@@ -24,12 +24,20 @@ class TaskDecomposer:
         reasoning_trace: dict[str, Any],
         strategy_summary: dict[str, Any],
         coordination_hint: dict[str, Any] | None = None,
+        tuning_overrides: dict[str, Any] | None = None,
     ) -> DecompositionResult:
         """
         Produces structured subtasks linked to plan steps only (no recursive re-planning).
         coordination_hint reserved for future bounded hints from Phase 37 state; must not execute work.
         """
         _ = coordination_hint
+        eff_max = MAX_SUBTASKS
+        if isinstance(tuning_overrides, dict):
+            try:
+                raw_m = int(tuning_overrides.get("decomposition_max_subtasks", eff_max) or eff_max)
+                eff_max = max(4, min(8, raw_m))
+            except (TypeError, ValueError):
+                eff_max = MAX_SUBTASKS
         plan_id = str(execution_plan.get("plan_id", "") or "").strip()
         reasoning_link = str(reasoning_trace.get("trace_id", "") or "").strip()
         st_link = ""
@@ -49,7 +57,7 @@ class TaskDecomposer:
         for step in steps:
             if not isinstance(step, dict):
                 continue
-            if len(subtasks) >= MAX_SUBTASKS:
+            if len(subtasks) >= eff_max:
                 truncated = True
                 warnings.append("truncated_max_subtasks")
                 break
@@ -92,7 +100,7 @@ class TaskDecomposer:
                         truncated = True
                         warnings.append("truncated_max_branches_per_node")
                     break
-                if len(subtasks) >= MAX_SUBTASKS:
+                if len(subtasks) >= eff_max:
                     truncated = True
                     warnings.append("truncated_max_subtasks")
                     break
