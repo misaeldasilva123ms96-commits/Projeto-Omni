@@ -1,0 +1,22 @@
+# Omni Analytics topic: curated dataset for runtime tool reliability.
+# Requires view public__runtime_tool_events (see public__runtime_tool_events.view.yaml).
+
+base_view: public__runtime_tool_events
+label: Runtime tools
+group_label: Omni cognitive runtime
+
+ai_context: |
+  Each row is one tool invocation from the Omni cognitive runtime.
+  Use tool_name for breakdowns, occurred_at for time series, and success_rate for reliability.
+  success is boolean; error_code categorizes failures without exposing secrets.
+  Do not infer end-user identity from session_id without explicit org policy.
+
+sample_queries:
+  - What is the success rate by tool_name in the last 7 days?
+  - How many runtime_tool_events occurred per day last 30 days?
+  - What is the average latency_ms by tool_name where success is true?
+
+joins: {}
+
+fields:
+  - all_views.*

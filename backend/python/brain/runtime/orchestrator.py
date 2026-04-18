@@ -79,6 +79,10 @@ from brain.runtime.specialists import SpecialistCoordinator
 from brain.runtime.rust_executor_bridge import execute_action, summarize_action_result
 from brain.runtime.supervision import CognitiveSupervisor
 from brain.runtime.transcript_store import TranscriptStore
+from brain.runtime.telemetry.supabase_tool_events import (
+    error_code_from_tool_result,
+    record_runtime_tool_event,
+)
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
 
@@ -4030,6 +4034,38 @@ class BrainOrchestrator:
             operational_plan=operational_plan,
         )
 
+    def _emit_supabase_tool_event(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        selected_tool: str,
+        result: dict[str, Any],
+        started_monotonic: float,
+    ) -> None:
+        """Best-effort telemetry to Supabase; never raises."""
+        try:
+            latency_ms = max(0, int((time.monotonic() - started_monotonic) * 1000))
+            tool = (selected_tool or "").strip() or "none"
+            meta: dict[str, Any] = {}
+            agent = result.get("selected_agent")
+            if isinstance(agent, str) and agent.strip():
+                meta["selected_agent"] = agent.strip()[:120]
+            record_runtime_tool_event(
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                tool_name=tool,
+                success=bool(result.get("ok")),
+                error_code=error_code_from_tool_result(result),
+                latency_ms=latency_ms,
+                provider=None,
+                metadata=meta,
+            )
+        except Exception:
+            return
+
     def _execute_single_action_core(
         self,
         *,
@@ -4054,6 +4090,7 @@ class BrainOrchestrator:
             current_action["goal_id"] = operational_plan.goal_id
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
         selected_tool = str(current_action.get("selected_tool", "") or "").strip()
+        action_started_monotonic = time.monotonic()
         tool_audit = evaluate_tool_governance(
             selected_tool=selected_tool,
             trusted_known_tools=self.trusted_executor.available_tools,
@@ -4078,6 +4115,14 @@ class BrainOrchestrator:
             blocked_result["evaluation"] = build_strict_block_evaluation(tool_audit=tool_audit)
             blocked_result["correction_events"] = [blocked_result["evaluation"]]
             blocked_result["orchestration"] = None
+            self._emit_supabase_tool_event(
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                selected_tool=selected_tool,
+                result=blocked_result,
+                started_monotonic=action_started_monotonic,
+            )
             return blocked_result
 
         latest_checkpoint = self.planning_executor.store.load_latest_checkpoint(operational_plan.plan_id) if operational_plan else None
@@ -4128,6 +4173,14 @@ class BrainOrchestrator:
             }
             blocked_result["correction_events"] = [blocked_result["evaluation"]]
             blocked_result["orchestration"] = pre_execution_orchestration
+            self._emit_supabase_tool_event(
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                selected_tool=selected_tool,
+                result=blocked_result,
+                started_monotonic=action_started_monotonic,
+            )
             return blocked_result
 
         for attempt_number in range(1, attempts + 1):
@@ -4296,6 +4349,14 @@ class BrainOrchestrator:
                 run_id=run_id,
                 payload=evolution_update,
             )
+        self._emit_supabase_tool_event(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            selected_tool=selected_tool,
+            result=result,
+            started_monotonic=action_started_monotonic,
+        )
         return result
 
     @staticmethod
