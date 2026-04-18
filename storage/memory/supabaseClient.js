@@ -7,9 +7,13 @@ function readSupabaseEnv(name) {
   return '';
 }
 
-const supabaseUrl = readSupabaseEnv('VITE_SUPABASE_URL');
+// Prefer server-side names; fall back to Vite-prefixed vars when Node is spawned from the same shell as the UI.
+const supabaseUrl =
+  readSupabaseEnv('SUPABASE_URL')
+  || readSupabaseEnv('VITE_SUPABASE_URL');
 const supabaseKey =
-  readSupabaseEnv('VITE_SUPABASE_ANON_KEY')
+  readSupabaseEnv('SUPABASE_ANON_KEY')
+  || readSupabaseEnv('VITE_SUPABASE_ANON_KEY')
   || readSupabaseEnv('VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY');
 
 const supabase = supabaseUrl && supabaseKey
