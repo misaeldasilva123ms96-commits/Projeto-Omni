@@ -40,19 +40,19 @@
 
 | Layer | Identifier | Semantics |
 | ----- | ----------- | --------- |
-| **Browser UI** | `sessionId` generated client-side (`sessao-…`) | Conversation key for `localStorage` + Supabase sync (`omniData`); **not** sent on `POST /chat` wire today. |
+| **Browser UI** | `sessionId` generated client-side (`sessao-…`) | Conversation key for `localStorage` + Supabase sync (`omniData`); may be sent as optional `client_session_id` on `POST /chat` (Phase 7). |
 | **Rust `AppState`** | `runtime_session_version` | Monotonic-ish epoch from `bootstrap_runtime_session()`; same value exposed on `/health` and now on **`ChatResponse.runtime_session_version`**. |
 | **`POST /chat` response** | `session_id` | **Placeholder** strings (`python-session`, `mock-session`) from subprocess / mock paths — **not** the UI session and not orchestrator store. |
 
 ### Mismatches
 
-- UI treats `session_id` from chat as optional hint; Rust does not accept `client_session_id` in JSON body (`ChatRequest` is `{ message }` only).
+- UI should not treat `session_id` from chat as the UI conversation id; optional `client_session_id` on the wire is the explicit client-owned correlation field (see [`chat-session-contract.md`](chat-session-contract.md)).
 - Orchestrator / Python session store is **not** propagated through `call_python` argv-only bridge.
 
 ### Target model (incremental)
 
 1. **Phase A (done in code):** Add **`runtime_session_version`** to every `ChatResponse` so the UI can correlate chat turns with the same epoch as `/health` / `GET /api/v1/status`.
-2. **Phase B (planned):** Extend `ChatRequest` with optional **`client_session_id: Option<String>`** (ignored by Python until stdin/contract supports it) for analytics only.
+2. **Phase B (Phase 7 — done):** `ChatRequest` accepts optional **`client_session_id`** (trimmed, max 256 chars); **not** passed to Python argv yet; echoed on `ChatResponse` when present for round-trip correlation.
 3. **Phase C (planned):** When Python returns structured JSON including a real `session_id`, Rust maps it into `ChatResponse.session_id` (replacing placeholders).
 
 ### Migration strategy
@@ -102,7 +102,7 @@ Frontend may keep calling `/internal/*` until v1 read models exist; **compatibil
 
 ## 6. Compatibility plan
 
-1. **`/chat`** — Request body unchanged (`{ "message" }`). Response **adds** `runtime_session_version` (default `0` if old clients deserialize elsewhere — JSON consumers ignore unknown keys).
+1. **`/chat`** — Request body: required `message`; optional `client_session_id` (additive). Legacy `{ "message" }` only remains valid. Response includes `runtime_session_version` and optionally echoes `client_session_id`.
 2. **`/health`** — Unchanged JSON shape.
 3. **`GET /api/v1/status`** — Additive; frontend can adopt in `lib/api` when ready without dropping `/health`.
 4. **`/internal/*`** — Unchanged; no removal in this phase.
@@ -114,6 +114,7 @@ Frontend may keep calling `/internal/*` until v1 read models exist; **compatibil
 **Request (`ChatRequest`)**
 
 - `message: string` (required, non-empty after trim)
+- `client_session_id: string` (optional) — opaque UI id; normalized server-side; **not** forwarded to Python subprocess yet
 
 **Response (`ChatResponse`)**
 
@@ -122,16 +123,18 @@ Frontend may keep calling `/internal/*` until v1 read models exist; **compatibil
 | `response` | Assistant text (extracted from Python stdout JSON keys `response` \| `message` \| `text` \| `answer`, or fallback string). |
 | `session_id` | Placeholder correlation id from Rust paths (`python-session` / `mock-session`); **not** UI session. |
 | `runtime_session_version` | Rust runtime epoch (matches `/health.runtime_session_version`). |
+| `client_session_id` | **Omitted** unless the client sent one on the request — then echoed unchanged (after normalization). |
 | `source` | `python-subprocess` \| `mock-env` \| etc. |
 | `matched_commands`, `matched_tools` | Currently empty on subprocess success path; mock may differ. |
 | `stop_reason` | e.g. `completed`, `mock_completed`. |
 | `usage` | Optional JSON; mock supplies sample token counts. |
 
-**Future request extensions (documented only):** optional `client_session_id` once Python + contract support exists.
+Full semantics: [`chat-session-contract.md`](chat-session-contract.md).
 
 ---
 
 ## 8. Related docs
 
+- [`docs/backend/chat-session-contract.md`](chat-session-contract.md)
 - [`docs/frontend/integration-matrix.md`](../frontend/integration-matrix.md)
 - [`docs/frontend/compatibility-layer.md`](../frontend/compatibility-layer.md)

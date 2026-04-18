@@ -39,6 +39,8 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     response,
     session_id:
       typeof record.session_id === 'string' ? record.session_id : undefined,
+    client_session_id:
+      typeof record.client_session_id === 'string' ? record.client_session_id : undefined,
     source: typeof record.source === 'string' ? record.source : undefined,
     matched_commands: Array.isArray(record.matched_commands)
       ? record.matched_commands.filter(

@@ -22,3 +22,11 @@ curl -Method POST "http://localhost:3001/chat" `
   -Body '{"message":"ola mundo"}'
 ```
 
+Optional UI correlation id (echoed on the JSON response when sent):
+
+```powershell
+curl -Method POST "http://localhost:3001/chat" `
+  -Headers @{ "Content-Type" = "application/json" } `
+  -Body '{"message":"ola mundo","client_session_id":"sessao-demo-1"}'
+```
+

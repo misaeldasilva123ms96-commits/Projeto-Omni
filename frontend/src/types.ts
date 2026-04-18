@@ -32,6 +32,8 @@ export type ChatMessage = {
 export type ChatApiResponse = {
   response: string
   session_id?: string
+  /** Echo of request `client_session_id` when the server returned it (Phase 7). */
+  client_session_id?: string
   source?: string
   matched_commands?: string[]
   matched_tools?: string[]

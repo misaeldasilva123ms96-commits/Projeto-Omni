@@ -42,7 +42,7 @@ This document tracks how the Omni frontend uses **stable public** HTTP surfaces 
 
 - **Chat → UI**
   - Wire: `ChatApiResponse.runtime_session_version` (optional).
-  - Parsing: `parseWireChatPayload` copies the field when present.
+  - Optional **`client_session_id`**: UI sends local `sessionId` via `sendOmniMessage` when set; Rust echoes it when present. `parseWireChatPayload` preserves the wire field. Correlation only — not a server session store.
   - UI model: `UiChatResponse.runtimeSessionVersion` via `chatApiResponseToUi`.
   - Persisted assistant metadata: `RuntimeMetadata.runtimeSessionVersion` via `normalizeMetadata` on `ChatPage`.
 
@@ -54,7 +54,7 @@ This document tracks how the Omni frontend uses **stable public** HTTP surfaces 
 | Area | Status |
 |------|--------|
 | Public runtime status for dashboard + cognitive rails | **Migrated** to `GET /api/v1/status`. |
-| `/chat` | **Unchanged** transport; optional `runtime_session_version` surfaced in UI metadata. |
+| `/chat` | Same path; optional `client_session_id` echo + `runtime_session_version` in wire/UI metadata. |
 | Internal telemetry blocks | **Still internal**; explicitly scoped in components. |
 | `/health` | **Available**, not removed; default UI paths prefer `/api/v1/status`. |
 | OIL / goals / simulation public APIs | **Not exposed**; future backend work. |

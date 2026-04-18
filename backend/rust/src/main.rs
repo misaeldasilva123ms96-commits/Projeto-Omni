@@ -44,19 +44,30 @@ struct AppState {
     supabase_auth: Arc<SupabaseAuthConfig>,
 }
 
+/// `POST /chat` JSON body. `message` is required; `client_session_id` is optional and not forwarded to Python yet
+/// (argv-only bridge). See `docs/backend/chat-session-contract.md`.
 #[derive(Debug, Deserialize)]
 struct ChatRequest {
     message: String,
+    /// Opaque UI-owned conversation key for logging/correlation; echoed on [`ChatResponse`] when present.
+    #[serde(default)]
+    client_session_id: Option<String>,
 }
 
+/// `POST /chat` JSON response. `session_id` remains a transport placeholder until Python returns a real orchestrator id.
+/// `runtime_session_version` is the Rust runtime epoch, not a user session. See `docs/backend/chat-session-contract.md`.
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatResponse {
     response: String,
+    /// Subprocess / mock path label — **not** the client conversation id today.
     session_id: String,
     source: String,
     /// Rust runtime session epoch; aligns chat envelope with `/health` and `GET /api/v1/status` (additive field).
     #[serde(default)]
     runtime_session_version: u32,
+    /// Echo of request `client_session_id` when the client sent one; omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    client_session_id: Option<String>,
     #[serde(default)]
     matched_commands: Vec<String>,
     #[serde(default)]
@@ -624,6 +635,25 @@ async fn pr_summaries(State(state): State<AppState>) -> (StatusCode, Json<PrSumm
     )
 }
 
+/// Normalizes optional client session id: trim, drop empty, cap length for safe logging/JSON size.
+fn normalize_client_session_id(raw: Option<String>) -> Option<String> {
+    const MAX_CHARS: usize = 256;
+    let inner = raw?;
+    let s = inner.trim().to_string();
+    if s.is_empty() {
+        return None;
+    }
+    if s.chars().count() > MAX_CHARS {
+        warn!(
+            len = s.chars().count(),
+            "client_session_id exceeded {MAX_CHARS} characters; truncating"
+        );
+        Some(s.chars().take(MAX_CHARS).collect())
+    } else {
+        Some(s)
+    }
+}
+
 async fn chat(
     State(state): State<AppState>,
     Json(payload): Json<ChatRequest>,
@@ -635,12 +665,15 @@ async fn chat(
         ));
     }
 
+    let client_session_id = normalize_client_session_id(payload.client_session_id);
+
     info!(
+        client_session_id = ?client_session_id,
         "processing /chat request with runtime session version {} and runtime_mode={}",
         state.runtime_session_version,
         state.runtime_mode
     );
-    let response = call_python(&state, &message).await?;
+    let response = call_python(&state, &message, client_session_id).await?;
     Ok((StatusCode::OK, Json(response)))
 }
 
@@ -696,12 +729,17 @@ fn extract_response_from_python_output(stdout: &str) -> String {
     }
 }
 
-fn build_python_fallback_response(state: &AppState, source: &str) -> ChatResponse {
+fn build_python_fallback_response(
+    state: &AppState,
+    source: &str,
+    client_session_id: Option<String>,
+) -> ChatResponse {
     ChatResponse {
         response: PYTHON_FALLBACK_RESPONSE.to_string(),
         session_id: "python-session".to_string(),
         source: source.to_string(),
         runtime_session_version: state.runtime_session_version,
+        client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("completed".to_string()),
@@ -709,10 +747,19 @@ fn build_python_fallback_response(state: &AppState, source: &str) -> ChatRespons
     }
 }
 
-async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, AppError> {
+async fn call_python(
+    state: &AppState,
+    message: &str,
+    client_session_id: Option<String>,
+) -> Result<ChatResponse, AppError> {
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
-        return Ok(build_mock_response(&state, message, "mock-env"));
+        return Ok(build_mock_response(
+            &state,
+            message,
+            "mock-env",
+            client_session_id,
+        ));
     }
 
     let mut command = Command::new(&state.python_bin);
@@ -729,7 +776,11 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             let message = format!("failed to spawn or await python subprocess: {err}");
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
-            return Ok(build_python_fallback_response(&state, "python-subprocess"));
+            return Ok(build_python_fallback_response(
+                &state,
+                "python-subprocess",
+                client_session_id.clone(),
+            ));
         }
         Err(_) => {
             let message = format!(
@@ -738,7 +789,11 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             );
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
-            return Ok(build_python_fallback_response(&state, "python-subprocess"));
+            return Ok(build_python_fallback_response(
+                &state,
+                "python-subprocess",
+                client_session_id.clone(),
+            ));
         }
     };
 
@@ -759,7 +814,11 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             Some(if stderr.is_empty() { message.clone() } else { stderr.clone() }),
         )
         .await;
-        return Ok(build_python_fallback_response(&state, "python-subprocess"));
+        return Ok(build_python_fallback_response(
+            &state,
+            "python-subprocess",
+            client_session_id.clone(),
+        ));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -773,7 +832,11 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
         let message = "python adapter returned empty stdout".to_string();
         warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
-        return Ok(build_python_fallback_response(&state, "python-subprocess"));
+        return Ok(build_python_fallback_response(
+            &state,
+            "python-subprocess",
+            client_session_id.clone(),
+        ));
     }
 
     update_python_health(state, "ready", None).await;
@@ -783,6 +846,7 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
         session_id: "python-session".to_string(),
         source: "python-subprocess".to_string(),
         runtime_session_version: state.runtime_session_version,
+        client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("completed".to_string()),
@@ -790,12 +854,18 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
     })
 }
 
-fn build_mock_response(state: &AppState, message: &str, source: &str) -> ChatResponse {
+fn build_mock_response(
+    state: &AppState,
+    message: &str,
+    source: &str,
+    client_session_id: Option<String>,
+) -> ChatResponse {
     ChatResponse {
         response: format!("Mock response from Rust backend: {message}"),
         session_id: "mock-session".to_string(),
         source: source.to_string(),
         runtime_session_version: state.runtime_session_version,
+        client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("mock_completed".to_string()),
@@ -879,7 +949,9 @@ mod tests {
             temp_script("print('{\"response\":\"ok from python\"}')\n", "success"),
             15_000,
         );
-        let response = call_python(&state, "hello").await.expect("python success");
+        let response = call_python(&state, "hello", None)
+            .await
+            .expect("python success");
         assert_eq!(response.response, "ok from python");
         assert_eq!(response.source, "python-subprocess");
     }
@@ -887,7 +959,9 @@ mod tests {
     #[tokio::test]
     async fn call_python_returns_timeout_fallback() {
         let state = build_test_state(temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"), 200);
-        let response = call_python(&state, "hello").await.expect("timeout fallback expected");
+        let response = call_python(&state, "hello", None)
+            .await
+            .expect("timeout fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
         assert_eq!(response.source, "python-subprocess");
     }
@@ -895,9 +969,28 @@ mod tests {
     #[tokio::test]
     async fn call_python_returns_stderr_fallback() {
         let state = build_test_state(temp_script("import sys\nsys.stderr.write('boom')\nprint('ignored')\n", "stderr"), 2_000);
-        let response = call_python(&state, "hello").await.expect("stderr fallback expected");
+        let response = call_python(&state, "hello", None)
+            .await
+            .expect("stderr fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
         assert_eq!(response.source, "python-subprocess");
+    }
+
+    #[test]
+    fn normalize_client_session_id_trims_and_drops_empty() {
+        assert_eq!(normalize_client_session_id(None), None);
+        assert_eq!(normalize_client_session_id(Some("   ".to_string())), None);
+        assert_eq!(
+            normalize_client_session_id(Some("  abc  ".to_string())),
+            Some("abc".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_client_session_id_truncates_long_strings() {
+        let long = "x".repeat(300);
+        let out = normalize_client_session_id(Some(long)).expect("truncated");
+        assert_eq!(out.chars().count(), 256);
     }
 }
 
