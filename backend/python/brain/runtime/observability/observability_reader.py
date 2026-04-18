@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from brain.runtime.control.governance_taxonomy import GovernanceReason
+from brain.runtime.experience.experience_store import ExperienceStore
+from brain.runtime.policy.performance_store import PerformanceStore
 from brain.runtime.evolution.evolution_program_closure import normalize_governed_evolution_summary
 
 from .engine_adoption_reader import read_engine_adoption
@@ -104,6 +107,14 @@ class ObservabilityReader:
 
         blocked_by_policy = [item for item in recent_resolution_events if _is_policy_block(item)]
 
+        phase41_summary = {
+            "experience_counts": ExperienceStore(self.root).snapshot_counts(),
+            "performance_top": PerformanceStore(self.root).top_buckets(limit=8),
+            "policy_active": str(os.getenv("OMINI_PHASE41_POLICY_ACTIVE", "")).strip().lower() in ("1", "true", "yes"),
+            "evolution_feed_enabled": str(os.getenv("OMINI_PHASE41_EVOLUTION_FEED", "")).strip().lower()
+            in ("1", "true", "yes"),
+        }
+
         return ObservabilitySnapshot(
             generated_at=utc_now_iso(),
             goal=goal,
@@ -152,6 +163,7 @@ class ObservabilityReader:
             latest_self_improving_system_trace=latest_self_improving_system_trace,
             recent_self_improving_system_traces=recent_self_improving_system_traces,
             warnings=[],
+            phase41=phase41_summary,
         )
 
     def goal_history(self, *, limit: int = 10) -> list[dict[str, object]]:

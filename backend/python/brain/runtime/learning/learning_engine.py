@@ -64,6 +64,7 @@ class LearningEngine:
         last_runtime_mode: str,
         safe_fallback_response: str,
         direct_memory_hit: bool,
+        feedback_bundle: dict[str, Any] | None = None,
     ) -> tuple[RuntimeLearningRecord, RuntimeLearningTrace]:
         try:
             return self._synthesize(
@@ -82,6 +83,7 @@ class LearningEngine:
                 last_runtime_mode=last_runtime_mode,
                 safe_fallback_response=safe_fallback_response,
                 direct_memory_hit=direct_memory_hit,
+                feedback_bundle=feedback_bundle,
             )
         except Exception as exc:
             return self._minimal_failure_record(
@@ -166,6 +168,7 @@ class LearningEngine:
         last_runtime_mode: str,
         safe_fallback_response: str,
         direct_memory_hit: bool,
+        feedback_bundle: dict[str, Any] | None = None,
     ) -> tuple[RuntimeLearningRecord, RuntimeLearningTrace]:
         _ = swarm_result
         signals: list[RuntimeFeedbackSignal] = []
@@ -351,6 +354,34 @@ class LearningEngine:
                 )
             )
 
+        if isinstance(feedback_bundle, dict) and feedback_bundle:
+            fb_cls = str(feedback_bundle.get("feedback_class", "") or "")
+            fb_src = str(feedback_bundle.get("feedback_source", "") or "")
+            if fb_cls == "negative":
+                signals.append(
+                    RuntimeFeedbackSignal(
+                        signal_id=f"{rid}-sr-fb41",
+                        signal_type="phase41_user_feedback",
+                        source_stage=RuntimeLearningStage.RUNTIME,
+                        polarity=SignalPolarity.NEGATIVE,
+                        summary="User or implicit feedback indicated dissatisfaction.",
+                        weight=0.35,
+                        evidence={"feedback_class": fb_cls, "feedback_source": fb_src},
+                    )
+                )
+            elif fb_cls == "positive":
+                signals.append(
+                    RuntimeFeedbackSignal(
+                        signal_id=f"{rid}-sr-fb41",
+                        signal_type="phase41_user_feedback",
+                        source_stage=RuntimeLearningStage.RUNTIME,
+                        polarity=SignalPolarity.POSITIVE,
+                        summary="User or implicit feedback indicated satisfaction.",
+                        weight=0.25,
+                        evidence={"feedback_class": fb_cls, "feedback_source": fb_src},
+                    )
+                )
+
         neg = sum(1 for s in signals if s.polarity == SignalPolarity.NEGATIVE)
         pos = sum(1 for s in signals if s.polarity == SignalPolarity.POSITIVE)
         mix = sum(1 for s in signals if s.polarity == SignalPolarity.MIXED)
@@ -382,6 +413,19 @@ class LearningEngine:
         )
 
         reasoning_tid = _trace_id_from_handoff(reasoning_payload)
+        fb_meta: dict[str, Any] = {}
+        if isinstance(feedback_bundle, dict) and feedback_bundle:
+            fb_meta["phase41_feedback"] = {
+                "feedback_class": str(feedback_bundle.get("feedback_class", "") or "")[:32],
+                "feedback_source": str(feedback_bundle.get("feedback_source", "") or "")[:16],
+                "implicit_tags": feedback_bundle.get("implicit_tags")
+                if isinstance(feedback_bundle.get("implicit_tags"), list)
+                else [],
+                "explicit": feedback_bundle.get("explicit")
+                if isinstance(feedback_bundle.get("explicit"), dict)
+                else {},
+            }
+
         record = RuntimeLearningRecord(
             record_id=rid,
             session_id=session_id,
@@ -393,7 +437,7 @@ class LearningEngine:
             signals=signals,
             summary=summary,
             persisted=False,
-            metadata={"phase": "34", "message_preview": message[:120]},
+            metadata={"phase": "34", "message_preview": message[:120], **fb_meta},
         )
 
         persisted = self._store.append_record(record.as_dict())

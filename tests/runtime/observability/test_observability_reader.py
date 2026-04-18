@@ -463,6 +463,9 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertGreaterEqual(len(snapshot.recent_self_improving_system_traces), 1)
                 self.assertIn('latest_self_improving_system_trace', snap_dict)
                 self.assertIn('recent_self_improving_system_traces', snap_dict)
+                self.assertIn('phase41', snap_dict)
+                self.assertIn('experience_counts', snap_dict['phase41'])
+                self.assertIn('performance_top', snap_dict['phase41'])
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -478,3 +481,4 @@ class ObservabilityReaderTest(unittest.TestCase):
             self.assertIn('active_runs', payload['snapshot'])
             self.assertIn('governance_summary', payload['snapshot'])
             self.assertIn('resolution_counts', payload['snapshot'])
+            self.assertIn('phase41', payload['snapshot'])

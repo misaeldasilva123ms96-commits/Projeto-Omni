@@ -165,7 +165,7 @@ def main() -> int:
     message, bridge = resolve_entry_message()
     apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
-    raw_response = orchestrator.run(message)
+    raw_response = orchestrator.run(message, bridge=bridge)
     LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
     safe_response = sanitize_for_user(raw_response)
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
