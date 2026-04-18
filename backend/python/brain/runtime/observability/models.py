@@ -258,6 +258,7 @@ class ObservabilitySnapshot:
     latest_self_improving_system_trace: dict[str, Any] | None = None
     recent_self_improving_system_traces: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    phase41: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         governed_evolution = dict(self.governed_evolution or {})
@@ -347,4 +348,5 @@ class ObservabilitySnapshot:
             ),
             "recent_self_improving_system_traces": [dict(item) for item in self.recent_self_improving_system_traces],
             "warnings": list(self.warnings),
+            "phase41": dict(self.phase41) if isinstance(self.phase41, dict) else {},
         }

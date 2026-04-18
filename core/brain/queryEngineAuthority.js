@@ -252,6 +252,26 @@ function absolutizeToolArguments(workspace, selectedTool, toolArguments, useRela
   return args;
 }
 
+/**
+ * Bounded Phase 41 policy hint from Python subprocess env (active mode only).
+ * Returns a logical provider id or empty string when absent/invalid.
+ */
+function readPolicyPreferredProvider() {
+  try {
+    const raw = process.env.OMNI_POLICY_HINT_JSON;
+    if (!raw || !String(raw).trim()) {
+      return '';
+    }
+    const hint = JSON.parse(String(raw));
+    if (!hint || typeof hint !== 'object') {
+      return '';
+    }
+    return String(hint.recommended_provider || '').trim().toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
 function buildActionAudit(workspace, delegation) {
   return {
     source_map: getFusionSourceMap(workspace),
@@ -291,7 +311,7 @@ class QueryEngineAuthority {
     const actionIdBase = randomUUID();
     const intent = inferIntent(message);
     const complexity = inferComplexity(message);
-    const provider = chooseProvider({ complexity });
+    const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });

@@ -85,6 +85,14 @@ from brain.runtime.telemetry.supabase_tool_events import (
 )
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
+from config.provider_registry import get_available_providers
+from brain.runtime.experience.experience_builder import build_experience_record
+from brain.runtime.experience.experience_store import ExperienceStore
+from brain.runtime.feedback.feedback_models import combine_feedback
+from brain.runtime.feedback.signals import derive_implicit_signals, parse_explicit_feedback
+from brain.runtime.learning.runtime_learning_models import OutcomeClass
+from brain.runtime.policy.performance_store import PerformanceStore
+from brain.runtime.policy.policy_router import PolicyRouter
 
 
 SAFE_FALLBACK_RESPONSE = "Nao consegui processar isso ainda, mas estou aprendendo."
@@ -303,6 +311,12 @@ class BrainOrchestrator:
         self.planning_engine = PlanningEngine()
         self.runtime_learning_engine = LearningEngine(self.paths.root)
         self.strategy_engine = StrategyEngine(self.paths.root)
+        self.experience_store = ExperienceStore(paths.root)
+        self.performance_store = PerformanceStore(paths.root)
+        self.policy_router = PolicyRouter(paths.root, performance_store=self.performance_store)
+        self._pending_policy_hint_json: str | None = None
+        self._runtime_bridge: dict[str, Any] = {}
+        self._last_phase41_policy_hint: dict[str, Any] | None = None
         self.performance_engine = PerformanceEngine()
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
@@ -433,7 +447,10 @@ class BrainOrchestrator:
         )
         return response
 
-    def run(self, message: str) -> str:
+    def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
+        self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
+        self._pending_policy_hint_json = None
+        self._last_phase41_policy_hint = None
         self.last_cognitive_runtime_inspection = None
         self._last_node_cognitive_hint = None
         self.last_runtime_mode = self._selected_runtime_mode()
@@ -967,6 +984,39 @@ class BrainOrchestrator:
         }
 
         if not direct_response:
+            recent_exp = self.experience_store.read_recent_for_session(session_id, limit=12)
+            avail = get_available_providers()
+            baseline = (avail[0] if avail else None) or None
+            strat_mode = None
+            if isinstance(strategy_payload, dict):
+                ss = strategy_payload.get("selected_strategy")
+                if isinstance(ss, dict):
+                    strat_mode = str(ss.get("mode", "") or "").strip() or None
+            hint = self.policy_router.compute_hint(
+                session_id=session_id,
+                normalized_intent=str(predicted_intent or "unknown")[:256],
+                baseline_provider=baseline,
+                strategy_mode=strat_mode,
+                recent_experience_rows=recent_exp,
+            )
+            self._last_phase41_policy_hint = hint.as_dict()
+            if str(os.getenv("OMINI_PHASE41_POLICY_LOG", "1")).strip().lower() not in ("0", "false", "no", "off"):
+                self._append_runtime_event(
+                    event_type="runtime.phase41.policy_shadow",
+                    session_id=session_id,
+                    task_id="",
+                    run_id="",
+                    payload={
+                        "baseline_provider": hint.baseline_provider,
+                        "recommended_provider": hint.recommended_provider,
+                        "recommended_strategy": hint.recommended_strategy,
+                        "confidence": hint.confidence,
+                        "policy_reason_codes": hint.policy_reason_codes,
+                        "shadow_only": hint.shadow_only,
+                    },
+                )
+            self._pending_policy_hint_json = self.policy_router.hint_to_env_json(hint)
+
             budget_dict = self._budget_to_dict(context_budget)
             retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
             pcache = phase39_tuning.get("performance_max_cache_entries")
@@ -1059,6 +1109,18 @@ class BrainOrchestrator:
                 details={"message_preview": message[:120]},
             )
 
+        hist_fb = memory_store.get("history", [])
+        if not isinstance(hist_fb, list):
+            hist_fb = []
+        br_fb = self._runtime_bridge
+        fb_raw_turn = parse_explicit_feedback(br_fb.get("feedback") if isinstance(br_fb.get("feedback"), dict) else None)
+        if fb_raw_turn is None and isinstance(br_fb, dict):
+            cc_fb = br_fb.get("client_context")
+            if isinstance(cc_fb, dict) and isinstance(cc_fb.get("feedback"), dict):
+                fb_raw_turn = parse_explicit_feedback(cc_fb.get("feedback"))
+        implicit_tags_turn = derive_implicit_signals(message=runtime_message, history=hist_fb)
+        phase41_feedback_bundle = combine_feedback(fb_raw_turn, implicit_tags_turn)
+
         evaluation = self.evaluator.evaluate(
             session_id=session_id,
             message=message,
@@ -1082,6 +1144,7 @@ class BrainOrchestrator:
             last_runtime_mode=str(self.last_runtime_mode or ""),
             safe_fallback_response=SAFE_FALLBACK_RESPONSE,
             direct_memory_hit=bool(direct_response),
+            feedback_bundle=phase41_feedback_bundle.as_dict(),
         )
         learning_payload = {
             "learning_record": learning_record.as_dict(),
@@ -1093,6 +1156,53 @@ class BrainOrchestrator:
             task_id="",
             run_id="",
             payload=dict(learning_payload),
+        )
+
+        success_turn = learning_record.assessment.outcome_class == OutcomeClass.SUCCESS
+        q_over = evaluation.get("overall")
+        q_score = float(q_over) if isinstance(q_over, (int, float)) else None
+        err_cls = str(self.last_runtime_reason or "")
+        fb_used = (self.last_runtime_mode == "fallback") or (response.strip() == SAFE_FALLBACK_RESPONSE.strip())
+        ag_summary = ""
+        trace_list = swarm_result.get("agent_trace")
+        if isinstance(trace_list, list):
+            parts: list[str] = []
+            for x in trace_list[:12]:
+                if not isinstance(x, dict):
+                    continue
+                parts.append(str(x.get("agent") or x.get("role") or x.get("step") or "step")[:40])
+            ag_summary = ";".join(parts)
+        exp_rec = build_experience_record(
+            session_id=session_id,
+            user_input=message,
+            normalized_intent=str(swarm_result.get("intent", predicted_intent)),
+            swarm_result=dict(swarm_result),
+            strategy_payload=dict(strategy_payload),
+            latency_ms=duration_ms,
+            fallback_used=fb_used,
+            error_class=err_cls,
+            response_quality_score=q_score,
+            feedback=phase41_feedback_bundle,
+            success_outcome=success_turn,
+            learning_summary=str(learning_record.summary.headline or "")[:2000],
+            agent_trace_summary=ag_summary,
+            cost_estimate=None,
+        )
+        self.experience_store.append(exp_rec)
+        self.performance_store.update_from_experience_row(exp_rec.as_dict())
+        self._append_runtime_event(
+            event_type="runtime.phase41.experience_record",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "experience_id": exp_rec.experience_id,
+                "turn_id": exp_rec.turn_id,
+                "normalized_intent": exp_rec.normalized_intent,
+                "success_outcome": exp_rec.success_outcome,
+                "feedback_source": exp_rec.feedback_source,
+                "feedback_class": exp_rec.feedback_class,
+            },
         )
 
         evidence_bundle: dict[str, Any] = {}
@@ -1108,6 +1218,14 @@ class BrainOrchestrator:
                 "planning_trace": planning_payload.get("planning_trace"),
                 "last_runtime_reason": str(self.last_runtime_reason or ""),
                 "duration_ms": duration_ms,
+                "phase41": {
+                    "feedback_source": phase41_feedback_bundle.feedback_source,
+                    "feedback_class": phase41_feedback_bundle.feedback_class,
+                    "policy_hint": dict(self._last_phase41_policy_hint)
+                    if isinstance(self._last_phase41_policy_hint, dict)
+                    else self._last_phase41_policy_hint,
+                    "experience_id": exp_rec.experience_id,
+                },
             }
             phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
             controlled_evolution_payload = self.controlled_evolution_engine.evaluate_turn(
@@ -1216,6 +1334,12 @@ class BrainOrchestrator:
             "self_improving_system": dict(self_improving_system_trace),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
+            "phase41": {
+                "last_experience_id": exp_rec.experience_id,
+                "feedback": phase41_feedback_bundle.as_dict(),
+                "policy_hint": self._last_phase41_policy_hint,
+                "experience_count_session": self.experience_store.session_record_count(session_id),
+            },
         }
         self.session_store.save(session_id, session_payload)
         return self._emit_cognitive_runtime_inspection(
@@ -1791,6 +1915,10 @@ class BrainOrchestrator:
         env, selection = self.js_runtime_adapter.build_env()
         env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
         env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
+        hint_json = getattr(self, "_pending_policy_hint_json", None)
+        if isinstance(hint_json, str) and hint_json.strip():
+            env["OMNI_POLICY_HINT_JSON"] = hint_json.strip()
+        self._pending_policy_hint_json = None
         return env
 
     def _resolve_node_command_context(self, payload: str) -> dict[str, Any]:
