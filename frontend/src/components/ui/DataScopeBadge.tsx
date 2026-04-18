@@ -1,8 +1,9 @@
-export type DataScopeVariant = 'live' | 'internal' | 'protected' | 'future'
+export type DataScopeVariant = 'live' | 'internal' | 'operator' | 'protected' | 'future'
 
 const COPY: Record<DataScopeVariant, string> = {
   live: 'Live runtime',
   internal: 'Internal telemetry',
+  operator: 'Operator (JWT)',
   protected: 'Protected',
   future: 'Future module',
 }

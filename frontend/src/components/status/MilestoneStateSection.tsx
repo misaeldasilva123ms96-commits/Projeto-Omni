@@ -1,3 +1,4 @@
+import type { RichTelemetryDetailSource } from '../../types/api/wire'
 import type { MilestonesResponse, PrSummariesResponse } from '../../types/api/wire'
 import type { UiMilestonesSummary } from '../../types/ui/telemetry'
 import { MetricRow } from '../ui/MetricRow'
@@ -7,10 +8,16 @@ import { CognitiveSectionHeader } from './CognitiveSectionHeader'
 export type MilestoneStateSectionProps = {
   publicMilestonesSummary: UiMilestonesSummary | null
   milestones: MilestonesResponse | null
+  milestonesDetailSource: RichTelemetryDetailSource | null
   prSummaries: PrSummariesResponse | null
 }
 
-export function MilestoneStateSection({ publicMilestonesSummary, milestones, prSummaries }: MilestoneStateSectionProps) {
+export function MilestoneStateSection({
+  publicMilestonesSummary,
+  milestones,
+  milestonesDetailSource,
+  prSummaries,
+}: MilestoneStateSectionProps) {
   const ms = milestones?.milestone_state
 
   return (
@@ -23,7 +30,10 @@ export function MilestoneStateSection({ publicMilestonesSummary, milestones, prS
         <MetricRow label="Patch sets" value={String(publicMilestonesSummary?.patchSetCount ?? 0)} />
         <MetricRow label="Checkpoint" value={publicMilestonesSummary?.checkpointStatus ?? '—'} />
       </div>
-      <CognitiveSectionHeader scope="internal" title="Milestone detail (internal)" />
+      <CognitiveSectionHeader
+        scope={milestonesDetailSource === 'operator' ? 'operator' : 'internal'}
+        title={milestonesDetailSource === 'operator' ? 'Milestone detail (operator)' : 'Milestone detail (internal)'}
+      />
       <div className="status-grid">
         <MetricRow
           label="Milestone records"

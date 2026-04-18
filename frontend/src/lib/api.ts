@@ -2,7 +2,13 @@
  * Omni HTTP API — barrel re-exports (Phase 2 modular layout).
  * Prefer importing from `lib/api/<domain>` in new code.
  */
-export { REQUEST_TIMEOUT_MS, fetchWithTimeout, getJson, getSupabaseAuthHeaders } from './api/client'
+export {
+  REQUEST_TIMEOUT_MS,
+  fetchWithTimeout,
+  getJson,
+  getJsonWithAuth,
+  getSupabaseAuthHeaders,
+} from './api/client'
 export type { ChatClientContext } from './api/chat'
 export { sendOmniMessage } from './api/chat'
 export { fetchHealth } from './api/health'
@@ -13,6 +19,7 @@ export {
   fetchPublicRuntimeSignalsSummaryV1,
   fetchPublicRuntimeStatusV1,
   fetchPublicStrategySummaryV1,
+  loadCognitiveTelemetryBundle,
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
