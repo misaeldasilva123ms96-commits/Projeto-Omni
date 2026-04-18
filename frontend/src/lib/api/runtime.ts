@@ -1,6 +1,6 @@
 /**
- * Runtime telemetry: public v1 summaries (`/api/v1/*/summary`, `/api/v1/status`) and internal reads (`/internal/*`).
- * See `docs/frontend/telemetry-migration-status.md` and `docs/frontend/integration-matrix.md`.
+ * Runtime telemetry: public v1 summary HTTP routes, GET /api/v1/status, and GET /internal/... reads.
+ * See docs/frontend/telemetry-migration-status.md and docs/frontend/integration-matrix.md.
  */
 import type {
   MilestonesResponse,
