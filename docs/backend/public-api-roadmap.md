@@ -11,6 +11,9 @@
 | ----- | ------ | ----- | ---------- | ------------- |
 | `/health` | GET | **Public** | None | Frontend dashboard, chat cognitive rail, operators |
 | `/api/v1/status` | GET | **Public (v1)** | None | New stable surface; subset of `/health` (no paths) |
+| `/api/v1/runtime/signals/summary` | GET | **Public (v1)** | None | Reduced runtime telemetry (Phase 8); frontend may adopt next |
+| `/api/v1/milestones/summary` | GET | **Public (v1)** | None | Reduced milestone checkpoint summary (Phase 8) |
+| `/api/v1/strategy/summary` | GET | **Public (v1)** | None | Reduced strategy file summary (Phase 8) |
 | `/chat` | POST | **Public (legacy user)** | None | Primary chat UI |
 | `/internal/runtime-signals` | GET | **Internal** | None | Dashboard, chat cognitive rail |
 | `/internal/swarm-log` | GET | **Internal** | None | Dashboard, chat cognitive rail |
@@ -30,7 +33,7 @@
 
 **Legacy public:** `/chat` and `/health` predate `/api/v1/*`; they remain stable compatibility endpoints.
 
-**Candidates for versioned public API:** `/health` (superseded in product copy by `/api/v1/status` for minimal fields), internal read-models (signals, milestones) **after** auth + schema hardening.
+**Candidates for versioned public API:** `/health` (superseded in product copy by `/api/v1/status` for minimal fields), internal read-models (signals, milestones) **after** auth + schema hardening. **Phase 8:** first **summary** read models ship under `/api/v1/*/summary` (see [Public telemetry wave 1](#public-telemetry-wave-1) and [`public-telemetry-contracts.md`](public-telemetry-contracts.md)).
 
 ---
 
@@ -67,11 +70,26 @@
 | Path | Method | Auth | Response / contract | Backing source | Maturity |
 | ---- | ------ | ----- | --------------------- | ---------------- | -------- |
 | `/api/v1/status` | GET | None | `PublicStatusResponseV1` (`api_version`, `status`, `runtime_mode`, `rust_service`, `python_status`, `node_status`, `runtime_session_version`, `timestamp_ms`) | Same logic as `/health` | **Implemented** |
-| `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events | `.logs/fusion-runtime/*.jsonl` | **Planned** — blocked on auth + payload review |
+| `/api/v1/runtime/signals/summary` | GET | None | `PublicRuntimeSignalsSummaryV1` — counts + latest run labels + truncated message preview | Same files as `/internal/runtime-signals` (bounded reads) | **Implemented** (Phase 8) |
+| `/api/v1/milestones/summary` | GET | None | `PublicMilestonesSummaryV1` — counts + checkpoint status string | Same derivation as `/internal/milestones` | **Implemented** (Phase 8) |
+| `/api/v1/strategy/summary` | GET | None | `PublicStrategySummaryV1` — version, change log size, optional `create_plan` weight | Same files as `/internal/strategy-state` | **Implemented** (Phase 8) |
+| `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events (full feed) | `.logs/fusion-runtime/*.jsonl` | **Planned** — blocked on auth + payload review |
 | `/api/v1/goals` | GET | TBD | — | Python goal store | **Blocked** — no safe HTTP mapping yet |
 | `/api/v1/simulation/routes` | GET | TBD | — | Simulation reader | **Blocked** |
 | `/api/v1/evolution/metrics` | GET | TBD | — | Evolution pipeline | **Blocked** |
 | `/api/v1/oil/reason` | POST | TBD | OIL envelope | Python OIL | **Planned / high risk** — see §4 |
+
+## Public telemetry wave 1
+
+Additive **summary** endpoints (Phase 8) so product UIs can migrate off raw `/internal/*` **without** receiving full internal JSON. Full contracts and redaction rules: [`public-telemetry-contracts.md`](public-telemetry-contracts.md).
+
+| Source internal | Public path | Safety / reduction | Maturity |
+| ----------------- | ----------- | ------------------- | -------- |
+| `GET /internal/runtime-signals` | `GET /api/v1/runtime/signals/summary` | No raw audit rows; bounded 20-line sample for counts only; latest run id / plan kind / 200-char message preview only. | **Implemented** |
+| `GET /internal/milestones` | `GET /api/v1/milestones/summary` | No `milestone_state` blobs, patch bodies, or `execution_state`; scalar counts + checkpoint status string. | **Implemented** |
+| `GET /internal/strategy-state` | `GET /api/v1/strategy/summary` | No full `strategy_state` or `recent_changes` entries; version + capped change-array length + single numeric weight. | **Implemented** |
+| `GET /internal/swarm-log` | TBD (`/api/v1/swarm/summary` or similar) | Events are unstructured `Value` — need schema + redaction before any public path. | **Blocked** |
+| `GET /internal/pr-summaries` | TBD | PR / merge payloads need product review before public exposure. | **Blocked** |
 
 ---
 
@@ -91,12 +109,12 @@
 
 | Internal route | Risk | Migration |
 | -------------- | ---- | --------- |
-| `runtime-signals` | High cardinality JSON from logs | Move to `/api/v1/runtime/signals` with auth + optional field allowlist |
-| `swarm-log` | File-backed | Same pattern |
-| `strategy-state` | May contain sensitive tuning | Protected read model |
-| `milestones` / `pr-summaries` | Engineering artifacts | Protected or scoped JWT |
+| `runtime-signals` | High cardinality JSON from logs | **Wave 1:** `GET /api/v1/runtime/signals/summary` for safe headline metrics; full feed still → future `/api/v1/runtime/signals` + auth |
+| `swarm-log` | File-backed | Same pattern; no public summary yet |
+| `strategy-state` | May contain sensitive tuning | **Wave 1:** `GET /api/v1/strategy/summary` exposes minimal scalars only; full blob stays internal until reviewed |
+| `milestones` / `pr-summaries` | Engineering artifacts | **Wave 1:** `GET /api/v1/milestones/summary` for counts; PR summaries remain internal |
 
-Frontend may keep calling `/internal/*` until v1 read models exist; **compatibility** is preserved.
+Frontend may keep calling `/internal/*`; **compatibility** is preserved. New `/api/v1/*/summary` routes are optional adopters.
 
 ---
 
@@ -105,7 +123,8 @@ Frontend may keep calling `/internal/*` until v1 read models exist; **compatibil
 1. **`/chat`** — Request body: required `message`; optional `client_session_id` (additive). Legacy `{ "message" }` only remains valid. Response includes `runtime_session_version` and optionally echoes `client_session_id`.
 2. **`/health`** — Unchanged JSON shape.
 3. **`GET /api/v1/status`** — Additive; frontend can adopt in `lib/api` when ready without dropping `/health`.
-4. **`/internal/*`** — Unchanged; no removal in this phase.
+4. **`GET /api/v1/*/summary` (telemetry wave 1)** — Additive public summaries; frontend unchanged in Phase 8.
+5. **`/internal/*`** — Unchanged; no removal in this phase.
 
 ---
 
@@ -136,5 +155,6 @@ Full semantics: [`chat-session-contract.md`](chat-session-contract.md).
 ## 8. Related docs
 
 - [`docs/backend/chat-session-contract.md`](chat-session-contract.md)
+- [`docs/backend/public-telemetry-contracts.md`](public-telemetry-contracts.md)
 - [`docs/frontend/integration-matrix.md`](../frontend/integration-matrix.md)
 - [`docs/frontend/compatibility-layer.md`](../frontend/compatibility-layer.md)
