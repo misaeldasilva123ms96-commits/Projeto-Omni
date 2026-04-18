@@ -82,4 +82,26 @@ export async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** Authenticated GET JSON (e.g. operator telemetry). Caller supplies `Authorization` from `getSupabaseAuthHeaders`. */
+export async function getJsonWithAuth<T>(
+  path: string,
+  authHeaders: Record<string, string>,
+): Promise<T> {
+  if (!API_BASE_URL) {
+    throw buildConfigurationError()
+  }
+
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
+    headers: {
+      Accept: 'application/json',
+      ...authHeaders,
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<T>
+}
+
 export { API_BASE_URL, API_CONFIGURATION_ERROR }

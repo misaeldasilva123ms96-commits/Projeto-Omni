@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchMilestones,
-  fetchPrSummaries,
-  fetchPublicMilestonesSummaryV1,
-  fetchPublicRuntimeSignalsSummaryV1,
-  fetchPublicRuntimeStatusV1,
-  fetchPublicStrategySummaryV1,
-  fetchRuntimeSignals,
-  fetchStrategyState,
-  fetchSwarmLog,
+  loadCognitiveTelemetryBundle,
   publicMilestonesSummaryV1ToUi,
   publicRuntimeSignalsSummaryV1ToUi,
   publicStrategySummaryV1ToUi,
@@ -17,6 +9,7 @@ import type {
   MilestonesResponse,
   PrSummariesResponse,
   PublicStatusResponseV1,
+  RichTelemetryDetailSource,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
@@ -37,6 +30,10 @@ export type CognitiveTelemetryState = {
   runtimeSignals: RuntimeSignalsResponse | null
   strategyState: StrategyStateResponse | null
   swarmLog: SwarmLogResponse | null
+  /** Provenance for richer rows (operator JWT vs legacy internal). */
+  runtimeSignalsSource: RichTelemetryDetailSource | null
+  strategyStateSource: RichTelemetryDetailSource | null
+  milestonesSource: RichTelemetryDetailSource | null
   loading: boolean
   error: string | null
 }
@@ -51,6 +48,9 @@ const EMPTY: CognitiveTelemetryState = {
   runtimeSignals: null,
   strategyState: null,
   swarmLog: null,
+  runtimeSignalsSource: null,
+  strategyStateSource: null,
+  milestonesSource: null,
   loading: false,
   error: null,
 }
@@ -71,42 +71,24 @@ export function useCognitiveTelemetry(apiReady: boolean, refreshToken: number | 
     let cancelled = false
     setState((previous) => ({ ...previous, loading: true, error: null }))
 
-    Promise.all([
-      fetchPublicRuntimeStatusV1(),
-      fetchPublicRuntimeSignalsSummaryV1(),
-      fetchPublicMilestonesSummaryV1(),
-      fetchPublicStrategySummaryV1(),
-      fetchRuntimeSignals(),
-      fetchSwarmLog(),
-      fetchStrategyState(),
-      fetchMilestones(),
-      fetchPrSummaries(),
-    ])
-      .then(
-        ([
-          publicRuntime,
-          publicSignalsWire,
-          publicMilestonesWire,
-          publicStrategyWire,
-          runtimeSignals,
-          swarmLog,
-          strategyState,
-          milestones,
-          prSummaries,
-        ]) => {
+    loadCognitiveTelemetryBundle()
+      .then((bundle) => {
           if (cancelled) {
             return
           }
           setState({
-            publicRuntime,
-            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(publicSignalsWire),
-            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(publicMilestonesWire),
-            publicStrategySummary: publicStrategySummaryV1ToUi(publicStrategyWire),
-            milestones,
-            prSummaries,
-            runtimeSignals,
-            strategyState,
-            swarmLog,
+            publicRuntime: bundle.publicRuntime,
+            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(bundle.publicSignalsWire),
+            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(bundle.publicMilestonesWire),
+            publicStrategySummary: publicStrategySummaryV1ToUi(bundle.publicStrategyWire),
+            milestones: bundle.milestones,
+            prSummaries: bundle.prSummaries,
+            runtimeSignals: bundle.runtimeSignals,
+            strategyState: bundle.strategyState,
+            swarmLog: bundle.swarmLog,
+            runtimeSignalsSource: bundle.runtimeSignalsSource,
+            strategyStateSource: bundle.strategyStateSource,
+            milestonesSource: bundle.milestonesSource,
             loading: false,
             error: null,
           })

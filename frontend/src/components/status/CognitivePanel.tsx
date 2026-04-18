@@ -45,9 +45,9 @@ export function CognitivePanel({
   const telemetryHint = useMemo(
     () => (
       <p className="cognitive-trust-hint muted-copy">
-        Seções abaixo usam fontes reais: <strong>/api/v1/status</strong>, resumos{' '}
-        <strong>/api/v1/*/summary</strong>, detalhe <strong>/internal/*</strong> onde ainda necessário, e snapshot
-        protegido quando autenticado.
+        Seções abaixo usam fontes reais: <strong>/api/v1/status</strong>, resumos <strong>/api/v1/*/summary</strong>,
+        {' '}detalhe <strong>/api/v1/operator/*</strong> quando há sessão Supabase, senão <strong>/internal/*</strong>,
+        {' '}e snapshot protegido quando autenticado.
       </p>
     ),
     [],
@@ -82,14 +82,20 @@ export function CognitivePanel({
           />
           <StrategyStateSection
             publicStrategySummary={telemetry.publicStrategySummary}
+            strategyDetailSource={telemetry.strategyStateSource}
             strategyState={telemetry.strategyState}
           />
           <MilestoneStateSection
             milestones={telemetry.milestones}
+            milestonesDetailSource={telemetry.milestonesSource}
             prSummaries={telemetry.prSummaries}
             publicMilestonesSummary={telemetry.publicMilestonesSummary}
           />
-          <ExecutionSignalsSection runtimeSignals={telemetry.runtimeSignals} swarmLog={telemetry.swarmLog} />
+          <ExecutionSignalsSection
+            runtimeSignals={telemetry.runtimeSignals}
+            runtimeSignalsSource={telemetry.runtimeSignalsSource}
+            swarmLog={telemetry.swarmLog}
+          />
           <ObservabilitySummarySection
             canRequest={observabilityCanRequest}
             error={observabilityError}

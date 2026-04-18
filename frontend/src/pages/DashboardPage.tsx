@@ -4,15 +4,7 @@ import { SignalList } from '../components/dashboard/SignalList'
 import { AppShell } from '../components/layout/AppShell'
 import { Sidebar } from '../components/layout/Sidebar'
 import {
-  fetchMilestones,
-  fetchPrSummaries,
-  fetchPublicMilestonesSummaryV1,
-  fetchPublicRuntimeSignalsSummaryV1,
-  fetchPublicRuntimeStatusV1,
-  fetchPublicStrategySummaryV1,
-  fetchRuntimeSignals,
-  fetchStrategyState,
-  fetchSwarmLog,
+  loadCognitiveTelemetryBundle,
   publicMilestonesSummaryV1ToUi,
   publicRuntimeSignalsSummaryV1ToUi,
   publicStrategySummaryV1ToUi,
@@ -28,6 +20,7 @@ import type {
   MilestonesResponse,
   PrSummariesResponse,
   PublicStatusResponseV1,
+  RichTelemetryDetailSource,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
@@ -49,9 +42,12 @@ type DashboardState = {
   publicMilestonesSummary: UiMilestonesSummary | null
   publicStrategySummary: UiStrategySummary | null
   milestones: MilestonesResponse | null
+  milestonesSource: RichTelemetryDetailSource | null
   prSummaries: PrSummariesResponse | null
   runtimeSignals: RuntimeSignalsResponse | null
+  runtimeSignalsSource: RichTelemetryDetailSource | null
   strategyState: StrategyStateResponse | null
+  strategyStateSource: RichTelemetryDetailSource | null
   swarmLog: SwarmLogResponse | null
 }
 
@@ -61,9 +57,12 @@ const EMPTY_STATE: DashboardState = {
   publicMilestonesSummary: null,
   publicStrategySummary: null,
   milestones: null,
+  milestonesSource: null,
   prSummaries: null,
   runtimeSignals: null,
+  runtimeSignalsSource: null,
   strategyState: null,
+  strategyStateSource: null,
   swarmLog: null,
 }
 
@@ -89,42 +88,24 @@ export function DashboardPage({
     setLoading(true)
     setError(null)
 
-    Promise.all([
-      fetchPublicRuntimeStatusV1(),
-      fetchPublicRuntimeSignalsSummaryV1(),
-      fetchPublicMilestonesSummaryV1(),
-      fetchPublicStrategySummaryV1(),
-      fetchRuntimeSignals(),
-      fetchSwarmLog(),
-      fetchStrategyState(),
-      fetchMilestones(),
-      fetchPrSummaries(),
-    ])
-      .then(
-        ([
-          publicRuntime,
-          publicSignalsWire,
-          publicMilestonesWire,
-          publicStrategyWire,
-          runtimeSignals,
-          swarmLog,
-          strategyState,
-          milestones,
-          prSummaries,
-        ]) => {
+    loadCognitiveTelemetryBundle()
+      .then((bundle) => {
           if (cancelled) {
             return
           }
           setData({
-            publicRuntime,
-            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(publicSignalsWire),
-            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(publicMilestonesWire),
-            publicStrategySummary: publicStrategySummaryV1ToUi(publicStrategyWire),
-            milestones,
-            prSummaries,
-            runtimeSignals,
-            strategyState,
-            swarmLog,
+            publicRuntime: bundle.publicRuntime,
+            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(bundle.publicSignalsWire),
+            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(bundle.publicMilestonesWire),
+            publicStrategySummary: publicStrategySummaryV1ToUi(bundle.publicStrategyWire),
+            milestones: bundle.milestones,
+            milestonesSource: bundle.milestonesSource,
+            prSummaries: bundle.prSummaries,
+            runtimeSignals: bundle.runtimeSignals,
+            runtimeSignalsSource: bundle.runtimeSignalsSource,
+            strategyState: bundle.strategyState,
+            strategyStateSource: bundle.strategyStateSource,
+            swarmLog: bundle.swarmLog,
           })
         })
       .catch((err) => {
@@ -178,10 +159,11 @@ export function DashboardPage({
 
         <div className="cognitive-trust-strip" role="note">
           <DataScopeBadge variant="live" />
+          <DataScopeBadge variant="operator" />
           <DataScopeBadge variant="internal" />
           <span className="muted-copy">
-            Summary cards use <code>/api/v1/status</code> and <code>/api/v1/*/summary</code>; lists and deep rows still use{' '}
-            <code>/internal/*</code> where richer payloads are required.
+            Summary cards use <code>/api/v1/status</code> and <code>/api/v1/*/summary</code>. Richer rows prefer{' '}
+            <code>/api/v1/operator/*</code> when you are signed in to Supabase; otherwise they load from <code>/internal/*</code>.
           </span>
         </div>
 
@@ -209,11 +191,14 @@ export function DashboardPage({
             </div>
           </MetricCard>
 
-          <MetricCard eyebrow="Strategy state" title="Public summary + one internal field">
+          <MetricCard
+            eyebrow="Strategy state"
+            title={data.strategyStateSource === 'operator' ? 'Public summary + operator detail' : 'Public summary + one internal field'}
+          >
             <div className="metric-stack">
               <MetricRow label="Version" value={String(data.publicStrategySummary?.strategyVersion ?? 0)} />
               <MetricRow
-                label="History limit (internal)"
+                label={data.strategyStateSource === 'operator' ? 'History limit (rules not on operator wire)' : 'History limit (internal)'}
                 value={String((data.strategyState?.strategy_state?.memory_rules as Record<string, unknown> | undefined)?.history_limit ?? 'n/a')}
               />
               <MetricRow
@@ -236,11 +221,14 @@ export function DashboardPage({
             </div>
           </MetricCard>
 
-          <MetricCard eyebrow="Signals" title="Recent internal runtime events">
+          <MetricCard
+            eyebrow="Signals"
+            title={data.runtimeSignalsSource === 'operator' ? 'Recent runtime events (operator)' : 'Recent runtime events (internal)'}
+          >
             <SignalList emptyLabel="No runtime events recorded yet." items={recentSignals} />
           </MetricCard>
 
-          <MetricCard eyebrow="Mode transitions" title="Fallback and degraded visibility">
+          <MetricCard eyebrow="Mode transitions" title="Runtime mode transitions">
             <SignalList emptyLabel="No runtime mode transitions recorded." items={recentTransitions} />
           </MetricCard>
 

@@ -5,10 +5,16 @@ import type {
   ChatApiResponse,
   ChatUsage,
   HealthResponse,
+  MilestonesResponse,
+  OperatorMilestonesV1,
+  OperatorRuntimeSignalsV1,
+  OperatorStrategyChangesV1,
   PublicMilestonesSummaryV1,
   PublicRuntimeSignalsSummaryV1,
   PublicStatusResponseV1,
   PublicStrategySummaryV1,
+  RuntimeSignalsResponse,
+  StrategyStateResponse,
 } from '../../types'
 import type {
   ObservabilityApiResponse,
@@ -96,6 +102,45 @@ function adaptUsage(record: Record<string, unknown>): ChatUsage {
 }
 
 /** Maps legacy `ChatApiResponse` (still returned by `sendOmniMessage`) to UI model. */
+/** Map operator runtime projection into the same shape consumed by dashboard / cognitive UI today. */
+export function operatorRuntimeSignalsV1ToRuntimeSignalsResponse(
+  w: OperatorRuntimeSignalsV1,
+): RuntimeSignalsResponse {
+  return {
+    status: w.status,
+    recent_signals: w.recent_signals,
+    recent_mode_transitions: w.recent_mode_transitions,
+    latest_run_summary: w.latest_run_summary,
+  }
+}
+
+/**
+ * Map operator strategy changes into `StrategyStateResponse`.
+ * Full `strategy_state` rules blob is not on the operator contract — only a version marker for UI continuity.
+ */
+export function operatorStrategyChangesV1ToStrategyStateResponse(
+  w: OperatorStrategyChangesV1,
+): StrategyStateResponse {
+  return {
+    status: w.status,
+    strategy_state: {
+      version: w.strategy_version,
+    },
+    recent_changes: w.recent_changes,
+  }
+}
+
+export function operatorMilestonesV1ToMilestonesResponse(w: OperatorMilestonesV1): MilestonesResponse {
+  return {
+    status: w.status,
+    latest_run_id: w.latest_run_id,
+    milestone_state: w.milestone_state as MilestonesResponse['milestone_state'],
+    patch_sets: w.patch_sets,
+    checkpoint_status: w.checkpoint_status,
+    execution_state: w.execution_state,
+  }
+}
+
 export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
   return {
     text: res.response,

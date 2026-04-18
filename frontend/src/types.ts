@@ -170,3 +170,40 @@ export type PrSummariesResponse = {
   status: string
   summaries: Array<Record<string, unknown>>
 }
+
+/** Where richer (non-summary) runtime rows came from for this request. */
+export type RichTelemetryDetailSource = 'operator' | 'internal'
+
+/** `GET /api/v1/operator/runtime/signals` — JWT; redacted audit projection. */
+export type OperatorRuntimeSignalsV1 = {
+  api_version: string
+  status: string
+  timestamp_ms: number
+  recent_signal_sample_size: number
+  recent_signals: Record<string, unknown>[]
+  recent_mode_transitions: Record<string, unknown>[]
+  latest_run_summary: Record<string, unknown>
+}
+
+/** `GET /api/v1/operator/strategy/changes` — JWT; no full rules blob. */
+export type OperatorStrategyChangesV1 = {
+  api_version: string
+  status: string
+  timestamp_ms: number
+  strategy_version: number
+  recent_changes: Record<string, unknown>[]
+}
+
+/** `GET /api/v1/operator/milestones` — JWT; bounded patch_sets + redacted JSON. */
+export type OperatorMilestonesV1 = {
+  api_version: string
+  status: string
+  timestamp_ms: number
+  latest_run_id?: string | null
+  checkpoint_status: Record<string, unknown>
+  milestone_state: Record<string, unknown>
+  patch_sets: Array<Record<string, unknown>>
+  patch_sets_total: number
+  patch_sets_returned: number
+  execution_state: Record<string, unknown>
+}
