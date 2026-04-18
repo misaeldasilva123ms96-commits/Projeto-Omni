@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react'
+import { observabilityApiEnvelopeToUi } from '../features/observability'
 import { API_BASE_URL } from '../lib/env'
 import { supabase } from '../lib/supabase'
-import type {
-  ObservabilityApiResponse,
-  ObservabilityConnectionState,
-  ObservabilitySnapshot,
-} from '../types/observability'
+import type { ObservabilityApiResponse, ObservabilityConnectionState } from '../types/observability'
+import type { UiObservabilitySnapshot } from '../types/ui/observability'
 
 export function useObservabilityStream(enabled: boolean) {
-  const [snapshot, setSnapshot] = useState<ObservabilitySnapshot | null>(null)
+  const [snapshot, setSnapshot] = useState<UiObservabilitySnapshot | null>(null)
   const [status, setStatus] = useState<ObservabilityConnectionState>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -40,15 +38,16 @@ export function useObservabilityStream(enabled: boolean) {
       eventSource.addEventListener('snapshot', (event) => {
         try {
           const payload = JSON.parse((event as MessageEvent).data) as ObservabilityApiResponse
-          if (payload.snapshot) {
-            setSnapshot(payload.snapshot)
+          const ui = observabilityApiEnvelopeToUi(payload)
+          if (ui.snapshot) {
+            setSnapshot(ui.snapshot)
           }
-          if (payload.status === 'ok') {
+          if (ui.status === 'ok') {
             setStatus('live')
             setError(null)
           } else {
             setStatus('reconnecting')
-            setError(payload.error ?? 'Observability reader returned an error.')
+            setError(ui.error ?? 'Observability reader returned an error.')
           }
         } catch {
           setStatus('reconnecting')

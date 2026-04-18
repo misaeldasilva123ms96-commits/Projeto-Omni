@@ -1,7 +1,7 @@
 # Omni Frontend ↔ Backend Integration Matrix
 
 **Scope:** React/Vite frontend (`frontend/`) ↔ Rust HTTP API (`backend/rust/src/main.rs` and related modules).  
-**Sources of truth:** `frontend/src/lib/api.ts`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
+**Sources of truth:** `frontend/src/lib/api.ts` (barrel), `frontend/src/lib/api/*`, `frontend/src/lib/api/adapters.ts`, `docs/frontend/compatibility-layer.md`, `frontend/src/pages/*`, `backend/rust/src/main.rs`, `backend/rust/src/observability.rs`, `backend/rust/src/observability_auth.rs`.  
 **Not in scope:** Supabase-backed persistence in `frontend/src/lib/omniData.ts` (separate product surface; not Omni Rust routes).
 
 ---
@@ -10,8 +10,8 @@
 
 | UI Module | Data Needed | Current Endpoint | Status | Adapter Needed | Future Target API | Priority | Risk |
 | --------- | ----------- | ---------------- | ------ | -------------- | ----------------- | -------- | ---- |
-| Chat — assistant text | Plain or JSON string body; JSON envelope with `response` / `message` / `text` / `answer` | `POST /chat` | ✅ AVAILABLE | Normalize client-side (`normalizeChatResponse`); Rust rebuilds `ChatResponse` from Python stdout text, not full Python JSON object | Optional: preserve full Python JSON through Rust for richer metadata | HIGH | LOW |
-| Chat — client `metadata` (e.g. `sessionId`) | Same POST body field `metadata` | `POST /chat` | ⚠️ PARTIAL | Yes — Rust `ChatRequest` only deserializes `message`; extra JSON fields are ignored by serde, so `metadata` never reaches Python via this path | Explicit `metadata` field in contract + subprocess stdin/argv design | HIGH | MEDIUM |
+| Chat — assistant text | Plain or JSON string body; JSON envelope with `response` / `message` / `text` / `answer` | `POST /chat` | ✅ AVAILABLE | Normalize client-side (`parseWireChatPayload` in `lib/api/adapters.ts`); Rust rebuilds `ChatResponse` from Python stdout text, not full Python JSON object | Optional: preserve full Python JSON through Rust for richer metadata | HIGH | LOW |
+| Chat — client `metadata` (e.g. `sessionId`) | Same POST body field `metadata` | `POST /chat` | ⚠️ PARTIAL | **Frontend no longer sends `metadata`.** Rust `ChatRequest` only deserializes `message`; optional UI context stays client-side until contract + subprocess design supports it | Explicit `metadata` field in contract + subprocess stdin/argv design | HIGH | MEDIUM |
 | Chat — `session_id` in response | Stable session id from runtime | `POST /chat` | ⚠️ PARTIAL | Yes — Rust returns fixed `session_id` (`python-session` / `mock-session`) from `call_python` / mock paths, not values parsed from Python stdout | Propagate orchestrator `session_id` through Python stdout JSON or side-channel | MEDIUM | MEDIUM |
 | Chat — `matched_commands`, `matched_tools`, `usage`, `stop_reason` | Enriched assistant metadata | `POST /chat` | ⚠️ PARTIAL | Yes — Rust `call_python` sets these to empty / defaults; only mock mode sets sample `usage` | Return structured `ChatResponse` parsed from Python JSON when present | MEDIUM | MEDIUM |
 | Runtime status (Dashboard hero / health strip) | `status`, `runtime_mode`, `python` / `node` dependency health | `GET /health` | ✅ AVAILABLE | None for fields defined in `HealthResponse` | Same, versioned under `/api/v1/health` if public API hardening | HIGH | LOW |
@@ -55,7 +55,7 @@
 | Gap | Evidence |
 | --- | --- |
 | **No OIL over HTTP** | OIL types live under Python `brain/runtime/language/`; Rust `/chat` does not expose `OILRequest` / `OILResult` envelopes. |
-| **Chat metadata not forwarded** | `ChatRequest` in `main.rs` is `{ message }` only; frontend `sendOmniMessage` still sends `metadata` in JSON body — ignored at Rust boundary. |
+| **Chat metadata not forwarded** | `ChatRequest` in `main.rs` is `{ message }` only; UI session hints are not on the wire (see `lib/api/chat.ts` + compatibility-layer doc). |
 | **Session identity mismatch** | UI generates its own `sessionId` (`ChatPage.tsx`); Rust returns static `session_id` for subprocess path — not orchestrator session store. |
 | **Internal routes are unauthenticated** | `/internal/*` registered on the same public `Router` without `require_supabase_auth` — safe only behind network policy / private bind. |
 | **Control plane API unused** | `/api/control/*` exists and is protected, but **no** `frontend/src` references; no operator UI. |

@@ -1,9 +1,10 @@
-import type { ChatRequestState, HealthResponse, RuntimeMetadata } from '../types'
+import type { ChatRequestState, RuntimeMetadata } from '../types'
+import type { UiRuntimeStatus } from '../types/ui/runtime'
 
 type StatusPanelProps = {
   apiConfigured: boolean
   error: string | null
-  health: HealthResponse | null
+  health: UiRuntimeStatus | null
   lastMetadata: RuntimeMetadata | null
   modeLabel: string
   requestState: ChatRequestState
@@ -48,19 +49,19 @@ export function StatusPanel({
         <div className="status-grid">
           <div className="status-line">
             <span>Rust</span>
-            <strong>{health?.rust_service ?? 'desconhecido'}</strong>
+            <strong>{health?.rustService ?? 'desconhecido'}</strong>
           </div>
           <div className="status-line">
             <span>Python</span>
-            <strong>{health?.python.last_status ?? 'nao checado'}</strong>
+            <strong>{health?.pythonStatus ?? 'nao checado'}</strong>
           </div>
           <div className="status-line">
             <span>Node</span>
-            <strong>{health?.node.last_status ?? 'nao checado'}</strong>
+            <strong>{health?.nodeStatus ?? 'nao checado'}</strong>
           </div>
           <div className="status-line">
             <span>Modo runtime</span>
-            <strong>{health?.runtime_mode ?? 'desconhecido'}</strong>
+            <strong>{health?.runtimeMode ?? 'desconhecido'}</strong>
           </div>
         </div>
       </section>
