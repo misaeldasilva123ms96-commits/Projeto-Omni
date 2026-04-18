@@ -25,9 +25,10 @@
 | `message` | Yes (when using stdin contract) | string | Same trimmed user text as `argv[1]`. |
 | `runtime_session_version` | Yes | number | Rust `AppState.runtime_session_version` (u32). |
 | `request_source` | Yes | string | Constant `"rust_boundary"`. |
-| `client_session_id` | No | string | Opaque UI id when client sent one on `/chat`; omitted when absent. |
+| `client_session_id` | No | string | Opaque UI id when the HTTP client sent one on `/chat` or `/api/v1/chat`; omitted when absent. |
+| `client_context` | No | object | Optional hints from `POST /api/v1/chat` only (e.g. `{ "source": "frontend" }`); omitted when absent or empty. Ignored by older Rust binaries. |
 
-Rust always sends the three required keys; `client_session_id` only when normalized id is present.
+Rust always sends the three required keys; `client_session_id` only when normalized id is present; `client_context` only when non-empty (Phase 11).
 
 ---
 
@@ -53,15 +54,15 @@ This is **correlation / transcript partitioning** using the client-owned id when
 
 ---
 
-## 5. Future return path (not implemented)
+## 5. Optional conversation id return path (Phase 11)
 
-When the orchestrator can emit a **truthful** server-issued conversation id (e.g. from `SessionStore`), Python stdout JSON could add an optional field; Rust would map it into `ChatResponse` **additively** without removing `session_id` / `client_session_id` / `runtime_session_version`. Until then, `session_id` in HTTP responses remains the existing placeholder strings where applicable.
+When the orchestrator (or structured bridge) supplies **`server_conversation_id`** or **`conversation_id`** on the object that becomes user-visible JSON, Python may emit a canonical **`conversation_id`** on stdout (sanitized, never invented). Rust parses stdout JSON and merges **`conversation_id`** into `ChatResponse` **additively**. If absent, the HTTP field is omitted. Placeholder `session_id` strings (`python-session`, `mock-session`) remain unchanged until a later phase maps a real orchestrator id into `session_id`.
 
 ---
 
-## 6. Relationship to future `/api/v1/chat`
+## 6. Relationship to `POST /api/v1/chat`
 
-The same stdin (or equivalent) envelope can back a versioned HTTP handler: request body would mirror the stdin object plus versioning (`api_version`), while the Python entry keeps a single parsing path (`resolve_entry_message` / `apply_bridge_env`).
+The same stdin envelope backs **`POST /api/v1/chat`**: the HTTP handler adds optional `client_context` to stdin JSON; the Python entry keeps a single parsing path (`resolve_entry_message` / `apply_bridge_env`). HTTP versioning uses `api_version` on the **response** body — see [`public-chat-api.md`](public-chat-api.md).
 
 ---
 
@@ -71,3 +72,4 @@ The same stdin (or equivalent) envelope can back a versioned HTTP handler: reque
 | ----- | ------ |
 | Phase 7 | Optional `client_session_id` on HTTP `/chat` request/response echo. |
 | Phase 10 | JSON stdin to Python + env bridge + `_session_id()` precedence rules. |
+| Phase 11 | Optional `client_context` on stdin from `/api/v1/chat`; optional `conversation_id` on stdout → HTTP. |

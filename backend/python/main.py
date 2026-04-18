@@ -75,7 +75,24 @@ def is_operational_message(value: str) -> bool:
     return any(marker in normalized for marker in OPERATIONAL_MESSAGE_MARKERS)
 
 
-def sanitize_for_user(internal_obj: Any) -> dict[str, str]:
+def _extract_truthful_conversation_id(d: dict) -> str | None:
+    """Return a single canonical id string when the orchestrator supplied one; never invent."""
+    for key in ("server_conversation_id", "conversation_id"):
+        v = d.get(key)
+        if not isinstance(v, str):
+            continue
+        s = v.strip()
+        if not s or len(s) > 256:
+            continue
+        if "\n" in s or "\r" in s:
+            continue
+        if is_operational_message(s):
+            continue
+        return s
+    return None
+
+
+def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
     if isinstance(internal_obj, str):
         trimmed = internal_obj.strip()
         if not trimmed:
@@ -86,7 +103,8 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, str]:
         parsed = _parse_structured_string(trimmed)
         if parsed is not None:
             return sanitize_for_user(parsed)
-        return {"response": trimmed}
+        out: dict[str, Any] = {"response": trimmed}
+        return out
 
     if internal_obj is None or isinstance(internal_obj, list):
         return {"response": USER_FALLBACK_RESPONSE}
@@ -105,7 +123,11 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, str]:
             parsed = _parse_structured_string(trimmed)
             if parsed is not None:
                 return sanitize_for_user(parsed)
-            return {"response": trimmed}
+            out: dict[str, Any] = {"response": trimmed}
+            cid = _extract_truthful_conversation_id(internal_obj)
+            if cid:
+                out["conversation_id"] = cid
+            return out
 
     return {"response": USER_FALLBACK_RESPONSE}
 

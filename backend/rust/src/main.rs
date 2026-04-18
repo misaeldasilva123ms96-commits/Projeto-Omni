@@ -50,14 +50,38 @@ struct AppState {
     supabase_auth: Arc<SupabaseAuthConfig>,
 }
 
-/// `POST /chat` JSON body. `message` is required; `client_session_id` is optional and not forwarded to Python yet
-/// (argv-only bridge). See `docs/backend/chat-session-contract.md`.
+/// `POST /chat` JSON body. `message` is required; `client_session_id` is optional.
+/// See `docs/backend/chat-session-contract.md`.
 #[derive(Debug, Deserialize)]
 struct ChatRequest {
     message: String,
     /// Opaque UI-owned conversation key for logging/correlation; echoed on [`ChatResponse`] when present.
     #[serde(default)]
     client_session_id: Option<String>,
+}
+
+/// `POST /api/v1/chat` JSON body — same execution path as [`ChatRequest`] with an optional nested client context.
+#[derive(Debug, Deserialize, Serialize)]
+struct PublicChatClientContextV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PublicChatRequestV1 {
+    message: String,
+    #[serde(default)]
+    client_session_id: Option<String>,
+    #[serde(default)]
+    client_context: Option<PublicChatClientContextV1>,
+}
+
+/// Stable v1 envelope: `api_version` plus the same fields as [`ChatResponse`] (flattened for one JSON object).
+#[derive(Debug, Serialize)]
+struct PublicChatResponseV1 {
+    api_version: &'static str,
+    #[serde(flatten)]
+    chat: ChatResponse,
 }
 
 /// `POST /chat` JSON response. `session_id` remains a transport placeholder until Python returns a real orchestrator id.
@@ -82,6 +106,9 @@ struct ChatResponse {
     stop_reason: Option<String>,
     #[serde(default)]
     usage: Option<serde_json::Value>,
+    /// Server-issued or orchestrator-backed conversation id when truthfully available on the Python path; omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -291,7 +318,7 @@ async fn main() -> Result<(), AppError> {
         ));
 
     // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
-    // Public: /health, /chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
+    // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
     // Internal (no auth middleware): /internal/*
     // Protected (Supabase JWT): merged /api/observability/*, /api/control/*
     let app = Router::new()
@@ -303,6 +330,7 @@ async fn main() -> Result<(), AppError> {
         )
         .route("/api/v1/milestones/summary", get(public_v1_milestones_summary))
         .route("/api/v1/strategy/summary", get(public_v1_strategy_summary))
+        .route("/api/v1/chat", post(public_v1_chat))
         .route("/chat", post(chat))
         .route("/internal/runtime-signals", get(runtime_signals))
         .route("/internal/swarm-log", get(swarm_log))
@@ -904,8 +932,49 @@ async fn chat(
         state.runtime_session_version,
         state.runtime_mode
     );
-    let response = call_python(&state, &message, client_session_id).await?;
+    let response = call_python(&state, &message, client_session_id, None).await?;
     Ok((StatusCode::OK, Json(response)))
+}
+
+async fn public_v1_chat(
+    State(state): State<AppState>,
+    Json(payload): Json<PublicChatRequestV1>,
+) -> Result<(StatusCode, Json<PublicChatResponseV1>), AppError> {
+    let message = payload.message.trim().to_string();
+    if message.is_empty() {
+        return Err(AppError::InvalidRequest(
+            "message must not be empty".to_string(),
+        ));
+    }
+
+    let client_session_id = normalize_client_session_id(payload.client_session_id);
+    let client_context_json = payload
+        .client_context
+        .as_ref()
+        .and_then(|ctx| serde_json::to_value(ctx).ok());
+
+    info!(
+        client_session_id = ?client_session_id,
+        "processing /api/v1/chat request with runtime session version {} and runtime_mode={}",
+        state.runtime_session_version,
+        state.runtime_mode
+    );
+
+    let chat = call_python(
+        &state,
+        &message,
+        client_session_id,
+        client_context_json.as_ref(),
+    )
+    .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(PublicChatResponseV1 {
+            api_version: "1",
+            chat,
+        }),
+    ))
 }
 
 fn bootstrap_runtime_session() -> Session {
@@ -931,10 +1000,50 @@ fn python_debug_logging_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn extract_response_from_python_output(stdout: &str) -> String {
+const PYTHON_CONVERSATION_ID_KEYS: &[&str] = &["server_conversation_id", "conversation_id"];
+
+fn normalize_conversation_id_from_str(raw: &str) -> Option<String> {
+    const MAX_CHARS: usize = 256;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().any(|c| c == '\n' || c == '\r' || c.is_control()) {
+        return None;
+    }
+    if trimmed.chars().count() > MAX_CHARS {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn extract_conversation_id_from_python_json(json: &Value) -> Option<String> {
+    for key in PYTHON_CONVERSATION_ID_KEYS {
+        if let Some(s) = json.get(*key).and_then(Value::as_str) {
+            if let Some(id) = normalize_conversation_id_from_str(s) {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn extract_response_text_from_python_json(json: &Value) -> String {
+    for key in PYTHON_RESPONSE_CANDIDATE_KEYS {
+        if let Some(value) = json.get(*key).and_then(Value::as_str) {
+            let candidate = value.trim();
+            if !candidate.is_empty() {
+                return candidate.to_string();
+            }
+        }
+    }
+    PYTHON_FALLBACK_RESPONSE.to_string()
+}
+
+fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>) {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return PYTHON_FALLBACK_RESPONSE.to_string();
+        return (PYTHON_FALLBACK_RESPONSE.to_string(), None);
     }
 
     if python_debug_logging_enabled() {
@@ -943,19 +1052,13 @@ fn extract_response_from_python_output(stdout: &str) -> String {
 
     match serde_json::from_str::<Value>(trimmed) {
         Ok(json) => {
-            for key in PYTHON_RESPONSE_CANDIDATE_KEYS {
-                if let Some(value) = json.get(*key).and_then(Value::as_str) {
-                    let candidate = value.trim();
-                    if !candidate.is_empty() {
-                        return candidate.to_string();
-                    }
-                }
-            }
-            PYTHON_FALLBACK_RESPONSE.to_string()
+            let conversation_id = extract_conversation_id_from_python_json(&json);
+            let response = extract_response_text_from_python_json(&json);
+            (response, conversation_id)
         }
         Err(err) => {
             warn!(error = %err, "failed to parse python output");
-            PYTHON_FALLBACK_RESPONSE.to_string()
+            (PYTHON_FALLBACK_RESPONSE.to_string(), None)
         }
     }
 }
@@ -965,6 +1068,7 @@ fn build_python_stdin_json(
     message: &str,
     client_session_id: &Option<String>,
     runtime_session_version: u32,
+    client_context: Option<&Value>,
 ) -> Vec<u8> {
     let mut m = serde_json::Map::new();
     m.insert("message".into(), Value::String(message.to_string()));
@@ -978,6 +1082,13 @@ fn build_python_stdin_json(
     );
     if let Some(id) = client_session_id {
         m.insert("client_session_id".into(), Value::String(id.clone()));
+    }
+    if let Some(ctx) = client_context {
+        if let Some(obj) = ctx.as_object() {
+            if !obj.is_empty() {
+                m.insert("client_context".into(), ctx.clone());
+            }
+        }
     }
     serde_json::to_vec(&Value::Object(m)).unwrap_or_else(|_| br#"{"message":""}"#.to_vec())
 }
@@ -997,6 +1108,7 @@ fn build_python_fallback_response(
         matched_tools: Vec::new(),
         stop_reason: Some("completed".to_string()),
         usage: None,
+        conversation_id: None,
     }
 }
 
@@ -1004,6 +1116,7 @@ async fn call_python(
     state: &AppState,
     message: &str,
     client_session_id: Option<String>,
+    client_context: Option<&Value>,
 ) -> Result<ChatResponse, AppError> {
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
@@ -1015,7 +1128,12 @@ async fn call_python(
         ));
     }
 
-    let stdin_body = build_python_stdin_json(message, &client_session_id, state.runtime_session_version);
+    let stdin_body = build_python_stdin_json(
+        message,
+        &client_session_id,
+        state.runtime_session_version,
+        client_context,
+    );
 
     let mut command = Command::new(&state.python_bin);
     command
@@ -1133,8 +1251,10 @@ async fn call_python(
 
     update_python_health(state, "ready", None).await;
 
+    let (response, conversation_id) = extract_chat_from_python_output(&stdout);
+
     Ok(ChatResponse {
-        response: extract_response_from_python_output(&stdout),
+        response,
         session_id: "python-session".to_string(),
         source: "python-subprocess".to_string(),
         runtime_session_version: state.runtime_session_version,
@@ -1143,6 +1263,7 @@ async fn call_python(
         matched_tools: Vec::new(),
         stop_reason: Some("completed".to_string()),
         usage: None,
+        conversation_id,
     })
 }
 
@@ -1165,6 +1286,7 @@ fn build_mock_response(
             "input_tokens": 0,
             "output_tokens": 0
         })),
+        conversation_id: None,
     }
 }
 
@@ -1241,7 +1363,7 @@ mod tests {
             temp_script("print('{\"response\":\"ok from python\"}')\n", "success"),
             15_000,
         );
-        let response = call_python(&state, "hello", None)
+        let response = call_python(&state, "hello", None, None)
             .await
             .expect("python success");
         assert_eq!(response.response, "ok from python");
@@ -1257,7 +1379,7 @@ cid=d.get("client_session_id") or ""
 print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime_session_version')}"}))
 "#;
         let state = build_test_state(temp_script(script, "stdin-bridge"), 15_000);
-        let response = call_python(&state, "hello", Some("sess-9".to_string()))
+        let response = call_python(&state, "hello", Some("sess-9".to_string()), None)
             .await
             .expect("python stdin bridge");
         assert_eq!(response.response, "msg=hello;cid=sess-9;rsv=1");
@@ -1266,21 +1388,80 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
 
     #[test]
     fn build_python_stdin_json_includes_optional_client_session() {
-        let v = build_python_stdin_json("hi", &Some("c1".into()), 42);
+        let v = build_python_stdin_json("hi", &Some("c1".into()), 42, None);
         let parsed: Value = serde_json::from_slice(&v).expect("json");
         assert_eq!(parsed["message"].as_str(), Some("hi"));
         assert_eq!(parsed["client_session_id"].as_str(), Some("c1"));
         assert_eq!(parsed["runtime_session_version"].as_u64(), Some(42));
         assert_eq!(parsed["request_source"].as_str(), Some("rust_boundary"));
-        let v2 = build_python_stdin_json("x", &None, 0);
+        let v2 = build_python_stdin_json("x", &None, 0, None);
         let p2: Value = serde_json::from_slice(&v2).unwrap();
         assert!(p2.get("client_session_id").is_none());
+    }
+
+    #[test]
+    fn build_python_stdin_json_includes_optional_client_context() {
+        let ctx = json!({"source": "frontend"});
+        let v = build_python_stdin_json("m", &None, 3, Some(&ctx));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+        assert_eq!(parsed["client_context"], ctx);
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_merges_optional_conversation_id() {
+        let raw = r#"{"response":"hi","server_conversation_id":"srv-1","noise":true}"#;
+        let (text, cid) = extract_chat_from_python_output(raw);
+        assert_eq!(text, "hi");
+        assert_eq!(cid.as_deref(), Some("srv-1"));
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_ignores_invalid_conversation_id() {
+        let raw = format!(
+            r#"{{"response":"x","conversation_id":"{}"}}"#,
+            "y".repeat(300)
+        );
+        let (_text, cid) = extract_chat_from_python_output(&raw);
+        assert!(cid.is_none());
+    }
+
+    #[test]
+    fn public_chat_request_v1_deserializes_optional_client_context() {
+        let raw = r#"{"message":"hi","client_session_id":"s1","client_context":{"source":"frontend"}}"#;
+        let p: PublicChatRequestV1 = serde_json::from_str(raw).expect("deserialize");
+        assert_eq!(p.message, "hi");
+        assert_eq!(p.client_session_id.as_deref(), Some("s1"));
+        let ctx = p.client_context.expect("context");
+        assert_eq!(ctx.source.as_deref(), Some("frontend"));
+    }
+
+    #[test]
+    fn public_chat_response_v1_serializes_api_version_and_flattened_chat() {
+        let body = PublicChatResponseV1 {
+            api_version: "1",
+            chat: ChatResponse {
+                response: "hello".into(),
+                session_id: "python-session".into(),
+                source: "python-subprocess".into(),
+                runtime_session_version: 2,
+                client_session_id: Some("c".into()),
+                matched_commands: vec![],
+                matched_tools: vec![],
+                stop_reason: Some("completed".into()),
+                usage: None,
+                conversation_id: Some("conv-9".into()),
+            },
+        };
+        let v = serde_json::to_value(&body).expect("serialize");
+        assert_eq!(v["api_version"], "1");
+        assert_eq!(v["response"], "hello");
+        assert_eq!(v["conversation_id"], "conv-9");
     }
 
     #[tokio::test]
     async fn call_python_returns_timeout_fallback() {
         let state = build_test_state(temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"), 200);
-        let response = call_python(&state, "hello", None)
+        let response = call_python(&state, "hello", None, None)
             .await
             .expect("timeout fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
@@ -1290,7 +1471,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
     #[tokio::test]
     async fn call_python_returns_stderr_fallback() {
         let state = build_test_state(temp_script("import sys\nsys.stderr.write('boom')\nprint('ignored')\n", "stderr"), 2_000);
-        let response = call_python(&state, "hello", None)
+        let response = call_python(&state, "hello", None, None)
             .await
             .expect("stderr fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
@@ -1312,6 +1493,17 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
         let long = "x".repeat(300);
         let out = normalize_client_session_id(Some(long)).expect("truncated");
         assert_eq!(out.chars().count(), 256);
+    }
+
+    #[tokio::test]
+    async fn call_python_merges_conversation_id_from_stdout_json() {
+        let script = r#"print('{"response":"ok","conversation_id":"real-1"}')"#;
+        let state = build_test_state(temp_script(script, "convo-id"), 15_000);
+        let response = call_python(&state, "hello", None, None)
+            .await
+            .expect("python success");
+        assert_eq!(response.response, "ok");
+        assert_eq!(response.conversation_id.as_deref(), Some("real-1"));
     }
 }
 

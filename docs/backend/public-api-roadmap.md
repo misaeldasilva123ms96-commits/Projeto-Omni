@@ -15,6 +15,7 @@
 | `/api/v1/milestones/summary` | GET | **Public (v1)** | None | Reduced milestone checkpoint summary (Phase 8) |
 | `/api/v1/strategy/summary` | GET | **Public (v1)** | None | Reduced strategy file summary (Phase 8) |
 | `/chat` | POST | **Public (legacy user)** | None | Primary chat UI |
+| `/api/v1/chat` | POST | **Public (v1)** | None | Versioned chat envelope; same subprocess as `/chat` (Phase 11) |
 | `/internal/runtime-signals` | GET | **Internal** | None | Dashboard, chat cognitive rail |
 | `/internal/swarm-log` | GET | **Internal** | None | Dashboard, chat cognitive rail |
 | `/internal/strategy-state` | GET | **Internal** | None | Dashboard, chat cognitive rail |
@@ -31,7 +32,7 @@
 - **Internal** — path prefix is advisory; **no auth middleware** in Rust today — must be network-restricted.
 - **Protected** — `require_supabase_auth` middleware.
 
-**Legacy public:** `/chat` and `/health` predate `/api/v1/*`; they remain stable compatibility endpoints.
+**Legacy public:** `/chat` and `/health` predate `/api/v1/*`; they remain stable compatibility endpoints. **`POST /api/v1/chat`** is the versioned twin of `/chat` (additive contract; see [`public-chat-api.md`](public-chat-api.md)).
 
 **Candidates for versioned public API:** `/health` (superseded in product copy by `/api/v1/status` for minimal fields), internal read-models (signals, milestones) **after** auth + schema hardening. **Phase 8:** first **summary** read models ship under `/api/v1/*/summary` (see [Public telemetry wave 1](#public-telemetry-wave-1) and [`public-telemetry-contracts.md`](public-telemetry-contracts.md)).
 
@@ -50,13 +51,14 @@
 ### Mismatches
 
 - UI should not treat `session_id` from chat as the UI conversation id; optional `client_session_id` on the wire is the explicit client-owned correlation field (see [`chat-session-contract.md`](chat-session-contract.md)).
-- Orchestrator / Python session store is **not** propagated through `call_python` argv-only bridge.
+- Orchestrator / Python session correlation uses the **stdin JSON bridge** (Phase 10+) plus env (`OMNI_BRIDGE_*`); a distinct **server-issued** id is optional via **`conversation_id`** when surfaced on stdout (Phase 11).
 
 ### Target model (incremental)
 
 1. **Phase A (done in code):** Add **`runtime_session_version`** to every `ChatResponse` so the UI can correlate chat turns with the same epoch as `/health` / `GET /api/v1/status`.
-2. **Phase B (Phase 7 — done):** `ChatRequest` accepts optional **`client_session_id`** (trimmed, max 256 chars); **not** passed to Python argv yet; echoed on `ChatResponse` when present for round-trip correlation.
-3. **Phase C (planned):** When Python returns structured JSON including a real `session_id`, Rust maps it into `ChatResponse.session_id` (replacing placeholders).
+2. **Phase B (Phase 7 — done):** `ChatRequest` accepts optional **`client_session_id`** (trimmed, max 256 chars); echoed on `ChatResponse` when present. **Phase 10:** forwarded on stdin JSON to Python when present.
+3. **Phase C (planned):** When Python returns structured JSON including a real orchestrator session id, Rust may map it into `ChatResponse.session_id` (replacing placeholders).
+4. **Phase 11 (done):** Optional truthful **`conversation_id`** on chat responses when Python stdout includes it; **`POST /api/v1/chat`** with `api_version` on the response body.
 
 ### Migration strategy
 
@@ -73,6 +75,7 @@
 | `/api/v1/runtime/signals/summary` | GET | None | `PublicRuntimeSignalsSummaryV1` — counts + latest run labels + truncated message preview | Same files as `/internal/runtime-signals` (bounded reads) | **Implemented** (Phase 8) |
 | `/api/v1/milestones/summary` | GET | None | `PublicMilestonesSummaryV1` — counts + checkpoint status string | Same derivation as `/internal/milestones` | **Implemented** (Phase 8) |
 | `/api/v1/strategy/summary` | GET | None | `PublicStrategySummaryV1` — version, change log size, optional `create_plan` weight | Same files as `/internal/strategy-state` | **Implemented** (Phase 8) |
+| `/api/v1/chat` | POST | None | `api_version` + flattened `ChatResponse` (same fields as `/chat`, optional `conversation_id`) | Same `call_python` / Python entry as `/chat` | **Implemented** (Phase 11) |
 | `/api/v1/runtime/signals` | GET | TBD (likely JWT) | Paged, redacted audit events (full feed) | `.logs/fusion-runtime/*.jsonl` | **Planned** — blocked on auth + payload review |
 | `/api/v1/goals` | GET | TBD | — | Python goal store | **Blocked** — no safe HTTP mapping yet |
 | `/api/v1/simulation/routes` | GET | TBD | — | Simulation reader | **Blocked** |
@@ -101,7 +104,7 @@ Additive **summary** endpoints (Phase 8) so product UIs can migrate off raw `/in
 | Embed OIL in `/chat` | Only if product wants a single user entry; requires **versioned envelope** and size/latency governance. |
 | Dedicated `/api/v1/oil/*` | Reasonable **future** path for power users; needs JWT, rate limits, schema (`OILRequest` / `OILResult`), and redaction policy **before** any implementation. |
 
-**Decision:** Do **not** expose OIL on HTTP in this phase. `/chat` remains the public conversational entrypoint.
+**Decision:** Do **not** expose OIL on HTTP in this phase. `/chat` remains the default legacy conversational entrypoint; **`/api/v1/chat`** is an optional versioned alias with the same execution path.
 
 ---
 
@@ -120,11 +123,12 @@ Frontend may keep calling `/internal/*`; **compatibility** is preserved. New `/a
 
 ## 6. Compatibility plan
 
-1. **`/chat`** — Request body: required `message`; optional `client_session_id` (additive). Legacy `{ "message" }` only remains valid. Response includes `runtime_session_version` and optionally echoes `client_session_id`.
-2. **`/health`** — Unchanged JSON shape.
-3. **`GET /api/v1/status`** — Additive; frontend can adopt in `lib/api` when ready without dropping `/health`.
-4. **`GET /api/v1/*/summary` (telemetry wave 1)** — Additive public summaries; frontend unchanged in Phase 8.
-5. **`/internal/*`** — Unchanged; no removal in this phase.
+1. **`/chat`** — Request body: required `message`; optional `client_session_id` (additive). Legacy `{ "message" }` only remains valid. Response includes `runtime_session_version`, optionally echoes `client_session_id`, and optionally **`conversation_id`** when truthfully available (Phase 11).
+2. **`/api/v1/chat`** — Same response fields as `/chat` plus top-level **`api_version`: `"1"`**; optional request **`client_context`** (Phase 11). See [`public-chat-api.md`](public-chat-api.md).
+3. **`/health`** — Unchanged JSON shape.
+4. **`GET /api/v1/status`** — Additive; frontend can adopt in `lib/api` when ready without dropping `/health`.
+5. **`GET /api/v1/*/summary` (telemetry wave 1)** — Additive public summaries; frontend unchanged in Phase 8.
+6. **`/internal/*`** — Unchanged; no removal in this phase.
 
 ---
 
@@ -133,7 +137,7 @@ Frontend may keep calling `/internal/*`; **compatibility** is preserved. New `/a
 **Request (`ChatRequest`)**
 
 - `message: string` (required, non-empty after trim)
-- `client_session_id: string` (optional) — opaque UI id; normalized server-side; **not** forwarded to Python subprocess yet
+- `client_session_id: string` (optional) — opaque UI id; normalized server-side; forwarded on the **stdin JSON bridge** to Python when present (Phase 10+)
 
 **Response (`ChatResponse`)**
 
@@ -147,14 +151,16 @@ Frontend may keep calling `/internal/*`; **compatibility** is preserved. New `/a
 | `matched_commands`, `matched_tools` | Currently empty on subprocess success path; mock may differ. |
 | `stop_reason` | e.g. `completed`, `mock_completed`. |
 | `usage` | Optional JSON; mock supplies sample token counts. |
+| `conversation_id` | **Omitted** unless Python emitted a truthful orchestrator/server id on stdout (Phase 11). |
 
-Full semantics: [`chat-session-contract.md`](chat-session-contract.md).
+Full semantics: [`chat-session-contract.md`](chat-session-contract.md), versioned wire: [`public-chat-api.md`](public-chat-api.md).
 
 ---
 
 ## 8. Related docs
 
 - [`docs/backend/python-bridge-contract.md`](python-bridge-contract.md)
+- [`docs/backend/public-chat-api.md`](public-chat-api.md)
 - [`docs/backend/chat-session-contract.md`](chat-session-contract.md)
 - [`docs/backend/public-telemetry-contracts.md`](public-telemetry-contracts.md)
 - [`docs/frontend/integration-matrix.md`](../frontend/integration-matrix.md)
