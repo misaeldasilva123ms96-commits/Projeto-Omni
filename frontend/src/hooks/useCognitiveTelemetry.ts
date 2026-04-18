@@ -2,10 +2,16 @@ import { useEffect, useState } from 'react'
 import {
   fetchMilestones,
   fetchPrSummaries,
+  fetchPublicMilestonesSummaryV1,
+  fetchPublicRuntimeSignalsSummaryV1,
   fetchPublicRuntimeStatusV1,
+  fetchPublicStrategySummaryV1,
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
+  publicMilestonesSummaryV1ToUi,
+  publicRuntimeSignalsSummaryV1ToUi,
+  publicStrategySummaryV1ToUi,
 } from '../features/runtime'
 import type {
   MilestonesResponse,
@@ -15,10 +21,17 @@ import type {
   StrategyStateResponse,
   SwarmLogResponse,
 } from '../types/api/wire'
+import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../types/ui/telemetry'
 
 export type CognitiveTelemetryState = {
   /** Preferred product-safe runtime snapshot (`GET /api/v1/status`). */
   publicRuntime: PublicStatusResponseV1 | null
+  /** Public summary (`GET /api/v1/runtime/signals/summary`). */
+  publicSignalsSummary: UiRuntimeSignalsSummary | null
+  /** Public summary (`GET /api/v1/milestones/summary`). */
+  publicMilestonesSummary: UiMilestonesSummary | null
+  /** Public summary (`GET /api/v1/strategy/summary`). */
+  publicStrategySummary: UiStrategySummary | null
   milestones: MilestonesResponse | null
   prSummaries: PrSummariesResponse | null
   runtimeSignals: RuntimeSignalsResponse | null
@@ -30,6 +43,9 @@ export type CognitiveTelemetryState = {
 
 const EMPTY: CognitiveTelemetryState = {
   publicRuntime: null,
+  publicSignalsSummary: null,
+  publicMilestonesSummary: null,
+  publicStrategySummary: null,
   milestones: null,
   prSummaries: null,
   runtimeSignals: null,
@@ -57,27 +73,44 @@ export function useCognitiveTelemetry(apiReady: boolean, refreshToken: number | 
 
     Promise.all([
       fetchPublicRuntimeStatusV1(),
+      fetchPublicRuntimeSignalsSummaryV1(),
+      fetchPublicMilestonesSummaryV1(),
+      fetchPublicStrategySummaryV1(),
       fetchRuntimeSignals(),
       fetchSwarmLog(),
       fetchStrategyState(),
       fetchMilestones(),
       fetchPrSummaries(),
     ])
-      .then(([publicRuntime, runtimeSignals, swarmLog, strategyState, milestones, prSummaries]) => {
-        if (cancelled) {
-          return
-        }
-        setState({
+      .then(
+        ([
           publicRuntime,
+          publicSignalsWire,
+          publicMilestonesWire,
+          publicStrategyWire,
+          runtimeSignals,
+          swarmLog,
+          strategyState,
           milestones,
           prSummaries,
-          runtimeSignals,
-          strategyState,
-          swarmLog,
-          loading: false,
-          error: null,
+        ]) => {
+          if (cancelled) {
+            return
+          }
+          setState({
+            publicRuntime,
+            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(publicSignalsWire),
+            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(publicMilestonesWire),
+            publicStrategySummary: publicStrategySummaryV1ToUi(publicStrategyWire),
+            milestones,
+            prSummaries,
+            runtimeSignals,
+            strategyState,
+            swarmLog,
+            loading: false,
+            error: null,
+          })
         })
-      })
       .catch((err) => {
         if (!cancelled) {
           setState({

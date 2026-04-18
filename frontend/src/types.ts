@@ -65,6 +65,41 @@ export type PublicStatusResponseV1 = {
   timestamp_ms: number
 }
 
+/** `GET /api/v1/runtime/signals/summary` — reduced counts + latest run preview (Phase 8). */
+export type PublicRuntimeSignalsSummaryV1 = {
+  api_version: string
+  status: string
+  recent_signal_sample_size: number
+  recent_signal_count: number
+  recent_mode_transition_count: number
+  latest_run_id: string
+  latest_plan_kind: string
+  latest_run_message_preview: string
+  timestamp_ms: number
+}
+
+/** `GET /api/v1/milestones/summary` — checkpoint counts only (Phase 8). */
+export type PublicMilestonesSummaryV1 = {
+  api_version: string
+  status: string
+  latest_run_id: string
+  completed_milestone_count: number
+  blocked_milestone_count: number
+  patch_set_count: number
+  checkpoint_status: string
+  timestamp_ms: number
+}
+
+/** `GET /api/v1/strategy/summary` — version + safe scalars (Phase 8). */
+export type PublicStrategySummaryV1 = {
+  api_version: string
+  status: string
+  strategy_version: number
+  recent_change_log_count: number
+  create_plan_weight: number | null
+  timestamp_ms: number
+}
+
 export type HealthResponse = {
   status: string
   rust_service: string

@@ -6,10 +6,16 @@ import { Sidebar } from '../components/layout/Sidebar'
 import {
   fetchMilestones,
   fetchPrSummaries,
+  fetchPublicMilestonesSummaryV1,
+  fetchPublicRuntimeSignalsSummaryV1,
   fetchPublicRuntimeStatusV1,
+  fetchPublicStrategySummaryV1,
   fetchRuntimeSignals,
   fetchStrategyState,
   fetchSwarmLog,
+  publicMilestonesSummaryV1ToUi,
+  publicRuntimeSignalsSummaryV1ToUi,
+  publicStrategySummaryV1ToUi,
 } from '../features/runtime'
 import { canUseApi } from '../lib/env'
 import { FutureModuleCard } from '../components/status/FutureModuleCard'
@@ -26,6 +32,7 @@ import type {
   StrategyStateResponse,
   SwarmLogResponse,
 } from '../types/api/wire'
+import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../types/ui/telemetry'
 
 type View = 'chat' | 'dashboard' | 'observability'
 
@@ -38,6 +45,9 @@ type DashboardPageProps = {
 
 type DashboardState = {
   publicRuntime: PublicStatusResponseV1 | null
+  publicSignalsSummary: UiRuntimeSignalsSummary | null
+  publicMilestonesSummary: UiMilestonesSummary | null
+  publicStrategySummary: UiStrategySummary | null
   milestones: MilestonesResponse | null
   prSummaries: PrSummariesResponse | null
   runtimeSignals: RuntimeSignalsResponse | null
@@ -47,6 +57,9 @@ type DashboardState = {
 
 const EMPTY_STATE: DashboardState = {
   publicRuntime: null,
+  publicSignalsSummary: null,
+  publicMilestonesSummary: null,
+  publicStrategySummary: null,
   milestones: null,
   prSummaries: null,
   runtimeSignals: null,
@@ -78,25 +91,42 @@ export function DashboardPage({
 
     Promise.all([
       fetchPublicRuntimeStatusV1(),
+      fetchPublicRuntimeSignalsSummaryV1(),
+      fetchPublicMilestonesSummaryV1(),
+      fetchPublicStrategySummaryV1(),
       fetchRuntimeSignals(),
       fetchSwarmLog(),
       fetchStrategyState(),
       fetchMilestones(),
       fetchPrSummaries(),
     ])
-      .then(([publicRuntime, runtimeSignals, swarmLog, strategyState, milestones, prSummaries]) => {
-        if (cancelled) {
-          return
-        }
-        setData({
+      .then(
+        ([
           publicRuntime,
+          publicSignalsWire,
+          publicMilestonesWire,
+          publicStrategyWire,
+          runtimeSignals,
+          swarmLog,
+          strategyState,
           milestones,
           prSummaries,
-          runtimeSignals,
-          strategyState,
-          swarmLog,
+        ]) => {
+          if (cancelled) {
+            return
+          }
+          setData({
+            publicRuntime,
+            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(publicSignalsWire),
+            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(publicMilestonesWire),
+            publicStrategySummary: publicStrategySummaryV1ToUi(publicStrategyWire),
+            milestones,
+            prSummaries,
+            runtimeSignals,
+            strategyState,
+            swarmLog,
+          })
         })
-      })
       .catch((err) => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load dashboard data.')
@@ -119,8 +149,6 @@ export function DashboardPage({
   const recentChanges = data.strategyState?.recent_changes ?? []
   const recentSwarmEvents = data.swarmLog?.events ?? []
   const recentPrSummaries = data.prSummaries?.summaries ?? []
-  const latestSummary = data.runtimeSignals?.latest_run_summary ?? {}
-
   return (
     <AppShell
       sidebar={(
@@ -152,8 +180,8 @@ export function DashboardPage({
           <DataScopeBadge variant="live" />
           <DataScopeBadge variant="internal" />
           <span className="muted-copy">
-            System health row uses <code>/api/v1/status</code>; detailed cards use <code>/internal/*</code> only — no
-            speculative endpoints.
+            Summary cards use <code>/api/v1/status</code> and <code>/api/v1/*/summary</code>; lists and deep rows still use{' '}
+            <code>/internal/*</code> where richer payloads are required.
           </span>
         </div>
 
@@ -171,34 +199,40 @@ export function DashboardPage({
             </div>
           </MetricCard>
 
-          <MetricCard eyebrow="Milestones" title="Phase 10 engineering state">
+          <MetricCard eyebrow="Milestones" title="Public summary (/api/v1/milestones/summary)">
             <div className="metric-stack">
-              <MetricRow label="Latest run" value={data.milestones?.latest_run_id ?? 'none'} />
-              <MetricRow label="Completed" value={String(data.milestones?.milestone_state?.completed_milestones ?? 0)} />
-              <MetricRow label="Blocked" value={String(data.milestones?.milestone_state?.blocked_milestones ?? 0)} />
-              <MetricRow label="Patch sets" value={String(data.milestones?.patch_sets?.length ?? 0)} />
+              <MetricRow label="Latest run" value={data.publicMilestonesSummary?.latestRunId || 'none'} />
+              <MetricRow label="Completed" value={String(data.publicMilestonesSummary?.completedMilestoneCount ?? 0)} />
+              <MetricRow label="Blocked" value={String(data.publicMilestonesSummary?.blockedMilestoneCount ?? 0)} />
+              <MetricRow label="Patch sets" value={String(data.publicMilestonesSummary?.patchSetCount ?? 0)} />
+              <MetricRow label="Checkpoint" value={data.publicMilestonesSummary?.checkpointStatus ?? 'unknown'} />
             </div>
           </MetricCard>
 
-          <MetricCard eyebrow="Strategy state" title="Current optimization posture">
+          <MetricCard eyebrow="Strategy state" title="Public summary + one internal field">
             <div className="metric-stack">
-              <MetricRow label="Version" value={String(data.strategyState?.strategy_state?.version ?? 0)} />
+              <MetricRow label="Version" value={String(data.publicStrategySummary?.strategyVersion ?? 0)} />
               <MetricRow
-                label="History limit"
+                label="History limit (internal)"
                 value={String((data.strategyState?.strategy_state?.memory_rules as Record<string, unknown> | undefined)?.history_limit ?? 'n/a')}
               />
               <MetricRow
                 label="Plan weight"
-                value={String((data.strategyState?.strategy_state?.capability_weights as Record<string, unknown> | undefined)?.create_plan ?? 'n/a')}
+                value={data.publicStrategySummary?.createPlanWeight != null
+                  ? String(data.publicStrategySummary.createPlanWeight)
+                  : String((data.strategyState?.strategy_state?.capability_weights as Record<string, unknown> | undefined)?.create_plan ?? 'n/a')}
               />
+              <MetricRow label="Change log entries" value={String(data.publicStrategySummary?.recentChangeLogCount ?? 0)} />
             </div>
           </MetricCard>
 
-          <MetricCard eyebrow="Runtime summary" title="Latest executed run">
+          <MetricCard eyebrow="Runtime summary" title="Public summary (/api/v1/runtime/signals/summary)">
             <div className="metric-stack">
-              <MetricRow label="Run id" value={String(latestSummary.run_id ?? 'none')} />
-              <MetricRow label="Plan kind" value={String(latestSummary.plan_kind ?? 'unknown')} />
-              <MetricRow label="Message" value={String(latestSummary.message ?? 'n/a')} />
+              <MetricRow label="Run id" value={data.publicSignalsSummary?.latestRunId || 'none'} />
+              <MetricRow label="Plan kind" value={data.publicSignalsSummary?.latestPlanKind || 'unknown'} />
+              <MetricRow label="Message preview" value={data.publicSignalsSummary?.latestRunMessagePreview || 'n/a'} />
+              <MetricRow label="Signals (sample)" value={String(data.publicSignalsSummary?.recentSignalCount ?? 0)} />
+              <MetricRow label="Mode transitions" value={String(data.publicSignalsSummary?.recentModeTransitionCount ?? 0)} />
             </div>
           </MetricCard>
 

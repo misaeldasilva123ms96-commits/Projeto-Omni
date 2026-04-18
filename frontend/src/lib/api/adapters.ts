@@ -1,7 +1,15 @@
 /**
  * Wire → UI adapters. Centralizes parsing of Rust/Python subprocess quirks.
  */
-import type { ChatApiResponse, ChatUsage, HealthResponse, PublicStatusResponseV1 } from '../../types'
+import type {
+  ChatApiResponse,
+  ChatUsage,
+  HealthResponse,
+  PublicMilestonesSummaryV1,
+  PublicRuntimeSignalsSummaryV1,
+  PublicStatusResponseV1,
+  PublicStrategySummaryV1,
+} from '../../types'
 import type {
   ObservabilityApiResponse,
   ObservabilityTracesResponse,
@@ -9,6 +17,7 @@ import type {
 import type { UiChatResponse } from '../../types/ui/chat'
 import type { UiObservabilitySnapshot, UiObservabilityTracesResult } from '../../types/ui/observability'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
+import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../../types/ui/telemetry'
 
 export function parseWireChatPayload(payload: unknown): ChatApiResponse {
   if (typeof payload === 'string') {
@@ -90,6 +99,44 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
         outputTokens: res.usage.output_tokens,
       }
       : undefined,
+  }
+}
+
+export function publicRuntimeSignalsSummaryV1ToUi(w: PublicRuntimeSignalsSummaryV1): UiRuntimeSignalsSummary {
+  return {
+    apiVersion: w.api_version,
+    status: w.status,
+    recentSignalSampleSize: w.recent_signal_sample_size,
+    recentSignalCount: w.recent_signal_count,
+    recentModeTransitionCount: w.recent_mode_transition_count,
+    latestRunId: w.latest_run_id,
+    latestPlanKind: w.latest_plan_kind,
+    latestRunMessagePreview: w.latest_run_message_preview,
+    timestampMs: w.timestamp_ms,
+  }
+}
+
+export function publicMilestonesSummaryV1ToUi(w: PublicMilestonesSummaryV1): UiMilestonesSummary {
+  return {
+    apiVersion: w.api_version,
+    status: w.status,
+    latestRunId: w.latest_run_id,
+    completedMilestoneCount: w.completed_milestone_count,
+    blockedMilestoneCount: w.blocked_milestone_count,
+    patchSetCount: w.patch_set_count,
+    checkpointStatus: w.checkpoint_status,
+    timestampMs: w.timestamp_ms,
+  }
+}
+
+export function publicStrategySummaryV1ToUi(w: PublicStrategySummaryV1): UiStrategySummary {
+  return {
+    apiVersion: w.api_version,
+    status: w.status,
+    strategyVersion: w.strategy_version,
+    recentChangeLogCount: w.recent_change_log_count,
+    createPlanWeight: w.create_plan_weight,
+    timestampMs: w.timestamp_ms,
   }
 }
 

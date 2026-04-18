@@ -45,9 +45,9 @@ export function CognitivePanel({
   const telemetryHint = useMemo(
     () => (
       <p className="cognitive-trust-hint muted-copy">
-        Seções abaixo usam fontes reais: <strong>/api/v1/status</strong> (runtime público),{' '}
-        <strong>/internal/*</strong> (telemetria operacional) e snapshot protegido quando autenticado. Dados futuros
-        aparecem como módulos pendentes de contrato público.
+        Seções abaixo usam fontes reais: <strong>/api/v1/status</strong>, resumos{' '}
+        <strong>/api/v1/*/summary</strong>, detalhe <strong>/internal/*</strong> onde ainda necessário, e snapshot
+        protegido quando autenticado.
       </p>
     ),
     [],
@@ -75,9 +75,20 @@ export function CognitivePanel({
 
       {!apiConfigured ? null : (
         <>
-          <RuntimeStatusSection publicRuntime={telemetry.publicRuntime} runtimeSignals={telemetry.runtimeSignals} />
-          <StrategyStateSection strategyState={telemetry.strategyState} />
-          <MilestoneStateSection milestones={telemetry.milestones} prSummaries={telemetry.prSummaries} />
+          <RuntimeStatusSection
+            publicRuntime={telemetry.publicRuntime}
+            runtimeSignals={telemetry.runtimeSignals}
+            signalsSummary={telemetry.publicSignalsSummary}
+          />
+          <StrategyStateSection
+            publicStrategySummary={telemetry.publicStrategySummary}
+            strategyState={telemetry.strategyState}
+          />
+          <MilestoneStateSection
+            milestones={telemetry.milestones}
+            prSummaries={telemetry.prSummaries}
+            publicMilestonesSummary={telemetry.publicMilestonesSummary}
+          />
           <ExecutionSignalsSection runtimeSignals={telemetry.runtimeSignals} swarmLog={telemetry.swarmLog} />
           <ObservabilitySummarySection
             canRequest={observabilityCanRequest}

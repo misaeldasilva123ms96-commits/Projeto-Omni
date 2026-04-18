@@ -1,11 +1,14 @@
 /**
- * Internal read-only telemetry (`GET /internal/*`) — not a public product API.
- * See `docs/frontend/integration-matrix.md` for stability scope.
+ * Runtime telemetry: public v1 summaries (`/api/v1/*/summary`, `/api/v1/status`) and internal reads (`/internal/*`).
+ * See `docs/frontend/telemetry-migration-status.md` and `docs/frontend/integration-matrix.md`.
  */
 import type {
   MilestonesResponse,
   PrSummariesResponse,
+  PublicMilestonesSummaryV1,
+  PublicRuntimeSignalsSummaryV1,
   PublicStatusResponseV1,
+  PublicStrategySummaryV1,
   RuntimeSignalsResponse,
   StrategyStateResponse,
   SwarmLogResponse,
@@ -15,6 +18,21 @@ import { getJson } from './client'
 /** Preferred public runtime status (`GET /api/v1/status`). */
 export function fetchPublicRuntimeStatusV1() {
   return getJson<PublicStatusResponseV1>('/api/v1/status')
+}
+
+/** Public runtime signals summary (`GET /api/v1/runtime/signals/summary`). */
+export function fetchPublicRuntimeSignalsSummaryV1() {
+  return getJson<PublicRuntimeSignalsSummaryV1>('/api/v1/runtime/signals/summary')
+}
+
+/** Public milestones checkpoint summary (`GET /api/v1/milestones/summary`). */
+export function fetchPublicMilestonesSummaryV1() {
+  return getJson<PublicMilestonesSummaryV1>('/api/v1/milestones/summary')
+}
+
+/** Public strategy file summary (`GET /api/v1/strategy/summary`). */
+export function fetchPublicStrategySummaryV1() {
+  return getJson<PublicStrategySummaryV1>('/api/v1/strategy/summary')
 }
 
 export function fetchRuntimeSignals() {
