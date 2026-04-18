@@ -1142,8 +1142,14 @@ class BrainOrchestrator:
         )
 
     def _session_id(self) -> str:
+        """Prefer explicit operator `AI_SESSION_ID`, then Rust bridge `OMNI_BRIDGE_CLIENT_SESSION_ID`."""
         configured = os.getenv("AI_SESSION_ID", "").strip()
-        return configured or DEFAULT_SESSION_ID
+        if configured:
+            return configured
+        bridge_sid = os.getenv("OMNI_BRIDGE_CLIENT_SESSION_ID", "").strip()
+        if bridge_sid:
+            return bridge_sid[:512]
+        return DEFAULT_SESSION_ID
 
     @staticmethod
     def _selected_runtime_mode() -> str:
