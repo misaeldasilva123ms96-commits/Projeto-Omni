@@ -12,11 +12,14 @@ try {
 }
 
 const MAX_MEMORY_BYTES = 16 * 1024;
-const USER_FALLBACK_RESPONSE = 'Entendido. Como posso ajudá-lo?';
+const USER_FALLBACK_RESPONSE =
+  '[degraded:node_runner] O motor Node/QueryEngine não devolveu um resultado utilizável (resolução de módulo, exceção ou resposta vazia). Verifique js-runner, OMINI_LOG_LEVEL=debug e o caminho fusionBrain (src/queryEngineRunnerAdapter.js).';
 const RESPONSE_CANDIDATE_KEYS = ['response', 'message', 'text', 'answer', 'output', 'result'];
 const PACKAGED_ENGINE_MODE = 'packaged_upstream';
+const FUSION_ADAPTER_MODE = 'fusion_authority';
 const AUTHORITY_FALLBACK_MODE = 'authority_fallback';
 const DIST_CANDIDATE_REASON = 'dist_candidate_selected';
+const ADAPTER_CANDIDATE_REASON = 'adapter_path_selected';
 const HEAVY_EXECUTION_REASON = 'heavy_execution_request';
 const PACKAGED_IMPORT_FAILED_REASON = 'packaged_import_failed';
 const FALLBACK_POLICY_REASON = 'fallback_policy_triggered';
@@ -230,17 +233,21 @@ function getQueryEngineCandidates() {
     ? path.resolve(process.env.RUNNER_ADAPTER_PATH)
     : path.join(workspaceRoot, 'src', 'queryEngineRunnerAdapter.js');
   const esmAdapterPath = adapterPath.replace(/\.js$/i, '.mjs');
-
-  return [
-    path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'build', 'QueryEngine.js'),
-    esmAdapterPath,
-    adapterPath,
+  const dist = path.join(workspaceRoot, 'dist', 'QueryEngine.js');
+  const build = path.join(workspaceRoot, 'build', 'QueryEngine.js');
+  const tail = [
     path.join(workspaceRoot, 'src', 'QueryEngine.js'),
     path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
   ];
+  const preferDistFirst = String(process.env.OMINI_QUERY_ENGINE_ORDER || '')
+    .trim()
+    .toLowerCase() === 'dist_first';
+  if (preferDistFirst) {
+    return [dist, build, esmAdapterPath, adapterPath, ...tail];
+  }
+  return [esmAdapterPath, adapterPath, dist, build, ...tail];
 }
 
 function getPackagedQueryEngineCandidate() {
@@ -324,6 +331,10 @@ function getCandidateError(candidateErrors, candidatePath) {
   return candidateErrors.find((item) => item && item.candidate === candidatePath) || null;
 }
 
+function isFusionAdapterCandidate(candidatePath) {
+  return /queryEngineRunnerAdapter\.(js|mjs)$/i.test(String(candidatePath || ''));
+}
+
 function inferFallbackMetadata(execution) {
   const packagedCandidate = getPackagedQueryEngineCandidate();
   if (getCandidateError(execution.candidateErrors, packagedCandidate)) {
@@ -357,6 +368,9 @@ function enrichExecutionMetadata(execution) {
     if (selectedCandidate === packagedCandidate) {
       engineMode = PACKAGED_ENGINE_MODE;
       engineReason = DIST_CANDIDATE_REASON;
+    } else if (isFusionAdapterCandidate(selectedCandidate)) {
+      engineMode = FUSION_ADAPTER_MODE;
+      engineReason = ADAPTER_CANDIDATE_REASON;
     } else {
       const fallbackMetadata = inferFallbackMetadata(execution);
       engineMode = fallbackMetadata.engineMode;
@@ -579,7 +593,14 @@ async function main() {
     const parsed = safeParsePayload(getRawInput());
     if (!parsed.message) {
       process.stdout.write(JSON.stringify(
-        attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON),
+        attachRunnerMetadata(
+          {
+            response: USER_FALLBACK_RESPONSE,
+            metadata: { execution_tier: 'technical_fallback', node_runner_degraded: true, empty_message: true },
+          },
+          AUTHORITY_FALLBACK_MODE,
+          FALLBACK_POLICY_REASON,
+        ),
       ));
       return;
     }
@@ -612,7 +633,14 @@ async function main() {
       const fallbackMetadata = inferFallbackMetadata(execution);
       process.stdout.write(JSON.stringify(
         attachRunnerMetadata(
-          { response: USER_FALLBACK_RESPONSE },
+          {
+            response: USER_FALLBACK_RESPONSE,
+            metadata: {
+              execution_tier: 'technical_fallback',
+              node_runner_degraded: true,
+              missing_query_engine_result: true,
+            },
+          },
           fallbackMetadata.engineMode,
           fallbackMetadata.engineReason,
         ),
@@ -627,7 +655,18 @@ async function main() {
       error_message: error && error.message ? String(error.message) : String(error || ''),
     });
     process.stdout.write(JSON.stringify(
-      attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON),
+      attachRunnerMetadata(
+        {
+          response: USER_FALLBACK_RESPONSE,
+          metadata: {
+            execution_tier: 'technical_fallback',
+            node_runner_degraded: true,
+            main_exception: true,
+          },
+        },
+        AUTHORITY_FALLBACK_MODE,
+        FALLBACK_POLICY_REASON,
+      ),
     ));
   }
 }

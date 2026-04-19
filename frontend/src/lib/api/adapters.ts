@@ -60,6 +60,12 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
       ? record.api_version.trim()
       : undefined
 
+  const inspectionRaw = record.cognitive_runtime_inspection
+  const cognitive_runtime_inspection =
+    inspectionRaw && typeof inspectionRaw === 'object' && !Array.isArray(inspectionRaw)
+      ? (inspectionRaw as Record<string, unknown>)
+      : undefined
+
   return {
     response,
     session_id:
@@ -89,6 +95,7 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
         : undefined,
     conversation_id,
     api_version,
+    cognitive_runtime_inspection,
   }
 }
 
@@ -141,6 +148,14 @@ export function operatorMilestonesV1ToMilestonesResponse(w: OperatorMilestonesV1
   }
 }
 
+function executionTierFromInspection(
+  inspection: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!inspection) return undefined
+  const tier = inspection.execution_tier
+  return typeof tier === 'string' && tier.trim() ? tier.trim() : undefined
+}
+
 export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
   return {
     text: res.response,
@@ -149,6 +164,7 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
     commands: res.matched_commands ?? [],
     tools: res.matched_tools ?? [],
     stopReason: res.stop_reason,
+    executionTier: executionTierFromInspection(res.cognitive_runtime_inspection),
     runtimeSessionVersion: res.runtime_session_version,
     conversationId: res.conversation_id,
     chatApiVersion: res.api_version,

@@ -83,6 +83,7 @@ function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): Runti
     matchedCommands: ui.commands,
     matchedTools: ui.tools,
     stopReason: ui.stopReason,
+    executionTier: ui.executionTier,
     runtimeSessionVersion: ui.runtimeSessionVersion,
     conversationId: ui.conversationId,
     chatApiVersion: ui.chatApiVersion,

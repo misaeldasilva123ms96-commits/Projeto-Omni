@@ -32,6 +32,7 @@ const { planTask } = require('../../features/multiagent/specialists/advancedPlan
 const { enrichWithMemory } = require('../../features/multiagent/specialists/memorySpecialist');
 const { extractArtifacts, summarizeExecutionResult } = require('../../features/multiagent/specialists/researcherSpecialist');
 const { synthesizeFinalAnswer } = require('../../features/multiagent/specialists/reviewerSpecialist');
+const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { evaluateStepResult } = require('../../features/multiagent/specialists/evaluatorSpecialist');
 const { reviewPlan } = require('../../features/multiagent/specialists/criticSpecialist');
 const { negotiatePlan } = require('../../features/multiagent/specialists/negotiationSpecialist');
@@ -40,7 +41,6 @@ const { optimizeStrategySelection } = require('../../features/multiagent/special
 const { reviewEngineeringPlan } = require('../../features/multiagent/specialists/codeReviewSpecialist');
 const { reviewDependencyImpact } = require('../../features/multiagent/specialists/dependencyImpactSpecialist');
 const { selectVerificationTargets } = require('../../features/multiagent/specialists/testSelectionSpecialist');
-const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { fuseResults } = require('../../features/multiagent/specialists/resultFusionSpecialist');
 const { normalizeWriteRequest } = require('../../features/multiagent/specialists/coderSpecialist');
 const { getFusionSourceMap } = require('./fusedSources');
@@ -50,7 +50,8 @@ const { getCodexIntegrationStatus } = require('../../platform/integrations/codex
 const { getCliPlatformManifest } = require('../../platform/cli/manifest');
 const { buildPolicyDecision, describeTool } = require('../../runtime/tooling/toolGovernance');
 
-const GLOBAL_CONVERSATIONAL_FALLBACK = 'Não entendi exatamente o que você precisa. Pode reformular ou me dar mais detalhes?';
+const GLOBAL_CONVERSATIONAL_FALLBACK =
+  '[degraded:authority_local] O plano não pôde ser executado com ferramentas ou LLM neste ambiente. Reformule com um ficheiro ou objetivo concreto, ou verifique credenciais de LLM / executor Python.';
 const CONVERSATIONAL_MATCHERS = [
   {
     triggers: [
@@ -232,6 +233,77 @@ function resolveDirectConversational(normalizedInput) {
   return null;
 }
 
+function shouldBypassConversationalMatchers(normalizedMessage, rawMessage) {
+  if (String(process.env.OMINI_SKIP_CONVERSATIONAL_MATCHERS || '').trim() === '1') {
+    return true;
+  }
+  const msg = String(rawMessage || '');
+  if (msg.length > 140) {
+    return true;
+  }
+  const keys = [
+    'analise',
+    'analis',
+    'arquitet',
+    'melhor',
+    'pontos fracos',
+    'negocio',
+    'negócio',
+    'perfil',
+    'sistema',
+    'seguranca',
+    'segurança',
+    'refator',
+    'desempenho',
+    'performance',
+    'cognitive',
+    'runtime',
+    'queryengine',
+  ];
+  return keys.some(k => normalizedMessage.includes(k));
+}
+
+function buildStructuredLocalGuidance({ message, intent, mergedMemory, repositoryAnalysis }) {
+  const lines = [];
+  lines.push(
+    '**Modo local (plano só com passos `none`)** — raciocínio com inventário estático do repositório e memória injetada; sem ferramentas de leitura/execução neste turno.',
+  );
+  const repoMap = repositoryAnalysis && repositoryAnalysis.repository_map;
+  if (repoMap && typeof repoMap.file_count === 'number') {
+    lines.push(
+      `- Repositório: ~${repoMap.file_count} ficheiros; linguagem predominante: ${repoMap.dominant_language || 'n/d'}; frameworks: ${(repoMap.frameworks || []).join(', ') || 'n/d'}.`,
+    );
+  }
+  if (mergedMemory && typeof mergedMemory === 'object') {
+    const bits = [];
+    for (const k of ['nome', 'email', 'preferencias', 'objetivos']) {
+      const v = mergedMemory[k];
+      if (v == null) continue;
+      const s = Array.isArray(v) ? v.slice(0, 6).join(', ') : String(v);
+      if (s.trim()) bits.push(`${k}: ${s.slice(0, 200)}`);
+    }
+    if (bits.length) {
+      lines.push(`- Perfil / memória: ${bits.join('; ')}.`);
+    }
+  }
+  lines.push(`- Intenção inferida: **${intent}**.`);
+  lines.push(
+    `- O seu pedido: ${message.slice(0, 280)}${message.length > 280 ? '…' : ''}`,
+  );
+  lines.push(
+    '\nPara análise profunda com leitura de ficheiros, inclua caminhos relevantes ou ative o executor com ferramentas `read_file` e credenciais de LLM.',
+  );
+  return lines.join('\n');
+}
+
+function buildPythonBridgePendingCopy({ message, intent, actionsCount }) {
+  return (
+    `[execução_python_requerida] Plano com ${actionsCount} passo(s) preparado (intenção: ${intent}). ` +
+      'O runtime Node encaminhou o grafo para o executor Python; confirme que o serviço Python está ativo.\n\n' +
+      `Resumo do pedido: ${message.slice(0, 260)}${message.length > 260 ? '…' : ''}`
+  );
+}
+
 function absolutizeToolArguments(workspace, selectedTool, toolArguments, useRelativeWorkspacePaths = false) {
   const args = { ...(toolArguments || {}) };
   if (selectedTool === 'write_file') {
@@ -281,7 +353,31 @@ class QueryEngineAuthority {
     const workspace = cwd || process.cwd();
     const sessionId = session?.session_id || 'ephemeral-session';
     const normalizedMessage = normalizeText(message);
-    const directConversationResponse = resolveDirectConversational(normalizedMessage);
+    const bypassMatchers = shouldBypassConversationalMatchers(normalizedMessage, message);
+    const tinyGreeting = !bypassMatchers ? directConversationalResponse(message) : '';
+    if (tinyGreeting) {
+      const epGreet = buildExecutionProvenance({
+        provider: { name: 'local-heuristic', model: 'native-heuristic' },
+        toolCalls: [],
+        strategyActual: 'regex_greeting',
+        executionMode: 'matcher_shortcut',
+        provenanceSource: 'regex_greeting',
+        provenanceConfidence: 0.55,
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+      });
+      return attachProvenanceMetadata({
+        response: tinyGreeting,
+        cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'regex_greeting' },
+        confidence: 0.55,
+        memory: {
+          session: { session_id: sessionId },
+          strategy: 'greeting',
+          runtime_mode: 'matcher_shortcut',
+          provider: 'local-heuristic',
+        },
+      }, epGreet);
+    }
+    const directConversationResponse = bypassMatchers ? null : resolveDirectConversational(normalizedMessage);
     if (directConversationResponse) {
       const ep = buildExecutionProvenance({
         provider: { name: 'local-heuristic', model: 'native-heuristic' },
@@ -295,6 +391,13 @@ class QueryEngineAuthority {
       return attachProvenanceMetadata({
         response: directConversationResponse,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
+        confidence: 0.52,
+        memory: {
+          session: { session_id: sessionId },
+          strategy: 'conversational_matcher',
+          runtime_mode: 'matcher_shortcut',
+          provider: 'local-heuristic',
+        },
       }, ep);
     }
     const runtimeConfig = loadRuntimeConfig();
@@ -482,14 +585,22 @@ class QueryEngineAuthority {
 
     const allActionsAreDirect = actionsWithPolicy.every(action => action.selected_tool === 'none');
     if (allActionsAreDirect) {
-      const directResponse = synthesizeFinalAnswer({
+      const localGuidance = buildStructuredLocalGuidance({
+        message,
         intent,
-        directMemoryResponse: directMemoryResponse || (intent === 'greeting' ? 'Olá! Como posso te ajudar hoje?' : GLOBAL_CONVERSATIONAL_FALLBACK),
+        mergedMemory,
+        repositoryAnalysis,
+      });
+      const directResponse = synthesizeGroundedResponse({
+        intent,
+        directMemoryResponse,
         stepResults: actions.map(action => ({
           ok: true,
-          summary: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
+          summary: directMemoryResponse || null,
+          selected_tool: action.selected_tool,
           action,
         })),
+        fallbackResponse: localGuidance,
       });
 
       const sessionSnapshot = buildSessionSnapshot({
@@ -566,7 +677,13 @@ class QueryEngineAuthority {
         policyHintEnvelope: hintEnv,
       });
       return attachProvenanceMetadata({
-        response: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
+        response:
+          directMemoryResponse ||
+          buildPythonBridgePendingCopy({
+            message,
+            intent,
+            actionsCount: actionsWithPolicy.length,
+          }),
         cognitive_runtime_hint: { lane: 'node_execution_graph', detail: 'python_executor_bridge' },
         execution_request: {
           task_id: taskId,

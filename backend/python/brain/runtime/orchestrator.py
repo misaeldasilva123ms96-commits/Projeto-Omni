@@ -5503,6 +5503,38 @@ class BrainOrchestrator:
             if nome:
                 return f"Seu nome é {nome}."
             return "Ainda nao sei seu nome."
+
+        profile_keys = (
+            "ideia de negocio",
+            "ideia de negócio",
+            "negocio basead",
+            "negócio basead",
+            "meu perfil",
+            "com base no meu perfil",
+            "baseado no meu perfil",
+        )
+        if any(k in normalized for k in profile_keys):
+            prefs = user.get("preferencias")
+            preferencias: list[str] = []
+            if isinstance(prefs, list):
+                preferencias = [str(p).strip() for p in prefs if str(p).strip()]
+            lines: list[str] = []
+            if nome:
+                lines.append(f"Olá, {nome}.")
+            if preferencias:
+                lines.append(
+                    "Com base nas preferências guardadas na memória: "
+                    + ", ".join(preferencias[:8])
+                    + "."
+                )
+            lines.append(
+                "Sugestão de direção (ancorada no perfil): produto digital B2B com MVP enxuto, "
+                "mensagem clara para um nicho alinhado a essas preferências e validação com 5–10 entrevistas."
+            )
+            lines.append(
+                "Para afinar: indique setor-alvo, orçamento aproximado e se prefere SaaS, marketplace ou serviço."
+            )
+            return "\n".join(lines)
         return ""
 
     def _predict_intent(self, message: str) -> str:

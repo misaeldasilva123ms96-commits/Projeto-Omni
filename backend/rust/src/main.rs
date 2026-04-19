@@ -1368,7 +1368,10 @@ async fn update_python_health(state: &AppState, status: &str, error_message: Opt
     guard.last_checked_ms = Some(unix_timestamp_ms());
 }
 
-const PYTHON_FALLBACK_RESPONSE: &str = "Entendido. Como posso ajuda-lo?";
+const PYTHON_FALLBACK_RESPONSE: &str =
+    "[degraded:rust_python_boundary] O motor cognitivo Python não respondeu de forma válida. Verifique /health, logs do processo e variáveis PYTHON_BIN / entrada backend/python/main.py.";
+const PYTHON_PARSE_FAILURE_RESPONSE: &str =
+    "[degraded:python_stdout] A saída do adaptador Python não é JSON válido; a resposta do cérebro pode estar incompleta.";
 const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text", "answer"];
 
 fn python_debug_logging_enabled() -> bool {
@@ -1419,6 +1422,22 @@ fn extract_response_text_from_python_json(json: &Value) -> String {
     PYTHON_FALLBACK_RESPONSE.to_string()
 }
 
+fn extract_stop_reason_from_python_json(json: &Value) -> Option<String> {
+    json.get("stop_reason")
+        .and_then(Value::as_str)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[derive(Debug, Clone)]
+struct ParsedPythonChat {
+    response: String,
+    conversation_id: Option<String>,
+    cognitive_runtime_inspection: Option<Value>,
+    providers: Option<Vec<String>>,
+    stop_reason: Option<String>,
+}
+
 fn extract_providers_from_python_json(json: &Value) -> Option<Vec<String>> {
     let arr = json.get("providers")?.as_array()?;
     let out: Vec<String> = arr
@@ -1433,10 +1452,20 @@ fn extract_providers_from_python_json(json: &Value) -> Option<Vec<String>> {
     }
 }
 
-fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>, Option<Value>, Option<Vec<String>>) {
+fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return (PYTHON_FALLBACK_RESPONSE.to_string(), None, None, None);
+        return ParsedPythonChat {
+            response: PYTHON_FALLBACK_RESPONSE.to_string(),
+            conversation_id: None,
+            cognitive_runtime_inspection: Some(json!({
+                "execution_tier": "technical_fallback",
+                "rust_boundary": true,
+                "reason": "python_stdout_empty_trimmed",
+            })),
+            providers: None,
+            stop_reason: Some("python_empty_stdout".to_string()),
+        };
     }
 
     if python_debug_logging_enabled() {
@@ -1449,11 +1478,29 @@ fn extract_chat_from_python_output(stdout: &str) -> (String, Option<String>, Opt
             let response = extract_response_text_from_python_json(&json);
             let inspection = json.get("cognitive_runtime_inspection").cloned();
             let providers = extract_providers_from_python_json(&json);
-            (response, conversation_id, inspection, providers)
+            let stop_reason = extract_stop_reason_from_python_json(&json);
+            ParsedPythonChat {
+                response,
+                conversation_id,
+                cognitive_runtime_inspection: inspection,
+                providers,
+                stop_reason,
+            }
         }
         Err(err) => {
             warn!(error = %err, "failed to parse python output");
-            (PYTHON_FALLBACK_RESPONSE.to_string(), None, None, None)
+            ParsedPythonChat {
+                response: PYTHON_PARSE_FAILURE_RESPONSE.to_string(),
+                conversation_id: None,
+                cognitive_runtime_inspection: Some(json!({
+                    "execution_tier": "technical_fallback",
+                    "rust_boundary": true,
+                    "reason": "python_stdout_json_parse_failed",
+                    "parse_error": err.to_string(),
+                })),
+                providers: None,
+                stop_reason: Some("python_stdout_invalid_json".to_string()),
+            }
         }
     }
 }
@@ -1492,7 +1539,20 @@ fn build_python_fallback_response(
     state: &AppState,
     source: &str,
     client_session_id: Option<String>,
+    stop_reason: &str,
+    detail: Option<&str>,
 ) -> ChatResponse {
+    let mut inspection = json!({
+        "execution_tier": "technical_fallback",
+        "rust_boundary": true,
+        "source": source,
+        "stop_reason": stop_reason,
+    });
+    if let Some(d) = detail {
+        if let Some(obj) = inspection.as_object_mut() {
+            obj.insert("detail".into(), Value::String(d.to_string()));
+        }
+    }
     ChatResponse {
         response: PYTHON_FALLBACK_RESPONSE.to_string(),
         session_id: "python-session".to_string(),
@@ -1501,10 +1561,10 @@ fn build_python_fallback_response(
         client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
-        stop_reason: Some("completed".to_string()),
+        stop_reason: Some(stop_reason.to_string()),
         usage: None,
         conversation_id: None,
-        cognitive_runtime_inspection: None,
+        cognitive_runtime_inspection: Some(inspection),
         providers: None,
     }
 }
@@ -1551,6 +1611,8 @@ async fn call_python(
                 &state,
                 "python-subprocess",
                 client_session_id.clone(),
+                "python_subprocess_spawn_failed",
+                Some(message.as_str()),
             ));
         }
     };
@@ -1565,6 +1627,8 @@ async fn call_python(
                 &state,
                 "python-subprocess",
                 client_session_id.clone(),
+                "python_subprocess_stdin_failed",
+                Some(message.as_str()),
             ));
         }
         if let Err(err) = stdin.flush().await {
@@ -1587,6 +1651,8 @@ async fn call_python(
                 &state,
                 "python-subprocess",
                 client_session_id.clone(),
+                "python_subprocess_wait_failed",
+                Some(message.as_str()),
             ));
         }
         Err(_) => {
@@ -1600,6 +1666,8 @@ async fn call_python(
                 &state,
                 "python-subprocess",
                 client_session_id.clone(),
+                "python_subprocess_timeout",
+                Some(message.as_str()),
             ));
         }
     };
@@ -1625,6 +1693,14 @@ async fn call_python(
             &state,
             "python-subprocess",
             client_session_id.clone(),
+            "python_subprocess_nonzero_exit",
+            Some(
+                if stderr.is_empty() {
+                    message.as_str()
+                } else {
+                    stderr.as_str()
+                },
+            ),
         ));
     }
 
@@ -1643,27 +1719,32 @@ async fn call_python(
             &state,
             "python-subprocess",
             client_session_id.clone(),
+            "python_empty_stdout",
+            Some(message.as_str()),
         ));
     }
 
     update_python_health(state, "ready", None).await;
 
-    let (response, conversation_id, cognitive_runtime_inspection, providers) =
-        extract_chat_from_python_output(&stdout);
+    let parsed = extract_chat_from_python_output(&stdout);
+    let stop_reason = parsed
+        .stop_reason
+        .clone()
+        .unwrap_or_else(|| "python_completed".to_string());
 
     Ok(ChatResponse {
-        response,
+        response: parsed.response,
         session_id: "python-session".to_string(),
         source: "python-subprocess".to_string(),
         runtime_session_version: state.runtime_session_version,
         client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
-        stop_reason: Some("completed".to_string()),
+        stop_reason: Some(stop_reason),
         usage: None,
-        conversation_id,
-        cognitive_runtime_inspection,
-        providers,
+        conversation_id: parsed.conversation_id,
+        cognitive_runtime_inspection: parsed.cognitive_runtime_inspection,
+        providers: parsed.providers,
     })
 }
 
@@ -1770,6 +1851,7 @@ mod tests {
             .expect("python success");
         assert_eq!(response.response, "ok from python");
         assert_eq!(response.source, "python-subprocess");
+        assert_eq!(response.stop_reason.as_deref(), Some("python_completed"));
     }
 
     #[tokio::test]
@@ -1812,9 +1894,9 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
     #[test]
     fn extract_chat_from_python_output_merges_optional_conversation_id() {
         let raw = r#"{"response":"hi","server_conversation_id":"srv-1","noise":true}"#;
-        let (text, cid, _insp, _prov) = extract_chat_from_python_output(raw);
-        assert_eq!(text, "hi");
-        assert_eq!(cid.as_deref(), Some("srv-1"));
+        let parsed = extract_chat_from_python_output(raw);
+        assert_eq!(parsed.response, "hi");
+        assert_eq!(parsed.conversation_id.as_deref(), Some("srv-1"));
     }
 
     #[test]
@@ -1823,17 +1905,17 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             r#"{{"response":"x","conversation_id":"{}"}}"#,
             "y".repeat(300)
         );
-        let (_text, cid, _insp, _prov) = extract_chat_from_python_output(&raw);
-        assert!(cid.is_none());
+        let parsed = extract_chat_from_python_output(&raw);
+        assert!(parsed.conversation_id.is_none());
     }
 
     #[test]
     fn extract_chat_from_python_output_parses_providers_array() {
         let raw = r#"{"response":"hi","providers":["openai","groq","gemini"]}"#;
-        let (text, _cid, _insp, prov) = extract_chat_from_python_output(raw);
-        assert_eq!(text, "hi");
+        let parsed = extract_chat_from_python_output(raw);
+        assert_eq!(parsed.response, "hi");
         assert_eq!(
-            prov,
+            parsed.providers,
             Some(vec![
                 "openai".to_string(),
                 "groq".to_string(),
@@ -1845,8 +1927,18 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
     #[test]
     fn extract_chat_from_python_output_omits_empty_providers() {
         let raw = r#"{"response":"x","providers":[]}"#;
-        let (_text, _cid, _insp, prov) = extract_chat_from_python_output(raw);
-        assert!(prov.is_none());
+        let parsed = extract_chat_from_python_output(raw);
+        assert!(parsed.providers.is_none());
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_invalid_json_sets_degraded_stop_reason() {
+        let parsed = extract_chat_from_python_output("not-json {{{");
+        assert_eq!(
+            parsed.stop_reason.as_deref(),
+            Some("python_stdout_invalid_json")
+        );
+        assert!(parsed.response.contains("degraded:python_stdout"));
     }
 
     #[test]
@@ -1915,16 +2007,29 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             .expect("timeout fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
         assert_eq!(response.source, "python-subprocess");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_subprocess_timeout")
+        );
+        assert!(response.cognitive_runtime_inspection.is_some());
     }
 
     #[tokio::test]
     async fn call_python_returns_stderr_fallback() {
-        let state = build_test_state(temp_script("import sys\nsys.stderr.write('boom')\nprint('ignored')\n", "stderr"), 2_000);
+        let state = build_test_state(
+            temp_script("import sys\nsys.stderr.write('boom')\nsys.exit(1)\n", "stderr"),
+            15_000,
+        );
         let response = call_python(&state, "hello", None, None)
             .await
             .expect("stderr fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
         assert_eq!(response.source, "python-subprocess");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_subprocess_nonzero_exit")
+        );
+        assert!(response.cognitive_runtime_inspection.is_some());
     }
 
     #[test]
