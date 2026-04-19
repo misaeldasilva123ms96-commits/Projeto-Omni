@@ -12,7 +12,10 @@ from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 from config.provider_registry import get_available_providers
 
-USER_FALLBACK_RESPONSE = "Entendido. Como posso ajudá-lo?"
+USER_FALLBACK_RESPONSE = (
+    "[degraded:python_main] O adaptador Python não pôde concluir o turno. "
+    "Verifique dependências, variáveis de ambiente e logs do processo."
+)
 RESPONSE_CANDIDATE_KEYS = ("response", "message", "text", "answer", "output", "result")
 OPERATIONAL_MESSAGE_MARKERS = (
     "execucao bloqueada",
@@ -168,6 +171,7 @@ def main() -> int:
     raw_response = orchestrator.run(message, bridge=bridge)
     LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
     safe_response = sanitize_for_user(raw_response)
+    safe_response.setdefault("stop_reason", "python_completed")
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
         safe_response["cognitive_runtime_inspection"] = inspection
@@ -185,7 +189,21 @@ if __name__ == "__main__":
     except Exception:
         logging.exception("Unhandled exception in main execution path")
         try:
-            print(json.dumps({"response": USER_FALLBACK_RESPONSE}, ensure_ascii=False), flush=True)
+            print(
+                json.dumps(
+                    {
+                        "response": USER_FALLBACK_RESPONSE,
+                        "stop_reason": "python_main_exception",
+                        "cognitive_runtime_inspection": {
+                            "execution_tier": "technical_fallback",
+                            "layer": "python_main",
+                            "reason": "unhandled_exception",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
         except Exception:
             pass
         sys.exit(1)

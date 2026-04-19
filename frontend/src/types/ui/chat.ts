@@ -8,6 +8,8 @@ export type UiChatResponse = {
   commands: string[]
   tools: string[]
   stopReason?: string
+  /** From `cognitive_runtime_inspection.execution_tier` when the backend exposes it. */
+  executionTier?: string
   /** Rust runtime epoch from chat endpoints when present; aligns with public status snapshot. */
   runtimeSessionVersion?: number
   /** Backend correlation id when truthfully returned; never the UI session key. */

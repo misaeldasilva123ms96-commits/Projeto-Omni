@@ -104,7 +104,9 @@ async fn call_control_cli(
         .args(extra_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env("PYTHONPATH", merged_pythonpath(&state.python_root))
+        // Do not merge the parent process PYTHONPATH: a polluted or cross-platform
+        // value breaks `python -m brain.runtime.control.cli` in tests and CI (500).
+        .env("PYTHONPATH", control_cli_pythonpath(&state.python_root))
         .kill_on_drop(true);
 
     let output = match timeout(Duration::from_millis(cli_timeout_ms), command.output()).await {
@@ -155,12 +157,8 @@ fn graceful_error(payload_key: &str, message: String) -> Value {
     }
 }
 
-fn merged_pythonpath(python_root: &PathBuf) -> String {
-    let current = std::env::var("PYTHONPATH").ok().filter(|value| !value.trim().is_empty());
-    match current {
-        Some(existing) => format!("{};{}", python_root.display(), existing),
-        None => python_root.display().to_string(),
-    }
+fn control_cli_pythonpath(python_root: &PathBuf) -> String {
+    python_root.display().to_string()
 }
 
 #[cfg(test)]
@@ -175,8 +173,17 @@ mod tests {
     };
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
-    use std::{fs, sync::Arc};
+    use std::{fs, sync::{Arc, OnceLock}};
+    use tokio::sync::Mutex;
     use tower::ServiceExt;
+
+    /// Serialize control-CLI subprocess tests: parallel runs contend on Windows
+    /// Python startup / AV hooks and spuriously return 500 from `call_control_cli`.
+    static CONTROL_CLI_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn control_cli_test_lock() -> &'static Mutex<()> {
+        CONTROL_CLI_TEST_LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     use crate::{
         observability_auth::{require_supabase_auth, SupabaseAuthConfig},
@@ -303,6 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn pause_resume_approve_endpoints_return_ok() {
+        let _serial = control_cli_test_lock().lock().await;
         let workspace = temp_workspace("actions");
         seed_run(&workspace, "awaiting_approval");
         let auth = format!("Bearer {}", token());
@@ -356,6 +364,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_and_get_endpoints_return_structured_json() {
+        let _serial = control_cli_test_lock().lock().await;
         let workspace = temp_workspace("inspect");
         seed_run(&workspace, "paused");
         let auth = format!("Bearer {}", token());

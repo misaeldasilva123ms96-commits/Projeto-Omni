@@ -16,6 +16,9 @@ export function SystemBadges({ metadata }: SystemBadgesProps) {
       {metadata.source ? <span className="system-badge">Fonte: {metadata.source}</span> : null}
       {metadata.sessionId ? <span className="system-badge">Sessao: {metadata.sessionId}</span> : null}
       {metadata.stopReason ? <span className="system-badge">Stop: {metadata.stopReason}</span> : null}
+      {metadata.executionTier ? (
+        <span className="system-badge">Exec tier: {metadata.executionTier}</span>
+      ) : null}
       {metadata.matchedTools.length > 0 ? (
         <span className="system-badge">Ferramentas: {metadata.matchedTools.join(', ')}</span>
       ) : null}

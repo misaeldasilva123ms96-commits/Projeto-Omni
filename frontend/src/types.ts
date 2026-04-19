@@ -15,6 +15,8 @@ export type RuntimeMetadata = {
   matchedCommands: string[]
   matchedTools: string[]
   stopReason?: string
+  /** When backend returns `cognitive_runtime_inspection.execution_tier` (degraded vs real). */
+  executionTier?: string
   usage?: ChatUsage
   /** From `POST /chat` (`runtime_session_version`); Rust runtime epoch, not UI session. */
   runtimeSessionVersion?: number
@@ -49,6 +51,8 @@ export type ChatApiResponse = {
   conversation_id?: string
   /** Present on `POST /api/v1/chat` responses (`api_version` in JSON). */
   api_version?: string
+  /** Rust/Python cognitive envelope when present; never fabricate client-side. */
+  cognitive_runtime_inspection?: Record<string, unknown>
 }
 
 export type ChatRequestState = 'idle' | 'loading' | 'error'
