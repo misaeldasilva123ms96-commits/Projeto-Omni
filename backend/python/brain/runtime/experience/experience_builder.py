@@ -62,6 +62,7 @@ def build_experience_record(
     learning_summary: str,
     agent_trace_summary: str,
     cost_estimate: float | None = None,
+    execution_provenance: dict[str, Any] | None = None,
 ) -> ExperienceRecord:
     turn_id = new_turn_id()
     eid = new_experience_id(session_id, turn_id)
@@ -72,6 +73,22 @@ def build_experience_record(
         strategy_mode = str(sel.get("mode", "") or "").strip()
     prov, model = _provider_model_from_swarm(swarm_result)
     tools = _tools_from_swarm(swarm_result)
+    ep = dict(execution_provenance) if isinstance(execution_provenance, dict) else None
+    meta: dict[str, Any] = {"feedback": feedback.as_dict()}
+    if ep:
+        meta["execution_provenance"] = ep
+        pa = str(ep.get("provider_actual") or "").strip()
+        ma = str(ep.get("model_actual") or "").strip()
+        if pa:
+            prov = pa[:64]
+        if ma:
+            model = ma[:128]
+        tc = ep.get("tool_calls")
+        if isinstance(tc, list) and tc:
+            tools = [str(t).strip()[:128] for t in tc if str(t).strip()][:24]
+        ce_ep = ep.get("cost_estimate")
+        if isinstance(ce_ep, (int, float)) and cost_estimate is None:
+            cost_estimate = float(ce_ep)
     return ExperienceRecord(
         experience_id=eid,
         session_id=str(session_id or "")[:512],
@@ -93,5 +110,5 @@ def build_experience_record(
         success_outcome=bool(success_outcome),
         agent_trace_summary=str(agent_trace_summary or "")[:2000],
         learning_signals_summary=str(learning_summary or "")[:2000],
-        metadata={"feedback": feedback.as_dict()},
+        metadata=meta,
     )

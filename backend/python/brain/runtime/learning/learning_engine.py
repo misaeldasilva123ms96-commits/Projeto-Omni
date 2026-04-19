@@ -426,6 +426,19 @@ class LearningEngine:
                 else {},
             }
 
+        prov42: dict[str, Any] = {}
+        meta_sw = swarm_result.get("metadata") if isinstance(swarm_result.get("metadata"), dict) else {}
+        ep_sw = meta_sw.get("execution_provenance") if isinstance(meta_sw.get("execution_provenance"), dict) else {}
+        if not ep_sw and isinstance(swarm_result.get("execution_provenance"), dict):
+            ep_sw = swarm_result["execution_provenance"]
+        if ep_sw:
+            prov42 = {
+                "provider_actual": str(ep_sw.get("provider_actual", "") or "")[:64],
+                "model_actual": str(ep_sw.get("model_actual", "") or "")[:64],
+                "policy_match": ep_sw.get("policy_match"),
+                "execution_mode": str(ep_sw.get("execution_mode", "") or "")[:64],
+            }
+
         record = RuntimeLearningRecord(
             record_id=rid,
             session_id=session_id,
@@ -437,7 +450,12 @@ class LearningEngine:
             signals=signals,
             summary=summary,
             persisted=False,
-            metadata={"phase": "34", "message_preview": message[:120], **fb_meta},
+            metadata={
+                "phase": "34",
+                "message_preview": message[:120],
+                **fb_meta,
+                **({"phase42_execution": prov42} if prov42 else {}),
+            },
         )
 
         persisted = self._store.append_record(record.as_dict())

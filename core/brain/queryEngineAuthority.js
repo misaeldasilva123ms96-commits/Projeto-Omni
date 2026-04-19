@@ -8,6 +8,7 @@ const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { chooseProvider } = require('../../platform/providers/providerRouter');
+const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
 const { resolveExecutionMode } = require('../../runtime/execution/runtimeMode');
 const { appendExecutionAudit, appendRuntimeTranscript } = require('../../storage/transcripts/transcriptPersistence');
@@ -252,24 +253,9 @@ function absolutizeToolArguments(workspace, selectedTool, toolArguments, useRela
   return args;
 }
 
-/**
- * Bounded Phase 41 policy hint from Python subprocess env (active mode only).
- * Returns a logical provider id or empty string when absent/invalid.
- */
 function readPolicyPreferredProvider() {
-  try {
-    const raw = process.env.OMNI_POLICY_HINT_JSON;
-    if (!raw || !String(raw).trim()) {
-      return '';
-    }
-    const hint = JSON.parse(String(raw));
-    if (!hint || typeof hint !== 'object') {
-      return '';
-    }
-    return String(hint.recommended_provider || '').trim().toLowerCase();
-  } catch (_) {
-    return '';
-  }
+  const env = readPolicyHintEnvelope();
+  return env && env.recommended ? env.recommended : '';
 }
 
 function buildActionAudit(workspace, delegation) {
@@ -291,15 +277,25 @@ class QueryEngineAuthority {
   }
 
   async submitMessage({ message, memoryContext, history, summary, capabilities, session, cwd }) {
+    const authorityStarted = Date.now();
     const workspace = cwd || process.cwd();
     const sessionId = session?.session_id || 'ephemeral-session';
     const normalizedMessage = normalizeText(message);
     const directConversationResponse = resolveDirectConversational(normalizedMessage);
     if (directConversationResponse) {
-      return {
+      const ep = buildExecutionProvenance({
+        provider: { name: 'local-heuristic', model: 'native-heuristic' },
+        toolCalls: [],
+        strategyActual: 'conversational_matcher',
+        executionMode: 'matcher_shortcut',
+        provenanceSource: 'matcher_shortcut',
+        provenanceConfidence: 0.52,
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+      });
+      return attachProvenanceMetadata({
         response: directConversationResponse,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
-      };
+      }, ep);
     }
     const runtimeConfig = loadRuntimeConfig();
     const runtimeMode = resolveExecutionMode({
@@ -311,6 +307,7 @@ class QueryEngineAuthority {
     const actionIdBase = randomUUID();
     const intent = inferIntent(message);
     const complexity = inferComplexity(message);
+    const hintEnv = readPolicyHintEnvelope();
     const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
@@ -527,7 +524,16 @@ class QueryEngineAuthority {
         })),
       });
 
-      return {
+      const epNoTool = buildExecutionProvenance({
+        provider,
+        toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
+        strategyActual: String(intent),
+        executionMode: 'no_tool_local',
+        provenanceSource: 'no_tool_local',
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+        policyHintEnvelope: hintEnv,
+      });
+      return attachProvenanceMetadata({
         response: directResponse,
         cognitive_runtime_hint: { lane: 'no_tool_local', detail: 'all_actions_tool_none' },
         confidence: 0.92,
@@ -544,11 +550,22 @@ class QueryEngineAuthority {
           strategy: intent,
           runtime_mode: 'no-tool-local',
         },
-      };
+      }, epNoTool);
     }
 
     if (runtimeMode.primary.owner === 'python') {
-      return {
+      const epBridge = buildExecutionProvenance({
+        provider,
+        toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(Boolean),
+        strategyActual: String(intent),
+        executionMode: 'python_executor_bridge',
+        fallbackPath: runtimeMode.fallback?.mode || '',
+        provenanceSource: 'python_bridge_request',
+        provenanceConfidence: 0.82,
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+        policyHintEnvelope: hintEnv,
+      });
+      return attachProvenanceMetadata({
         response: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
         cognitive_runtime_hint: { lane: 'node_execution_graph', detail: 'python_executor_bridge' },
         execution_request: {
@@ -617,7 +634,7 @@ class QueryEngineAuthority {
           })),
         },
         confidence: 0.82,
-      };
+      }, epBridge);
     }
 
     const stepResults = [];
@@ -793,7 +810,20 @@ class QueryEngineAuthority {
       });
     }
 
-    return {
+    const epRun = buildExecutionProvenance({
+      provider,
+      toolCalls: stepResults
+        .map(item => (item.action && item.action.selected_tool) || '')
+        .filter(t => t && t !== 'none'),
+      strategyActual: String(intent),
+      executionMode: String(runtimeMode.primary.mode || ''),
+      fallbackPath: runtimeMode.fallback?.mode || '',
+      provenanceSource: 'node_local_tool_run',
+      provenanceConfidence: 0.86,
+      latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+      policyHintEnvelope: hintEnv,
+    });
+    return attachProvenanceMetadata({
       response: synthesizedResponse,
       cognitive_runtime_hint: {
         lane: 'node_local_tool_run',
@@ -817,7 +847,7 @@ class QueryEngineAuthority {
         task_id: taskId,
         run_id: runId,
       },
-    };
+    }, epRun);
   }
 }
 

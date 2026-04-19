@@ -7,6 +7,32 @@ from typing import Any
 from brain.runtime.policy.performance_models import PerformanceBucket
 
 
+def _row_ep(row: dict[str, Any]) -> dict[str, Any] | None:
+    ep = row.get("execution_provenance")
+    if isinstance(ep, dict):
+        return ep
+    md = row.get("metadata")
+    if isinstance(md, dict):
+        inner = md.get("execution_provenance")
+        if isinstance(inner, dict):
+            return inner
+    return None
+
+
+def _row_dims(row: dict[str, Any]) -> tuple[str, str, str]:
+    ep = _row_ep(row)
+    if isinstance(ep, dict) and str(ep.get("provider_actual") or "").strip():
+        prov = str(ep.get("provider_actual") or "").strip()[:64]
+        model = str(ep.get("model_actual") or "").strip()[:128]
+        strat = str(ep.get("strategy_actual") or row.get("strategy_selected") or "").strip()[:64]
+        return prov, model, strat or str(row.get("strategy_selected") or "")
+    return (
+        str(row.get("provider_selected", "") or "")[:64],
+        str(row.get("model_selected", "") or "")[:128],
+        str(row.get("strategy_selected", "") or "")[:64],
+    )
+
+
 def _bucket_key(*, provider: str, model: str, intent: str, strategy: str) -> str:
     return "|".join(
         [
@@ -27,18 +53,21 @@ class PerformanceStore:
 
     def _load(self) -> dict[str, Any]:
         if not self._path.exists():
-            return {"version": 1, "buckets": {}}
+            return {"version": 1, "buckets": {}, "phase42_rollups": {}}
         try:
             raw = self._path.read_text(encoding="utf-8").strip()
             data = json.loads(raw) if raw else {}
         except (OSError, json.JSONDecodeError):
-            return {"version": 1, "buckets": {}}
+            return {"version": 1, "buckets": {}, "phase42_rollups": {}}
         if not isinstance(data, dict):
-            return {"version": 1, "buckets": {}}
+            return {"version": 1, "buckets": {}, "phase42_rollups": {}}
         buckets = data.get("buckets")
         if not isinstance(buckets, dict):
             buckets = {}
-        return {"version": int(data.get("version", 1)), "buckets": buckets}
+        roll = data.get("phase42_rollups")
+        if not isinstance(roll, dict):
+            roll = {}
+        return {"version": int(data.get("version", 1)), "buckets": buckets, "phase42_rollups": roll}
 
     def _save(self, payload: dict[str, Any]) -> None:
         try:
@@ -85,11 +114,12 @@ class PerformanceStore:
             return
         data = self._load()
         buckets: dict[str, Any] = dict(data.get("buckets", {}))
+        rp, rm, rs = _row_dims(row)
         key = _bucket_key(
-            provider=str(row.get("provider_selected", "") or ""),
-            model=str(row.get("model_selected", "") or ""),
+            provider=rp,
+            model=rm,
             intent=str(row.get("normalized_intent", "") or ""),
-            strategy=str(row.get("strategy_selected", "") or ""),
+            strategy=rs,
         )
         b = self._deserialize_bucket(buckets.get(key))
         b.attempts += 1
@@ -118,11 +148,30 @@ class PerformanceStore:
             b.cost_samples += 1
 
         buckets[key] = self._serialize_bucket(b)
+
+        roll = dict(data.get("phase42_rollups", {}))
+        ep = _row_ep(row)
+        if isinstance(ep, dict) and str(ep.get("provider_actual") or "").strip():
+            roll["provenance_complete"] = int(roll.get("provenance_complete", 0) or 0) + 1
+        else:
+            roll["provenance_partial"] = int(roll.get("provenance_partial", 0) or 0) + 1
+        if isinstance(ep, dict) and str(ep.get("provider_recommended") or "").strip():
+            pm = ep.get("policy_match")
+            if pm is True:
+                roll["policy_matches"] = int(roll.get("policy_matches", 0) or 0) + 1
+            elif pm is False:
+                roll["policy_mismatches"] = int(roll.get("policy_mismatches", 0) or 0) + 1
+            else:
+                roll["policy_unknown"] = int(roll.get("policy_unknown", 0) or 0) + 1
+        tool_n = int(ep.get("tool_count") or 0) if isinstance(ep, dict) else 0
+        if isinstance(ep, dict) and tool_n > 0:
+            roll["tool_use_events"] = int(roll.get("tool_use_events", 0) or 0) + 1
+
         # cap bucket keys
         if len(buckets) > 4000:
             keys = list(buckets.keys())[-3500:]
             buckets = {k: buckets[k] for k in keys}
-        self._save({"version": 1, "buckets": buckets})
+        self._save({"version": 1, "buckets": buckets, "phase42_rollups": roll})
 
     def top_buckets(self, *, limit: int = 12) -> list[dict[str, Any]]:
         data = self._load()
@@ -151,3 +200,22 @@ class PerformanceStore:
                 }
             )
         return out
+
+    def phase42_snapshot(self) -> dict[str, Any]:
+        data = self._load()
+        roll = data.get("phase42_rollups") if isinstance(data.get("phase42_rollups"), dict) else {}
+        top = self.top_buckets(limit=10)
+        pm = int(roll.get("policy_matches", 0) or 0)
+        pmm = int(roll.get("policy_mismatches", 0) or 0)
+        pu = int(roll.get("policy_unknown", 0) or 0)
+        pol_den = max(1, pm + pmm + pu)
+        pc = int(roll.get("provenance_complete", 0) or 0)
+        pp = int(roll.get("provenance_partial", 0) or 0)
+        prov_den = max(1, pc + pp)
+        return {
+            "top_buckets": top,
+            "rollups": dict(roll),
+            "policy_match_rate": round(pm / pol_den, 4),
+            "policy_mismatch_rate": round(pmm / pol_den, 4),
+            "provenance_completeness_rate": round(pc / prov_den, 4),
+        }

@@ -69,7 +69,14 @@ class EvolutionLoop:
                 from brain.runtime.policy.performance_store import PerformanceStore
 
                 project_root = self.python_root.parents[1] if len(self.python_root.parents) > 1 else self.python_root
-                phase41_sketch = {"top_provider_buckets": PerformanceStore(project_root).top_buckets(limit=5)}
+                ps = PerformanceStore(project_root)
+                p42 = ps.phase42_snapshot()
+                phase41_sketch = {
+                    "top_provider_buckets": ps.top_buckets(limit=5),
+                    "phase42_rollups": dict(p42.get("rollups") or {}),
+                    "phase42_policy_match_rate": p42.get("policy_match_rate"),
+                    "phase42_provenance_completeness_rate": p42.get("provenance_completeness_rate"),
+                }
             except Exception:
                 phase41_sketch = None
 

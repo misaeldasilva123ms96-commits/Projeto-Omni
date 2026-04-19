@@ -466,6 +466,9 @@ class ObservabilityReaderTest(unittest.TestCase):
                 self.assertIn('phase41', snap_dict)
                 self.assertIn('experience_counts', snap_dict['phase41'])
                 self.assertIn('performance_top', snap_dict['phase41'])
+                self.assertIn('phase42', snap_dict)
+                self.assertIn('rollups', snap_dict['phase42'])
+                self.assertIn('experience_tail', snap_dict['phase42'])
 
     def test_cli_returns_valid_json_for_snapshot(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -482,3 +485,4 @@ class ObservabilityReaderTest(unittest.TestCase):
             self.assertIn('governance_summary', payload['snapshot'])
             self.assertIn('resolution_counts', payload['snapshot'])
             self.assertIn('phase41', payload['snapshot'])
+            self.assertIn('phase42', payload['snapshot'])
