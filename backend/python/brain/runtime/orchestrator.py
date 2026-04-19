@@ -93,6 +93,7 @@ from brain.runtime.feedback.signals import derive_implicit_signals, parse_explic
 from brain.runtime.learning.runtime_learning_models import OutcomeClass
 from brain.runtime.policy.performance_store import PerformanceStore
 from brain.runtime.policy.policy_router import PolicyRouter
+from brain.runtime.provenance import parse_execution_provenance
 
 
 SAFE_FALLBACK_RESPONSE = "Nao consegui processar isso ainda, mas estou aprendendo."
@@ -317,6 +318,7 @@ class BrainOrchestrator:
         self._pending_policy_hint_json: str | None = None
         self._runtime_bridge: dict[str, Any] = {}
         self._last_phase41_policy_hint: dict[str, Any] | None = None
+        self._last_node_result_envelope: dict[str, Any] | None = None
         self.performance_engine = PerformanceEngine()
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
@@ -451,6 +453,7 @@ class BrainOrchestrator:
         self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
         self._pending_policy_hint_json = None
         self._last_phase41_policy_hint = None
+        self._last_node_result_envelope = None
         self.last_cognitive_runtime_inspection = None
         self._last_node_cognitive_hint = None
         self.last_runtime_mode = self._selected_runtime_mode()
@@ -1072,6 +1075,21 @@ class BrainOrchestrator:
             )
             if isinstance(swarm_result, dict):
                 swarm_result["multi_agent_coordination"] = dict(coordination_payload)
+                node_env = getattr(self, "_last_node_result_envelope", None)
+                if isinstance(node_env, dict):
+                    md_n = node_env.get("metadata")
+                    if isinstance(md_n, dict):
+                        sm_md = swarm_result.get("metadata")
+                        swarm_result["metadata"] = {
+                            **(sm_md if isinstance(sm_md, dict) else {}),
+                            **md_n,
+                        }
+                    ep_n = md_n.get("execution_provenance") if isinstance(md_n, dict) else None
+                    if isinstance(ep_n, dict):
+                        swarm_result["execution_provenance"] = ep_n
+                    ch_n = node_env.get("cognitive_runtime_hint")
+                    if isinstance(ch_n, dict):
+                        swarm_result["cognitive_runtime_hint"] = ch_n
         else:
             skip_tid = "perf36-skip-" + hashlib.sha1(str(session_id or "").encode("utf-8")).hexdigest()[:10]
             performance_payload = {
@@ -1172,6 +1190,23 @@ class BrainOrchestrator:
                     continue
                 parts.append(str(x.get("agent") or x.get("role") or x.get("step") or "step")[:40])
             ag_summary = ";".join(parts)
+        strat_mode_exp = ""
+        if isinstance(strategy_payload, dict):
+            ss_exp = strategy_payload.get("selected_strategy")
+            if isinstance(ss_exp, dict):
+                strat_mode_exp = str(ss_exp.get("mode", "") or "").strip()
+        pol_ctx: dict[str, Any] = {}
+        if isinstance(self._last_phase41_policy_hint, dict):
+            pol_ctx["policy_recommended"] = self._last_phase41_policy_hint.get("recommended_provider")
+            pol_ctx["policy_baseline"] = self._last_phase41_policy_hint.get("baseline_provider")
+            pol_ctx["policy_shadow_only"] = bool(self._last_phase41_policy_hint.get("shadow_only", True))
+        prov_model = parse_execution_provenance(
+            dict(swarm_result),
+            orchestrator_context=pol_ctx,
+            strategy_mode=strat_mode_exp,
+            fallback_used=fb_used,
+            latency_total_ms=duration_ms,
+        )
         exp_rec = build_experience_record(
             session_id=session_id,
             user_input=message,
@@ -1186,7 +1221,8 @@ class BrainOrchestrator:
             success_outcome=success_turn,
             learning_summary=str(learning_record.summary.headline or "")[:2000],
             agent_trace_summary=ag_summary,
-            cost_estimate=None,
+            cost_estimate=prov_model.cost_estimate,
+            execution_provenance=prov_model.as_dict(),
         )
         self.experience_store.append(exp_rec)
         self.performance_store.update_from_experience_row(exp_rec.as_dict())
@@ -1202,6 +1238,8 @@ class BrainOrchestrator:
                 "success_outcome": exp_rec.success_outcome,
                 "feedback_source": exp_rec.feedback_source,
                 "feedback_class": exp_rec.feedback_class,
+                "provider_actual": prov_model.provider_actual,
+                "policy_match": prov_model.policy_match,
             },
         )
 
@@ -1225,6 +1263,12 @@ class BrainOrchestrator:
                     if isinstance(self._last_phase41_policy_hint, dict)
                     else self._last_phase41_policy_hint,
                     "experience_id": exp_rec.experience_id,
+                },
+                "phase42": {
+                    "provider_actual": prov_model.provider_actual,
+                    "model_actual": prov_model.model_actual,
+                    "policy_match": prov_model.policy_match,
+                    "provenance_source": prov_model.provenance_source,
                 },
             }
             phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
@@ -1339,6 +1383,15 @@ class BrainOrchestrator:
                 "feedback": phase41_feedback_bundle.as_dict(),
                 "policy_hint": self._last_phase41_policy_hint,
                 "experience_count_session": self.experience_store.session_record_count(session_id),
+            },
+            "phase42": {
+                "provider_actual": prov_model.provider_actual,
+                "model_actual": prov_model.model_actual,
+                "policy_match": prov_model.policy_match,
+                "policy_applied": prov_model.policy_applied,
+                "execution_mode": prov_model.execution_mode,
+                "tool_count": prov_model.tool_count,
+                "provenance_source": prov_model.provenance_source,
             },
         }
         self.session_store.save(session_id, session_payload)
@@ -2082,6 +2135,11 @@ class BrainOrchestrator:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _extract_node_envelope_for_provenance(parsed: dict[str, Any]) -> dict[str, Any]:
+        keys = ("metadata", "memory", "execution_request", "cognitive_runtime_hint", "confidence", "response")
+        return {k: parsed[k] for k in keys if k in parsed}
+
     def _call_node_query_engine(
         self,
         *,
@@ -2091,6 +2149,7 @@ class BrainOrchestrator:
         session_id: str,
         extra_session: dict[str, Any] | None = None,
     ) -> str:
+        self._last_node_result_envelope = None
         self._last_node_cognitive_hint = None
         if self._selected_runtime_mode() == "fallback":
             self.last_runtime_mode = "fallback"
@@ -2286,6 +2345,7 @@ class BrainOrchestrator:
         try:
             parsed = json.loads(stdout)
         except json.JSONDecodeError as error:
+            self._last_node_result_envelope = None
             classified_reason, details = self._classify_node_subprocess_failure(
                 diagnostics=diagnostics,
                 returncode=completed.returncode,
@@ -2312,6 +2372,7 @@ class BrainOrchestrator:
 
         self._last_node_cognitive_hint = None
         if isinstance(parsed, dict):
+            self._last_node_result_envelope = BrainOrchestrator._extract_node_envelope_for_provenance(parsed)
             hint = parsed.get("cognitive_runtime_hint")
             if isinstance(hint, dict):
                 self._last_node_cognitive_hint = hint

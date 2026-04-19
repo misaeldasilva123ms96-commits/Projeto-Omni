@@ -59,6 +59,29 @@ class ExperienceStore:
     def session_record_count(self, session_id: str) -> int:
         return len(self.read_recent_for_session(session_id, limit=50_000))
 
+    def read_recent_global(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Most recent experience rows (any session), newest first — bounded for observability."""
+        if limit <= 0 or not self._path.exists():
+            return []
+        try:
+            text = self._path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        out: list[dict[str, Any]] = []
+        for line in reversed(text.splitlines()):
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                out.append(row)
+            if len(out) >= limit:
+                break
+        return out
+
     def snapshot_counts(self, *, session_limit: int = 12) -> dict[str, Any]:
         """Safe aggregate for observability (no row bodies)."""
         if not self._path.exists():

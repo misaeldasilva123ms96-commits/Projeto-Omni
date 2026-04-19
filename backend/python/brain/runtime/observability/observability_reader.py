@@ -115,6 +115,29 @@ class ObservabilityReader:
             in ("1", "true", "yes"),
         }
 
+        perf_store = PerformanceStore(self.root)
+        exp_store = ExperienceStore(self.root)
+        tail_rows = exp_store.read_recent_global(limit=120)
+        prov_n = 0
+        tool_n = 0
+        for row in tail_rows:
+            ep = row.get("execution_provenance")
+            if not isinstance(ep, dict) and isinstance(row.get("metadata"), dict):
+                ep = row["metadata"].get("execution_provenance")
+            if isinstance(ep, dict) and str(ep.get("provider_actual") or "").strip():
+                prov_n += 1
+            if isinstance(ep, dict) and int(ep.get("tool_count") or 0) > 0:
+                tool_n += 1
+        den_tail = max(1, len(tail_rows))
+        phase42_summary = {
+            **perf_store.phase42_snapshot(),
+            "experience_tail": {
+                "rows": len(tail_rows),
+                "provenance_completeness_rate_recent": round(prov_n / den_tail, 4),
+                "tool_use_rate_recent": round(tool_n / den_tail, 4),
+            },
+        }
+
         return ObservabilitySnapshot(
             generated_at=utc_now_iso(),
             goal=goal,
@@ -164,6 +187,7 @@ class ObservabilityReader:
             recent_self_improving_system_traces=recent_self_improving_system_traces,
             warnings=[],
             phase41=phase41_summary,
+            phase42=phase42_summary,
         )
 
     def goal_history(self, *, limit: int = 10) -> list[dict[str, object]]:
