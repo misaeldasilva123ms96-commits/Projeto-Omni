@@ -10,6 +10,8 @@ export type UiChatResponse = {
   stopReason?: string
   /** From `cognitive_runtime_inspection.execution_tier` when the backend exposes it. */
   executionTier?: string
+  /** Same rules as E2E `classifyChatWireHealth` — wire-level degraded vs healthy. */
+  wireHealth?: 'ok' | 'degraded'
   /** Rust runtime epoch from chat endpoints when present; aligns with public status snapshot. */
   runtimeSessionVersion?: number
   /** Backend correlation id when truthfully returned; never the UI session key. */

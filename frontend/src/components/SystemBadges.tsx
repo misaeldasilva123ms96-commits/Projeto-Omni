@@ -19,6 +19,9 @@ export function SystemBadges({ metadata }: SystemBadgesProps) {
       {metadata.executionTier ? (
         <span className="system-badge">Exec tier: {metadata.executionTier}</span>
       ) : null}
+      {metadata.wireHealth === 'degraded' ? (
+        <span className="system-badge">Wire: degraded (not a clean success)</span>
+      ) : null}
       {metadata.matchedTools.length > 0 ? (
         <span className="system-badge">Ferramentas: {metadata.matchedTools.join(', ')}</span>
       ) : null}

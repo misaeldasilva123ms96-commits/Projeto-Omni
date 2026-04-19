@@ -11,7 +11,7 @@ type SyncChatSessionInput = {
   externalSessionId: string
   mode: ChatMode
   title: string
-  status: 'active' | 'idle' | 'completed' | 'failed'
+  status: 'active' | 'idle' | 'completed' | 'failed' | 'degraded'
   summary?: string
   metadata?: RuntimeMetadata | null
   messages: ChatMessage[]
