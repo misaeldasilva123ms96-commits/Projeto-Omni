@@ -84,6 +84,7 @@ function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): Runti
     matchedTools: ui.tools,
     stopReason: ui.stopReason,
     executionTier: ui.executionTier,
+    wireHealth: ui.wireHealth,
     runtimeSessionVersion: ui.runtimeSessionVersion,
     conversationId: ui.conversationId,
     chatApiVersion: ui.chatApiVersion,
@@ -211,11 +212,13 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     const status: SyncChatStatus =
       requestState === 'error'
         ? 'failed'
-        : latestMessage?.requestState === 'completed'
-          ? 'completed'
-          : requestState === 'loading'
-            ? 'active'
-            : 'idle'
+        : latestMessage?.requestState === 'degraded'
+          ? 'degraded'
+          : latestMessage?.requestState === 'completed'
+            ? 'completed'
+            : requestState === 'loading'
+              ? 'active'
+              : 'idle'
 
     void syncChatSessionToSupabase({
       externalSessionId: sessionId,
@@ -324,6 +327,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       const ui = chatApiResponseToUi(data)
       const metadata = normalizeMetadata(ui, sessionId)
       const displayText = ui.text.trim() || '...'
+      const assistantOutcome = ui.wireHealth === 'degraded' ? ('degraded' as const) : ('completed' as const)
 
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
@@ -335,7 +339,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
               content: displayText,
               isLoading: false,
               isNew: true,
-              requestState: 'completed' as const,
+              requestState: assistantOutcome,
             }
             : message
         )),

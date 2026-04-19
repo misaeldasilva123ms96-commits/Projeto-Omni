@@ -1,6 +1,6 @@
 export type ChatRole = 'user' | 'assistant' | 'system'
 
-export type SyncChatStatus = 'active' | 'idle' | 'completed' | 'failed'
+export type SyncChatStatus = 'active' | 'idle' | 'completed' | 'failed' | 'degraded'
 
 export type ChatMode = 'chat' | 'pesquisa' | 'codigo' | 'agente'
 
@@ -17,6 +17,8 @@ export type RuntimeMetadata = {
   stopReason?: string
   /** When backend returns `cognitive_runtime_inspection.execution_tier` (degraded vs real). */
   executionTier?: string
+  /** Derived from wire contract (`wireChatHealth`); not a second source of truth. */
+  wireHealth?: 'ok' | 'degraded'
   usage?: ChatUsage
   /** From `POST /chat` (`runtime_session_version`); Rust runtime epoch, not UI session. */
   runtimeSessionVersion?: number
@@ -32,7 +34,7 @@ export type ChatMessage = {
   content: string
   createdAt: string
   metadata?: RuntimeMetadata
-  requestState?: 'completed' | 'failed'
+  requestState?: 'completed' | 'failed' | 'degraded'
 }
 
 export type ChatApiResponse = {

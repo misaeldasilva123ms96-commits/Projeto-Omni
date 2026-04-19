@@ -21,6 +21,7 @@ import type {
   ObservabilityTracesResponse,
 } from '../../types/observability'
 import type { UiChatResponse } from '../../types/ui/chat'
+import { classifyChatWireHealth, extractExecutionTier } from './wireChatHealth'
 import type { UiObservabilitySnapshot, UiObservabilityTracesResult } from '../../types/ui/observability'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
 import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../../types/ui/telemetry'
@@ -38,7 +39,16 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     throw new Error('Omni returned an invalid response payload.')
   }
 
-  const record = payload as Record<string, unknown>
+  let record = payload as Record<string, unknown>
+  const nestedChat = record.chat
+  if (
+    nestedChat &&
+    typeof nestedChat === 'object' &&
+    !Array.isArray(nestedChat) &&
+    typeof (nestedChat as Record<string, unknown>).response === 'string'
+  ) {
+    record = { ...record, ...(nestedChat as Record<string, unknown>) }
+  }
   const response =
     typeof record.response === 'string'
       ? record.response
@@ -148,14 +158,6 @@ export function operatorMilestonesV1ToMilestonesResponse(w: OperatorMilestonesV1
   }
 }
 
-function executionTierFromInspection(
-  inspection: Record<string, unknown> | undefined,
-): string | undefined {
-  if (!inspection) return undefined
-  const tier = inspection.execution_tier
-  return typeof tier === 'string' && tier.trim() ? tier.trim() : undefined
-}
-
 export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
   return {
     text: res.response,
@@ -164,7 +166,12 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
     commands: res.matched_commands ?? [],
     tools: res.matched_tools ?? [],
     stopReason: res.stop_reason,
-    executionTier: executionTierFromInspection(res.cognitive_runtime_inspection),
+    executionTier: extractExecutionTier(res.cognitive_runtime_inspection),
+    wireHealth: classifyChatWireHealth({
+      response: res.response,
+      stop_reason: res.stop_reason,
+      cognitive_runtime_inspection: res.cognitive_runtime_inspection,
+    }),
     runtimeSessionVersion: res.runtime_session_version,
     conversationId: res.conversation_id,
     chatApiVersion: res.api_version,
