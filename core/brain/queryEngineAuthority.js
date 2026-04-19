@@ -368,6 +368,13 @@ class QueryEngineAuthority {
       return attachProvenanceMetadata({
         response: tinyGreeting,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'regex_greeting' },
+        confidence: 0.55,
+        memory: {
+          session: { session_id: sessionId },
+          strategy: 'greeting',
+          runtime_mode: 'matcher_shortcut',
+          provider: 'local-heuristic',
+        },
       }, epGreet);
     }
     const directConversationResponse = bypassMatchers ? null : resolveDirectConversational(normalizedMessage);
@@ -384,6 +391,13 @@ class QueryEngineAuthority {
       return attachProvenanceMetadata({
         response: directConversationResponse,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
+        confidence: 0.52,
+        memory: {
+          session: { session_id: sessionId },
+          strategy: 'conversational_matcher',
+          runtime_mode: 'matcher_shortcut',
+          provider: 'local-heuristic',
+        },
       }, ep);
     }
     const runtimeConfig = loadRuntimeConfig();
