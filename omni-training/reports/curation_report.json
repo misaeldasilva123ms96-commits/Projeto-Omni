@@ -1,0 +1,27 @@
+{
+  "total_examples": 3,
+  "good": 0,
+  "weak": 0,
+  "incorrect": 3,
+  "model_enabled": false,
+  "items": [
+    {
+      "id": "omni-curated-0001",
+      "status": "incorrect",
+      "quality_score": 1.0,
+      "token_overlap": 0.1481
+    },
+    {
+      "id": "omni-curated-0002",
+      "status": "incorrect",
+      "quality_score": 1.0,
+      "token_overlap": 0.125
+    },
+    {
+      "id": "omni-curated-0003",
+      "status": "incorrect",
+      "quality_score": 1.0,
+      "token_overlap": 0.0345
+    }
+  ]
+}

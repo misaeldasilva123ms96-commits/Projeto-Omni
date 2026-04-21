@@ -1,5 +1,8 @@
 from .learning_engine import LearningEngine
 from .learning_executor import LearningExecutor
+from .lora_decision_engine import LoRADecisionEngine, LoRADecisionResult
+from .lora_inference import LoRAInferenceEngine, LoRAInferenceResult
+from .lora_router_adapter import LoRARouterAdapter, LoRAUsagePlan
 from .models import (
     LearningEvidence,
     LearningPolicy,
@@ -29,6 +32,12 @@ __all__ = [
     "LearningSignal",
     "LearningSignalType",
     "LearningSourceType",
+    "LoRADecisionEngine",
+    "LoRADecisionResult",
+    "LoRAInferenceEngine",
+    "LoRAInferenceResult",
+    "LoRARouterAdapter",
+    "LoRAUsagePlan",
     "OutcomeClass",
     "PatternRecord",
     "RuntimeFeedbackSignal",
