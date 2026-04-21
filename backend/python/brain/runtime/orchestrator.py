@@ -29,7 +29,7 @@ from brain.memory.store import (
     load_memory_store,
     save_memory_store,
 )
-from brain.runtime.language import normalize_input_to_oil_request
+from brain.runtime.language import normalize_input_to_oil_request, oil_summary, translate_to_oil_projection
 from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
@@ -44,7 +44,7 @@ from brain.runtime.control.governed_tools import (
     is_strict_governed_tools_mode,
     sync_governed_tools_from_trusted_executor_surface,
 )
-from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor
+from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor, build_execution_manifest
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.engine_adoption_store import EngineAdoptionStore
@@ -692,6 +692,23 @@ class BrainOrchestrator:
             run_id="",
             metadata=control_metadata,
         )
+        upgrade_artifacts = self._build_runtime_upgrade_artifacts(
+            message=runtime_message,
+            session_id=session_id,
+            run_id="",
+            routing_decision=control_result["routing_decision"],
+            strategy_payload=strategy_payload,
+            selected_tools=control_metadata.get("selected_tools", []),
+            provider_path=(
+                str((self._last_phase41_policy_hint or {}).get("recommended_provider", "")).strip()
+                if isinstance(self._last_phase41_policy_hint, dict)
+                else ""
+            ),
+        )
+        control_metadata["oil_summary"] = dict(upgrade_artifacts.get("oil_summary") or {})
+        control_metadata["routing_decision_record"] = dict(upgrade_artifacts.get("routing_record") or {})
+        control_metadata["execution_manifest"] = dict(upgrade_artifacts.get("manifest") or {})
+        control_metadata["fallback_triggered"] = bool(upgrade_artifacts.get("fallback_triggered"))
         context_budget, retrieval_plan = self._build_context_budget(
             routing_decision=control_result["routing_decision"]
         )
@@ -705,6 +722,12 @@ class BrainOrchestrator:
             budget=context_budget,
             retrieval_plan=retrieval_plan,
             strategy_state=strategy_state if isinstance(strategy_state, dict) else None,
+        )
+        self._record_runtime_upgrade_events(
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            upgrade_artifacts=upgrade_artifacts,
         )
         self._emit_control_event(
             "runtime.control.routing_decision",
@@ -1819,6 +1842,7 @@ class BrainOrchestrator:
             elif selected_tools and all(tool in READ_ONLY_TOOLS for tool in selected_tools):
                 combined["task_type"] = "repository_analysis"
 
+        combined["selected_tools"] = list(dict.fromkeys(selected_tools))
         combined["target_files"] = target_files
         combined["repository_analysis"] = combined_repository_analysis
         combined["repo_impact_analysis"] = combined_repo_impact
@@ -2586,6 +2610,149 @@ class BrainOrchestrator:
             },
         )
 
+    def _record_runtime_upgrade_fallback(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        reason: str,
+        error: str,
+    ) -> None:
+        self.memory_facade.record_event(
+            event_type="runtime_upgrade_fallback",
+            description="Runtime upgrade layer degraded to compatibility path",
+            metadata={
+                "reason": reason,
+                "error": error,
+                "run_id": run_id,
+            },
+        )
+        self._append_runtime_event(
+            event_type="runtime.upgrade.fallback",
+            session_id=session_id,
+            task_id="",
+            run_id=run_id,
+            payload={
+                "reason": reason,
+                "error": error,
+                "fallback_triggered": True,
+            },
+        )
+
+    def _build_runtime_upgrade_artifacts(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        run_id: str,
+        routing_decision: Any,
+        strategy_payload: dict[str, Any] | None = None,
+        selected_tools: list[str] | None = None,
+        provider_path: str | None = None,
+    ) -> dict[str, Any]:
+        artifacts: dict[str, Any] = {
+            "oil_request": None,
+            "oil_projection": None,
+            "oil_summary": {},
+            "routing_record": routing_decision.as_runtime_record().as_dict()
+            if hasattr(routing_decision, "as_runtime_record")
+            else {},
+            "manifest": None,
+            "manifest_summary": {},
+            "fallback_triggered": False,
+            "fallback_reason": "",
+            "provider_path": str(provider_path or "").strip(),
+        }
+        try:
+            oil_request, oil_projection = translate_to_oil_projection(
+                message,
+                session_id=session_id,
+                run_id=run_id or None,
+                metadata={"source_component": "runtime.orchestrator.upgrade"},
+            )
+            artifacts["oil_request"] = oil_request
+            artifacts["oil_projection"] = oil_projection
+            artifacts["oil_summary"] = oil_summary(oil_projection)
+            manifest_result = build_execution_manifest(
+                oil_request=oil_request,
+                routing_decision=routing_decision,
+                strategy_payload=strategy_payload,
+                selected_tools=selected_tools,
+                provider_path=provider_path,
+            )
+            artifacts["fallback_triggered"] = bool(manifest_result.fallback_triggered)
+            artifacts["fallback_reason"] = str(manifest_result.reason or "")
+            if manifest_result.manifest is not None:
+                manifest_dict = manifest_result.manifest.as_dict()
+                artifacts["manifest"] = manifest_dict
+                artifacts["manifest_summary"] = {
+                    "intent": manifest_dict.get("intent"),
+                    "chosen_strategy": manifest_dict.get("chosen_strategy"),
+                    "selected_tools": manifest_dict.get("selected_tools", []),
+                    "output_mode": manifest_dict.get("output_mode"),
+                    "fallback_strategy": manifest_dict.get("fallback_strategy"),
+                    "provider_path": manifest_dict.get("provider_path", ""),
+                }
+            if manifest_result.fallback_triggered:
+                self._record_runtime_upgrade_fallback(
+                    session_id=session_id,
+                    run_id=run_id,
+                    reason=str(manifest_result.reason or "manifest_build_failed"),
+                    error=str(manifest_result.metadata.get("error", "")),
+                )
+        except Exception as exc:
+            artifacts["fallback_triggered"] = True
+            artifacts["fallback_reason"] = "runtime_upgrade_build_failed"
+            self._record_runtime_upgrade_fallback(
+                session_id=session_id,
+                run_id=run_id,
+                reason="runtime_upgrade_build_failed",
+                error=str(exc),
+            )
+        return artifacts
+
+    def _record_runtime_upgrade_events(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        run_id: str,
+        upgrade_artifacts: dict[str, Any],
+    ) -> None:
+        oil_payload = dict(upgrade_artifacts.get("oil_summary") or {})
+        routing_payload = dict(upgrade_artifacts.get("routing_record") or {})
+        manifest_payload = dict(upgrade_artifacts.get("manifest_summary") or {})
+        provider_path = str(upgrade_artifacts.get("provider_path", "")).strip()
+        if oil_payload:
+            self.memory_facade.record_event(
+                event_type="runtime_oil",
+                description="Runtime OIL projection generated",
+                metadata=oil_payload,
+            )
+            self._append_runtime_event(
+                event_type="runtime.oil.summary",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=oil_payload,
+            )
+        if manifest_payload:
+            manifest_payload.setdefault("provider_path", provider_path)
+            manifest_payload["routing_decision"] = routing_payload
+            manifest_payload["fallback_triggered"] = bool(upgrade_artifacts.get("fallback_triggered"))
+            self.memory_facade.record_event(
+                event_type="runtime_manifest",
+                description="Execution manifest generated",
+                metadata=manifest_payload,
+            )
+            self._append_runtime_event(
+                event_type="runtime.manifest.summary",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=manifest_payload,
+            )
+
     def _register_run_record(
         self,
         *,
@@ -2835,6 +3002,19 @@ class BrainOrchestrator:
             run_id=run_id,
             metadata=control_metadata,
         )
+        upgrade_artifacts = self._build_runtime_upgrade_artifacts(
+            message=message,
+            session_id=session_id,
+            run_id=run_id,
+            routing_decision=control_result["routing_decision"],
+            strategy_payload={},
+            selected_tools=control_metadata.get("selected_tools", []),
+            provider_path="",
+        )
+        control_metadata["oil_summary"] = dict(upgrade_artifacts.get("oil_summary") or {})
+        control_metadata["routing_decision_record"] = dict(upgrade_artifacts.get("routing_record") or {})
+        control_metadata["execution_manifest"] = dict(upgrade_artifacts.get("manifest") or {})
+        control_metadata["fallback_triggered"] = bool(upgrade_artifacts.get("fallback_triggered"))
         context_budget, retrieval_plan = self._build_context_budget(
             routing_decision=control_result["routing_decision"]
         )
@@ -2847,6 +3027,12 @@ class BrainOrchestrator:
             control_result=control_result,
             budget=context_budget,
             retrieval_plan=retrieval_plan,
+        )
+        self._record_runtime_upgrade_events(
+            session_id=session_id,
+            task_id=task_id,
+            run_id=run_id,
+            upgrade_artifacts=upgrade_artifacts,
         )
         self._emit_control_event(
             "runtime.control.routing_decision",

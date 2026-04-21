@@ -11,6 +11,7 @@ from brain.runtime.language.envelopes import (
 )
 from brain.runtime.language.oil_schema import OILError, OILRequest, OILResult
 from brain.runtime.language.input_interpreter import InputInterpreter, interpret_input
+from brain.runtime.language.oil_models import OILProjection
 from brain.runtime.language.output_composer import OutputComposer, compose_output
 from brain.runtime.language.protocol import (
     OILHandoffProtocol,
@@ -33,6 +34,11 @@ from brain.runtime.language.reasoning_contract import (
     build_reasoning_oil_result,
     normalize_input_to_oil_request,
 )
+from brain.runtime.language.oil_translator import (
+    interpret_to_oil_projection,
+    oil_summary,
+    translate_to_oil_projection,
+)
 from brain.runtime.language.types import (
     OIL_VERSION,
     OILContext,
@@ -53,6 +59,7 @@ __all__ = [
     "OILError",
     "InputInterpreter",
     "interpret_input",
+    "OILProjection",
     "OutputComposer",
     "compose_output",
     "OIL_PROTOCOL_VERSION",
@@ -76,4 +83,7 @@ __all__ = [
     "ReasoningHandoffContract",
     "normalize_input_to_oil_request",
     "build_reasoning_oil_result",
+    "interpret_to_oil_projection",
+    "translate_to_oil_projection",
+    "oil_summary",
 ]

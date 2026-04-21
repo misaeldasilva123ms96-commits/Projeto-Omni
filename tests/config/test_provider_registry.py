@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import unittest
 
+from brain.providers.models import ProviderHealth, ProviderRequest, ProviderResponse, ProviderType
 from config.provider_registry import PROVIDERS, get_available_providers, providers_capability
 
 
@@ -37,6 +38,14 @@ class ProviderRegistryTest(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+    def test_provider_contract_models_are_serializable(self) -> None:
+        request = ProviderRequest(prompt="hello", temperature=0.1)
+        response = ProviderResponse(provider_name="demo", provider_type=ProviderType.GENERIC.value, content="ok")
+        health = ProviderHealth(provider_name="demo", healthy=True, detail="fine")
+        self.assertEqual(request.as_dict()["prompt"], "hello")
+        self.assertEqual(response.as_dict()["content"], "ok")
+        self.assertTrue(health.as_dict()["healthy"])
 
 
 if __name__ == "__main__":

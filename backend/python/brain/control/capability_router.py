@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from brain.runtime.models.capability_routing import CapabilityRoutingRecord
+
 from .mode_engine import RuntimeMode
 
 
 @dataclass(frozen=True)
 class RoutingDecision:
+    intent: str
+    strategy: str
+    confidence: float
+    requires_tools: bool
+    requires_node_runtime: bool
+    fallback_allowed: bool
+    internal_reasoning_hint: str
     task_type: str
     preferred_mode: RuntimeMode
     preferred_capability_path: str
@@ -22,6 +31,17 @@ class RoutingDecision:
         data = asdict(self)
         data["preferred_mode"] = self.preferred_mode.value
         return data
+
+    def as_runtime_record(self) -> CapabilityRoutingRecord:
+        return CapabilityRoutingRecord(
+            intent=self.intent,
+            strategy=self.strategy,
+            confidence=self.confidence,
+            requires_tools=self.requires_tools,
+            requires_node_runtime=self.requires_node_runtime,
+            fallback_allowed=self.fallback_allowed,
+            internal_reasoning_hint=self.internal_reasoning_hint,
+        )
 
 
 class CapabilityRouter:
@@ -180,6 +200,13 @@ class CapabilityRouter:
     @staticmethod
     def _default_decision() -> RoutingDecision:
         return RoutingDecision(
+            intent="ask_question",
+            strategy="DIRECT_RESPONSE",
+            confidence=0.64,
+            requires_tools=False,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="deterministic conversational routing selected",
             task_type="simple_query",
             preferred_mode=RuntimeMode.EXPLORE,
             preferred_capability_path="conversation_runtime",
@@ -195,6 +222,13 @@ class CapabilityRouter:
     @staticmethod
     def _repository_analysis_decision() -> RoutingDecision:
         return RoutingDecision(
+            intent="analyze",
+            strategy="MULTI_STEP_REASONING",
+            confidence=0.81,
+            requires_tools=False,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="repository analysis benefits from staged reasoning",
             task_type="repository_analysis",
             preferred_mode=RuntimeMode.EXPLORE,
             preferred_capability_path="repository_intelligence",
@@ -209,7 +243,22 @@ class CapabilityRouter:
 
     def _code_mutation_decision(self, lowered: str, metadata: dict[str, object]) -> RoutingDecision:
         is_large_task = self._is_large_task(lowered, metadata)
+        requires_node_runtime = bool(metadata.get("requires_node_runtime")) or any(
+            signal in lowered
+            for signal in ("node runtime", "bun", "queryengine", "js-runner", "javascript bridge", "node bridge")
+        )
         return RoutingDecision(
+            intent="execute_tool_like_action" if requires_node_runtime else "plan",
+            strategy="NODE_RUNTIME_DELEGATION" if requires_node_runtime else "TOOL_ASSISTED",
+            confidence=0.86 if is_large_task else 0.8,
+            requires_tools=True,
+            requires_node_runtime=requires_node_runtime,
+            fallback_allowed=True,
+            internal_reasoning_hint=(
+                "mutation request delegated through node runtime aware workflow"
+                if requires_node_runtime
+                else "mutation request requires staged execution planning"
+            ),
             task_type="code_mutation",
             preferred_mode=RuntimeMode.PLAN,
             preferred_capability_path="engineering_workflow",
@@ -229,6 +278,13 @@ class CapabilityRouter:
     @staticmethod
     def _verification_decision() -> RoutingDecision:
         return RoutingDecision(
+            intent="classify",
+            strategy="TOOL_ASSISTED",
+            confidence=0.78,
+            requires_tools=True,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="verification requests are better served by tool-backed validation",
             task_type="verification",
             preferred_mode=RuntimeMode.VERIFY,
             preferred_capability_path="verification_workflow",
@@ -244,6 +300,13 @@ class CapabilityRouter:
     @staticmethod
     def _recovery_decision() -> RoutingDecision:
         return RoutingDecision(
+            intent="analyze",
+            strategy="MULTI_STEP_REASONING",
+            confidence=0.79,
+            requires_tools=True,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="recovery flows combine diagnosis, targeted changes, and verification",
             task_type="recovery",
             preferred_mode=RuntimeMode.RECOVER,
             preferred_capability_path="recovery_workflow",
@@ -259,6 +322,13 @@ class CapabilityRouter:
     @staticmethod
     def _reporting_decision() -> RoutingDecision:
         return RoutingDecision(
+            intent="summarize",
+            strategy="DIRECT_RESPONSE",
+            confidence=0.72,
+            requires_tools=False,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="reporting requests synthesize existing runtime artifacts",
             task_type="reporting",
             preferred_mode=RuntimeMode.REPORT,
             preferred_capability_path="reporting_workflow",
