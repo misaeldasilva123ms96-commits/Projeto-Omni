@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .models import CapabilityDescriptor
+from brain.runtime.tooling.tool_registry_extensions import get_capability_metadata
 
 
 class CapabilityRegistry:
@@ -67,12 +68,12 @@ class CapabilityRegistry:
         ]
 
     def list_capabilities(self) -> list[CapabilityDescriptor]:
-        return list(self._capabilities)
+        return [self._enrich(item) for item in self._capabilities]
 
     def get(self, capability_id: str) -> CapabilityDescriptor | None:
         for capability in self._capabilities:
             if capability.capability_id == capability_id:
-                return capability
+                return self._enrich(capability)
         return None
 
     def default_for_action(self, *, action_type: str, selected_tool: str, engineering_tool: bool) -> CapabilityDescriptor:
@@ -83,4 +84,20 @@ class CapabilityRegistry:
         return self.get("rust_bridge_execution") or self._capabilities[0]
 
     def as_dict(self) -> list[dict[str, Any]]:
-        return [item.as_dict() for item in self._capabilities]
+        return [item.as_dict() for item in self.list_capabilities()]
+
+    @staticmethod
+    def _enrich(capability: CapabilityDescriptor) -> CapabilityDescriptor:
+        metadata = get_capability_metadata(capability.capability_id).as_dict()
+        merged_metadata = dict(capability.metadata or {})
+        for key, value in metadata.items():
+            merged_metadata.setdefault(key, value)
+        return CapabilityDescriptor(
+            capability_id=capability.capability_id,
+            subsystem=capability.subsystem,
+            supported_action_types=list(capability.supported_action_types),
+            priority_level=capability.priority_level,
+            confidence_score=capability.confidence_score,
+            failure_risk=capability.failure_risk,
+            metadata=merged_metadata,
+        )
