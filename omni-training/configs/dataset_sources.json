@@ -1,0 +1,20 @@
+{
+  "default_small": {
+    "dataset_name": "yahma/alpaca-cleaned",
+    "dataset_config": null,
+    "split": "train[:128]",
+    "revision": "main",
+    "streaming": false,
+    "source_type": "instruction_sft",
+    "notes": "Default small public dataset slice for safe local ingestion."
+  },
+  "pt_instruction_seed": {
+    "dataset_name": "recogna-nlp/InstructionWild",
+    "dataset_config": null,
+    "split": "train[:64]",
+    "revision": "main",
+    "streaming": false,
+    "source_type": "mixed_instruction",
+    "notes": "Optional extra source; still filtered and normalized before use."
+  }
+}

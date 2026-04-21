@@ -1,0 +1,40 @@
+{
+  "instruction_fields": [
+    "instruction",
+    "prompt",
+    "question",
+    "query",
+    "user_input",
+    "task",
+    "title",
+    "text"
+  ],
+  "input_fields": [
+    "input",
+    "context",
+    "additional_context",
+    "details"
+  ],
+  "output_fields": [
+    "output",
+    "response",
+    "answer",
+    "completion",
+    "assistant_output",
+    "chosen"
+  ],
+  "task_family_keywords": {
+    "coding": ["code", "python", "bug", "refactor", "teste", "debug", "script", "função"],
+    "planning": ["plan", "roadmap", "etapas", "plano", "arquitetura", "strategy"],
+    "analysis": ["analise", "analysis", "compare", "resuma", "explain", "explain"],
+    "runtime": ["runtime", "orchestrator", "routing", "manifest", "oil", "provider"],
+    "governance": ["policy", "governance", "risk", "compliance", "fallback", "observability"]
+  },
+  "drop_if_output_matches": [
+    "^\\s*$",
+    "^n/?a\\s*$",
+    "^none\\s*$"
+  ],
+  "max_instruction_chars": 4000,
+  "max_output_chars": 12000
+}
