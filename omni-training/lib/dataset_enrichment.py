@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from dataset_quality import quality_score
+from dataset_weighting import derive_weight_fields
 from oil_adapter import convert_text_to_oil
 from sft_builder import runtime_hints_from_oil
 
@@ -36,6 +37,7 @@ def enrich_curated_example(example: dict[str, Any]) -> dict[str, Any]:
     enriched["runtime_hints"] = runtime_hints
     enriched["metadata"] = metadata
     enriched["quality_score"] = max(float(enriched.get("quality_score", 0.0) or 0.0), quality_score(enriched))
+    enriched.update(derive_weight_fields(enriched))
     return enriched
 
 
@@ -51,6 +53,7 @@ def enrich_public_record(record: dict[str, Any]) -> dict[str, Any]:
     enriched["runtime_hints"] = runtime_hints_from_oil(oil_payload, str(enriched.get("task_family", "general") or "general"))
     enriched["metadata"] = metadata
     enriched["quality_score"] = quality_score(enriched)
+    enriched.update(derive_weight_fields(enriched))
     return enriched
 
 
@@ -58,4 +61,3 @@ def enrich_records(records: list[dict[str, Any]], *, curated: bool) -> list[dict
     if curated:
         return [enrich_curated_example(record) for record in records]
     return [enrich_public_record(record) for record in records]
-

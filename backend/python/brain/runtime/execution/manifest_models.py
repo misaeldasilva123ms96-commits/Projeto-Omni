@@ -16,6 +16,7 @@ class ManifestStep:
 
 @dataclass(slots=True)
 class ExecutionManifest:
+    manifest_id: str
     intent: str
     chosen_strategy: str
     selected_tools: list[str]

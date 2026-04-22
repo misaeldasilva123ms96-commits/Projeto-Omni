@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from brain.runtime.execution.manifest_models import ExecutionManifest, ManifestBuildResult, ManifestStep
@@ -78,7 +79,18 @@ def build_execution_manifest(
             safety_notes.append("high_risk_request")
         if getattr(routing_decision, "requires_node_runtime", False):
             safety_notes.append("node_runtime_delegation")
+        manifest_id = "manifest-" + hashlib.sha1(
+            "|".join(
+                [
+                    str(getattr(oil_request, "intent", "unknown")),
+                    normalized_strategy,
+                    ",".join(selected_tools),
+                    str(provider_path or ""),
+                ]
+            ).encode("utf-8")
+        ).hexdigest()[:12]
         manifest = ExecutionManifest(
+            manifest_id=manifest_id,
             intent=str(getattr(oil_request, "intent", "unknown")),
             chosen_strategy=normalized_strategy,
             selected_tools=selected_tools,
@@ -96,6 +108,7 @@ def build_execution_manifest(
             metadata={
                 "confidence": float(getattr(routing_decision, "confidence", 0.0) or 0.0),
                 "preferred_capability_path": getattr(routing_decision, "preferred_capability_path", ""),
+                "manifest_driven_execution": True,
             },
         )
         return ManifestBuildResult(
