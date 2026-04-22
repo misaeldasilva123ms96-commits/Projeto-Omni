@@ -51,7 +51,13 @@ from brain.runtime.engine_adoption_store import EngineAdoptionStore
 from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
-from brain.runtime.learning import LearningEngine, LearningExecutor
+from brain.runtime.learning import (
+    LearningEngine,
+    LearningExecutor,
+    LoRADecisionEngine,
+    LoRAInferenceEngine,
+    LoRARouterAdapter,
+)
 from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.decomposition import TaskDecomposer
 from brain.runtime.evolution import ControlledEvolutionEngine
@@ -311,6 +317,13 @@ class BrainOrchestrator:
         )
         self.planning_engine = PlanningEngine()
         self.runtime_learning_engine = LearningEngine(self.paths.root)
+        self.lora_inference_engine = LoRAInferenceEngine(self.paths.root)
+        self.lora_router_adapter = LoRARouterAdapter(self.lora_inference_engine)
+        self.lora_decision_engine = LoRADecisionEngine(
+            self.lora_inference_engine,
+            self.lora_router_adapter,
+        )
+        self.last_lora_decision: dict[str, Any] | None = None
         self.strategy_engine = StrategyEngine(self.paths.root)
         self.experience_store = ExperienceStore(paths.root)
         self.performance_store = PerformanceStore(paths.root)
@@ -426,6 +439,7 @@ class BrainOrchestrator:
         controlled_evolution_payload: dict[str, Any] | None,
         direct_memory_hit: bool,
         duration_ms: int,
+        lora_payload: dict[str, Any] | None = None,
     ) -> str:
         self.last_cognitive_runtime_inspection = build_cognitive_runtime_inspection(
             response=response,
@@ -445,6 +459,7 @@ class BrainOrchestrator:
             self_improving_system_trace=self_improving_system_trace,
             controlled_evolution_payload=controlled_evolution_payload,
             coordination_payload=coordination_payload,
+            lora_payload=lora_payload,
             duration_ms=duration_ms,
         )
         return response
@@ -456,6 +471,7 @@ class BrainOrchestrator:
         self._last_node_result_envelope = None
         self.last_cognitive_runtime_inspection = None
         self._last_node_cognitive_hint = None
+        self.last_lora_decision = None
         self.last_runtime_mode = self._selected_runtime_mode()
         self.last_runtime_reason = "configured_mode"
         strategy_state = self.strategy_updater.load_current_state()
@@ -1149,6 +1165,20 @@ class BrainOrchestrator:
                 reason_code="empty_swarm_response",
                 details={"message_preview": message[:120]},
             )
+        lora_decision = self._apply_lora_learning_integration(
+            session_id=session_id,
+            message=message,
+            base_response=response,
+            routing_decision=control_result["routing_decision"],
+            upgrade_artifacts=upgrade_artifacts,
+            swarm_result=swarm_result,
+        )
+        self.last_lora_decision = dict(lora_decision)
+        control_metadata["learning_integration"] = dict(lora_decision)
+        if str(lora_decision.get("refined_response", "")).strip():
+            response = str(lora_decision["refined_response"]).strip()
+        else:
+            lora_decision["refined_response"] = response
 
         hist_fb = memory_store.get("history", [])
         if not isinstance(hist_fb, list):
@@ -1190,6 +1220,7 @@ class BrainOrchestrator:
         learning_payload = {
             "learning_record": learning_record.as_dict(),
             "learning_trace": learning_trace.as_dict(),
+            "lora_decision": dict(lora_decision),
         }
         self._append_runtime_event(
             event_type="runtime.learning_intelligence.trace",
@@ -1399,6 +1430,7 @@ class BrainOrchestrator:
             "multi_agent_coordination": dict(coordination_payload),
             "controlled_self_evolution": dict(controlled_evolution_payload),
             "self_improving_system": dict(self_improving_system_trace),
+            "learning_integration": dict(lora_decision),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
             "phase41": {
@@ -1431,6 +1463,7 @@ class BrainOrchestrator:
             controlled_evolution_payload=controlled_evolution_payload,
             direct_memory_hit=bool(direct_response),
             duration_ms=duration_ms,
+            lora_payload=dict(lora_decision),
         )
 
     async def _async_node_execution(
@@ -2752,6 +2785,95 @@ class BrainOrchestrator:
                 run_id=run_id,
                 payload=manifest_payload,
             )
+
+    def _apply_lora_learning_integration(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        base_response: str,
+        routing_decision: Any,
+        upgrade_artifacts: dict[str, Any],
+        swarm_result: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        oil_summary_payload = dict(upgrade_artifacts.get("oil_summary") or {})
+        manifest_payload = dict(upgrade_artifacts.get("manifest") or {})
+        provider_path = str(upgrade_artifacts.get("provider_path", "")).strip()
+        try:
+            decision = self.lora_decision_engine.evaluate(
+                message=message,
+                base_response=base_response,
+                oil_summary=oil_summary_payload,
+                routing_decision=routing_decision,
+                execution_manifest=manifest_payload,
+                provider_path=provider_path,
+            )
+            decision_payload = decision.as_dict()
+        except Exception as exc:
+            decision_payload = {
+                "final_strategy": str(getattr(routing_decision, "strategy", "") or "DIRECT_RESPONSE"),
+                "confidence": float(getattr(routing_decision, "confidence", 0.0) or 0.0),
+                "model_used": False,
+                "fallback": True,
+                "decision_source": "rule",
+                "dataset_origin": str(getattr(self.lora_inference_engine, "dataset_origin", "") or ""),
+                "lora_used": False,
+                "model_confidence": 0.0,
+                "refined_response": str(base_response or ""),
+                "reason": "learning_integration_error",
+                "metadata": {"error": str(exc)[:400]},
+            }
+            self.memory_facade.record_event(
+                event_type="runtime_lora_fallback",
+                description="LoRA learning integration degraded to deterministic path",
+                metadata={
+                    "fallback_triggered": True,
+                    "decision_source": "rule",
+                    "reason": "learning_integration_error",
+                    "error": str(exc)[:400],
+                },
+            )
+            self._append_runtime_event(
+                event_type="runtime.learning_integration.fallback",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload=dict(decision_payload),
+            )
+            return decision_payload
+
+        observability_payload = {
+            "lora_used": bool(decision_payload.get("lora_used", False)),
+            "model_confidence": float(decision_payload.get("model_confidence", 0.0) or 0.0),
+            "decision_source": str(decision_payload.get("decision_source", "rule") or "rule"),
+            "dataset_origin": str(decision_payload.get("dataset_origin", "") or ""),
+            "fallback_triggered": bool(decision_payload.get("fallback", False)),
+            "selected_strategy": str(decision_payload.get("final_strategy", "") or ""),
+            "provider_path": provider_path,
+        }
+        self.memory_facade.record_event(
+            event_type="runtime_lora",
+            description="Optional LoRA learning layer evaluated this turn",
+            metadata=observability_payload,
+        )
+        self._append_runtime_event(
+            event_type="runtime.learning_integration.decision",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                **observability_payload,
+                "reason": str(decision_payload.get("reason", "") or ""),
+                "swarm_execution_path": str((swarm_result or {}).get("intent", "") or ""),
+            },
+        )
+        if bool(decision_payload.get("fallback", False)):
+            self.memory_facade.record_event(
+                event_type="runtime_lora_fallback",
+                description="LoRA learning layer fell back to deterministic behavior",
+                metadata=observability_payload,
+            )
+        return decision_payload
 
     def _register_run_record(
         self,

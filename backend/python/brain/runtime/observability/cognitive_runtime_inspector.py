@@ -128,6 +128,7 @@ def build_cognitive_runtime_inspection(
     self_improving_system_trace: dict[str, Any] | None,
     controlled_evolution_payload: dict[str, Any] | None,
     coordination_payload: dict[str, Any] | None,
+    lora_payload: dict[str, Any] | None = None,
     duration_ms: int,
 ) -> dict[str, Any]:
     r = str(response or "").strip()
@@ -275,6 +276,14 @@ def build_cognitive_runtime_inspection(
 
     evo = _evolution_status(self_improving_system_trace)
     evo_detail = _evolution_applied_summary(self_improving_system_trace, controlled_evolution_payload)
+    lora_signals: dict[str, Any] = {}
+    if isinstance(lora_payload, dict):
+        lora_signals = {
+            "lora_used": bool(lora_payload.get("lora_used", False)),
+            "model_confidence": float(lora_payload.get("model_confidence", 0.0) or 0.0),
+            "decision_source": str(lora_payload.get("decision_source", "rule") or "rule"),
+            "dataset_origin": str(lora_payload.get("dataset_origin", "") or ""),
+        }
 
     return {
         "runtime_mode": runtime_mode,
@@ -295,5 +304,6 @@ def build_cognitive_runtime_inspection(
             "learning_execution_path": learning_path or "unknown",
             "node_cognitive_hint": node_cognitive_hint if isinstance(node_cognitive_hint, dict) else None,
             "duration_ms": int(duration_ms),
+            **lora_signals,
         },
     }

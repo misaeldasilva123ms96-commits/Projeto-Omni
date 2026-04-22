@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -56,7 +57,12 @@ def _resolve_root(raw_root: str | None) -> Path:
 
 
 def _emit(payload: dict[str, Any]) -> int:
-    print(json.dumps(payload, ensure_ascii=False))
+    text = json.dumps(payload, ensure_ascii=False)
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write((text + "\n").encode("utf-8", errors="replace"))
+    else:
+        print(text)
     return 0
 
 
