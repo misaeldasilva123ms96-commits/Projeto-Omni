@@ -1060,7 +1060,7 @@ class BrainOrchestrator:
             run_id="",
             routing_decision=control_result["routing_decision"],
             upgrade_artifacts=upgrade_artifacts,
-            selected_tools=selected_capabilities,
+            selected_tools=suggested_capabilities,
             direct_response=direct_response,
             compat_execute=lambda: self._execute_strategy_compatible_path(
                 session_id=session_id,
