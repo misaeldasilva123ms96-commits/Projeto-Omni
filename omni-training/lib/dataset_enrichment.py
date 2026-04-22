@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataset_quality import quality_score
+from dataset_quality import quality_assessment, quality_score
 from dataset_weighting import derive_weight_fields
 from oil_adapter import convert_text_to_oil
 from sft_builder import runtime_hints_from_oil
@@ -36,7 +36,10 @@ def enrich_curated_example(example: dict[str, Any]) -> dict[str, Any]:
     enriched["oil"] = oil_payload
     enriched["runtime_hints"] = runtime_hints
     enriched["metadata"] = metadata
-    enriched["quality_score"] = max(float(enriched.get("quality_score", 0.0) or 0.0), quality_score(enriched))
+    assessment = quality_assessment(enriched)
+    enriched["quality_score"] = max(float(enriched.get("quality_score", 0.0) or 0.0), float(assessment["quality_score"]))
+    enriched["quality_flags"] = list(assessment["quality_flags"])
+    enriched["review_action"] = str(assessment["review_action"])
     enriched.update(derive_weight_fields(enriched))
     return enriched
 
@@ -52,7 +55,10 @@ def enrich_public_record(record: dict[str, Any]) -> dict[str, Any]:
     enriched["oil"] = oil_payload
     enriched["runtime_hints"] = runtime_hints_from_oil(oil_payload, str(enriched.get("task_family", "general") or "general"))
     enriched["metadata"] = metadata
-    enriched["quality_score"] = quality_score(enriched)
+    assessment = quality_assessment(enriched)
+    enriched["quality_score"] = float(assessment["quality_score"])
+    enriched["quality_flags"] = list(assessment["quality_flags"])
+    enriched["review_action"] = str(assessment["review_action"])
     enriched.update(derive_weight_fields(enriched))
     return enriched
 

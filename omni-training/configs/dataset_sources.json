@@ -1,20 +1,71 @@
 {
-  "default_small": {
-    "dataset_name": "yahma/alpaca-cleaned",
-    "dataset_config": null,
-    "split": "train[:128]",
-    "revision": "main",
-    "streaming": false,
-    "source_type": "instruction_sft",
-    "notes": "Default small public dataset slice for safe local ingestion."
-  },
-  "pt_instruction_seed": {
-    "dataset_name": "recogna-nlp/InstructionWild",
-    "dataset_config": null,
-    "split": "train[:64]",
-    "revision": "main",
-    "streaming": false,
-    "source_type": "mixed_instruction",
-    "notes": "Optional extra source; still filtered and normalized before use."
-  }
+  "sources": [
+    {
+      "source_name": "default_small_instruction",
+      "source_type": "hf",
+      "dataset_name": "yahma/alpaca-cleaned",
+      "dataset_config": "",
+      "split": "train[:180]",
+      "revision": "main",
+      "license_hint": "check_hf_card",
+      "language_hint": "mixed",
+      "enabled": true,
+      "max_samples": 180,
+      "task_family_hint": "instruction",
+      "notes": "Small public instruction slice used only after filtering and normalization."
+    },
+    {
+      "source_name": "pt_instruction_seed",
+      "source_type": "hf",
+      "dataset_name": "recogna-nlp/InstructionWild",
+      "dataset_config": "",
+      "split": "train[:120]",
+      "revision": "main",
+      "license_hint": "check_hf_card",
+      "language_hint": "mixed",
+      "enabled": true,
+      "max_samples": 120,
+      "task_family_hint": "instruction",
+      "notes": "Optional PT-leaning slice for normalization and filtering."
+    },
+    {
+      "source_name": "internal_curated_seed",
+      "source_type": "curated",
+      "path": "omni-training/data/curated/omni_seed_dataset.jsonl",
+      "license_hint": "internal",
+      "language_hint": "pt-BR",
+      "enabled": true,
+      "max_samples": 80,
+      "task_family_hint": "curated"
+    },
+    {
+      "source_name": "internal_curated_expanded",
+      "source_type": "curated",
+      "path": "omni-training/data/curated/omni_curated_expanded.jsonl",
+      "license_hint": "internal",
+      "language_hint": "pt-BR",
+      "enabled": true,
+      "max_samples": 256,
+      "task_family_hint": "curated"
+    },
+    {
+      "source_name": "runtime_feedback_examples",
+      "source_type": "runtime_logs",
+      "license_hint": "internal_runtime",
+      "language_hint": "pt-BR",
+      "enabled": true,
+      "max_samples": 120,
+      "task_family_hint": "runtime"
+    },
+    {
+      "source_name": "local_eval_cases",
+      "source_type": "local_jsonl",
+      "path": "omni-training/data/eval_cases/omni_eval_cases.jsonl",
+      "license_hint": "internal",
+      "language_hint": "pt-BR",
+      "enabled": false,
+      "max_samples": 48,
+      "task_family_hint": "evaluation"
+    }
+  ]
 }

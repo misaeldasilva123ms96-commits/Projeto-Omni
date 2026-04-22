@@ -1,0 +1,27 @@
+{
+  "record_count": 297,
+  "by_source": {
+    "internal_curated": 40,
+    "runtime_feedback": 85,
+    "synthetic_controlled": 68,
+    "runtime_harvest": 80,
+    "default_small_instruction": 24
+  },
+  "by_task_family": {
+    "runtime": 208,
+    "coding": 10,
+    "governance": 44,
+    "analysis": 7,
+    "planning": 4,
+    "instruction": 24
+  },
+  "by_language": {
+    "pt-BR": 273,
+    "mixed": 24
+  },
+  "above_quality_threshold": 216,
+  "reviewed_or_approved": 40,
+  "synthetic_count": 68,
+  "runtime_count": 165,
+  "readiness": "READY_FOR_SMALL_LORA"
+}

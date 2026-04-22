@@ -59,6 +59,14 @@ def format_training_examples(records: list[dict[str, Any]], *, max_samples: int 
     return formatted
 
 
+def summarize_training_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "record_count": len(records),
+        "average_weight": round(sum(float(item.get("sample_weight", 1.0) or 1.0) for item in records) / max(1, len(records)), 4),
+        "average_quality_score": round(sum(float(item.get("quality_score", 0.0) or 0.0) for item in records) / max(1, len(records)), 4),
+    }
+
+
 def validate_training_config(training_config: dict[str, Any], lora_config: dict[str, Any]) -> None:
     required_training = ("base_model", "dataset_path", "output_dir", "num_train_epochs", "learning_rate")
     required_lora = ("r", "lora_alpha", "lora_dropout", "task_type")

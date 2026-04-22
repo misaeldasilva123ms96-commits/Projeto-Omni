@@ -22,7 +22,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     training_config = load_json_config(Path(args.training_config))
-    records = load_sft_jsonl(Path(training_config["dataset_path"]))[: max(1, args.max_samples)]
+    dataset_path = training_config.get("validation_dataset_path") or training_config["dataset_path"]
+    records = load_sft_jsonl(Path(dataset_path))[: max(1, args.max_samples)]
     prompts = [str(record.get("prompt_text", "")).strip() for record in records if str(record.get("prompt_text", "")).strip()]
     print(f"Prepared {len(prompts)} prompts for evaluation")
     if args.dry_run:
