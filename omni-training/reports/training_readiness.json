@@ -1,27 +1,28 @@
 {
-  "record_count": 297,
+  "record_count": 164,
   "by_source": {
-    "internal_curated": 40,
+    "internal_curated": 29,
     "runtime_feedback": 85,
-    "synthetic_controlled": 68,
-    "runtime_harvest": 80,
+    "synthetic_controlled": 26,
     "default_small_instruction": 24
   },
   "by_task_family": {
-    "runtime": 208,
-    "coding": 10,
-    "governance": 44,
-    "analysis": 7,
-    "planning": 4,
+    "runtime": 96,
+    "coding": 8,
+    "governance": 33,
+    "analysis": 3,
     "instruction": 24
   },
   "by_language": {
-    "pt-BR": 273,
+    "pt-BR": 140,
     "mixed": 24
   },
-  "above_quality_threshold": 216,
-  "reviewed_or_approved": 40,
-  "synthetic_count": 68,
-  "runtime_count": 165,
+  "above_quality_threshold": 164,
+  "reviewed_or_approved": 29,
+  "pt_br_ratio": 0.8537,
+  "runtime_ratio": 0.5183,
+  "synthetic_ratio": 0.1585,
+  "synthetic_count": 26,
+  "runtime_count": 85,
   "readiness": "READY_FOR_SMALL_LORA"
 }

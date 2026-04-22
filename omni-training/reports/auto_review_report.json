@@ -1,0 +1,8 @@
+{
+  "total_records": 16,
+  "keep": 0,
+  "review": 16,
+  "reject": 0,
+  "input_path": "C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\omni-training\\data\\review_queue\\curated_expansion_drafts.jsonl",
+  "output_path": "C:\\Users\\Misael\\OneDrive\\Área de Trabalho\\Projeto omini\\Projeto omini\\project\\omni-training\\data\\review_queue\\classified_examples.jsonl"
+}

@@ -38,7 +38,7 @@ def _score_output(output: str, expected_strategy: str) -> dict[str, float]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate baseline vs LoRA adapter quality on curated Omni eval cases.")
     parser.add_argument("--input", default=str(Path(__file__).resolve().parents[1] / "data" / "eval_cases" / "omni_eval_cases.jsonl"))
-    parser.add_argument("--output", default=str(Path(__file__).resolve().parents[1] / "reports" / "model_quality.json"))
+    parser.add_argument("--output", default=str(Path(__file__).resolve().parents[1] / "reports" / "before_after_summary.json"))
     parser.add_argument("--adapter-available", action="store_true")
     return parser.parse_args()
 

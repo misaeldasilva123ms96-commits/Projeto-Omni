@@ -11,6 +11,7 @@ HARVEST_EVENT_TYPES = {
     "runtime.decision.ranking.applied",
     "runtime.strategy.execution.result",
     "runtime.strategy.execution.fallback",
+    "runtime.strategy.dispatch",
     "runtime.learning_integration.fallback",
     "runtime.manifest.summary",
 }
@@ -49,7 +50,13 @@ def build_runtime_harvest_examples(project_root: Path, *, limit: int = 100) -> l
             "selected_strategy": selected_strategy,
             "executor_used": executor_used,
             "execution_status": str(payload.get("strategy_execution_status", "") or payload.get("status", "")).strip(),
+            "fallback_occurred": fallback_occurred,
             "candidate_strategies": list(payload.get("candidate_strategies", []) or []),
+            "quality_flags": [
+                "runtime_signal",
+                "ambiguity_case" if ambiguity_detected else "non_ambiguous_case",
+                "fallback_case" if fallback_occurred else "stable_case",
+            ],
             "review_status": "draft",
             "metadata": {
                 "event_type": event_type,

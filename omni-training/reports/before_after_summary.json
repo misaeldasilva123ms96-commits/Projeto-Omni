@@ -1,0 +1,15 @@
+{
+  "case_count": 5,
+  "adapter_available": false,
+  "baseline": {
+    "structure_score": 1.0,
+    "omni_style_score": 0.9,
+    "oil_alignment_score": 0.52,
+    "strategy_alignment_score": 0.5,
+    "generic_answer_rate": 0.2,
+    "fallback_handling_score": 0.52,
+    "coding_response_score": 0.52,
+    "planning_response_score": 0.4
+  },
+  "adapter": {}
+}
