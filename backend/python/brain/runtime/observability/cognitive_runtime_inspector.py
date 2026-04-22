@@ -283,6 +283,27 @@ def build_cognitive_runtime_inspection(
             "model_confidence": float(lora_payload.get("model_confidence", 0.0) or 0.0),
             "decision_source": str(lora_payload.get("decision_source", "rule") or "rule"),
             "dataset_origin": str(lora_payload.get("dataset_origin", "") or ""),
+            "ambiguity_detected": bool(lora_payload.get("ambiguity_detected", False)),
+            "ambiguity_score": float(lora_payload.get("ambiguity_score", 0.0) or 0.0),
+            "ranking_applied": bool(lora_payload.get("ranking_candidates_count", 0)),
+            "ranking_candidates_count": int(lora_payload.get("ranking_candidates_count", 0) or 0),
+            "ranked_strategy": str(lora_payload.get("selected_strategy", "") or ""),
+            "ranked_confidence": float(lora_payload.get("ranked_confidence", 0.0) or 0.0),
+            "ranking_source": str(lora_payload.get("ranking_source", lora_payload.get("decision_source", "rule")) or "rule"),
+            "deterministic_strategy": str(lora_payload.get("deterministic_strategy", "") or ""),
+            "decision_final_source": str(lora_payload.get("decision_source", "rule") or "rule"),
+            "strategy_dispatch_applied": bool(lora_payload.get("strategy_dispatch_applied", False)),
+            "executor_used": str(lora_payload.get("executor_used", "") or ""),
+            "strategy_execution_status": str(lora_payload.get("status", "") or lora_payload.get("strategy_execution_status", "") or ""),
+            "strategy_execution_fallback": bool(lora_payload.get("fallback_applied", False) or lora_payload.get("strategy_execution_fallback", False)),
+            "manifest_driven_execution": bool(lora_payload.get("manifest_driven_execution", False)),
+            "response_synthesis_mode": str(lora_payload.get("response_synthesis_mode", "") or ""),
+            "governance_downgrade_applied": bool(lora_payload.get("governance_downgrade_applied", False)),
+            "execution_trace_summary": str(
+                (lora_payload.get("trace") or {}).get("execution_trace_summary", "")
+                if isinstance(lora_payload.get("trace"), dict)
+                else lora_payload.get("execution_trace_summary", "")
+            ),
         }
 
     return {

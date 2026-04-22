@@ -1,3 +1,6 @@
+from .decision_ambiguity import AmbiguityAssessment, DecisionAmbiguityDetector
+from .decision_candidates import DecisionCandidate, DecisionCandidateBuilder
+from .decision_ranking_engine import DecisionRankingEngine, DecisionRankingResult, RankedDecision
 from .learning_engine import LearningEngine
 from .learning_executor import LearningExecutor
 from .lora_decision_engine import LoRADecisionEngine, LoRADecisionResult
@@ -25,6 +28,12 @@ from .runtime_learning_models import (
 
 __all__ = [
     "ExecutionOutcomeAssessment",
+    "AmbiguityAssessment",
+    "DecisionAmbiguityDetector",
+    "DecisionCandidate",
+    "DecisionCandidateBuilder",
+    "DecisionRankingEngine",
+    "DecisionRankingResult",
     "LearningEngine",
     "LearningEvidence",
     "LearningExecutor",
@@ -45,6 +54,7 @@ __all__ = [
     "RuntimeLearningStage",
     "RuntimeLearningSummary",
     "RuntimeLearningTrace",
+    "RankedDecision",
     "SignalPolarity",
     "StrategyRanking",
 ]

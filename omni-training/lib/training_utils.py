@@ -39,9 +39,24 @@ def load_sft_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def format_training_examples(records: list[dict[str, Any]], *, max_samples: int | None = None) -> list[dict[str, str]]:
+def format_training_examples(records: list[dict[str, Any]], *, max_samples: int | None = None) -> list[dict[str, Any]]:
     limited = records[:max_samples] if isinstance(max_samples, int) and max_samples > 0 else records
-    return [{"text": str(record.get("text", "")).strip()} for record in limited if str(record.get("text", "")).strip()]
+    formatted: list[dict[str, Any]] = []
+    for record in limited:
+        text = str(record.get("text", "")).strip()
+        if not text:
+            continue
+        formatted.append(
+            {
+                "text": text,
+                "weight": float(record.get("sample_weight", 1.0) or 1.0),
+                "quality_score": float(record.get("quality_score", 0.0) or 0.0),
+                "selected_strategy": str(record.get("selected_strategy", "") or ""),
+                "executor_used": str(record.get("executor_used", "") or ""),
+                "execution_status": str(record.get("execution_status", "") or ""),
+            }
+        )
+    return formatted
 
 
 def validate_training_config(training_config: dict[str, Any], lora_config: dict[str, Any]) -> None:

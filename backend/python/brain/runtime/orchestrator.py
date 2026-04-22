@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +44,16 @@ from brain.runtime.control.governed_tools import (
     is_strict_governed_tools_mode,
     sync_governed_tools_from_trusted_executor_surface,
 )
-from brain.runtime.execution import ExecutionIntent, ExecutionPolicy, RiskLevel, TrustedExecutor, build_execution_manifest
+from brain.runtime.execution import (
+    ExecutionIntent,
+    ExecutionPolicy,
+    RiskLevel,
+    StrategyDispatcher,
+    StrategyExecutionContext,
+    StrategyExecutionRequest,
+    TrustedExecutor,
+    build_execution_manifest,
+)
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
 from brain.runtime.engine_adoption_store import EngineAdoptionStore
@@ -52,6 +61,9 @@ from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter
 from brain.runtime.learning import (
+    DecisionAmbiguityDetector,
+    DecisionCandidateBuilder,
+    DecisionRankingEngine,
     LearningEngine,
     LearningExecutor,
     LoRADecisionEngine,
@@ -91,6 +103,7 @@ from brain.runtime.telemetry.supabase_tool_events import (
 )
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
+from brain.runtime.tooling.tool_registry_extensions import get_tool_metadata
 from config.provider_registry import get_available_providers
 from brain.runtime.experience.experience_builder import build_experience_record
 from brain.runtime.experience.experience_store import ExperienceStore
@@ -319,11 +332,17 @@ class BrainOrchestrator:
         self.runtime_learning_engine = LearningEngine(self.paths.root)
         self.lora_inference_engine = LoRAInferenceEngine(self.paths.root)
         self.lora_router_adapter = LoRARouterAdapter(self.lora_inference_engine)
+        self.decision_ambiguity_detector = DecisionAmbiguityDetector()
+        self.decision_candidate_builder = DecisionCandidateBuilder()
+        self.decision_ranking_engine = DecisionRankingEngine(self.lora_inference_engine)
+        self.strategy_dispatcher = StrategyDispatcher()
         self.lora_decision_engine = LoRADecisionEngine(
             self.lora_inference_engine,
             self.lora_router_adapter,
         )
         self.last_lora_decision: dict[str, Any] | None = None
+        self.last_decision_ranking: dict[str, Any] | None = None
+        self.last_strategy_execution: dict[str, Any] | None = None
         self.strategy_engine = StrategyEngine(self.paths.root)
         self.experience_store = ExperienceStore(paths.root)
         self.performance_store = PerformanceStore(paths.root)
@@ -331,6 +350,7 @@ class BrainOrchestrator:
         self._pending_policy_hint_json: str | None = None
         self._runtime_bridge: dict[str, Any] = {}
         self._last_phase41_policy_hint: dict[str, Any] | None = None
+        self._last_strategy_performance_payload: dict[str, Any] | None = None
         self._last_node_result_envelope: dict[str, Any] | None = None
         self.performance_engine = PerformanceEngine()
         self.agent_coordinator = AgentCoordinator()
@@ -472,6 +492,7 @@ class BrainOrchestrator:
         self.last_cognitive_runtime_inspection = None
         self._last_node_cognitive_hint = None
         self.last_lora_decision = None
+        self.last_decision_ranking = None
         self.last_runtime_mode = self._selected_runtime_mode()
         self.last_runtime_reason = "configured_mode"
         strategy_state = self.strategy_updater.load_current_state()
@@ -721,10 +742,27 @@ class BrainOrchestrator:
                 else ""
             ),
         )
+        ranking_bundle = self._apply_decision_ranking(
+            session_id=session_id,
+            message=runtime_message,
+            routing_decision=control_result["routing_decision"],
+            upgrade_artifacts=upgrade_artifacts,
+            strategy_payload=strategy_payload,
+            selected_tools=control_metadata.get("selected_tools", []),
+            provider_path=(
+                str((self._last_phase41_policy_hint or {}).get("recommended_provider", "")).strip()
+                if isinstance(self._last_phase41_policy_hint, dict)
+                else ""
+            ),
+        )
+        control_result["routing_decision"] = ranking_bundle["routing_decision"]
+        upgrade_artifacts = ranking_bundle["upgrade_artifacts"]
+        self.last_decision_ranking = dict(ranking_bundle["decision_ranking"])
         control_metadata["oil_summary"] = dict(upgrade_artifacts.get("oil_summary") or {})
         control_metadata["routing_decision_record"] = dict(upgrade_artifacts.get("routing_record") or {})
         control_metadata["execution_manifest"] = dict(upgrade_artifacts.get("manifest") or {})
         control_metadata["fallback_triggered"] = bool(upgrade_artifacts.get("fallback_triggered"))
+        control_metadata["decision_ranking"] = dict(ranking_bundle["decision_ranking"])
         context_budget, retrieval_plan = self._build_context_budget(
             routing_decision=control_result["routing_decision"]
         )
@@ -1016,146 +1054,48 @@ class BrainOrchestrator:
             payload=dict(coordination_payload),
         )
 
-        swarm_result: dict[str, Any] = {
-            "response": direct_response,
-            "intent": predicted_intent,
-            "delegates": [],
-            "agent_trace": [],
-            "memory_signal": {},
-            "multi_agent_coordination": dict(coordination_payload),
-        }
-
-        if not direct_response:
-            recent_exp = self.experience_store.read_recent_for_session(session_id, limit=12)
-            avail = get_available_providers()
-            baseline = (avail[0] if avail else None) or None
-            strat_mode = None
-            if isinstance(strategy_payload, dict):
-                ss = strategy_payload.get("selected_strategy")
-                if isinstance(ss, dict):
-                    strat_mode = str(ss.get("mode", "") or "").strip() or None
-            hint = self.policy_router.compute_hint(
+        self._last_strategy_performance_payload = {}
+        strategy_execution = self._dispatch_strategy_execution(
+            session_id=session_id,
+            run_id="",
+            routing_decision=control_result["routing_decision"],
+            upgrade_artifacts=upgrade_artifacts,
+            selected_tools=suggested_capabilities,
+            direct_response=direct_response,
+            compat_execute=lambda: self._execute_strategy_compatible_path(
                 session_id=session_id,
-                normalized_intent=str(predicted_intent or "unknown")[:256],
-                baseline_provider=baseline,
-                strategy_mode=strat_mode,
-                recent_experience_rows=recent_exp,
-            )
-            self._last_phase41_policy_hint = hint.as_dict()
-            if str(os.getenv("OMINI_PHASE41_POLICY_LOG", "1")).strip().lower() not in ("0", "false", "no", "off"):
-                self._append_runtime_event(
-                    event_type="runtime.phase41.policy_shadow",
-                    session_id=session_id,
-                    task_id="",
-                    run_id="",
-                    payload={
-                        "baseline_provider": hint.baseline_provider,
-                        "recommended_provider": hint.recommended_provider,
-                        "recommended_strategy": hint.recommended_strategy,
-                        "confidence": hint.confidence,
-                        "policy_reason_codes": hint.policy_reason_codes,
-                        "shadow_only": hint.shadow_only,
-                    },
-                )
-            self._pending_policy_hint_json = self.policy_router.hint_to_env_json(hint)
-
-            budget_dict = self._budget_to_dict(context_budget)
-            retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
-            pcache = phase39_tuning.get("performance_max_cache_entries")
-            cache_override = None
-            try:
-                if pcache is not None:
-                    cache_override = int(pcache)
-            except (TypeError, ValueError):
-                cache_override = None
-            perf_result = self.performance_engine.optimize_swarm_boundary(
-                session_id=session_id,
-                message=runtime_message,
-                budget_dict=budget_dict,
-                retrieval_dict=retrieval_dict,
-                structured_memory=memory_context["retrieved_context"],
-                memory_intelligence=memory_context_payload,
-                reasoning_handoff=reasoning_handoff,
+                runtime_message=runtime_message,
+                predicted_intent=predicted_intent,
+                direct_response=direct_response,
+                strategy_payload=strategy_payload,
                 planning_payload=planning_payload,
-                cache_max_override=cache_override,
-            )
-            swarm_context = dict(perf_result.slim_swarm_context)
-            hb = coordination_payload.get("handoff_bundle")
-            if isinstance(hb, dict):
-                swarm_context["multi_agent_coordination"] = hb
-            performance_payload = {
-                "trace": perf_result.trace.as_dict(),
-                "stats": perf_result.stats.as_dict(),
+                reasoning_handoff=reasoning_handoff,
+                reasoning_payload=reasoning_payload,
+                memory_context=memory_context,
+                memory_context_payload=memory_context_payload,
+                control_execution_summary=control_execution_summary,
+                context_budget=context_budget,
+                retrieval_plan=retrieval_plan,
+                phase39_tuning=phase39_tuning,
+                budgeted_history=budgeted_history,
+                summary=summary,
+                available_capabilities=available_capabilities,
+                memory_store=memory_store,
+                coordination_payload=coordination_payload,
+            ),
+        )
+        control_metadata["strategy_execution"] = dict(strategy_execution)
+        swarm_result = dict(strategy_execution.get("raw_result") or {})
+        if not swarm_result:
+            swarm_result = {
+                "response": str(strategy_execution.get("response_text", "") or SAFE_FALLBACK_RESPONSE),
+                "intent": predicted_intent,
+                "delegates": [],
+                "agent_trace": [],
+                "memory_signal": {},
+                "multi_agent_coordination": dict(coordination_payload),
             }
-            self._append_runtime_event(
-                event_type="runtime.performance_optimization.trace",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload=dict(performance_payload),
-            )
-            swarm_result = asyncio.run(
-                self.swarm_orchestrator.run(
-                    message=runtime_message,
-                    session_id=session_id,
-                    memory_store=memory_store,
-                    history=budgeted_history,
-                    summary=summary,
-                    capabilities=available_capabilities,
-                    executor=lambda payload: self._async_node_execution(
-                        message=runtime_message,
-                        memory_store=memory_store,
-                        available_capabilities=available_capabilities,
-                        session_id=session_id,
-                        swarm_payload=payload,
-                        context_session=swarm_context,
-                    ),
-                )
-            )
-            if isinstance(swarm_result, dict):
-                swarm_result["multi_agent_coordination"] = dict(coordination_payload)
-                node_env = getattr(self, "_last_node_result_envelope", None)
-                if isinstance(node_env, dict):
-                    md_n = node_env.get("metadata")
-                    if isinstance(md_n, dict):
-                        sm_md = swarm_result.get("metadata")
-                        swarm_result["metadata"] = {
-                            **(sm_md if isinstance(sm_md, dict) else {}),
-                            **md_n,
-                        }
-                    ep_n = md_n.get("execution_provenance") if isinstance(md_n, dict) else None
-                    if isinstance(ep_n, dict):
-                        swarm_result["execution_provenance"] = ep_n
-                    ch_n = node_env.get("cognitive_runtime_hint")
-                    if isinstance(ch_n, dict):
-                        swarm_result["cognitive_runtime_hint"] = ch_n
-        else:
-            skip_tid = "perf36-skip-" + hashlib.sha1(str(session_id or "").encode("utf-8")).hexdigest()[:10]
-            performance_payload = {
-                "trace": {
-                    "trace_id": skip_tid,
-                    "session_id": session_id,
-                    "cache_hit": False,
-                    "cache_key_fingerprint": "",
-                    "compression_applied": ["skipped_direct_memory"],
-                    "estimated_bytes_before": 0,
-                    "estimated_bytes_after": 0,
-                    "estimated_bytes_saved": 0,
-                    "redundant_dict_copies_avoided": 0,
-                    "degraded": False,
-                    "error": "",
-                },
-                "stats": {"steps_applied": ["skipped_direct_memory"], "estimated_bytes_before": 0, "estimated_bytes_after": 0, "estimated_bytes_saved": 0},
-            }
-            self._append_runtime_event(
-                event_type="runtime.performance_optimization.trace",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload=dict(performance_payload),
-            )
-
-        response = str(swarm_result.get("response", "")).strip() or SAFE_FALLBACK_RESPONSE
+        response = str(strategy_execution.get("response_text", "") or swarm_result.get("response", "")).strip() or SAFE_FALLBACK_RESPONSE
         if response == SAFE_FALLBACK_RESPONSE and self.last_runtime_mode == "live":
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "empty_swarm_response"
@@ -1175,6 +1115,8 @@ class BrainOrchestrator:
         )
         self.last_lora_decision = dict(lora_decision)
         control_metadata["learning_integration"] = dict(lora_decision)
+        lora_decision["decision_ranking"] = dict(self.last_decision_ranking or {})
+        lora_decision["ranking_source"] = str((self.last_decision_ranking or {}).get("decision_source", "") or "")
         if str(lora_decision.get("refined_response", "")).strip():
             response = str(lora_decision["refined_response"]).strip()
         else:
@@ -1426,11 +1368,13 @@ class BrainOrchestrator:
             "planning_intelligence": dict(planning_payload),
             "runtime_learning": dict(learning_payload),
             "strategy_adaptation": dict(strategy_payload),
-            "performance_optimization": dict(performance_payload),
+            "performance_optimization": dict(self._last_strategy_performance_payload or {}),
             "multi_agent_coordination": dict(coordination_payload),
             "controlled_self_evolution": dict(controlled_evolution_payload),
             "self_improving_system": dict(self_improving_system_trace),
             "learning_integration": dict(lora_decision),
+            "decision_ranking": dict(self.last_decision_ranking or {}),
+            "strategy_execution": dict(self.last_strategy_execution or {}),
             "evaluation": evaluation,
             "evolution_version": evolution_version,
             "phase41": {
@@ -1463,7 +1407,7 @@ class BrainOrchestrator:
             controlled_evolution_payload=controlled_evolution_payload,
             direct_memory_hit=bool(direct_response),
             duration_ms=duration_ms,
-            lora_payload=dict(lora_decision),
+            lora_payload={**dict(self.last_decision_ranking or {}), **dict(self.last_strategy_execution or {}), **dict(lora_decision)},
         )
 
     async def _async_node_execution(
@@ -2719,6 +2663,7 @@ class BrainOrchestrator:
                 manifest_dict = manifest_result.manifest.as_dict()
                 artifacts["manifest"] = manifest_dict
                 artifacts["manifest_summary"] = {
+                    "manifest_id": manifest_dict.get("manifest_id"),
                     "intent": manifest_dict.get("intent"),
                     "chosen_strategy": manifest_dict.get("chosen_strategy"),
                     "selected_tools": manifest_dict.get("selected_tools", []),
@@ -2874,6 +2819,562 @@ class BrainOrchestrator:
                 metadata=observability_payload,
             )
         return decision_payload
+
+    def _ranked_routing_decision(self, routing_decision: Any, selected_strategy: str, ranked_confidence: float) -> Any:
+        selected_strategy = str(selected_strategy or "").strip()
+        if not selected_strategy or selected_strategy == str(getattr(routing_decision, "strategy", "") or "").strip():
+            return routing_decision
+        strategy_map: dict[str, dict[str, Any]] = {
+            "DIRECT_RESPONSE": {
+                "requires_tools": False,
+                "requires_node_runtime": False,
+                "execution_strategy": "direct_response",
+                "internal_reasoning_hint": "decision ranking kept a direct response path",
+            },
+            "MULTI_STEP_REASONING": {
+                "requires_tools": False,
+                "requires_node_runtime": False,
+                "execution_strategy": "analyze_then_report",
+                "internal_reasoning_hint": "decision ranking escalated to staged reasoning",
+            },
+            "TOOL_ASSISTED": {
+                "requires_tools": True,
+                "requires_node_runtime": False,
+                "execution_strategy": "tool_assisted_execution",
+                "internal_reasoning_hint": "decision ranking selected a tool-assisted path",
+            },
+            "NODE_RUNTIME_DELEGATION": {
+                "requires_tools": True,
+                "requires_node_runtime": True,
+                "execution_strategy": "node_runtime_delegation",
+                "internal_reasoning_hint": "decision ranking selected node runtime delegation",
+            },
+            "SAFE_FALLBACK": {
+                "requires_tools": False,
+                "requires_node_runtime": False,
+                "execution_strategy": "safe_fallback",
+                "internal_reasoning_hint": "decision ranking selected the safest fallback path",
+            },
+        }
+        mapped = strategy_map.get(selected_strategy, {})
+        capability_path = str(getattr(routing_decision, "preferred_capability_path", "") or "")
+        if selected_strategy == "NODE_RUNTIME_DELEGATION":
+            capability_path = "node_runtime_bridge"
+        elif selected_strategy == "TOOL_ASSISTED" and capability_path == "conversation_runtime":
+            capability_path = "tooling_runtime"
+        return replace(
+            routing_decision,
+            strategy=selected_strategy,
+            confidence=float(ranked_confidence or getattr(routing_decision, "confidence", 0.0) or 0.0),
+            requires_tools=bool(mapped.get("requires_tools", getattr(routing_decision, "requires_tools", False))),
+            requires_node_runtime=bool(
+                mapped.get("requires_node_runtime", getattr(routing_decision, "requires_node_runtime", False))
+            ),
+            internal_reasoning_hint=str(
+                mapped.get("internal_reasoning_hint", getattr(routing_decision, "internal_reasoning_hint", ""))
+            ),
+            execution_strategy=str(mapped.get("execution_strategy", getattr(routing_decision, "execution_strategy", ""))),
+            preferred_capability_path=capability_path,
+        )
+
+    def _apply_decision_ranking(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        routing_decision: Any,
+        upgrade_artifacts: dict[str, Any],
+        strategy_payload: dict[str, Any] | None,
+        selected_tools: list[str] | None,
+        provider_path: str,
+    ) -> dict[str, Any]:
+        oil_summary_payload = dict(upgrade_artifacts.get("oil_summary") or {})
+        manifest_payload = dict(upgrade_artifacts.get("manifest") or {})
+        ambiguity = self.decision_ambiguity_detector.detect(
+            routing_decision=routing_decision,
+            oil_summary=oil_summary_payload,
+            execution_manifest=manifest_payload,
+        )
+        if ambiguity.is_ambiguous:
+            ambiguity_payload = {
+                "ambiguity_detected": True,
+                "ambiguity_score": ambiguity.ambiguity_score,
+                "candidate_strategies": list(ambiguity.candidate_strategies),
+                "reason_codes": list(ambiguity.reason_codes),
+                "safe_to_rank": bool(ambiguity.safe_to_rank),
+                "deterministic_strategy": str(getattr(routing_decision, "strategy", "") or ""),
+                "message_preview": message[:160],
+            }
+            self.memory_facade.record_event(
+                event_type="runtime_ambiguity_detected",
+                description="Runtime detected more than one plausible strategy",
+                metadata=ambiguity_payload,
+            )
+            self._append_runtime_event(
+                event_type="runtime.decision.ambiguity",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    **ambiguity_payload,
+                    "oil_summary": oil_summary_payload,
+                },
+            )
+        candidates = self.decision_candidate_builder.build(
+            ambiguity_assessment=ambiguity,
+            routing_decision=routing_decision,
+            oil_summary=oil_summary_payload,
+            execution_manifest=manifest_payload,
+        )
+        ranking_result = self.decision_ranking_engine.rank(
+            ambiguity_assessment=ambiguity,
+            candidates=candidates,
+            routing_decision=routing_decision,
+            oil_summary=oil_summary_payload,
+            execution_manifest=manifest_payload,
+        )
+        ranking_payload = ranking_result.as_dict()
+        ranking_payload.update(
+            {
+                "ambiguity_detected": bool(ambiguity.is_ambiguous),
+                "ambiguity_score": float(ambiguity.ambiguity_score),
+                "candidate_strategies": list(ambiguity.candidate_strategies),
+                "safe_to_rank": bool(ambiguity.safe_to_rank),
+                "message_preview": message[:160],
+            }
+        )
+        ranking_payload["review_required"] = bool(ambiguity.is_ambiguous) and (
+            bool(ranking_result.fallback)
+            or str(ranking_result.selected_strategy or "") != str(getattr(routing_decision, "strategy", "") or "")
+        )
+        ranking_payload["unsafe_override"] = False
+        if ranking_result.fallback:
+            self.memory_facade.record_event(
+                event_type="runtime_decision_ranking_fallback",
+                description="Decision ranking degraded to deterministic behavior",
+                metadata=ranking_payload,
+            )
+            self._append_runtime_event(
+                event_type="runtime.decision_ranking.fallback",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload=ranking_payload,
+            )
+            return {
+                "routing_decision": routing_decision,
+                "upgrade_artifacts": upgrade_artifacts,
+                "decision_ranking": ranking_payload,
+            }
+        effective_routing_decision = self._ranked_routing_decision(
+            routing_decision,
+            ranking_result.selected_strategy,
+            ranking_result.ranked_confidence,
+        )
+        effective_upgrade_artifacts = upgrade_artifacts
+        if effective_routing_decision is not routing_decision:
+            effective_upgrade_artifacts = self._build_runtime_upgrade_artifacts(
+                message=message,
+                session_id=session_id,
+                run_id="",
+                routing_decision=effective_routing_decision,
+                strategy_payload=strategy_payload,
+                selected_tools=selected_tools,
+                provider_path=provider_path,
+            )
+        self.memory_facade.record_event(
+            event_type="runtime_decision_ranked",
+            description="Ambiguous decision candidates were ranked conservatively",
+            metadata=ranking_payload,
+        )
+        self._append_runtime_event(
+            event_type="runtime.decision.ranking.applied",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                **ranking_payload,
+                "oil_summary": dict(effective_upgrade_artifacts.get("oil_summary") or oil_summary_payload),
+            },
+        )
+        return {
+            "routing_decision": effective_routing_decision,
+            "upgrade_artifacts": effective_upgrade_artifacts,
+            "decision_ranking": ranking_payload,
+        }
+
+    def _tool_metadata_payload(self, selected_tools: list[str] | None) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = []
+        for tool in list(selected_tools or []):
+            try:
+                payload.append(get_tool_metadata(tool).as_dict())
+            except Exception:
+                payload.append({"name": str(tool), "category": "unknown", "risk_level": "medium"})
+        return payload
+
+    def _build_strategy_execution_request(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        routing_decision: Any,
+        upgrade_artifacts: dict[str, Any],
+        selected_tools: list[str] | None,
+        direct_response: str,
+    ) -> StrategyExecutionRequest:
+        manifest_payload = dict(upgrade_artifacts.get("manifest") or {})
+        ranked_decision = dict(self.last_decision_ranking or {})
+        governance_flags = {
+            "runtime_mode": str(self.last_runtime_mode or ""),
+            "runtime_reason": str(self.last_runtime_reason or ""),
+            "risk_level": str(getattr(routing_decision, "risk_level", "") or ""),
+            "requires_evidence": bool(getattr(routing_decision, "requires_evidence", False)),
+        }
+        context = StrategyExecutionContext(
+            session_id=session_id,
+            run_id=run_id,
+            task_id="",
+            current_runtime_mode=str(self.last_runtime_mode or ""),
+            current_runtime_reason=str(self.last_runtime_reason or ""),
+            direct_memory_hit=bool(direct_response),
+            node_runtime_available=bool(getattr(self, "js_runtime_adapter", None)),
+            current_provider_path=str(upgrade_artifacts.get("provider_path", "") or ""),
+            max_reasoning_steps=3,
+            metadata={
+                "verification_intensity": str(getattr(routing_decision, "verification_intensity", "") or ""),
+                "execution_strategy": str(getattr(routing_decision, "execution_strategy", "") or ""),
+            },
+        )
+        return StrategyExecutionRequest(
+            selected_strategy=str(getattr(routing_decision, "strategy", "") or "SAFE_FALLBACK"),
+            manifest_id=str(manifest_payload.get("manifest_id", "") or ""),
+            manifest=manifest_payload,
+            oil_summary=dict(upgrade_artifacts.get("oil_summary") or {}),
+            routing_decision=routing_decision.as_dict() if hasattr(routing_decision, "as_dict") else {},
+            ranked_decision=ranked_decision,
+            tool_metadata=self._tool_metadata_payload(selected_tools),
+            governance_blocked=False,
+            governance_flags=governance_flags,
+            fallback_allowed=bool(getattr(routing_decision, "fallback_allowed", True)),
+            fallback_response=SAFE_FALLBACK_RESPONSE,
+            node_fallback_response=NODE_FALLBACK_RESPONSE,
+            context=context,
+            metadata={
+                "direct_response": str(direct_response or ""),
+                "selected_tools": list(selected_tools or []),
+            },
+        )
+
+    def _execute_strategy_compatible_path(
+        self,
+        *,
+        session_id: str,
+        runtime_message: str,
+        predicted_intent: str,
+        direct_response: str,
+        strategy_payload: dict[str, Any] | None,
+        planning_payload: dict[str, Any],
+        reasoning_handoff: dict[str, Any],
+        reasoning_payload: dict[str, Any],
+        memory_context: dict[str, Any],
+        memory_context_payload: dict[str, Any],
+        control_execution_summary: dict[str, Any],
+        context_budget: Any,
+        retrieval_plan: Any,
+        phase39_tuning: dict[str, Any],
+        budgeted_history: list[dict[str, Any]],
+        summary: str,
+        available_capabilities: list[dict[str, str]],
+        memory_store: dict[str, Any],
+        coordination_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        swarm_result: dict[str, Any] = {
+            "response": direct_response,
+            "intent": predicted_intent,
+            "delegates": [],
+            "agent_trace": [],
+            "memory_signal": {},
+            "multi_agent_coordination": dict(coordination_payload),
+        }
+        if direct_response:
+            skip_tid = "perf36-skip-" + hashlib.sha1(str(session_id or "").encode("utf-8")).hexdigest()[:10]
+            performance_payload = {
+                "trace": {
+                    "trace_id": skip_tid,
+                    "session_id": session_id,
+                    "cache_hit": False,
+                    "cache_key_fingerprint": "",
+                    "compression_applied": ["skipped_direct_memory"],
+                    "estimated_bytes_before": 0,
+                    "estimated_bytes_after": 0,
+                    "estimated_bytes_saved": 0,
+                    "redundant_dict_copies_avoided": 0,
+                    "degraded": False,
+                    "error": "",
+                },
+                "stats": {"steps_applied": ["skipped_direct_memory"], "estimated_bytes_before": 0, "estimated_bytes_after": 0, "estimated_bytes_saved": 0},
+            }
+            self._append_runtime_event(
+                event_type="runtime.performance_optimization.trace",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload=dict(performance_payload),
+            )
+            self._last_strategy_performance_payload = dict(performance_payload)
+            return swarm_result
+
+        recent_exp = self.experience_store.read_recent_for_session(session_id, limit=12)
+        avail = get_available_providers()
+        baseline = (avail[0] if avail else None) or None
+        strat_mode = None
+        if isinstance(strategy_payload, dict):
+            ss = strategy_payload.get("selected_strategy")
+            if isinstance(ss, dict):
+                strat_mode = str(ss.get("mode", "") or "").strip() or None
+        hint = self.policy_router.compute_hint(
+            session_id=session_id,
+            normalized_intent=str(predicted_intent or "unknown")[:256],
+            baseline_provider=baseline,
+            strategy_mode=strat_mode,
+            recent_experience_rows=recent_exp,
+        )
+        self._last_phase41_policy_hint = hint.as_dict()
+        if str(os.getenv("OMINI_PHASE41_POLICY_LOG", "1")).strip().lower() not in ("0", "false", "no", "off"):
+            self._append_runtime_event(
+                event_type="runtime.phase41.policy_shadow",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "baseline_provider": hint.baseline_provider,
+                    "recommended_provider": hint.recommended_provider,
+                    "recommended_strategy": hint.recommended_strategy,
+                    "confidence": hint.confidence,
+                    "policy_reason_codes": hint.policy_reason_codes,
+                    "shadow_only": hint.shadow_only,
+                },
+            )
+        self._pending_policy_hint_json = self.policy_router.hint_to_env_json(hint)
+
+        budget_dict = self._budget_to_dict(context_budget)
+        retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
+        pcache = phase39_tuning.get("performance_max_cache_entries")
+        cache_override = None
+        try:
+            if pcache is not None:
+                cache_override = int(pcache)
+        except (TypeError, ValueError):
+            cache_override = None
+        perf_result = self.performance_engine.optimize_swarm_boundary(
+            session_id=session_id,
+            message=runtime_message,
+            budget_dict=budget_dict,
+            retrieval_dict=retrieval_dict,
+            structured_memory=memory_context["retrieved_context"],
+            memory_intelligence=memory_context_payload,
+            reasoning_handoff=reasoning_handoff,
+            planning_payload=planning_payload,
+            cache_max_override=cache_override,
+        )
+        swarm_context = dict(perf_result.slim_swarm_context)
+        hb = coordination_payload.get("handoff_bundle")
+        if isinstance(hb, dict):
+            swarm_context["multi_agent_coordination"] = hb
+        performance_payload = {
+            "trace": perf_result.trace.as_dict(),
+            "stats": perf_result.stats.as_dict(),
+        }
+        self._append_runtime_event(
+            event_type="runtime.performance_optimization.trace",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload=dict(performance_payload),
+        )
+        self._last_strategy_performance_payload = dict(performance_payload)
+        swarm_result = asyncio.run(
+            self.swarm_orchestrator.run(
+                message=runtime_message,
+                session_id=session_id,
+                memory_store=memory_store,
+                history=budgeted_history,
+                summary=summary,
+                capabilities=available_capabilities,
+                executor=lambda payload: self._async_node_execution(
+                    message=runtime_message,
+                    memory_store=memory_store,
+                    available_capabilities=available_capabilities,
+                    session_id=session_id,
+                    swarm_payload=payload,
+                    context_session=swarm_context,
+                ),
+            )
+        )
+        if isinstance(swarm_result, dict):
+            swarm_result["multi_agent_coordination"] = dict(coordination_payload)
+            node_env = getattr(self, "_last_node_result_envelope", None)
+            if isinstance(node_env, dict):
+                md_n = node_env.get("metadata")
+                if isinstance(md_n, dict):
+                    sm_md = swarm_result.get("metadata")
+                    swarm_result["metadata"] = {
+                        **(sm_md if isinstance(sm_md, dict) else {}),
+                        **md_n,
+                    }
+                ep_n = md_n.get("execution_provenance") if isinstance(md_n, dict) else None
+                if isinstance(ep_n, dict):
+                    swarm_result["execution_provenance"] = ep_n
+                ch_n = node_env.get("cognitive_runtime_hint")
+                if isinstance(ch_n, dict):
+                    swarm_result["cognitive_runtime_hint"] = ch_n
+        return swarm_result
+
+    def _dispatch_strategy_execution(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        routing_decision: Any,
+        upgrade_artifacts: dict[str, Any],
+        selected_tools: list[str] | None,
+        direct_response: str,
+        compat_execute: Any,
+    ) -> dict[str, Any]:
+        request = self._build_strategy_execution_request(
+            session_id=session_id,
+            run_id=run_id,
+            routing_decision=routing_decision,
+            upgrade_artifacts=upgrade_artifacts,
+            selected_tools=selected_tools,
+            direct_response=direct_response,
+        )
+        dispatch_payload = {
+            "selected_strategy": request.selected_strategy,
+            "manifest_id": request.manifest_id,
+            "fallback_allowed": request.fallback_allowed,
+            "governance_blocked": request.governance_blocked,
+            "manifest_driven_execution": bool(request.manifest),
+        }
+        self.memory_facade.record_event(
+            event_type="runtime_strategy_dispatched",
+            description="Strategy dispatcher selected an execution path",
+            metadata=dispatch_payload,
+        )
+        self._append_runtime_event(
+            event_type="runtime.strategy.dispatch",
+            session_id=session_id,
+            task_id="",
+            run_id=run_id,
+            payload=dispatch_payload,
+        )
+        try:
+            result = self.strategy_dispatcher.dispatch(request, compat_execute=compat_execute)
+        except Exception as exc:
+            self.memory_facade.record_event(
+                event_type="runtime_strategy_execution_fallback",
+                description="Strategy dispatcher failed and fell back to compatibility execution",
+                metadata={"reason": "strategy_dispatch_exception", "error": str(exc)[:400]},
+            )
+            self._append_runtime_event(
+                event_type="runtime.strategy.execution.fallback",
+                session_id=session_id,
+                task_id="",
+                run_id=run_id,
+                payload={"reason": "strategy_dispatch_exception", "error": str(exc)[:400]},
+            )
+            fallback_swarm_result = dict(compat_execute() or {})
+            fallback_response = str(fallback_swarm_result.get("response", "") or "").strip() or SAFE_FALLBACK_RESPONSE
+            result_payload = {
+                "selected_strategy": request.selected_strategy,
+                "executor_used": "compatibility_path",
+                "status": "fallback",
+                "response_text": fallback_response,
+                "raw_result": fallback_swarm_result,
+                "trace": {
+                    "selected_strategy": request.selected_strategy,
+                    "executor_used": "compatibility_path",
+                    "status": "fallback",
+                    "manifest_driven_execution": False,
+                    "governance_blocked": False,
+                    "governance_downgrade_applied": False,
+                    "fallback_applied": True,
+                    "downgraded": False,
+                    "blocked_reason": "",
+                    "fallback_reason": "strategy_dispatch_exception",
+                    "response_synthesis_mode": "fallback",
+                    "observability_tags": list(request.manifest.get("observability_tags", []) or []),
+                    "execution_trace_summary": "Compatibility execution path was used after strategy dispatch failure.",
+                    "metadata": {"error": str(exc)[:400]},
+                },
+                "blocked": False,
+                "downgraded": False,
+                "fallback_applied": True,
+                "governance_downgrade_applied": False,
+                "manifest_driven_execution": False,
+                "response_synthesis_mode": "fallback",
+                "error": str(exc)[:400],
+                "metadata": {"decision_final_source": "dispatcher_fallback"},
+            }
+            self.last_strategy_execution = dict(result_payload)
+            return result_payload
+
+        result_payload = result.as_dict()
+        result_payload.setdefault("selected_strategy", request.selected_strategy)
+        result_payload["manifest_id"] = request.manifest_id
+        result_payload["strategy_dispatch_applied"] = True
+        result_payload["ranking_source"] = str((self.last_decision_ranking or {}).get("decision_source", "rule") or "rule")
+        result_payload["decision_final_source"] = (
+            "strategy_dispatch_fallback" if result.fallback_applied else "strategy_dispatch"
+        )
+        trace_payload = dict(result_payload.get("trace") or {})
+        trace_payload.setdefault("selected_strategy", request.selected_strategy)
+        trace_payload["executor_used"] = result.executor_used
+        trace_payload["strategy_execution_status"] = result.status
+        trace_payload["strategy_execution_fallback"] = bool(result.fallback_applied)
+        trace_payload["manifest_driven_execution"] = bool(result.manifest_driven_execution)
+        trace_payload["governance_downgrade_applied"] = bool(result.governance_downgrade_applied)
+        result_payload["trace"] = trace_payload
+
+        event_type = "runtime_strategy_execution_blocked" if result.blocked else "runtime_strategy_executed"
+        event_desc = (
+            "Strategy execution blocked by guardrails"
+            if result.blocked
+            else "Strategy executor completed a manifest-driven execution path"
+        )
+        self.memory_facade.record_event(event_type=event_type, description=event_desc, metadata=trace_payload)
+        self._append_runtime_event(
+            event_type="runtime.strategy.execution.result",
+            session_id=session_id,
+            task_id="",
+            run_id=run_id,
+            payload=trace_payload,
+        )
+        if result.fallback_applied:
+            self.memory_facade.record_event(
+                event_type="runtime_strategy_execution_fallback",
+                description="Strategy execution degraded to a safe fallback",
+                metadata=trace_payload,
+            )
+            self._append_runtime_event(
+                event_type="runtime.strategy.execution.fallback",
+                session_id=session_id,
+                task_id="",
+                run_id=run_id,
+                payload=trace_payload,
+            )
+        if result.manifest_driven_execution:
+            self.memory_facade.record_event(
+                event_type="runtime_manifest_execution_applied",
+                description="Execution manifest directly influenced the runtime path",
+                metadata={
+                    "manifest_id": request.manifest_id,
+                    "selected_strategy": request.selected_strategy,
+                    "response_synthesis_mode": result.response_synthesis_mode,
+                },
+            )
+        self.last_strategy_execution = dict(result_payload)
+        return result_payload
 
     def _register_run_record(
         self,
