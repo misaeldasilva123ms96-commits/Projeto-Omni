@@ -128,7 +128,7 @@ def build_cognitive_runtime_inspection(
     self_improving_system_trace: dict[str, Any] | None,
     controlled_evolution_payload: dict[str, Any] | None,
     coordination_payload: dict[str, Any] | None,
-    lora_payload: dict[str, Any] | None,
+    lora_payload: dict[str, Any] | None = None,
     duration_ms: int,
 ) -> dict[str, Any]:
     r = str(response or "").strip()

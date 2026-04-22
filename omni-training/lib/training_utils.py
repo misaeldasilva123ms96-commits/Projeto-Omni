@@ -5,13 +5,33 @@ from pathlib import Path
 from typing import Any
 
 
+TRAINING_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = TRAINING_ROOT.parents[0]
+
+
 def load_json_config(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def resolve_training_path(path_value: str | Path) -> Path:
+    raw = Path(path_value)
+    if raw.is_absolute():
+        return raw
+    candidates = (
+        (PROJECT_ROOT / raw).resolve(),
+        (TRAINING_ROOT / raw).resolve(),
+        raw.resolve(),
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def load_sft_jsonl(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    resolved_path = resolve_training_path(path)
+    for line in resolved_path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped:
             continue

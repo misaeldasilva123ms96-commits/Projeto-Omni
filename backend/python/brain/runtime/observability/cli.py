@@ -58,7 +58,11 @@ def _resolve_root(raw_root: str | None) -> Path:
 
 def _emit(payload: dict[str, Any]) -> int:
     text = json.dumps(payload, ensure_ascii=False)
-    sys.stdout.buffer.write((text + "\n").encode("utf-8", errors="replace"))
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write((text + "\n").encode("utf-8", errors="replace"))
+    else:
+        print(text)
     return 0
 
 

@@ -8,7 +8,13 @@ LIB_DIR = Path(__file__).resolve().parents[1] / "lib"
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
-from training_utils import format_training_examples, load_json_config, load_sft_jsonl, validate_training_config
+from training_utils import (
+    format_training_examples,
+    load_json_config,
+    load_sft_jsonl,
+    resolve_training_path,
+    validate_training_config,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,7 +77,7 @@ def main() -> int:
     )
     model = get_peft_model(model, peft_config)
 
-    output_dir = Path(training_config["output_dir"])
+    output_dir = resolve_training_path(training_config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     training_args = TrainingArguments(
         output_dir=str(output_dir),
