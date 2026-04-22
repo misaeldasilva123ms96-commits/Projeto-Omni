@@ -1,8 +1,12 @@
 {
   "base_model": "HuggingFaceTB/SmolLM2-360M-Instruct",
-  "dataset_path": "omni-training/data/sft/omni_sft_seed.jsonl",
+  "dataset_path": "omni-training/data/sft/train.jsonl",
+  "validation_dataset_path": "omni-training/data/sft/validation.jsonl",
+  "test_dataset_path": "omni-training/data/sft/test.jsonl",
   "output_dir": "omni-training/artifacts/lora/smollm2-360m-omni",
   "max_samples": 512,
+  "max_train_samples": 512,
+  "max_eval_samples": 128,
   "max_length": 768,
   "num_train_epochs": 1,
   "per_device_train_batch_size": 1,
@@ -12,5 +16,10 @@
   "logging_steps": 5,
   "save_steps": 25,
   "warmup_ratio": 0.03,
-  "seed": 42
+  "seed": 42,
+  "min_quality_score": 0.68,
+  "source_filters": [],
+  "task_family_filters": [],
+  "review_status_filters": ["approved", "reviewed", "draft"],
+  "preserve_sample_weight": true
 }
