@@ -118,7 +118,7 @@ def main() -> int:
         save_steps=int(training_config["save_steps"]),
         warmup_ratio=float(training_config.get("warmup_ratio", 0.0)),
         seed=int(training_config.get("seed", 42)),
-        evaluation_strategy="steps" if eval_dataset is not None else "no",
+        eval_strategy="steps" if eval_dataset is not None else "no",
         eval_steps=int(training_config.get("save_steps", 25)),
         report_to=[],
         remove_unused_columns=False,

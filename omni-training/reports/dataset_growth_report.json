@@ -1,0 +1,25 @@
+{
+  "total_examples": 164,
+  "examples_by_source": {
+    "internal_curated": 29,
+    "runtime_feedback": 85,
+    "synthetic_controlled": 26,
+    "default_small_instruction": 24
+  },
+  "examples_by_task": {
+    "runtime": 96,
+    "coding": 8,
+    "governance": 33,
+    "analysis": 3,
+    "instruction": 24
+  },
+  "pt_br_ratio": 0.8537,
+  "synthetic_ratio": 0.1585,
+  "runtime_ratio": 0.5183,
+  "progress_targets": {
+    "100": true,
+    "300": false,
+    "500": false,
+    "1000": false
+  }
+}
