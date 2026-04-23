@@ -1,30 +1,49 @@
-# Roadmap (summary)
+# Omni Open Source Roadmap
 
-Omni’s roadmap is **governance-first** and **runtime-safe**. Detailed narrative and phase references: [`docs/product/roadmap.md`](docs/product/roadmap.md).
+## Phase 1 — Organization
 
-## Current state
+Goal:
+Make the repository understandable, navigable, and contributor-friendly.
 
-The documented implementation ladder reaches **Phase 40** (governed self-improving cognitive system). Per-phase implementation notes live under [`docs/phases/`](docs/phases/) (see [`docs/phases/README.md`](docs/phases/README.md)).
+Expected outcome:
+Clear entrypoint documents, a cleaner repository layout, and a public-facing explanation of what Omni is and what is still broken.
 
-## Phases 31–40 (concise)
+## Phase 2 — Public Debug
 
-| Phase | Focus |
-|------|--------|
-| 31 | Cognitive reasoning layer |
-| 32 | Memory intelligence layer |
-| 33 | Planning intelligence |
-| 34 | Runtime learning |
-| 35 | Strategy adaptation |
-| 36 | Performance optimization |
-| 37 | Multi-agent coordination |
-| 38 | Task decomposition |
-| 39 | Controlled self-evolution |
-| 40 | Governed continuous improvement (simulation → approval → rollout → monitor) |
+Goal:
+Open the current runtime state to contributors with honest debugging artifacts and reproducible runtime evidence.
 
-## Phase 30.x (historical)
+Expected outcome:
+Contributors can inspect failures, understand current limitations, and work from real runtime traces instead of assumptions.
 
-Governance convergence and evolution-control preparation — documented primarily for audit history (`docs/phases/phase-30.md`, archived reports). It is not the live definition of phases 31–40.
+## Phase 3 — Execution Recovery
 
-## Beyond Phase 40
+Goal:
+Recover stable end-to-end execution paths for tool-capable requests.
 
-No Phase 41 is scoped in-repository; future work remains explicitly governed and operator-compatible.
+Expected outcome:
+More requests complete through real execution rather than degrading into planning-only or compatibility-heavy paths.
+
+## Phase 4 — Runtime Truth
+
+Goal:
+Make runtime inspection and provenance always reflect what actually happened.
+
+Expected outcome:
+Shortcut, bridge, compatibility, action execution, and fallback paths are clearly distinguishable in the public and internal runtime signals.
+
+## Phase 5 — Stability
+
+Goal:
+Reduce runtime fragility across Rust, Python, Node, and local tool execution.
+
+Expected outcome:
+A more repeatable development environment, fewer transport regressions, and better reliability under normal contributor setup.
+
+## Phase 6 — Cognitive Validation
+
+Goal:
+Prove that Omni is executing a real cognitive flow rather than only producing plausible responses.
+
+Expected outcome:
+Representative prompts show stable, inspectable, tool-backed runtime behavior with useful memory, observability, and fallback semantics.
