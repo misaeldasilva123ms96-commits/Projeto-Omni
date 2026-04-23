@@ -5,11 +5,27 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from brain.runtime.observability.runtime_lane_classifier import (
+    LANE_BRIDGE_EXECUTION_REQUEST,
+    LANE_COMPATIBILITY_EXECUTION,
+    LANE_LOCAL_DIRECT_RESPONSE,
+    LANE_MATCHER_SHORTCUT,
+    LANE_SAFE_DEGRADED_FALLBACK,
+    LANE_TRUE_ACTION_EXECUTION,
+    TRANSPORT_SUCCESS,
+    classify_execution_runtime_lane,
+    classify_runtime_lane,
+)
+
 # Align with orchestrator-facing semantics (strict / conservative).
 RUNTIME_MODE_FULL = "FULL_COGNITIVE_RUNTIME"
 RUNTIME_MODE_PARTIAL = "PARTIAL_COGNITIVE"
 RUNTIME_MODE_NODE_OK = "NODE_EXECUTION_SUCCESS"
 RUNTIME_MODE_MATCHER = "MATCHER_SHORTCUT"
+RUNTIME_MODE_LOCAL_DIRECT = "LOCAL_DIRECT_RESPONSE"
+RUNTIME_MODE_BRIDGE = "BRIDGE_EXECUTION_REQUEST"
+RUNTIME_MODE_ACTION = "TRUE_ACTION_EXECUTION"
+RUNTIME_MODE_COMPAT = "COMPATIBILITY_EXECUTION"
 RUNTIME_MODE_SAFE_FB = "SAFE_FALLBACK"
 RUNTIME_MODE_NODE_FB = "NODE_FALLBACK"
 RUNTIME_MODE_ERROR_DEGRADED = "ERROR_DEGRADED"
@@ -124,6 +140,7 @@ def build_cognitive_runtime_inspection(
     swarm_result: dict[str, Any] | None,
     learning_record: dict[str, Any] | None,
     node_cognitive_hint: dict[str, Any] | None,
+    node_outcome: dict[str, Any] | None,
     direct_memory_hit: bool,
     self_improving_system_trace: dict[str, Any] | None,
     controlled_evolution_payload: dict[str, Any] | None,
@@ -143,11 +160,60 @@ def build_cognitive_runtime_inspection(
     strat_deg = _strategy_degraded(strategy_payload)
     mem_usage = _memory_class(memory_context_payload, direct_memory_hit)
 
-    hint_lane = ""
-    if isinstance(node_cognitive_hint, dict):
-        hint_lane = str(node_cognitive_hint.get("lane") or node_cognitive_hint.get("detail") or "").strip().lower()
-
-    node_matcher = hint_lane in {"matcher_shortcut", "conversational_matcher"} or "matcher" in hint_lane
+    lane_info = classify_runtime_lane(
+        response=r,
+        safe_fallback=safe,
+        node_fallback=node_fb,
+        mock_response=mock,
+        last_runtime_mode=last_runtime_mode,
+        last_runtime_reason=last_runtime_reason,
+        node_cognitive_hint=node_cognitive_hint,
+        node_outcome=node_outcome,
+        direct_memory_hit=direct_memory_hit,
+        strategy_dispatch_applied=bool((lora_payload or {}).get("strategy_dispatch_applied", False)),
+    )
+    semantic_lane = str(lane_info.get("semantic_lane") or "")
+    transport_status = str(lane_info.get("transport_status") or "")
+    hint_lane = str(lane_info.get("node_hint_lane") or "")
+    node_matcher = semantic_lane == LANE_MATCHER_SHORTCUT
+    execution_summary = str(
+        (lora_payload or {}).get("execution_trace_summary", "")
+        or (
+            ((lora_payload or {}).get("trace") or {}).get("execution_trace_summary", "")
+            if isinstance((lora_payload or {}).get("trace"), dict)
+            else ""
+        )
+    )
+    executor_used = str((lora_payload or {}).get("executor_used", "") or "")
+    trace_payload = (lora_payload or {}).get("trace") if isinstance((lora_payload or {}).get("trace"), dict) else {}
+    explicit_execution_lane = str(
+        (lora_payload or {}).get("execution_runtime_lane", "")
+        or trace_payload.get("execution_runtime_lane", "")
+        or ""
+    ).strip()
+    explicit_compatibility_execution_active = None
+    if isinstance(lora_payload, dict) and "compatibility_execution_active" in lora_payload:
+        explicit_compatibility_execution_active = bool(lora_payload.get("compatibility_execution_active"))
+    elif isinstance(trace_payload, dict) and "compatibility_execution_active" in trace_payload:
+        explicit_compatibility_execution_active = bool(trace_payload.get("compatibility_execution_active"))
+    actions_executed = bool(
+        (node_outcome or {}).get("actions_executed", False)
+        or (node_outcome or {}).get("has_actions", False)
+        or (lora_payload or {}).get("true_action_execution_active", False)
+        or trace_payload.get("true_action_execution_active", False)
+    )
+    execution_lane_info = classify_execution_runtime_lane(
+        semantic_lane=semantic_lane,
+        direct_memory_hit=direct_memory_hit,
+        strategy_dispatch_applied=bool((lora_payload or {}).get("strategy_dispatch_applied", False)),
+        executor_used=executor_used,
+        execution_trace_summary=execution_summary,
+        explicit_execution_runtime_lane=explicit_execution_lane,
+        explicit_compatibility_execution_active=explicit_compatibility_execution_active,
+        actions_executed=actions_executed,
+    )
+    execution_runtime_lane = str(execution_lane_info.get("execution_runtime_lane") or semantic_lane or "")
+    compatibility_execution_active = bool(execution_lane_info.get("compatibility_execution_active", False))
 
     learning_path = ""
     if isinstance(learning_record, dict):
@@ -155,28 +221,34 @@ def build_cognitive_runtime_inspection(
         if isinstance(assess, dict):
             learning_path = str(assess.get("execution_path") or "")
 
-    if r == node_fb:
+    if semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and r == node_fb:
         runtime_mode = RUNTIME_MODE_NODE_FB
         source = SOURCE_FALLBACK
         failures.append("node_path_unusable_or_subprocess_failure")
-    elif r == safe:
+    elif semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and r == safe:
         runtime_mode = RUNTIME_MODE_SAFE_FB
         source = SOURCE_FALLBACK
         failures.append("safe_fallback_template_or_empty_operational_path")
-    elif r == mock:
+    elif semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and r == mock:
         runtime_mode = RUNTIME_MODE_ERROR_DEGRADED
         source = SOURCE_FALLBACK
         failures.append("mock_runtime_configured")
-    elif node_matcher:
+    elif semantic_lane == LANE_MATCHER_SHORTCUT:
         runtime_mode = RUNTIME_MODE_MATCHER
         source = SOURCE_MATCHER
         failures.append("matcher_shortcut_bypassed_llm_grounding")
-    elif direct_memory_hit:
-        runtime_mode = RUNTIME_MODE_PARTIAL
-        source = SOURCE_PYTHON
-    elif last_runtime_reason == "node_execution_request" and last_runtime_mode == "live":
-        runtime_mode = RUNTIME_MODE_NODE_OK
+    elif semantic_lane == LANE_LOCAL_DIRECT_RESPONSE:
+        runtime_mode = RUNTIME_MODE_LOCAL_DIRECT
         source = SOURCE_NODE
+    elif semantic_lane == LANE_BRIDGE_EXECUTION_REQUEST:
+        runtime_mode = RUNTIME_MODE_BRIDGE
+        source = SOURCE_NODE
+    elif semantic_lane == LANE_TRUE_ACTION_EXECUTION:
+        runtime_mode = RUNTIME_MODE_ACTION
+        source = SOURCE_NODE
+    elif semantic_lane == LANE_COMPATIBILITY_EXECUTION:
+        runtime_mode = RUNTIME_MODE_COMPAT
+        source = SOURCE_PYTHON if direct_memory_hit else SOURCE_NODE
     elif last_runtime_mode == "fallback":
         runtime_mode = RUNTIME_MODE_ERROR_DEGRADED
         if last_runtime_reason in {"control_layer_block", "reasoning_validation_block"}:
@@ -184,9 +256,6 @@ def build_cognitive_runtime_inspection(
         else:
             source = SOURCE_FALLBACK
         failures.append(f"runtime_fallback_mode_or_reason:{last_runtime_reason}")
-    elif last_runtime_reason in {"direct_node_response", "node_response_without_actions"} and last_runtime_mode == "live":
-        runtime_mode = RUNTIME_MODE_NODE_OK
-        source = SOURCE_NODE
     else:
         runtime_mode = RUNTIME_MODE_PARTIAL
         source = SOURCE_NODE if learning_path == "swarm" else SOURCE_PYTHON
@@ -212,12 +281,9 @@ def build_cognitive_runtime_inspection(
         if isinstance(pt, dict) and pt.get("execution_ready"):
             plan_ok = True
 
-    node_graph = last_runtime_reason == "node_execution_request" and last_runtime_mode == "live"
-    node_soft = last_runtime_mode == "live" and last_runtime_reason in {
-        "direct_node_response",
-        "node_response_without_actions",
-    }
-    tools_or_sim = node_graph and not node_matcher
+    node_graph = semantic_lane in {LANE_BRIDGE_EXECUTION_REQUEST, LANE_TRUE_ACTION_EXECUTION}
+    node_soft = semantic_lane in {LANE_MATCHER_SHORTCUT, LANE_LOCAL_DIRECT_RESPONSE}
+    tools_or_sim = semantic_lane == LANE_TRUE_ACTION_EXECUTION
 
     chain_parts = {
         "strategy_generation": strat_ok,
@@ -241,18 +307,23 @@ def build_cognitive_runtime_inspection(
     if runtime_mode in (RUNTIME_MODE_NODE_FB, RUNTIME_MODE_SAFE_FB, RUNTIME_MODE_ERROR_DEGRADED):
         cognitive_chain = CHAIN_BROKEN
 
+    if compatibility_execution_active and runtime_mode == RUNTIME_MODE_ACTION:
+        runtime_mode = RUNTIME_MODE_COMPAT
+
     # Performance heuristics.
     if direct_memory_hit:
         perf_notes.append("swarm_node_skipped_due_to_direct_memory_hit")
     elif learning_path == "swarm" and reason_ok and strat_ok:
         perf_notes.append("python_reasoning_strategy_then_node_planner_likely_redundant_work")
+    if compatibility_execution_active:
+        perf_notes.append("compatibility_execution_active_degraded_but_supported")
 
     if duration_ms > 45_000:
         perf_notes.append("high_latency_risk_subprocess_and_dual_runtime")
 
     # FULL only if chain complete, non-matcher, non-fallback, live mode, swarm path used tools graph.
     if (
-        runtime_mode == RUNTIME_MODE_NODE_OK
+        runtime_mode == RUNTIME_MODE_ACTION
         and cognitive_chain == CHAIN_COMPLETE
         and last_runtime_mode == "live"
         and not node_matcher
@@ -269,6 +340,9 @@ def build_cognitive_runtime_inspection(
     elif runtime_mode == RUNTIME_MODE_FULL and cognitive_chain == CHAIN_COMPLETE:
         verdict = VERDICT_TRUE
     else:
+        verdict = VERDICT_HYBRID
+
+    if compatibility_execution_active and verdict == VERDICT_TRUE:
         verdict = VERDICT_HYBRID
 
     if mem_usage == MEM_UNUSED and not direct_memory_hit:
@@ -320,10 +394,26 @@ def build_cognitive_runtime_inspection(
         "signals": {
             "last_runtime_mode": str(last_runtime_mode or ""),
             "last_runtime_reason": str(last_runtime_reason or ""),
+            "semantic_runtime_lane": semantic_lane or LANE_COMPATIBILITY_EXECUTION,
+            "execution_runtime_lane": execution_runtime_lane or LANE_COMPATIBILITY_EXECUTION,
+            "compatibility_execution_active": compatibility_execution_active,
+            "transport_status": transport_status or TRANSPORT_SUCCESS,
+            "coarse_runtime_mode": (
+                RUNTIME_MODE_NODE_FB
+                if str(last_runtime_mode or "") == "fallback" and r == node_fb
+                else RUNTIME_MODE_SAFE_FB
+                if str(last_runtime_mode or "") == "fallback" and r == safe
+                else RUNTIME_MODE_MATCHER
+                if semantic_lane == LANE_MATCHER_SHORTCUT
+                else RUNTIME_MODE_NODE_OK
+                if str(last_runtime_mode or "") == "live"
+                else RUNTIME_MODE_PARTIAL
+            ),
             "reasoning_validation": validation or "unknown",
             "direct_memory_hit": bool(direct_memory_hit),
             "learning_execution_path": learning_path or "unknown",
             "node_cognitive_hint": node_cognitive_hint if isinstance(node_cognitive_hint, dict) else None,
+            "node_outcome": node_outcome if isinstance(node_outcome, dict) else None,
             "duration_ms": int(duration_ms),
             **lora_signals,
         },

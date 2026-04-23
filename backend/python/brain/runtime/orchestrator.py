@@ -101,7 +101,19 @@ from brain.runtime.telemetry.supabase_tool_events import (
     error_code_from_tool_result,
     record_runtime_tool_event,
 )
+from brain.runtime.node_transport import run_node_subprocess
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
+from brain.runtime.observability.runtime_lane_classifier import (
+    LANE_BRIDGE_EXECUTION_REQUEST,
+    LANE_COMPATIBILITY_EXECUTION,
+    LANE_LOCAL_DIRECT_RESPONSE,
+    LANE_SAFE_DEGRADED_FALLBACK,
+    LANE_TRUE_ACTION_EXECUTION,
+    TRANSPORT_FALLBACK,
+    TRANSPORT_SUCCESS,
+    interpret_node_payload,
+    normalize_node_outcome,
+)
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
 from brain.runtime.tooling.tool_registry_extensions import get_tool_metadata
 from config.provider_registry import get_available_providers
@@ -267,6 +279,7 @@ class BrainOrchestrator:
         self.last_runtime_reason = "startup"
         self.last_cognitive_runtime_inspection: dict[str, Any] | None = None
         self._last_node_cognitive_hint: dict[str, Any] | None = None
+        self._last_node_outcome: dict[str, Any] | None = None
         self.trusted_executor = TrustedExecutor(
             available_capabilities={item["name"] for item in describe_capabilities()},
             available_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
@@ -475,6 +488,7 @@ class BrainOrchestrator:
             swarm_result=swarm_result,
             learning_record=learning_record,
             node_cognitive_hint=getattr(self, "_last_node_cognitive_hint", None),
+            node_outcome=getattr(self, "_last_node_outcome", None),
             direct_memory_hit=direct_memory_hit,
             self_improving_system_trace=self_improving_system_trace,
             controlled_evolution_payload=controlled_evolution_payload,
@@ -491,6 +505,7 @@ class BrainOrchestrator:
         self._last_node_result_envelope = None
         self.last_cognitive_runtime_inspection = None
         self._last_node_cognitive_hint = None
+        self._last_node_outcome = None
         self.last_lora_decision = None
         self.last_decision_ranking = None
         self.last_runtime_mode = self._selected_runtime_mode()
@@ -2152,9 +2167,15 @@ class BrainOrchestrator:
     ) -> str:
         self._last_node_result_envelope = None
         self._last_node_cognitive_hint = None
+        self._last_node_outcome = None
         if self._selected_runtime_mode() == "fallback":
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "configured_fallback_mode"
+            self._last_node_outcome = normalize_node_outcome(
+                transport_status=TRANSPORT_FALLBACK,
+                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
+                reason_code="configured_fallback_mode",
+            )
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
@@ -2170,6 +2191,11 @@ class BrainOrchestrator:
             )
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = classified_reason
+            self._last_node_outcome = normalize_node_outcome(
+                transport_status=TRANSPORT_FALLBACK,
+                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
+                reason_code=classified_reason,
+            )
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
@@ -2229,63 +2255,10 @@ class BrainOrchestrator:
             )
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = classified_reason
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
+            self._last_node_outcome = normalize_node_outcome(
+                transport_status=TRANSPORT_FALLBACK,
+                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
                 reason_code=classified_reason,
-                details=details,
-            )
-            return NODE_FALLBACK_RESPONSE
-
-        try:
-            completed = subprocess.run(
-                diagnostics["command"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=SUBPROCESS_TIMEOUT_SECONDS,
-                check=False,
-                cwd=diagnostics["cwd"],
-                env=diagnostics["subprocess_env"],
-            )
-        except subprocess.TimeoutExpired as error:
-            self.last_runtime_mode = "fallback"
-            classified_reason, details = self._classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-                stdout=error.stdout or "",
-                stderr=error.stderr or "",
-                exception=error,
-                timed_out=True,
-            )
-            self.last_runtime_reason = classified_reason
-            self._append_runtime_event(
-                event_type="runtime.node.subprocess_diagnostics",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload={"stage": "timeout", "reason_code": classified_reason, **details},
-            )
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
-                reason_code=classified_reason,
-                details=details,
-            )
-            return NODE_FALLBACK_RESPONSE
-        except Exception as error:
-            self.last_runtime_mode = "fallback"
-            classified_reason, details = self._classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-                exception=error,
-            )
-            self.last_runtime_reason = classified_reason
-            self._append_runtime_event(
-                event_type="runtime.node.subprocess_diagnostics",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload={"stage": "exception", "reason_code": classified_reason, **details},
             )
             self._record_runtime_mode_event(
                 session_id=session_id,
@@ -2295,149 +2268,61 @@ class BrainOrchestrator:
             )
             return NODE_FALLBACK_RESPONSE
 
-        if completed.returncode != 0:
-            classified_reason, details = self._classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-                returncode=completed.returncode,
-                stdout=completed.stdout or "",
-                stderr=completed.stderr or "",
-            )
-            self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = classified_reason
-            self._append_runtime_event(
-                event_type="runtime.node.subprocess_diagnostics",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload={"stage": "completed", "reason_code": classified_reason, **details},
-            )
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
-                reason_code=classified_reason,
-                details=details,
-            )
-            return NODE_FALLBACK_RESPONSE
-        stdout = (completed.stdout or "").strip()
-        if not stdout:
-            classified_reason, details = self._classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-                returncode=completed.returncode,
-                stdout=completed.stdout or "",
-                stderr=completed.stderr or "",
-            )
-            self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = classified_reason
-            self._append_runtime_event(
-                event_type="runtime.node.subprocess_diagnostics",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload={"stage": "completed", "reason_code": classified_reason, **details},
-            )
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
-                reason_code=classified_reason,
-                details=details,
-            )
-            return NODE_FALLBACK_RESPONSE
-
-        try:
-            parsed = json.loads(stdout)
-        except json.JSONDecodeError as error:
-            self._last_node_result_envelope = None
-            classified_reason, details = self._classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-                returncode=completed.returncode,
-                stdout=completed.stdout or "",
-                stderr=completed.stderr or "",
-                exception=error,
-            )
-            self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = classified_reason
-            self._append_runtime_event(
-                event_type="runtime.node.subprocess_diagnostics",
-                session_id=session_id,
-                task_id="",
-                run_id="",
-                payload={"stage": "completed", "reason_code": classified_reason, **details},
-            )
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
-                reason_code=classified_reason,
-                details=details,
-                )
-            return NODE_FALLBACK_RESPONSE
-
-        self._last_node_cognitive_hint = None
-        if isinstance(parsed, dict):
-            self._last_node_result_envelope = BrainOrchestrator._extract_node_envelope_for_provenance(parsed)
-            hint = parsed.get("cognitive_runtime_hint")
-            if isinstance(hint, dict):
-                self._last_node_cognitive_hint = hint
-
+        transport = run_node_subprocess(
+            diagnostics=diagnostics,
+            payload=payload,
+            timeout_seconds=SUBPROCESS_TIMEOUT_SECONDS,
+        )
         self._append_runtime_event(
             event_type="runtime.node.subprocess_diagnostics",
             session_id=session_id,
             task_id="",
             run_id="",
-            payload={
-                "stage": "completed",
-                "reason_code": "success",
-                "returncode": completed.returncode,
-                "stdout": self._truncate_text(completed.stdout or ""),
-                "stderr": self._truncate_text(completed.stderr or ""),
-                "command_preview": diagnostics["command_preview"],
-                "cwd": diagnostics["cwd"],
-                "node_bin": diagnostics["node_bin"],
-                "node_resolved": diagnostics["node_resolved"],
-                "env_preview": diagnostics["env_preview"],
-            },
+            payload={"stage": transport["stage"], "reason_code": transport["reason_code"], **transport["details"]},
         )
-
-        self._record_runtime_selection_event(parsed, runner="queryEngineRunner.js")
-        self._record_engine_selection_event(parsed, session_id=session_id)
-        execution_request = parsed.get("execution_request")
-        if not isinstance(execution_request, dict):
-            response = parsed.get("response")
-            normalized = str(response).strip() if isinstance(response, str) else stdout
-            if normalized:
-                self.last_runtime_mode = "live"
-                self.last_runtime_reason = "direct_node_response"
-                return normalized
+        if not transport["ok"]:
+            self._last_node_result_envelope = None
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "invalid_node_payload"
+            self.last_runtime_reason = str(transport["reason_code"] or "subprocess_exception")
+            self._last_node_outcome = normalize_node_outcome(
+                transport_status=TRANSPORT_FALLBACK,
+                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
+                reason_code=self.last_runtime_reason,
+            )
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
-                reason_code="invalid_node_payload",
-                details={},
+                reason_code=self.last_runtime_reason,
+                details=transport["details"],
             )
             return NODE_FALLBACK_RESPONSE
 
-        actions = execution_request.get("actions", [])
-        if not isinstance(actions, list) or not actions:
-            response = parsed.get("response", "")
-            normalized = str(response).strip() if isinstance(response, str) else ""
-            if normalized:
-                self.last_runtime_mode = "live"
-                self.last_runtime_reason = "node_response_without_actions"
-                return normalized
+        parsed = transport["parsed"]
+        self._record_runtime_selection_event(parsed, runner="queryEngineRunner.js")
+        self._record_engine_selection_event(parsed, session_id=session_id)
+        semantic = interpret_node_payload(parsed=parsed, stdout=transport["stdout"])
+        self._last_node_cognitive_hint = semantic["node_cognitive_hint"]
+        self._last_node_result_envelope = semantic["node_result_envelope"]
+        self._last_node_outcome = semantic["node_outcome"]
+        self.last_runtime_reason = semantic["reason_code"]
+        if semantic["fallback"]:
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "invalid_execution_request"
             self._record_runtime_mode_event(
                 session_id=session_id,
                 mode="fallback",
-                reason_code="invalid_execution_request",
+                reason_code=self.last_runtime_reason,
                 details={},
             )
             return NODE_FALLBACK_RESPONSE
 
         self.last_runtime_mode = "live"
-        self.last_runtime_reason = "node_execution_request"
+        execution_request = semantic["execution_request"]
+        if semantic["semantic_lane"] in {LANE_LOCAL_DIRECT_RESPONSE, "matcher_shortcut"}:
+            return semantic["response_text"]
+        if semantic["semantic_lane"] == LANE_BRIDGE_EXECUTION_REQUEST:
+            return semantic["response_text"]
 
+        actions = execution_request.get("actions", [])
         task_id = str(execution_request.get("task_id", f"task-{session_id}"))
         run_id = coerce_runtime_run_id(
             run_id=str(execution_request.get("run_id", "")),
@@ -2476,6 +2361,9 @@ class BrainOrchestrator:
             engineering_workflow=execution_request.get("engineering_workflow"),
             operator_control_enabled=True,
         )
+        if isinstance(self._last_node_outcome, dict):
+            self._last_node_outcome["actions_executed"] = True
+            self._last_node_outcome["execution_runtime_lane"] = LANE_TRUE_ACTION_EXECUTION
         if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
             self._append_runtime_event(
                 event_type="runtime.vector.retrieval",
@@ -2492,7 +2380,7 @@ class BrainOrchestrator:
         self._apply_result_memory_updates(memory_store, step_results)
         self._sync_runtime_memory_store(session_id, memory_store, step_results)
 
-        return self._synthesize_runtime_response(step_results, str(parsed.get("response", "")).strip())
+        return self._synthesize_runtime_response(step_results, semantic["response_text"])
 
     def _record_runtime_mode_event(
         self,
@@ -3214,6 +3102,7 @@ class BrainOrchestrator:
         if isinstance(swarm_result, dict):
             swarm_result["multi_agent_coordination"] = dict(coordination_payload)
             node_env = getattr(self, "_last_node_result_envelope", None)
+            node_outcome = getattr(self, "_last_node_outcome", None)
             if isinstance(node_env, dict):
                 md_n = node_env.get("metadata")
                 if isinstance(md_n, dict):
@@ -3228,6 +3117,16 @@ class BrainOrchestrator:
                 ch_n = node_env.get("cognitive_runtime_hint")
                 if isinstance(ch_n, dict):
                     swarm_result["cognitive_runtime_hint"] = ch_n
+            if isinstance(node_outcome, dict):
+                semantic_lane = str(node_outcome.get("semantic_lane", "") or "").strip()
+                if semantic_lane:
+                    swarm_result["semantic_runtime_lane"] = semantic_lane
+                if bool(node_outcome.get("actions_executed")) or str(
+                    node_outcome.get("execution_runtime_lane", "") or ""
+                ).strip() == LANE_TRUE_ACTION_EXECUTION:
+                    swarm_result["execution_runtime_lane"] = LANE_TRUE_ACTION_EXECUTION
+                    swarm_result["true_action_execution_active"] = True
+                    swarm_result["compatibility_execution_active"] = False
         return swarm_result
 
     def _dispatch_strategy_execution(
@@ -3328,13 +3227,45 @@ class BrainOrchestrator:
             "strategy_dispatch_fallback" if result.fallback_applied else "strategy_dispatch"
         )
         trace_payload = dict(result_payload.get("trace") or {})
+        raw_result = dict(result.raw_result or {})
         trace_payload.setdefault("selected_strategy", request.selected_strategy)
         trace_payload["executor_used"] = result.executor_used
         trace_payload["strategy_execution_status"] = result.status
         trace_payload["strategy_execution_fallback"] = bool(result.fallback_applied)
         trace_payload["manifest_driven_execution"] = bool(result.manifest_driven_execution)
         trace_payload["governance_downgrade_applied"] = bool(result.governance_downgrade_applied)
+        execution_summary = str(trace_payload.get("execution_trace_summary", "") or "")
+        explicit_execution_runtime_lane = str(
+            result_payload.get("execution_runtime_lane", "")
+            or trace_payload.get("execution_runtime_lane", "")
+            or raw_result.get("execution_runtime_lane", "")
+            or ""
+        ).strip()
+        true_action_execution_active = bool(
+            raw_result.get("true_action_execution_active")
+            or explicit_execution_runtime_lane == LANE_TRUE_ACTION_EXECUTION
+        )
+        compatibility_execution_active = False if true_action_execution_active else (
+            result.executor_used == "compatibility_path"
+            or "compatibility runtime path" in execution_summary.lower()
+            or "compatibility execution path" in execution_summary.lower()
+        )
+        if true_action_execution_active:
+            trace_payload["execution_trace_summary"] = (
+                "Compatibility dispatch promoted node execution_request.actions into the primary true action execution path."
+            )
+        trace_payload["execution_runtime_lane"] = (
+            LANE_TRUE_ACTION_EXECUTION
+            if true_action_execution_active
+            else explicit_execution_runtime_lane
+            or (LANE_COMPATIBILITY_EXECUTION if compatibility_execution_active else "")
+        )
+        trace_payload["compatibility_execution_active"] = compatibility_execution_active
+        trace_payload["true_action_execution_active"] = true_action_execution_active
         result_payload["trace"] = trace_payload
+        result_payload["execution_runtime_lane"] = trace_payload["execution_runtime_lane"]
+        result_payload["compatibility_execution_active"] = compatibility_execution_active
+        result_payload["true_action_execution_active"] = true_action_execution_active
 
         event_type = "runtime_strategy_execution_blocked" if result.blocked else "runtime_strategy_executed"
         event_desc = (

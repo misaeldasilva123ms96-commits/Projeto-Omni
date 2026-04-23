@@ -96,8 +96,6 @@ class JSRuntimeAdapter:
     def build_command(self, *, script_path: Path, payload: str | None = None) -> tuple[list[str], JSRuntimeSelection]:
         selection = self.select_runtime()
         command = [selection.executable, str(script_path.resolve())]
-        if payload is not None:
-            command.append(payload)
         return command, selection
 
     @staticmethod

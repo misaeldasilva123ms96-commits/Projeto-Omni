@@ -62,7 +62,19 @@ const validatePayload = (() => {
 })();
 
 function getRawInput() {
-  return process.argv.slice(2).join(' ').trim();
+  const argvPayload = process.argv.slice(2).join(' ').trim();
+  if (argvPayload) {
+    return argvPayload;
+  }
+
+  try {
+    if (process.stdin.isTTY) {
+      return '';
+    }
+    return fs.readFileSync(0, 'utf8').trim();
+  } catch {
+    return '';
+  }
 }
 
 function getWorkspaceRoot() {
@@ -552,6 +564,13 @@ function sanitizeForUserInternal(input) {
 
   if (typeof input === 'object') {
     const metadata = cloneMetadata(input.metadata);
+    if (input.execution_request && typeof input.execution_request === 'object') {
+      return attachRunnerMetadata(
+        input,
+        String(metadata.engine_mode || AUTHORITY_FALLBACK_MODE),
+        String(metadata.engine_reason || FALLBACK_POLICY_REASON),
+      );
+    }
     for (const key of RESPONSE_CANDIDATE_KEYS) {
       const candidate = input[key];
       if (typeof candidate !== 'string') {
