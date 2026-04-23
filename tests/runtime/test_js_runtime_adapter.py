@@ -73,6 +73,40 @@ class JSRuntimeAdapterTest(unittest.TestCase):
 
         self.assertIn("js_runtime", diagnostics)
         self.assertEqual(diagnostics["command"][1], str((PROJECT_ROOT / "js-runner" / "queryEngineRunner.js").resolve()))
+        self.assertEqual(len(diagnostics["command"]), 2)
+
+    def test_query_engine_runner_accepts_stdin_payload(self) -> None:
+        script = self.root / "js-runner" / "queryEngineRunner.js"
+        command, _ = self.adapter.build_command(script_path=script)
+        env, _ = self.adapter.build_env()
+        payload = json.dumps(
+            {
+                "message": "ola",
+                "memory": {},
+                "history": [],
+                "summary": "",
+                "capabilities": [],
+                "session": {"session_id": "stdin-runtime-test"},
+            },
+            ensure_ascii=False,
+        )
+        completed = subprocess.run(
+            command,
+            input=payload,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=30,
+            env=env,
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        parsed = json.loads(completed.stdout)
+        self.assertIsInstance(parsed.get("response"), str)
+        self.assertTrue(parsed["response"].strip())
 
     def test_frontend_vite_workflow_remains_untouched(self) -> None:
         frontend_package = json.loads((PROJECT_ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))

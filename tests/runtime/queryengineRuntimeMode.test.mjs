@@ -33,4 +33,18 @@ const runtimeErrorMetadata = runnerModule.resolveRuntimeMetadata(
 assert.equal(runtimeErrorMetadata.runtime_mode, 'node');
 assert.equal(runtimeErrorMetadata.runtime_reason, 'node_fallback_error');
 
+const preservedStructured = runnerModule.sanitizeForUser({
+  response: '[execução_python_requerida] plano pronto',
+  execution_request: {
+    actions: [{ selected_tool: 'read_file', tool_arguments: { path: 'package.json' } }],
+  },
+  metadata: {
+    engine_mode: 'fusion_authority',
+    engine_reason: 'adapter_path_selected',
+  },
+});
+assert.equal(typeof preservedStructured.execution_request, 'object');
+assert.ok(Array.isArray(preservedStructured.execution_request.actions));
+assert.equal(preservedStructured.metadata.engine_mode, 'fusion_authority');
+
 console.log('queryengine runtime mode tests: ok');
