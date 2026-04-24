@@ -36,6 +36,11 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
   const inspectionPresent = Boolean(metadata.cognitiveRuntimeInspection)
   const provenancePresent = Boolean(metadata.executionProvenance || metadata.signals?.execution_provenance)
   const providersCount = metadata.providers?.length ?? 0
+  const providerDiagnostics = metadata.providerDiagnostics ?? metadata.signals?.provider_diagnostics ?? []
+  const providerFallbackOccurred =
+    metadata.providerFallbackOccurred ?? metadata.signals?.provider_fallback_occurred
+  const noProviderAvailable =
+    metadata.noProviderAvailable ?? metadata.signals?.no_provider_available
 
   return (
     <section className="status-section">
@@ -52,6 +57,9 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
         <MetricRow label="Provider actual" value={metadata.providerActual ?? 'n/a'} />
         <MetricRow label="Provider failed" value={boolLabel(metadata.providerFailed)} />
         <MetricRow label="Failure class" value={metadata.failureClass ?? 'n/a'} />
+        <MetricRow label="Failure reason" value={metadata.failureReason ?? 'n/a'} />
+        <MetricRow label="Provider fallback routing" value={boolLabel(providerFallbackOccurred)} />
+        <MetricRow label="No provider available" value={boolLabel(noProviderAvailable)} />
         <MetricRow
           label="Node executed successfully"
           value={boolLabel(signalNodeExecutionSuccessful)}
@@ -65,6 +73,7 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
           value={provenancePresent ? 'yes' : 'no'}
         />
         <MetricRow label="Providers count" value={String(providersCount)} />
+        <MetricRow label="Provider diagnostics rows" value={String(providerDiagnostics.length)} />
       </div>
 
       <div className="runtime-debug-details">
@@ -79,6 +88,10 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
         <details className="runtime-debug-disclosure">
           <summary>Execution provenance</summary>
           <pre>{objectPreview(metadata.executionProvenance ?? metadata.signals?.execution_provenance)}</pre>
+        </details>
+        <details className="runtime-debug-disclosure">
+          <summary>Provider diagnostics</summary>
+          <pre>{objectPreview(providerDiagnostics)}</pre>
         </details>
         <details className="runtime-debug-disclosure">
           <summary>Providers</summary>

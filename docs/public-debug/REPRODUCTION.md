@@ -105,6 +105,9 @@ The frontend chat status panel now exposes the last turn's runtime debug fields 
 - `Failure class`
 - whether `Cognitive runtime inspection` is present
 - whether `Execution provenance` is present
+- `Provider diagnostics`
+- `Provider fallback routing`
+- `No provider available`
 
 Recommended interpretation order:
 
@@ -138,6 +141,12 @@ Layer hints:
 - `PYTHON_*`: Rust did not receive a valid public JSON object from Python
 - `NODE_*`: Python did not receive a valid public JSON object from Node
 - `FRONTEND_RESPONSE_SHAPE_MISMATCH`: Python main could not normalize the internal response into the public shape
+
+Provider hints:
+
+- `provider_failed=true` with `failure_class` starting with `provider_` indicates a provider-layer failure
+- `provider_diagnostics` tells you whether a provider was only configured/selected or actually attempted
+- `no_provider_available=true` means Omni had no non-embedded provider available and relied on local behavior
 
 ## How to report classification bugs
 

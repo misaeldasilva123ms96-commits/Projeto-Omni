@@ -105,8 +105,12 @@ function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): Runti
     providerActual: ui.providerActual,
     providerFailed: ui.providerFailed,
     failureClass: ui.failureClass,
+    failureReason: ui.failureReason,
     executionProvenance: ui.executionProvenance,
     providers: ui.providers,
+    providerDiagnostics: ui.providerDiagnostics,
+    providerFallbackOccurred: ui.providerFallbackOccurred,
+    noProviderAvailable: ui.noProviderAvailable,
     error: ui.error,
   }
 }

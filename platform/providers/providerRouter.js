@@ -108,6 +108,42 @@ function getAvailableProviders() {
   return remote;
 }
 
+function buildProviderDiagnostics({
+  selectedProviderName = '',
+  actualProviderName = '',
+  attemptedProviderName = '',
+  succeededProviderName = '',
+  failureClass = '',
+  failureReason = '',
+  latencyMs = null,
+} = {}) {
+  const selected = String(selectedProviderName || '').trim().toLowerCase();
+  const actual = String(actualProviderName || '').trim().toLowerCase();
+  const attempted = String(attemptedProviderName || actual || '').trim().toLowerCase();
+  const succeeded = String(succeededProviderName || (failureClass ? '' : actual) || '').trim().toLowerCase();
+  const failureKind = String(failureClass || '').trim().toLowerCase();
+  const failureDetail = String(failureReason || '').trim();
+  const providers = getAvailableProviders();
+
+  return providers.map(provider => {
+    const attemptedHere = provider.name === attempted;
+    const succeededHere = provider.name === succeeded && !failureKind;
+    const failedHere = attemptedHere && Boolean(failureKind);
+    return {
+      provider: provider.name,
+      configured: provider.kind === 'embedded' ? true : provider.kind === 'local' ? Boolean(provider.baseUrl) : true,
+      available: true,
+      selected: provider.name === selected,
+      attempted: attemptedHere,
+      succeeded: succeededHere,
+      failed: failedHere,
+      failure_class: failedHere ? failureKind : null,
+      failure_reason: failedHere ? failureDetail || null : null,
+      latency_ms: attemptedHere && latencyMs != null ? Number(latencyMs) : null,
+    };
+  });
+}
+
 function chooseProvider({ complexity = 'simple', preferred = '' } = {}) {
   const providers = getAvailableProviders();
   const normalizedPreferred = String(preferred || '').trim().toLowerCase();
@@ -127,6 +163,7 @@ function chooseProvider({ complexity = 'simple', preferred = '' } = {}) {
 }
 
 module.exports = {
+  buildProviderDiagnostics,
   chooseProvider,
   getAvailableProviders,
 };

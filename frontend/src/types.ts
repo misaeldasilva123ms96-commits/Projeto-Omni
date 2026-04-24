@@ -15,6 +15,19 @@ export type RuntimeErrorPayload = {
   details?: unknown
 }
 
+export type ProviderDiagnostic = {
+  provider?: string
+  configured?: boolean
+  available?: boolean
+  selected?: boolean
+  attempted?: boolean
+  succeeded?: boolean
+  failed?: boolean
+  failure_class?: string | null
+  failure_reason?: string | null
+  latency_ms?: number | null
+}
+
 export type RuntimeSignals = {
   runtime_reason?: string
   execution_path_used?: string
@@ -23,8 +36,12 @@ export type RuntimeSignals = {
   provider_actual?: string
   provider_failed?: boolean
   failure_class?: string
+  failure_reason?: string
   execution_provenance?: unknown
   node_execution_successful?: boolean
+  provider_diagnostics?: ProviderDiagnostic[] | null
+  provider_fallback_occurred?: boolean
+  no_provider_available?: boolean
 }
 
 export type RuntimeMetadata = {
@@ -54,8 +71,12 @@ export type RuntimeMetadata = {
   providerActual?: string
   providerFailed?: boolean
   failureClass?: string
+  failureReason?: string
   executionProvenance?: unknown
   providers?: unknown[]
+  providerDiagnostics?: ProviderDiagnostic[]
+  providerFallbackOccurred?: boolean
+  noProviderAvailable?: boolean
   error?: RuntimeErrorPayload
 }
 
@@ -95,8 +116,12 @@ export type ChatApiResponse = {
   provider_actual?: string
   provider_failed?: boolean
   failure_class?: string
+  failure_reason?: string
   execution_provenance?: unknown
   providers?: unknown[]
+  provider_diagnostics?: ProviderDiagnostic[]
+  provider_fallback_occurred?: boolean
+  no_provider_available?: boolean
   error?: RuntimeErrorPayload
 }
 

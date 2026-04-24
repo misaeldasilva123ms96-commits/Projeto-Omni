@@ -58,12 +58,32 @@ function testAttachMetadata() {
     toolCalls: [],
     providerFailed: true,
     failureClass: 'provider_timeout',
+    failureReason: 'request timed out',
+    providerDiagnostics: [
+      {
+        provider: 'groq',
+        configured: true,
+        available: true,
+        selected: true,
+        attempted: true,
+        succeeded: false,
+        failed: true,
+        failure_class: 'provider_timeout',
+        failure_reason: 'request timed out',
+        latency_ms: 123,
+      },
+    ],
+    providerFallbackOccurred: false,
+    noProviderAvailable: false,
   });
   const out = attachProvenanceMetadata({ response: 'ok' }, prov);
   assert.ok(out.metadata);
   assert.equal(out.metadata.execution_provenance.provider_actual, 'groq');
   assert.equal(out.metadata.execution_provenance.provider_failed, true);
   assert.equal(out.metadata.execution_provenance.failure_class, 'provider_timeout');
+  assert.equal(out.metadata.execution_provenance.failure_reason, 'request timed out');
+  assert.equal(out.metadata.execution_provenance.provider_diagnostics[0].provider, 'groq');
+  assert.equal(out.metadata.execution_provenance.provider_diagnostics[0].failed, true);
 }
 
 testMatcherProvenance();

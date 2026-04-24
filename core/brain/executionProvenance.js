@@ -44,6 +44,10 @@ function buildExecutionProvenance(params = {}) {
     costEstimate = null,
     providerFailed = false,
     failureClass = '',
+    failureReason = '',
+    providerDiagnostics = [],
+    providerFallbackOccurred = false,
+    noProviderAvailable = false,
     provenanceSource = 'node_authority',
     provenanceConfidence = 0.75,
     policyHintEnvelope = null,
@@ -70,6 +74,25 @@ function buildExecutionProvenance(params = {}) {
   const tools = Array.isArray(toolCalls)
     ? toolCalls.map(t => String(t || '').trim()).filter(Boolean).slice(0, 48)
     : [];
+  const diagnostics = Array.isArray(providerDiagnostics)
+    ? providerDiagnostics
+      .filter(item => item && typeof item === 'object')
+      .map(item => ({
+        provider: String(item.provider || '').trim().toLowerCase().slice(0, 64),
+        configured: Boolean(item.configured),
+        available: Boolean(item.available),
+        selected: Boolean(item.selected),
+        attempted: Boolean(item.attempted),
+        succeeded: Boolean(item.succeeded),
+        failed: Boolean(item.failed),
+        failure_class: item.failure_class == null ? null : String(item.failure_class || '').trim().toLowerCase().slice(0, 64),
+        failure_reason: item.failure_reason == null ? null : String(item.failure_reason || '').trim().slice(0, 256),
+        latency_ms: typeof item.latency_ms === 'number' && Number.isFinite(item.latency_ms)
+          ? Number(item.latency_ms)
+          : null,
+      }))
+      .slice(0, 16)
+    : [];
 
   return {
     provider_actual: actualName,
@@ -90,6 +113,10 @@ function buildExecutionProvenance(params = {}) {
     cost_estimate: costEstimate,
     provider_failed: Boolean(providerFailed),
     failure_class: String(failureClass || '').trim().toLowerCase().slice(0, 64),
+    failure_reason: String(failureReason || '').trim().slice(0, 256),
+    provider_diagnostics: diagnostics,
+    provider_fallback_occurred: Boolean(providerFallbackOccurred),
+    no_provider_available: Boolean(noProviderAvailable),
     provenance_source: String(provenanceSource || '').trim().slice(0, 64),
     provenance_confidence: Math.min(1, Math.max(0, Number(provenanceConfidence) || 0)),
   };

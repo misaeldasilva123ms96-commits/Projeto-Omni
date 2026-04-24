@@ -101,8 +101,21 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
   const failure_class =
     readString(record.failure_class)
     ?? signals?.failure_class
+  const failure_reason =
+    readString(record.failure_reason)
+    ?? signals?.failure_reason
   const execution_provenance = record.execution_provenance ?? signals?.execution_provenance
   const providers = Array.isArray(record.providers) ? record.providers : undefined
+  const provider_diagnostics =
+    adaptProviderDiagnostics(record.provider_diagnostics)
+    ?? signals?.provider_diagnostics
+    ?? undefined
+  const provider_fallback_occurred =
+    readBoolean(record.provider_fallback_occurred)
+    ?? signals?.provider_fallback_occurred
+  const no_provider_available =
+    readBoolean(record.no_provider_available)
+    ?? signals?.no_provider_available
 
   return {
     response: responseText,
@@ -143,8 +156,12 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     provider_actual,
     provider_failed,
     failure_class,
+    failure_reason,
     execution_provenance,
     providers,
+    provider_diagnostics,
+    provider_fallback_occurred,
+    no_provider_available,
     error,
   }
 }
@@ -179,9 +196,33 @@ function adaptRuntimeSignals(value: unknown): ChatApiResponse['signals'] {
     provider_actual: readString(record.provider_actual),
     provider_failed: readBoolean(record.provider_failed),
     failure_class: readString(record.failure_class),
+    failure_reason: readString(record.failure_reason),
     execution_provenance: record.execution_provenance,
     node_execution_successful: readBoolean(record.node_execution_successful),
+    provider_diagnostics: adaptProviderDiagnostics(record.provider_diagnostics) ?? undefined,
+    provider_fallback_occurred: readBoolean(record.provider_fallback_occurred),
+    no_provider_available: readBoolean(record.no_provider_available),
   }
+}
+
+function adaptProviderDiagnostics(value: unknown): ChatApiResponse['provider_diagnostics'] {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({
+      provider: readString(item.provider),
+      configured: readBoolean(item.configured),
+      available: readBoolean(item.available),
+      selected: readBoolean(item.selected),
+      attempted: readBoolean(item.attempted),
+      succeeded: readBoolean(item.succeeded),
+      failed: readBoolean(item.failed),
+      failure_class: readString(item.failure_class) ?? null,
+      failure_reason: readString(item.failure_reason) ?? null,
+      latency_ms: typeof item.latency_ms === 'number' ? item.latency_ms : null,
+    }))
 }
 
 function adaptRuntimeError(value: unknown): ChatApiResponse['error'] {
@@ -270,8 +311,14 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
     providerActual: res.provider_actual ?? res.signals?.provider_actual,
     providerFailed: res.provider_failed ?? res.signals?.provider_failed,
     failureClass: res.failure_class ?? res.signals?.failure_class,
+    failureReason: res.failure_reason ?? res.signals?.failure_reason,
     executionProvenance: res.execution_provenance ?? res.signals?.execution_provenance,
     providers: res.providers,
+    providerDiagnostics: res.provider_diagnostics ?? res.signals?.provider_diagnostics ?? undefined,
+    providerFallbackOccurred:
+      res.provider_fallback_occurred ?? res.signals?.provider_fallback_occurred,
+    noProviderAvailable:
+      res.no_provider_available ?? res.signals?.no_provider_available,
     error: res.error,
   }
 }

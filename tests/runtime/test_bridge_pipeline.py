@@ -51,6 +51,63 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(payload["response"], "ok")
         self.assertEqual(payload["stop_reason"], "done")
 
+    def test_main_adds_provider_diagnostics_from_inspection_signals(self) -> None:
+        script = (
+            "import importlib.util, json, sys\n"
+            f"sys.path.insert(0, r'{PROJECT_ROOT / 'backend' / 'python'}')\n"
+            f"spec = importlib.util.spec_from_file_location('omni_python_main_exec_diag', r'{PYTHON_MAIN_PATH}')\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(module)\n"
+            "module.resolve_entry_message = lambda: ('ola', {})\n"
+            "module.apply_bridge_env = lambda bridge: None\n"
+            "module.get_available_providers = lambda: ['openai']\n"
+            "class _OkOrchestrator:\n"
+            "    def __init__(self, *a, **k):\n"
+            "        self.last_cognitive_runtime_inspection = {\n"
+            "            'runtime_mode': 'PROVIDER_FAILURE',\n"
+            "            'signals': {\n"
+            "                'provider_actual': 'openai',\n"
+            "                'provider_failed': True,\n"
+            "                'failure_class': 'provider_timeout',\n"
+            "                'provider_diagnostics': [\n"
+            "                    {\n"
+            "                        'provider': 'openai',\n"
+            "                        'configured': True,\n"
+            "                        'available': True,\n"
+            "                        'selected': True,\n"
+            "                        'attempted': True,\n"
+            "                        'succeeded': False,\n"
+            "                        'failed': True,\n"
+            "                        'failure_class': 'provider_timeout',\n"
+            "                        'failure_reason': 'request timed out',\n"
+            "                        'latency_ms': 321,\n"
+            "                    }\n"
+            "                ],\n"
+            "            },\n"
+            "        }\n"
+            "    def run(self, *a, **k):\n"
+            "        return {'response': 'provider failed'}\n"
+            "module.BrainOrchestrator = _OkOrchestrator\n"
+            "raise SystemExit(module.main())\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["provider_actual"], "openai")
+        self.assertTrue(payload["provider_failed"])
+        self.assertEqual(payload["failure_class"], "provider_timeout")
+        self.assertEqual(payload["provider_diagnostics"][0]["provider"], "openai")
+        self.assertTrue(payload["provider_diagnostics"][0]["failed"])
+
     def test_python_main_structured_error_on_orchestrator_failure(self) -> None:
         script = (
             "import importlib.util, json, sys\n"
