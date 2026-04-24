@@ -77,9 +77,42 @@ When reproducing a bug or degraded path, capture:
 - command used
 - platform and versions
 - `runtime_mode`
+- `runtime_reason`
 - `semantic_runtime_lane`
 - `execution_runtime_lane`
+- `execution_path_used`
+- `fallback_triggered`
+- `compatibility_execution_active`
+- `provider_actual`
+- `execution_provenance`
 - whether the result was matcher, local direct response, bridge, true action execution, or fallback
+
+## How to inspect runtime truth
+
+The canonical mode definitions live in:
+
+- [../architecture/runtime-modes.md](../architecture/runtime-modes.md)
+
+Recommended interpretation order:
+
+1. `runtime_mode`
+2. `runtime_reason`
+3. `semantic_runtime_lane`
+4. `execution_runtime_lane`
+5. `execution_path_used`
+6. `fallback_triggered`
+7. `compatibility_execution_active`
+8. `provider_actual` and `execution_provenance`
+
+## How to report classification bugs
+
+When reporting a wrong-classification bug, include:
+
+- the exact prompt
+- the full `cognitive_runtime_inspection` payload
+- whether Node actually executed
+- whether `execution_request.actions` existed
+- whether the turn was expected to be matcher, local direct, bridge, true action, compatibility, or fallback
 
 ## Known current debug posture
 

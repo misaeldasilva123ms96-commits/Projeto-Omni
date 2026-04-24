@@ -39,6 +39,8 @@ class Phase42ProvenanceTest(unittest.TestCase):
                     "usage_tokens_input": 120,
                     "usage_tokens_output": 40,
                     "cost_estimate": None,
+                    "provider_failed": False,
+                    "failure_class": "",
                     "provenance_source": "node_authority",
                     "provenance_confidence": 0.9,
                 }
@@ -68,11 +70,15 @@ class Phase42ProvenanceTest(unittest.TestCase):
                     "provider_actual": "anthropic",
                     "provider_recommended": "openai",
                     "policy_match": False,
+                    "provider_failed": True,
+                    "failure_class": "provider_timeout",
                 }
             }
         }
         p = parse_execution_provenance(swarm, orchestrator_context={}, strategy_mode="deep", fallback_used=False, latency_total_ms=1)
         self.assertFalse(p.policy_match)
+        self.assertTrue(p.provider_failed)
+        self.assertEqual(p.failure_class, "provider_timeout")
 
     def test_performance_uses_provider_actual(self) -> None:
         ps = PerformanceStore(self.root)

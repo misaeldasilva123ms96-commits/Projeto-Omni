@@ -21,3 +21,27 @@ What is still true:
 - improving strategy selection accuracy without hiding degraded behavior
 - extending reliable non-compat execution beyond the first recovered path
 - reducing generic or compatibility-heavy responses when execution evidence is available
+
+## Runtime truth and classification
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- `runtime_mode` is now derived from canonical evidence instead of generic transport success.
+- `cognitive_runtime_inspection.signals` now exposes:
+  - `runtime_reason`
+  - `execution_path_used`
+  - `fallback_triggered`
+  - `compatibility_execution_active`
+  - `provider_actual`
+  - `provider_failed`
+  - `failure_class`
+  - `execution_provenance`
+- matcher shortcuts, direct local responses, compatibility execution, Node failure, provider failure, and real action execution are now distinguishable in inspection.
+
+What is still true:
+
+- Some prompts still resolve to `COMPATIBILITY_EXECUTION` or `PARTIAL_COGNITIVE_RUNTIME`.
+- The strongest path is now visible, but it is not yet dominant for every prompt family.
+- Classification truth does not guarantee execution success; a truthful `true_action_execution` turn can still fail later in the tool/runtime layer.

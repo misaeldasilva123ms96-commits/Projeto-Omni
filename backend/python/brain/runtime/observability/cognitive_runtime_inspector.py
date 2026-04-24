@@ -16,19 +16,32 @@ from brain.runtime.observability.runtime_lane_classifier import (
     classify_execution_runtime_lane,
     classify_runtime_lane,
 )
+from brain.runtime.observability.runtime_modes import (
+    RUNTIME_MODE_COMPATIBILITY_EXECUTION,
+    RUNTIME_MODE_DEFINITIONS,
+    RUNTIME_MODE_DIRECT_LOCAL_RESPONSE,
+    RUNTIME_MODE_FULL_COGNITIVE_RUNTIME,
+    RUNTIME_MODE_LOCAL_TOOL_SUCCESS,
+    RUNTIME_MODE_MATCHER_SHORTCUT,
+    RUNTIME_MODE_NODE_EXECUTION_SUCCESS,
+    RUNTIME_MODE_NODE_FAILURE,
+    RUNTIME_MODE_PARTIAL_COGNITIVE_RUNTIME,
+    RUNTIME_MODE_PROVIDER_FAILURE,
+    RUNTIME_MODE_SAFE_FALLBACK,
+)
 
-# Align with orchestrator-facing semantics (strict / conservative).
-RUNTIME_MODE_FULL = "FULL_COGNITIVE_RUNTIME"
-RUNTIME_MODE_PARTIAL = "PARTIAL_COGNITIVE"
-RUNTIME_MODE_NODE_OK = "NODE_EXECUTION_SUCCESS"
-RUNTIME_MODE_MATCHER = "MATCHER_SHORTCUT"
-RUNTIME_MODE_LOCAL_DIRECT = "LOCAL_DIRECT_RESPONSE"
-RUNTIME_MODE_BRIDGE = "BRIDGE_EXECUTION_REQUEST"
-RUNTIME_MODE_ACTION = "TRUE_ACTION_EXECUTION"
-RUNTIME_MODE_COMPAT = "COMPATIBILITY_EXECUTION"
-RUNTIME_MODE_SAFE_FB = "SAFE_FALLBACK"
-RUNTIME_MODE_NODE_FB = "NODE_FALLBACK"
-RUNTIME_MODE_ERROR_DEGRADED = "ERROR_DEGRADED"
+# Backward-compatible aliases for existing imports/tests.
+RUNTIME_MODE_FULL = RUNTIME_MODE_FULL_COGNITIVE_RUNTIME
+RUNTIME_MODE_PARTIAL = RUNTIME_MODE_PARTIAL_COGNITIVE_RUNTIME
+RUNTIME_MODE_NODE_OK = RUNTIME_MODE_NODE_EXECUTION_SUCCESS
+RUNTIME_MODE_MATCHER = RUNTIME_MODE_MATCHER_SHORTCUT
+RUNTIME_MODE_LOCAL_DIRECT = RUNTIME_MODE_DIRECT_LOCAL_RESPONSE
+RUNTIME_MODE_COMPAT = RUNTIME_MODE_COMPATIBILITY_EXECUTION
+RUNTIME_MODE_SAFE_FB = RUNTIME_MODE_SAFE_FALLBACK
+RUNTIME_MODE_NODE_FB = RUNTIME_MODE_NODE_FAILURE
+RUNTIME_MODE_ACTION = RUNTIME_MODE_NODE_EXECUTION_SUCCESS
+RUNTIME_MODE_BRIDGE = RUNTIME_MODE_PARTIAL_COGNITIVE_RUNTIME
+RUNTIME_MODE_ERROR_DEGRADED = RUNTIME_MODE_SAFE_FALLBACK
 
 CHAIN_COMPLETE = "COMPLETE"
 CHAIN_PARTIAL = "PARTIAL"
@@ -125,6 +138,38 @@ def _evolution_applied_summary(
     return out
 
 
+def _extract_execution_provenance(
+    swarm_result: dict[str, Any] | None,
+    lora_payload: dict[str, Any] | None,
+    node_outcome: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(lora_payload, dict):
+        ep = lora_payload.get("execution_provenance")
+        if isinstance(ep, dict):
+            return dict(ep)
+        trace = lora_payload.get("trace")
+        if isinstance(trace, dict) and isinstance(trace.get("execution_provenance"), dict):
+            return dict(trace.get("execution_provenance"))
+    if isinstance(swarm_result, dict):
+        md = swarm_result.get("metadata")
+        if isinstance(md, dict) and isinstance(md.get("execution_provenance"), dict):
+            return dict(md.get("execution_provenance"))
+        top = swarm_result.get("execution_provenance")
+        if isinstance(top, dict):
+            return dict(top)
+    if isinstance(node_outcome, dict):
+        provider_actual = str(node_outcome.get("provider_actual") or "").strip().lower()
+        failure_class = str(node_outcome.get("failure_class") or "").strip().lower()
+        provider_failed = bool(node_outcome.get("provider_failed", False))
+        if provider_actual or failure_class or provider_failed:
+            return {
+                "provider_actual": provider_actual,
+                "failure_class": failure_class,
+                "provider_failed": provider_failed,
+            }
+    return {}
+
+
 def build_cognitive_runtime_inspection(
     *,
     response: str,
@@ -159,6 +204,10 @@ def build_cognitive_runtime_inspection(
     validation = _reasoning_validation(reasoning_payload)
     strat_deg = _strategy_degraded(strategy_payload)
     mem_usage = _memory_class(memory_context_payload, direct_memory_hit)
+    execution_provenance = _extract_execution_provenance(swarm_result, lora_payload, node_outcome)
+    provider_actual = str(execution_provenance.get("provider_actual") or "").strip().lower()
+    failure_class = str(execution_provenance.get("failure_class") or "").strip().lower()
+    provider_failed = bool(execution_provenance.get("provider_failed", False)) or failure_class.startswith("provider_")
 
     lane_info = classify_runtime_lane(
         response=r,
@@ -214,6 +263,48 @@ def build_cognitive_runtime_inspection(
     )
     execution_runtime_lane = str(execution_lane_info.get("execution_runtime_lane") or semantic_lane or "")
     compatibility_execution_active = bool(execution_lane_info.get("compatibility_execution_active", False))
+    execution_path_used = str(
+        (lora_payload or {}).get("execution_path_used", "")
+        or trace_payload.get("execution_path_used", "")
+        or ""
+    ).strip()
+    if not execution_path_used and semantic_lane in {
+        LANE_MATCHER_SHORTCUT,
+        LANE_LOCAL_DIRECT_RESPONSE,
+        LANE_BRIDGE_EXECUTION_REQUEST,
+        LANE_TRUE_ACTION_EXECUTION,
+    }:
+        execution_path_used = "node_execution"
+    explicit_fallback_triggered = None
+    if isinstance(lora_payload, dict) and "fallback_triggered" in lora_payload:
+        explicit_fallback_triggered = bool(lora_payload.get("fallback_triggered"))
+    elif isinstance(trace_payload, dict) and "fallback_triggered" in trace_payload:
+        explicit_fallback_triggered = bool(trace_payload.get("fallback_triggered"))
+    runtime_reason = str(lane_info.get("reason_code") or last_runtime_reason or "").strip()
+    node_failure_reasons = {
+        "timeout",
+        "subprocess_exception",
+        "empty_stdout",
+        "empty_node_response",
+        "node_not_found",
+        "runner_not_found",
+        "cwd_not_found",
+        "module_resolution_error",
+        "node_subprocess_failed",
+        "invalid_json",
+        "invalid_node_payload",
+        "invalid_execution_request",
+    }
+    node_failure = semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and runtime_reason in node_failure_reasons
+    fallback_triggered = (
+        bool(explicit_fallback_triggered)
+        if explicit_fallback_triggered is not None
+        else bool(
+            semantic_lane == LANE_SAFE_DEGRADED_FALLBACK
+            or str(last_runtime_mode or "").strip() == "fallback"
+            or r in {safe, node_fb, mock}
+        )
+    )
 
     learning_path = ""
     if isinstance(learning_record, dict):
@@ -221,41 +312,35 @@ def build_cognitive_runtime_inspection(
         if isinstance(assess, dict):
             learning_path = str(assess.get("execution_path") or "")
 
-    if semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and r == node_fb:
+    if provider_failed:
+        runtime_reason = failure_class or runtime_reason or "provider_failure"
+        runtime_mode = RUNTIME_MODE_PROVIDER_FAILURE
+        source = SOURCE_NODE if execution_path_used == "node_execution" else SOURCE_PYTHON
+        failures.append(f"provider_failure:{failure_class or provider_actual or 'unknown'}")
+    elif node_failure:
         runtime_mode = RUNTIME_MODE_NODE_FB
         source = SOURCE_FALLBACK
-        failures.append("node_path_unusable_or_subprocess_failure")
-    elif semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and r == safe:
+        failures.append(f"node_failure:{runtime_reason or 'unknown'}")
+    elif fallback_triggered:
         runtime_mode = RUNTIME_MODE_SAFE_FB
         source = SOURCE_FALLBACK
-        failures.append("safe_fallback_template_or_empty_operational_path")
-    elif semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and r == mock:
-        runtime_mode = RUNTIME_MODE_ERROR_DEGRADED
-        source = SOURCE_FALLBACK
-        failures.append("mock_runtime_configured")
+        failures.append(f"fallback_triggered:{runtime_reason or 'unknown'}")
     elif semantic_lane == LANE_MATCHER_SHORTCUT:
         runtime_mode = RUNTIME_MODE_MATCHER
         source = SOURCE_MATCHER
         failures.append("matcher_shortcut_bypassed_llm_grounding")
+    elif execution_runtime_lane == "local_tool_execution" or hint_lane == "node_local_tool_run":
+        runtime_mode = RUNTIME_MODE_LOCAL_TOOL_SUCCESS
+        source = SOURCE_NODE
     elif semantic_lane == LANE_LOCAL_DIRECT_RESPONSE:
         runtime_mode = RUNTIME_MODE_LOCAL_DIRECT
         source = SOURCE_NODE
-    elif semantic_lane == LANE_BRIDGE_EXECUTION_REQUEST:
-        runtime_mode = RUNTIME_MODE_BRIDGE
-        source = SOURCE_NODE
     elif semantic_lane == LANE_TRUE_ACTION_EXECUTION:
-        runtime_mode = RUNTIME_MODE_ACTION
+        runtime_mode = RUNTIME_MODE_NODE_OK
         source = SOURCE_NODE
-    elif semantic_lane == LANE_COMPATIBILITY_EXECUTION:
+    elif semantic_lane == LANE_COMPATIBILITY_EXECUTION or compatibility_execution_active:
         runtime_mode = RUNTIME_MODE_COMPAT
         source = SOURCE_PYTHON if direct_memory_hit else SOURCE_NODE
-    elif last_runtime_mode == "fallback":
-        runtime_mode = RUNTIME_MODE_ERROR_DEGRADED
-        if last_runtime_reason in {"control_layer_block", "reasoning_validation_block"}:
-            source = SOURCE_PYTHON
-        else:
-            source = SOURCE_FALLBACK
-        failures.append(f"runtime_fallback_mode_or_reason:{last_runtime_reason}")
     else:
         runtime_mode = RUNTIME_MODE_PARTIAL
         source = SOURCE_NODE if learning_path == "swarm" else SOURCE_PYTHON
@@ -288,6 +373,7 @@ def build_cognitive_runtime_inspection(
     chain_parts = {
         "strategy_generation": strat_ok,
         "reasoning_trace_oil": reason_ok,
+        "planning_execution_ready": plan_ok,
         "execution_graph_node": bool(node_graph or node_soft),
         "tool_usage_or_simulation": bool(tools_or_sim),
         "structured_synthesis": bool(r) and r not in {safe, node_fb, mock},
@@ -304,10 +390,10 @@ def build_cognitive_runtime_inspection(
     else:
         cognitive_chain = CHAIN_BROKEN
 
-    if runtime_mode in (RUNTIME_MODE_NODE_FB, RUNTIME_MODE_SAFE_FB, RUNTIME_MODE_ERROR_DEGRADED):
+    if runtime_mode in (RUNTIME_MODE_NODE_FB, RUNTIME_MODE_SAFE_FB, RUNTIME_MODE_PROVIDER_FAILURE):
         cognitive_chain = CHAIN_BROKEN
 
-    if compatibility_execution_active and runtime_mode == RUNTIME_MODE_ACTION:
+    if compatibility_execution_active and runtime_mode == RUNTIME_MODE_NODE_OK:
         runtime_mode = RUNTIME_MODE_COMPAT
 
     # Performance heuristics.
@@ -323,17 +409,18 @@ def build_cognitive_runtime_inspection(
 
     # FULL only if chain complete, non-matcher, non-fallback, live mode, swarm path used tools graph.
     if (
-        runtime_mode == RUNTIME_MODE_ACTION
+        runtime_mode == RUNTIME_MODE_NODE_OK
         and cognitive_chain == CHAIN_COMPLETE
-        and last_runtime_mode == "live"
         and not node_matcher
         and not direct_memory_hit
         and tools_or_sim
+        and execution_path_used == "node_execution"
+        and not compatibility_execution_active
     ):
         runtime_mode = RUNTIME_MODE_FULL
 
     # Final verdict (conservative).
-    if runtime_mode in (RUNTIME_MODE_NODE_FB, RUNTIME_MODE_SAFE_FB, RUNTIME_MODE_ERROR_DEGRADED):
+    if runtime_mode in (RUNTIME_MODE_NODE_FB, RUNTIME_MODE_SAFE_FB, RUNTIME_MODE_PROVIDER_FAILURE):
         verdict = VERDICT_DEGRADED
     elif runtime_mode == RUNTIME_MODE_MATCHER or validation in {"invalid", "fallback"} or strat_deg:
         verdict = VERDICT_HYBRID
@@ -380,8 +467,15 @@ def build_cognitive_runtime_inspection(
             ),
         }
 
+    node_execution_successful = bool(
+        transport_status == TRANSPORT_SUCCESS
+        and execution_path_used == "node_execution"
+        and runtime_mode in {RUNTIME_MODE_NODE_OK, RUNTIME_MODE_FULL, RUNTIME_MODE_LOCAL_TOOL_SUCCESS}
+    )
+
     return {
         "runtime_mode": runtime_mode,
+        "runtime_reason": runtime_reason,
         "cognitive_chain": cognitive_chain,
         "cognitive_chain_steps": chain_parts,
         "source_of_truth": source,
@@ -392,23 +486,38 @@ def build_cognitive_runtime_inspection(
         "evolution_detail": evo_detail,
         "final_verdict": verdict,
         "signals": {
+            "runtime_reason": runtime_reason,
             "last_runtime_mode": str(last_runtime_mode or ""),
             "last_runtime_reason": str(last_runtime_reason or ""),
             "semantic_runtime_lane": semantic_lane or LANE_COMPATIBILITY_EXECUTION,
             "execution_runtime_lane": execution_runtime_lane or LANE_COMPATIBILITY_EXECUTION,
             "compatibility_execution_active": compatibility_execution_active,
+            "execution_path_used": execution_path_used,
+            "fallback_triggered": fallback_triggered,
             "transport_status": transport_status or TRANSPORT_SUCCESS,
+            "provider_actual": provider_actual,
+            "provider_failed": provider_failed,
+            "failure_class": failure_class,
+            "execution_provenance": execution_provenance or None,
+            "node_execution_successful": node_execution_successful,
             "coarse_runtime_mode": (
                 RUNTIME_MODE_NODE_FB
-                if str(last_runtime_mode or "") == "fallback" and r == node_fb
+                if node_failure
                 else RUNTIME_MODE_SAFE_FB
-                if str(last_runtime_mode or "") == "fallback" and r == safe
+                if fallback_triggered
                 else RUNTIME_MODE_MATCHER
                 if semantic_lane == LANE_MATCHER_SHORTCUT
+                else RUNTIME_MODE_LOCAL_DIRECT
+                if semantic_lane == LANE_LOCAL_DIRECT_RESPONSE
+                else RUNTIME_MODE_LOCAL_TOOL_SUCCESS
+                if execution_runtime_lane == "local_tool_execution" or hint_lane == "node_local_tool_run"
                 else RUNTIME_MODE_NODE_OK
-                if str(last_runtime_mode or "") == "live"
+                if semantic_lane == LANE_TRUE_ACTION_EXECUTION
+                else RUNTIME_MODE_COMPAT
+                if compatibility_execution_active
                 else RUNTIME_MODE_PARTIAL
             ),
+            "runtime_mode_definitions": RUNTIME_MODE_DEFINITIONS,
             "reasoning_validation": validation or "unknown",
             "direct_memory_hit": bool(direct_memory_hit),
             "learning_execution_path": learning_path or "unknown",

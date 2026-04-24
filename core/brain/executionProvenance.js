@@ -42,6 +42,8 @@ function buildExecutionProvenance(params = {}) {
     usageTokensInput = null,
     usageTokensOutput = null,
     costEstimate = null,
+    providerFailed = false,
+    failureClass = '',
     provenanceSource = 'node_authority',
     provenanceConfidence = 0.75,
     policyHintEnvelope = null,
@@ -86,6 +88,8 @@ function buildExecutionProvenance(params = {}) {
     usage_tokens_input: usageTokensInput,
     usage_tokens_output: usageTokensOutput,
     cost_estimate: costEstimate,
+    provider_failed: Boolean(providerFailed),
+    failure_class: String(failureClass || '').trim().toLowerCase().slice(0, 64),
     provenance_source: String(provenanceSource || '').trim().slice(0, 64),
     provenance_confidence: Math.min(1, Math.max(0, Number(provenanceConfidence) || 0)),
   };

@@ -1446,7 +1446,15 @@ class BrainOrchestrator:
             controlled_evolution_payload=controlled_evolution_payload,
             direct_memory_hit=bool(direct_response),
             duration_ms=duration_ms,
-            lora_payload={**dict(self.last_decision_ranking or {}), **dict(self.last_strategy_execution or {}), **dict(lora_decision)},
+            lora_payload={
+                **dict(self.last_decision_ranking or {}),
+                **dict(self.last_strategy_execution or {}),
+                **dict(lora_decision),
+                "provider_actual": prov_model.provider_actual,
+                "provider_failed": bool(getattr(prov_model, "provider_failed", False)),
+                "failure_class": str(getattr(prov_model, "failure_class", "") or ""),
+                "execution_provenance": prov_model.as_dict(),
+            },
         )
 
     async def _async_node_execution(

@@ -68,11 +68,52 @@ def normalize_node_outcome(
         "semantic_lane": str(semantic_lane or ""),
         "reason_code": str(reason_code or ""),
         "node_hint_lane": _hint_lane(node_cognitive_hint),
+        "provider_actual": _metadata_execution_provider(node_result_envelope),
+        "failure_class": _metadata_failure_class(node_result_envelope),
+        "provider_failed": _metadata_provider_failed(node_result_envelope),
         "has_execution_request": isinstance(execution_request, dict),
         "has_actions": isinstance(actions, list) and bool(actions),
         "response_present": _response_present(response_text)
         or _response_present(node_result_envelope.get("response") if isinstance(node_result_envelope, dict) else None),
     }
+
+
+def _metadata_execution_provider(parsed: dict[str, Any] | None) -> str:
+    if not isinstance(parsed, dict):
+        return ""
+    metadata = parsed.get("metadata")
+    if not isinstance(metadata, dict):
+        return ""
+    provenance = metadata.get("execution_provenance")
+    if isinstance(provenance, dict):
+        return str(provenance.get("provider_actual") or "").strip().lower()
+    return str(metadata.get("provider") or "").strip().lower()
+
+
+def _metadata_failure_class(parsed: dict[str, Any] | None) -> str:
+    if not isinstance(parsed, dict):
+        return ""
+    metadata = parsed.get("metadata")
+    if isinstance(metadata, dict):
+        provenance = metadata.get("execution_provenance")
+        if isinstance(provenance, dict):
+            return str(provenance.get("failure_class") or "").strip().lower()
+    error_payload = parsed.get("error_payload")
+    if isinstance(error_payload, dict):
+        return str(error_payload.get("kind") or "").strip().lower()
+    return ""
+
+
+def _metadata_provider_failed(parsed: dict[str, Any] | None) -> bool:
+    if not isinstance(parsed, dict):
+        return False
+    metadata = parsed.get("metadata")
+    if isinstance(metadata, dict):
+        provenance = metadata.get("execution_provenance")
+        if isinstance(provenance, dict) and "provider_failed" in provenance:
+            return bool(provenance.get("provider_failed"))
+    failure_class = _metadata_failure_class(parsed)
+    return failure_class.startswith("provider_")
 
 
 def extract_node_envelope_for_provenance(parsed: dict[str, Any]) -> dict[str, Any]:
@@ -135,10 +176,11 @@ def interpret_node_payload(
                     response_text=normalized,
                 ),
             }
+        reason_code = "empty_node_response" if not stdout.strip() else "invalid_node_payload"
         return {
             "fallback": True,
             "response_text": "",
-            "reason_code": "invalid_node_payload",
+            "reason_code": reason_code,
             "semantic_lane": LANE_SAFE_DEGRADED_FALLBACK,
             "node_cognitive_hint": node_cognitive_hint,
             "node_result_envelope": node_result_envelope,
@@ -146,7 +188,7 @@ def interpret_node_payload(
             "node_outcome": normalize_node_outcome(
                 transport_status=TRANSPORT_FALLBACK,
                 semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
-                reason_code="invalid_node_payload",
+                reason_code=reason_code,
                 node_cognitive_hint=node_cognitive_hint,
                 node_result_envelope=node_result_envelope,
             ),
