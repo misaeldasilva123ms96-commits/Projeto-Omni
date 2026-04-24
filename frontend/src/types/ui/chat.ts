@@ -1,4 +1,4 @@
-import type { ProviderDiagnostic, RuntimeErrorPayload, RuntimeSignals } from '../../types'
+import type { ProviderDiagnostic, RuntimeErrorPayload, RuntimeSignals, ToolExecutionDiagnostic } from '../../types'
 
 /**
  * UI-stable chat result (decoupled from wire field names like `matched_commands`).
@@ -40,5 +40,7 @@ export type UiChatResponse = {
   providerDiagnostics?: ProviderDiagnostic[]
   providerFallbackOccurred?: boolean
   noProviderAvailable?: boolean
+  toolExecution?: ToolExecutionDiagnostic
+  toolDiagnostics?: ToolExecutionDiagnostic[]
   error?: RuntimeErrorPayload
 }

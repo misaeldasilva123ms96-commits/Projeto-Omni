@@ -115,9 +115,12 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
             self.assertFalse(orchestrator.last_strategy_execution["compatibility_execution_active"])
             self.assertTrue(orchestrator.last_strategy_execution["true_action_execution_active"])
+            self.assertEqual(orchestrator.last_strategy_execution["tool_execution"]["tool_selected"], "read_file")
+            self.assertTrue(orchestrator.last_strategy_execution["tool_execution"]["tool_succeeded"])
             inspection = orchestrator.last_cognitive_runtime_inspection or {}
             self.assertEqual(inspection.get("signals", {}).get("semantic_runtime_lane"), LANE_TRUE_ACTION_EXECUTION)
             self.assertEqual(inspection.get("signals", {}).get("execution_runtime_lane"), LANE_TRUE_ACTION_EXECUTION)
+            self.assertEqual(inspection.get("signals", {}).get("tool_execution", {}).get("tool_selected"), "read_file")
 
     def test_run_keeps_bridge_execution_request_distinct_from_true_action_execution(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -152,9 +155,53 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             self.assertFalse(orchestrator.last_strategy_execution["true_action_execution_active"])
             self.assertFalse(orchestrator.last_strategy_execution["compatibility_execution_active"])
             self.assertEqual(orchestrator.last_strategy_execution["execution_path_used"], "node_execution")
+            self.assertTrue(str(orchestrator.last_strategy_execution["tool_execution"]["tool_selected"]).strip())
+            self.assertFalse(orchestrator.last_strategy_execution["tool_execution"]["tool_attempted"])
             inspection = orchestrator.last_cognitive_runtime_inspection or {}
             self.assertEqual(inspection.get("signals", {}).get("semantic_runtime_lane"), LANE_BRIDGE_EXECUTION_REQUEST)
             self.assertEqual(inspection.get("signals", {}).get("execution_runtime_lane"), LANE_BRIDGE_EXECUTION_REQUEST)
+            self.assertTrue(str(inspection.get("signals", {}).get("tool_execution", {}).get("tool_selected", "")).strip())
+
+    def test_execute_primary_local_tool_path_records_denied_tool_diagnostic(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            os.environ["BASE_DIR"] = str(workspace_root)
+            os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+            orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py"))
+            with patch.object(
+                BrainOrchestrator,
+                "_execute_runtime_actions",
+                return_value=[
+                    {
+                        "ok": False,
+                        "selected_tool": "git_commit",
+                        "tool_execution": {
+                            "tool_requested": True,
+                            "tool_selected": "git_commit",
+                            "tool_available": True,
+                            "tool_attempted": True,
+                            "tool_succeeded": False,
+                            "tool_failed": False,
+                            "tool_denied": True,
+                            "tool_failure_class": "permission_denied",
+                            "tool_failure_reason": "git_commit requires explicit approval.",
+                            "tool_latency_ms": 5,
+                        },
+                        "error_payload": {
+                            "kind": "permission_denied",
+                            "message": "git_commit requires explicit approval.",
+                        },
+                    }
+                ],
+            ):
+                payload = orchestrator._execute_primary_local_tool_path(
+                    session_id="strategy-local-tool",
+                    runtime_message="faça commit",
+                    predicted_intent="execute",
+                    selected_tools=["git_commit"],
+                )
+            self.assertIn("tool_execution", payload)
+            self.assertTrue(payload["tool_execution"]["tool_denied"])
+            self.assertEqual(payload["tool_execution"]["tool_failure_class"], "permission_denied")
 
     def test_real_runner_prompt_can_trigger_true_action_execution_end_to_end(self) -> None:
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)

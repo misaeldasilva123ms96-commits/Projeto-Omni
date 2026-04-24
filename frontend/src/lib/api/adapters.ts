@@ -116,6 +116,12 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
   const no_provider_available =
     readBoolean(record.no_provider_available)
     ?? signals?.no_provider_available
+  const tool_execution =
+    adaptToolExecutionDiagnostic(record.tool_execution)
+    ?? signals?.tool_execution
+  const tool_diagnostics =
+    adaptToolExecutionDiagnostics(record.tool_diagnostics)
+    ?? signals?.tool_diagnostics
 
   return {
     response: responseText,
@@ -162,6 +168,8 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     provider_diagnostics,
     provider_fallback_occurred,
     no_provider_available,
+    tool_execution,
+    tool_diagnostics,
     error,
   }
 }
@@ -202,6 +210,8 @@ function adaptRuntimeSignals(value: unknown): ChatApiResponse['signals'] {
     provider_diagnostics: adaptProviderDiagnostics(record.provider_diagnostics) ?? undefined,
     provider_fallback_occurred: readBoolean(record.provider_fallback_occurred),
     no_provider_available: readBoolean(record.no_provider_available),
+    tool_execution: adaptToolExecutionDiagnostic(record.tool_execution) ?? undefined,
+    tool_diagnostics: adaptToolExecutionDiagnostics(record.tool_diagnostics) ?? undefined,
   }
 }
 
@@ -223,6 +233,34 @@ function adaptProviderDiagnostics(value: unknown): ChatApiResponse['provider_dia
       failure_reason: readString(item.failure_reason) ?? null,
       latency_ms: typeof item.latency_ms === 'number' ? item.latency_ms : null,
     }))
+}
+
+function adaptToolExecutionDiagnostic(value: unknown): ChatApiResponse['tool_execution'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  return {
+    tool_requested: readBoolean(record.tool_requested),
+    tool_selected: readString(record.tool_selected) ?? null,
+    tool_available: readBoolean(record.tool_available),
+    tool_attempted: readBoolean(record.tool_attempted),
+    tool_succeeded: readBoolean(record.tool_succeeded),
+    tool_failed: readBoolean(record.tool_failed),
+    tool_denied: readBoolean(record.tool_denied),
+    tool_failure_class: readString(record.tool_failure_class) ?? null,
+    tool_failure_reason: readString(record.tool_failure_reason) ?? null,
+    tool_latency_ms: typeof record.tool_latency_ms === 'number' ? record.tool_latency_ms : null,
+  }
+}
+
+function adaptToolExecutionDiagnostics(value: unknown): ChatApiResponse['tool_diagnostics'] {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  return value
+    .map((item) => adaptToolExecutionDiagnostic(item))
+    .filter((item): item is NonNullable<ChatApiResponse['tool_execution']> => Boolean(item))
 }
 
 function adaptRuntimeError(value: unknown): ChatApiResponse['error'] {
@@ -319,6 +357,8 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
       res.provider_fallback_occurred ?? res.signals?.provider_fallback_occurred,
     noProviderAvailable:
       res.no_provider_available ?? res.signals?.no_provider_available,
+    toolExecution: res.tool_execution ?? res.signals?.tool_execution,
+    toolDiagnostics: res.tool_diagnostics ?? res.signals?.tool_diagnostics ?? undefined,
     error: res.error,
   }
 }

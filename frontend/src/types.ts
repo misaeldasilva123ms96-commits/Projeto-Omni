@@ -28,6 +28,19 @@ export type ProviderDiagnostic = {
   latency_ms?: number | null
 }
 
+export type ToolExecutionDiagnostic = {
+  tool_requested?: boolean
+  tool_selected?: string | null
+  tool_available?: boolean
+  tool_attempted?: boolean
+  tool_succeeded?: boolean
+  tool_failed?: boolean
+  tool_denied?: boolean
+  tool_failure_class?: string | null
+  tool_failure_reason?: string | null
+  tool_latency_ms?: number | null
+}
+
 export type RuntimeSignals = {
   runtime_reason?: string
   execution_path_used?: string
@@ -42,6 +55,8 @@ export type RuntimeSignals = {
   provider_diagnostics?: ProviderDiagnostic[] | null
   provider_fallback_occurred?: boolean
   no_provider_available?: boolean
+  tool_execution?: ToolExecutionDiagnostic | null
+  tool_diagnostics?: ToolExecutionDiagnostic[] | null
 }
 
 export type RuntimeMetadata = {
@@ -77,6 +92,8 @@ export type RuntimeMetadata = {
   providerDiagnostics?: ProviderDiagnostic[]
   providerFallbackOccurred?: boolean
   noProviderAvailable?: boolean
+  toolExecution?: ToolExecutionDiagnostic
+  toolDiagnostics?: ToolExecutionDiagnostic[]
   error?: RuntimeErrorPayload
 }
 
@@ -122,6 +139,8 @@ export type ChatApiResponse = {
   provider_diagnostics?: ProviderDiagnostic[]
   provider_fallback_occurred?: boolean
   no_provider_available?: boolean
+  tool_execution?: ToolExecutionDiagnostic
+  tool_diagnostics?: ToolExecutionDiagnostic[]
   error?: RuntimeErrorPayload
 }
 

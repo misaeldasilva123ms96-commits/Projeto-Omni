@@ -41,6 +41,8 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
     metadata.providerFallbackOccurred ?? metadata.signals?.provider_fallback_occurred
   const noProviderAvailable =
     metadata.noProviderAvailable ?? metadata.signals?.no_provider_available
+  const toolExecution = metadata.toolExecution ?? metadata.signals?.tool_execution ?? null
+  const toolDiagnostics = metadata.toolDiagnostics ?? metadata.signals?.tool_diagnostics ?? []
 
   return (
     <section className="status-section">
@@ -74,6 +76,16 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
         />
         <MetricRow label="Providers count" value={String(providersCount)} />
         <MetricRow label="Provider diagnostics rows" value={String(providerDiagnostics.length)} />
+        <MetricRow label="Tool requested" value={boolLabel(toolExecution?.tool_requested)} />
+        <MetricRow label="Tool selected" value={toolExecution?.tool_selected ?? 'n/a'} />
+        <MetricRow label="Tool available" value={boolLabel(toolExecution?.tool_available)} />
+        <MetricRow label="Tool attempted" value={boolLabel(toolExecution?.tool_attempted)} />
+        <MetricRow label="Tool succeeded" value={boolLabel(toolExecution?.tool_succeeded)} />
+        <MetricRow label="Tool failed" value={boolLabel(toolExecution?.tool_failed)} />
+        <MetricRow label="Tool denied" value={boolLabel(toolExecution?.tool_denied)} />
+        <MetricRow label="Tool failure class" value={toolExecution?.tool_failure_class ?? 'n/a'} />
+        <MetricRow label="Tool latency (ms)" value={String(toolExecution?.tool_latency_ms ?? 'n/a')} />
+        <MetricRow label="Tool diagnostics rows" value={String(toolDiagnostics.length)} />
       </div>
 
       <div className="runtime-debug-details">
@@ -92,6 +104,14 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
         <details className="runtime-debug-disclosure">
           <summary>Provider diagnostics</summary>
           <pre>{objectPreview(providerDiagnostics)}</pre>
+        </details>
+        <details className="runtime-debug-disclosure">
+          <summary>Tool execution</summary>
+          <pre>{objectPreview(toolExecution)}</pre>
+        </details>
+        <details className="runtime-debug-disclosure">
+          <summary>Tool diagnostics</summary>
+          <pre>{objectPreview(toolDiagnostics)}</pre>
         </details>
         <details className="runtime-debug-disclosure">
           <summary>Providers</summary>

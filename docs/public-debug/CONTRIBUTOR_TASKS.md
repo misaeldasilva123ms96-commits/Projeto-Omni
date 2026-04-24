@@ -34,7 +34,18 @@ Useful starting points:
 - `core/brain/queryEngineAuthority.js`
 - runtime action execution tests
 
-### 4. Reproduction and diagnostics
+### 4. Tool runtime stabilization
+
+Goal:
+- improve reliability of local tool routing and action completion once a tool has been selected
+
+Useful starting points:
+- `backend/python/brain/runtime/engineering_tools.py`
+- `backend/python/brain/runtime/orchestrator.py`
+- `backend/python/brain/runtime/observability/tool_execution_diagnostics.py`
+- `docs/architecture/tool-runtime.md`
+
+### 5. Reproduction and diagnostics
 
 Goal:
 - add small, repeatable tests or repro steps for degraded behavior
@@ -44,7 +55,7 @@ Useful starting points:
 - `tests/smoke/`
 - `docs/public-debug/REPRODUCTION.md`
 
-### 5. Public documentation clarity
+### 6. Public documentation clarity
 
 Goal:
 - make broken or partial behavior easier for contributors to understand

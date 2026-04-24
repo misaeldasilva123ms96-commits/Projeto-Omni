@@ -13,7 +13,9 @@ from brain.runtime.workspace_manager import WorkspaceManager
 
 ENGINEERING_TOOLS = {
     "filesystem_read",
+    "read_file",
     "filesystem_write",
+    "write_file",
     "directory_tree",
     "git_status",
     "git_diff",
@@ -22,6 +24,7 @@ ENGINEERING_TOOLS = {
     "package_manager",
     "dependency_inspection",
     "code_search",
+    "glob_search",
     "autonomous_debug_loop",
     "verification_runner",
     "filesystem_patch_set",
@@ -42,13 +45,13 @@ def execute_engineering_action(
     arguments = dict(action.get("tool_arguments", {}) or {})
     workspace_root = Path(arguments.get("workspace_root") or project_root).resolve()
 
-    if tool == "filesystem_read":
+    if tool in {"filesystem_read", "read_file"}:
         target = (workspace_root / str(arguments.get("path", ""))).resolve()
         content = target.read_text(encoding="utf-8")
         limit = int(arguments.get("limit", 4000) or 4000)
         return _ok(tool, {"file": {"filePath": str(target), "content": content[:limit]}})
 
-    if tool == "filesystem_write":
+    if tool in {"filesystem_write", "write_file"}:
         patch = build_patch(
             workspace_root=workspace_root,
             file_path=str(arguments.get("path", "")),
@@ -147,8 +150,25 @@ def execute_engineering_action(
                     if len(matches) >= 200:
                         break
             if len(matches) >= 200:
-                break
+                    break
         return _ok(tool, {"matches": matches})
+
+    if tool == "glob_search":
+        pattern = str(arguments.get("pattern", "")).strip()
+        if not pattern:
+            return _error(tool, "missing_pattern", "glob_search requires a pattern")
+        search_root = workspace_root / str(arguments.get("path", ".") or ".")
+        search_root = search_root.resolve()
+        if not search_root.exists():
+            return _error(tool, "missing_search_root", f"glob_search path does not exist: {search_root}")
+        matches: list[str] = []
+        for file_path in search_root.rglob(pattern):
+            if any(part in {".git", ".logs", "node_modules", "__pycache__", "target", "dist"} for part in file_path.parts):
+                continue
+            matches.append(str(file_path.relative_to(workspace_root)).replace("\\", "/"))
+            if len(matches) >= 200:
+                break
+        return _ok(tool, {"filenames": matches})
 
     if tool == "autonomous_debug_loop":
         from brain.runtime.debug_loop_controller import DebugLoopController

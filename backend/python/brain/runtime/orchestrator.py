@@ -114,6 +114,10 @@ from brain.runtime.observability.runtime_lane_classifier import (
     interpret_node_payload,
     normalize_node_outcome,
 )
+from brain.runtime.observability.tool_execution_diagnostics import (
+    build_tool_execution_diagnostic,
+    summarize_tool_execution,
+)
 from brain.swarm.swarm_orchestrator import SwarmOrchestrator
 from brain.runtime.tooling.tool_registry_extensions import get_tool_metadata
 from config.provider_registry import get_available_providers
@@ -506,6 +510,9 @@ class BrainOrchestrator:
         self.last_cognitive_runtime_inspection = None
         self._last_node_cognitive_hint = None
         self._last_node_outcome = None
+        self._last_tool_execution = None
+        self._last_tool_diagnostics = []
+        self._last_runtime_step_results = []
         self.last_lora_decision = None
         self.last_decision_ranking = None
         self.last_runtime_mode = self._selected_runtime_mode()
@@ -2411,6 +2418,7 @@ class BrainOrchestrator:
         self._apply_memory_hints(memory_store, memory_hints)
         self._apply_result_memory_updates(memory_store, step_results)
         self._sync_runtime_memory_store(session_id, memory_store, step_results)
+        self._last_runtime_step_results = [dict(item) for item in step_results if isinstance(item, dict)]
 
         return self._synthesize_runtime_response(step_results, semantic["response_text"])
 
@@ -3013,6 +3021,8 @@ class BrainOrchestrator:
         output_mode = str(manifest_payload.get("output_mode", "") or "").strip().lower()
         if "delegate" in step_kinds or bool(getattr(routing_decision, "requires_node_runtime", False)):
             return "NODE_EXECUTION"
+        if selected_tools and "tool" in step_kinds and all(supports_engineering_tool(str(tool)) for tool in selected_tools):
+            return "LOCAL_TOOL_EXECUTION"
         if len(step_plan) > 2 or str(getattr(routing_decision, "execution_strategy", "") or "").strip().lower() in {
             "multi_step_reasoning",
             "planning",
@@ -3063,6 +3073,12 @@ class BrainOrchestrator:
             if bool(node_outcome.get("actions_executed")):
                 primary_result["true_action_execution_active"] = True
                 primary_result["compatibility_execution_active"] = False
+        if isinstance(getattr(self, "_last_runtime_step_results", None), list) and self._last_runtime_step_results:
+            primary_result["step_results"] = [dict(item) for item in self._last_runtime_step_results if isinstance(item, dict)]
+        if isinstance(getattr(self, "_last_tool_execution", None), dict):
+            primary_result["tool_execution"] = dict(self._last_tool_execution)
+        if isinstance(getattr(self, "_last_tool_diagnostics", None), list):
+            primary_result["tool_diagnostics"] = [dict(item) for item in self._last_tool_diagnostics if isinstance(item, dict)]
         return primary_result
 
     def _execute_primary_node_path(
@@ -3143,11 +3159,14 @@ class BrainOrchestrator:
         if not tool_name:
             return {}
         target_path = self._extract_local_tool_target(runtime_message)
-        if tool_name in {"read_file", "filesystem_read"} and not target_path:
+        if tool_name in {"read_file", "filesystem_read", "glob_search"} and not target_path:
             return {}
         tool_arguments: dict[str, Any] = {}
         if tool_name in {"read_file", "filesystem_read"}:
             tool_arguments["path"] = target_path
+        elif tool_name == "glob_search":
+            tool_arguments["pattern"] = Path(target_path).name or target_path
+            tool_arguments["path"] = "."
         step_results = self._execute_runtime_actions(
             session_id=session_id,
             message=runtime_message,
@@ -3191,6 +3210,10 @@ class BrainOrchestrator:
         if not response_text:
             return {}
         self.last_runtime_reason = "local_tool_execution"
+        tool_execution, tool_diagnostics = summarize_tool_execution(
+            step_results=step_results,
+            selected_tools=selected_tools,
+        )
         return {
             "response": response_text,
             "intent": predicted_intent,
@@ -3202,6 +3225,8 @@ class BrainOrchestrator:
             "semantic_runtime_lane": LANE_LOCAL_DIRECT_RESPONSE,
             "execution_runtime_lane": "local_tool_execution",
             "compatibility_execution_active": False,
+            "tool_execution": tool_execution,
+            "tool_diagnostics": tool_diagnostics,
         }
 
     def _execute_primary_planner_path(
@@ -3553,6 +3578,20 @@ class BrainOrchestrator:
         result_payload["compatibility_execution_active"] = compatibility_execution_active
         result_payload["true_action_execution_active"] = true_action_execution_active
         result_payload["execution_path_used"] = str(trace_payload.get("metadata", {}).get("execution_path_used", "") or "")
+        tool_execution, tool_diagnostics = summarize_tool_execution(
+            step_results=raw_result.get("step_results") if isinstance(raw_result.get("step_results"), list) else None,
+            selected_tools=list(request.metadata.get("selected_tools", []) or []),
+        )
+        if tool_execution is None and isinstance(getattr(self, "_last_tool_execution", None), dict):
+            tool_execution = dict(self._last_tool_execution)
+        if not tool_diagnostics and isinstance(getattr(self, "_last_tool_diagnostics", None), list):
+            tool_diagnostics = [dict(item) for item in self._last_tool_diagnostics if isinstance(item, dict)]
+        if tool_execution is not None:
+            result_payload["tool_execution"] = tool_execution
+            trace_payload["tool_execution"] = tool_execution
+        if tool_diagnostics:
+            result_payload["tool_diagnostics"] = tool_diagnostics
+            trace_payload["tool_diagnostics"] = tool_diagnostics
 
         event_type = "runtime_strategy_execution_blocked" if result.blocked else "runtime_strategy_executed"
         event_desc = (
@@ -3979,6 +4018,9 @@ class BrainOrchestrator:
                 last_action="control_layer_blocked",
                 progress_score=self._progress_from_step_results(step_results),
             )
+            self._last_tool_execution = None
+            self._last_tool_diagnostics = []
+            self._last_runtime_step_results = []
             return step_results
         if control_result["mode_transition"] is not None:
             self._emit_control_event(
@@ -4221,6 +4263,9 @@ class BrainOrchestrator:
                     last_action="simulation_stop",
                     progress_score=self._progress_from_step_results(step_results),
                 )
+                self._last_tool_execution = None
+                self._last_tool_diagnostics = []
+                self._last_runtime_step_results = []
                 return step_results
         engineering_data = self._finalize_engineering_data(
             message=message,
@@ -4262,6 +4307,9 @@ class BrainOrchestrator:
                     message="Execution paused by operator control.",
                 )
                 step_results.append(blocked)
+                self._last_tool_execution = None
+                self._last_tool_diagnostics = []
+                self._last_runtime_step_results = []
                 return step_results
             branch_results, branch_action_ids, branch_state, graph_state, tree_state = self._execute_branch_plan(
                 session_id=session_id,
@@ -4334,6 +4382,7 @@ class BrainOrchestrator:
                     status_hint="blocked",
                     step_results=step_results,
                 )
+                self._last_runtime_step_results = [dict(item) for item in step_results if isinstance(item, dict)]
                 return step_results
         if plan_kind == "graph" and isinstance(graph_state, dict):
             while executed_steps < max_steps:
@@ -4715,6 +4764,13 @@ class BrainOrchestrator:
                     "learning": learning_update,
                 },
             )
+        tool_execution, tool_diagnostics = summarize_tool_execution(
+            step_results=step_results,
+            selected_tools=[str(action.get("selected_tool", "") or "").strip() for action in actions if isinstance(action, dict)],
+        )
+        self._last_tool_execution = tool_execution
+        self._last_tool_diagnostics = tool_diagnostics
+        self._last_runtime_step_results = [dict(item) for item in step_results if isinstance(item, dict)]
         return step_results
 
     def _handle_continuation_decision(
@@ -5307,6 +5363,13 @@ class BrainOrchestrator:
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
         selected_tool = str(current_action.get("selected_tool", "") or "").strip()
         action_started_monotonic = time.monotonic()
+        tool_available = bool(
+            selected_tool
+            and (
+                selected_tool in self.trusted_executor.available_tools
+                or supports_engineering_tool(selected_tool)
+            )
+        )
         tool_audit = evaluate_tool_governance(
             selected_tool=selected_tool,
             trusted_known_tools=self.trusted_executor.available_tools,
@@ -5331,6 +5394,13 @@ class BrainOrchestrator:
             blocked_result["evaluation"] = build_strict_block_evaluation(tool_audit=tool_audit)
             blocked_result["correction_events"] = [blocked_result["evaluation"]]
             blocked_result["orchestration"] = None
+            blocked_result["tool_latency_ms"] = max(0, int((time.monotonic() - action_started_monotonic) * 1000))
+            blocked_result["tool_execution"] = build_tool_execution_diagnostic(
+                selected_tool=selected_tool,
+                result=blocked_result,
+                latency_ms=blocked_result["tool_latency_ms"],
+                tool_available=tool_available,
+            )
             self._emit_supabase_tool_event(
                 session_id=session_id,
                 task_id=task_id,
@@ -5389,6 +5459,13 @@ class BrainOrchestrator:
             }
             blocked_result["correction_events"] = [blocked_result["evaluation"]]
             blocked_result["orchestration"] = pre_execution_orchestration
+            blocked_result["tool_latency_ms"] = max(0, int((time.monotonic() - action_started_monotonic) * 1000))
+            blocked_result["tool_execution"] = build_tool_execution_diagnostic(
+                selected_tool=selected_tool,
+                result=blocked_result,
+                latency_ms=blocked_result["tool_latency_ms"],
+                tool_available=tool_available,
+            )
             self._emit_supabase_tool_event(
                 session_id=session_id,
                 task_id=task_id,
@@ -5538,6 +5615,13 @@ class BrainOrchestrator:
             "repair": [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_repair(action=current_action, result=result)],
         }
         result["orchestration"] = pre_execution_orchestration
+        result["tool_latency_ms"] = max(0, int((time.monotonic() - action_started_monotonic) * 1000))
+        result["tool_execution"] = build_tool_execution_diagnostic(
+            selected_tool=selected_tool,
+            result=result,
+            latency_ms=result["tool_latency_ms"],
+            tool_available=tool_available,
+        )
         learning_update = self.learning_executor.ingest_runtime_artifacts(
             action=current_action,
             result=result,
