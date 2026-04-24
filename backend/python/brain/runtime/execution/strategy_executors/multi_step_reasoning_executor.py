@@ -13,6 +13,9 @@ class MultiStepReasoningExecutor(StrategyExecutorBase):
         self,
         request: StrategyExecutionRequest,
         compat_execute: Callable[[], dict[str, Any]] | None = None,
+        node_execute: Callable[[], dict[str, Any]] | None = None,
+        local_tool_execute: Callable[[], dict[str, Any]] | None = None,
+        planner_execute: Callable[[], dict[str, Any]] | None = None,
     ) -> StrategyExecutionResult:
         if request.governance_blocked:
             return self.safe_fallback(request, reason="governance_blocked", blocked=True)
@@ -25,15 +28,31 @@ class MultiStepReasoningExecutor(StrategyExecutorBase):
                 governance_downgrade_applied=True,
                 downgraded=True,
             )
-        if compat_execute is None:
-            return self.safe_fallback(request, reason="reasoning_execution_callback_missing")
-        raw_result = dict(compat_execute() or {})
+        raw_result, execution_path_used, failure_reason = self._execute_preferred_path(
+            request,
+            compat_execute=compat_execute,
+            node_execute=node_execute,
+            local_tool_execute=local_tool_execute,
+            planner_execute=planner_execute,
+        )
+        if raw_result is None:
+            return self.safe_fallback(request, reason=failure_reason or "reasoning_execution_callback_missing")
         response_text = str(raw_result.get("response", "") or "").strip() or request.fallback_response
         trace = self.build_trace(
             request,
             status="success",
-            execution_trace_summary="Multi-step reasoning executor ran through the compatibility runtime path within bounded depth.",
-            metadata={"step_count": len(step_plan), "max_reasoning_steps": max_steps},
+            execution_trace_summary=(
+                "Multi-step reasoning executor used the primary planner execution path within bounded depth."
+                if execution_path_used == "planner_execution"
+                else "Multi-step reasoning executor used the primary node execution path within bounded depth."
+                if execution_path_used == "node_execution"
+                else "Multi-step reasoning executor ran through the compatibility runtime path within bounded depth."
+            ),
+            metadata={
+                "step_count": len(step_plan),
+                "max_reasoning_steps": max_steps,
+                "execution_path_used": execution_path_used or "compatibility_execution",
+            },
         )
         return StrategyExecutionResult(
             selected_strategy=request.selected_strategy,
@@ -45,4 +64,3 @@ class MultiStepReasoningExecutor(StrategyExecutorBase):
             manifest_driven_execution=True,
             response_synthesis_mode=trace.response_synthesis_mode,
         )
-
