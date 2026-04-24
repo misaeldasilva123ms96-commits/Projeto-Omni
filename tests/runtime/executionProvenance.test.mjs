@@ -56,10 +56,14 @@ function testAttachMetadata() {
   const prov = buildExecutionProvenance({
     provider: { name: 'groq', model: 'llama' },
     toolCalls: [],
+    providerFailed: true,
+    failureClass: 'provider_timeout',
   });
   const out = attachProvenanceMetadata({ response: 'ok' }, prov);
   assert.ok(out.metadata);
   assert.equal(out.metadata.execution_provenance.provider_actual, 'groq');
+  assert.equal(out.metadata.execution_provenance.provider_failed, true);
+  assert.equal(out.metadata.execution_provenance.failure_class, 'provider_timeout');
 }
 
 testMatcherProvenance();

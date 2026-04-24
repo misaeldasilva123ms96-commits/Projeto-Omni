@@ -935,6 +935,15 @@ class QueryEngineAuthority {
       strategyActual: String(intent),
       executionMode: String(runtimeMode.primary.mode || ''),
       fallbackPath: runtimeMode.fallback?.mode || '',
+      providerFailed: stepResults.some(item => {
+        const kind = String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase();
+        return kind.startsWith('provider_');
+      }),
+      failureClass: String(
+        stepResults
+          .map(item => String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase())
+          .find(Boolean) || ''
+      ),
       provenanceSource: 'node_local_tool_run',
       provenanceConfidence: 0.86,
       latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },

@@ -549,7 +549,13 @@ function sanitizeForUserInternal(input) {
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (!trimmed) {
-      return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
+      return attachRunnerMetadata({
+        response: USER_FALLBACK_RESPONSE,
+        error: {
+          failure_class: 'NODE_EMPTY_RESPONSE',
+          message: 'Node runner received an empty string result.',
+        },
+      }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
     }
     const parsed = tryParseStructuredString(trimmed);
     if (parsed !== null) {
@@ -559,7 +565,13 @@ function sanitizeForUserInternal(input) {
   }
 
   if (input == null || Array.isArray(input)) {
-    return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
+    return attachRunnerMetadata({
+      response: USER_FALLBACK_RESPONSE,
+      error: {
+        failure_class: 'NODE_EMPTY_RESPONSE',
+        message: 'Node runner received an invalid public response shape.',
+      },
+    }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 
   if (typeof input === 'object') {
@@ -586,6 +598,7 @@ function sanitizeForUserInternal(input) {
       }
       return {
         response: trimmed,
+        error: input.error && typeof input.error === 'object' ? input.error : undefined,
         metadata: buildRunnerMetadata(
           String(metadata.engine_mode || AUTHORITY_FALLBACK_MODE),
           String(metadata.engine_reason || FALLBACK_POLICY_REASON),
@@ -593,9 +606,21 @@ function sanitizeForUserInternal(input) {
         ),
       };
     }
+    if (input.error && typeof input.error === 'object') {
+      return attachRunnerMetadata({
+        response: USER_FALLBACK_RESPONSE,
+        error: input.error,
+      }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
+    }
   }
 
-  return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
+  return attachRunnerMetadata({
+    response: USER_FALLBACK_RESPONSE,
+    error: {
+      failure_class: 'NODE_EMPTY_RESPONSE',
+      message: 'Node runner could not normalize the result into the public response shape.',
+    },
+  }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
 }
 
 function sanitizeForUser(input) {
@@ -654,6 +679,10 @@ async function main() {
         attachRunnerMetadata(
           {
             response: USER_FALLBACK_RESPONSE,
+            error: {
+              failure_class: 'NODE_BRIDGE_EMPTY_STDOUT',
+              message: 'Node runner could not resolve a usable query engine result.',
+            },
             metadata: {
               execution_tier: 'technical_fallback',
               node_runner_degraded: true,
@@ -677,6 +706,10 @@ async function main() {
       attachRunnerMetadata(
         {
           response: USER_FALLBACK_RESPONSE,
+          error: {
+            failure_class: 'NODE_BRIDGE_NONZERO_EXIT',
+            message: 'Node runner raised an unhandled exception.',
+          },
           metadata: {
             execution_tier: 'technical_fallback',
             node_runner_degraded: true,

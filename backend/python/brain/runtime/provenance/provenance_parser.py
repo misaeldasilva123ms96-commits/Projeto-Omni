@@ -131,6 +131,8 @@ def parse_execution_provenance(
         usage_tokens_input=usage_in,
         usage_tokens_output=usage_out,
         cost_estimate=cost,
+        provider_failed=bool(base.provider_failed),
+        failure_class=_merge_str(base.failure_class, "", 64).lower(),
         provenance_source=source,
         provenance_confidence=min(1.0, max(0.0, conf)),
     )

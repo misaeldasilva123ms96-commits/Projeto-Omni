@@ -30,6 +30,8 @@ class ExecutionProvenance:
     usage_tokens_input: int | None = None
     usage_tokens_output: int | None = None
     cost_estimate: float | None = None
+    provider_failed: bool = False
+    failure_class: str = ""
     provenance_source: str = ""
     provenance_confidence: float = 0.0
 
@@ -76,6 +78,8 @@ class ExecutionProvenance:
             usage_tokens_input=int(ui) if isinstance(ui, (int, float)) else None,
             usage_tokens_output=int(uo) if isinstance(uo, (int, float)) else None,
             cost_estimate=float(ce) if isinstance(ce, (int, float)) else None,
+            provider_failed=bool(raw.get("provider_failed")),
+            failure_class=_s(raw.get("failure_class"), 64).lower(),
             provenance_source=_s(raw.get("provenance_source"), 64),
             provenance_confidence=float(raw.get("provenance_confidence") or 0.0),
         )

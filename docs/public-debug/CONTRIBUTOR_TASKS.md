@@ -21,6 +21,8 @@ Useful starting points:
 - `backend/rust/src/main.rs`
 - `backend/python/main.py`
 - `js-runner/queryEngineRunner.js`
+- `docs/architecture/bridge-pipeline.md`
+- `docs/architecture/bridge-response-contract.md`
 
 ### 3. True action execution reliability
 
@@ -58,6 +60,7 @@ Useful starting points:
 - improve one public debug document with evidence
 - add one regression test for a proven runtime-path bug
 - improve one GitHub issue template field so reports are easier to act on
+- add one regression test for a bridge failure class such as `NODE_BRIDGE_INVALID_JSON` or `PYTHON_BRIDGE_EMPTY_STDOUT`
 
 ## Rules for public debug contributions
 

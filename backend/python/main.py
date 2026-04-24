@@ -36,7 +36,7 @@ OPERATIONAL_MESSAGE_MARKERS = (
     "specialists",
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -122,10 +122,22 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
     if isinstance(internal_obj, str):
         trimmed = internal_obj.strip()
         if not trimmed:
-            return {"response": USER_FALLBACK_RESPONSE}
+            return {
+                "response": USER_FALLBACK_RESPONSE,
+                "error": {
+                    "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+                    "message": "Python main received an empty string response.",
+                },
+            }
         if is_operational_message(trimmed):
             LOGGER.debug("python_sanitizer_blocked_operational: %r", trimmed)
-            return {"response": USER_FALLBACK_RESPONSE}
+            return {
+                "response": USER_FALLBACK_RESPONSE,
+                "error": {
+                    "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+                    "message": "Python main blocked an operational/control-layer message from public response.",
+                },
+            }
         parsed = _parse_structured_string(trimmed)
         if parsed is not None:
             return sanitize_for_user(parsed)
@@ -133,9 +145,17 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
         return out
 
     if internal_obj is None or isinstance(internal_obj, list):
-        return {"response": USER_FALLBACK_RESPONSE}
+        return {
+            "response": USER_FALLBACK_RESPONSE,
+            "error": {
+                "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+                "message": "Python main received an unsupported public response shape.",
+            },
+        }
 
     if isinstance(internal_obj, dict):
+        error_payload = internal_obj.get("error")
+        error_out = error_payload if isinstance(error_payload, dict) else None
         for key in RESPONSE_CANDIDATE_KEYS:
             value = internal_obj.get(key)
             if not isinstance(value, str):
@@ -153,9 +173,45 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
             cid = _extract_truthful_conversation_id(internal_obj)
             if cid:
                 out["conversation_id"] = cid
+            if error_out:
+                out["error"] = error_out
             return out
+        if error_out:
+            return {
+                "response": USER_FALLBACK_RESPONSE,
+                "error": error_out,
+            }
 
-    return {"response": USER_FALLBACK_RESPONSE}
+    return {
+        "response": USER_FALLBACK_RESPONSE,
+        "error": {
+            "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+            "message": "Python main could not normalize the internal response into the public shape.",
+        },
+    }
+
+
+def build_public_error(
+    *,
+    failure_class: str,
+    message: str,
+    debug_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    error: dict[str, Any] = {
+        "failure_class": str(failure_class or "PYTHON_BRIDGE_INVALID_JSON"),
+        "message": str(message or USER_FALLBACK_RESPONSE),
+    }
+    if str(os.getenv("OMINI_PUBLIC_DEBUG", "")).strip().lower() in ("1", "true", "yes"):
+        if isinstance(debug_details, dict) and debug_details:
+            error["debug"] = debug_details
+    return error
+
+
+def emit_public_json(payload: dict[str, Any]) -> int:
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    return 0
 
 
 def main() -> int:
@@ -171,14 +227,19 @@ def main() -> int:
     raw_response = orchestrator.run(message, bridge=bridge)
     LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
     safe_response = sanitize_for_user(raw_response)
+    if not str(safe_response.get("response", "")).strip():
+        safe_response["response"] = USER_FALLBACK_RESPONSE
+        safe_response["error"] = build_public_error(
+            failure_class="FRONTEND_RESPONSE_SHAPE_MISMATCH",
+            message="Python main produced an empty public response after sanitization.",
+        )
     safe_response.setdefault("stop_reason", "python_completed")
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
         safe_response["cognitive_runtime_inspection"] = inspection
     # JSON-only stdout for Rust bridge — never print() diagnostics here.
     safe_response["providers"] = get_available_providers()
-    print(json.dumps(safe_response, ensure_ascii=False), flush=True)
-    return 0
+    return emit_public_json(safe_response)
 
 
 if __name__ == "__main__":
@@ -189,20 +250,32 @@ if __name__ == "__main__":
     except Exception:
         logging.exception("Unhandled exception in main execution path")
         try:
-            print(
-                json.dumps(
-                    {
-                        "response": USER_FALLBACK_RESPONSE,
-                        "stop_reason": "python_main_exception",
-                        "cognitive_runtime_inspection": {
-                            "execution_tier": "technical_fallback",
-                            "layer": "python_main",
-                            "reason": "unhandled_exception",
+            emit_public_json(
+                {
+                    "response": USER_FALLBACK_RESPONSE,
+                    "stop_reason": "python_main_exception",
+                    "error": build_public_error(
+                        failure_class="PYTHON_BRIDGE_NONZERO_EXIT",
+                        message="Python main raised an unhandled exception before completing the public response.",
+                    ),
+                    "cognitive_runtime_inspection": {
+                        "runtime_mode": "SAFE_FALLBACK",
+                        "runtime_reason": "PYTHON_BRIDGE_NONZERO_EXIT",
+                        "execution_tier": "technical_fallback",
+                        "layer": "python_main",
+                        "reason": "unhandled_exception",
+                        "signals": {
+                            "failure_class": "PYTHON_BRIDGE_NONZERO_EXIT",
+                            "fallback_triggered": True,
+                            "execution_path_used": "python_main",
+                            "compatibility_execution_active": False,
+                            "provider_actual": "",
+                            "provider_failed": False,
+                            "execution_provenance": None,
                         },
                     },
-                    ensure_ascii=False,
-                ),
-                flush=True,
+                    "providers": get_available_providers(),
+                }
             )
         except Exception:
             pass

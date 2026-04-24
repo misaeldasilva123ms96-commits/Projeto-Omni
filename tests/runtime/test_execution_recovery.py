@@ -24,6 +24,10 @@ class ExecutionRecoveryTest(unittest.TestCase):
         self.assertTrue(response.strip())
         inspection = orchestrator.last_cognitive_runtime_inspection or {}
         self.assertNotEqual(inspection.get("runtime_mode"), "SAFE_FALLBACK")
+        self.assertEqual(inspection.get("runtime_mode"), "FULL_COGNITIVE_RUNTIME")
+        self.assertEqual(inspection.get("runtime_reason"), "node_execution_request")
+        self.assertEqual(inspection.get("signals", {}).get("execution_path_used"), "node_execution")
+        self.assertFalse(inspection.get("signals", {}).get("fallback_triggered", True))
         self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], "true_action_execution")
         self.assertFalse(orchestrator.last_strategy_execution["compatibility_execution_active"])
         self.assertEqual(orchestrator.last_strategy_execution["execution_path_used"], "node_execution")

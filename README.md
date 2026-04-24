@@ -122,6 +122,7 @@ cargo run --manifest-path backend/rust/Cargo.toml
 - [docs/overview.md](docs/overview.md)
 - [docs/architecture/layers.md](docs/architecture/layers.md)
 - [docs/architecture/runtime-flow.md](docs/architecture/runtime-flow.md)
+- [docs/architecture/runtime-modes.md](docs/architecture/runtime-modes.md)
 - [ROADMAP.md](ROADMAP.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 

@@ -39,6 +39,8 @@ def test_normalize_node_outcome_tracks_actions_and_response() -> None:
     assert row["has_actions"] is True
     assert row["response_present"] is True
     assert row["node_hint_lane"] == "node_execution_graph"
+    assert row["provider_actual"] == ""
+    assert row["provider_failed"] is False
 
 
 def test_classify_runtime_lane_prefers_matcher_shortcut() -> None:
@@ -156,6 +158,7 @@ def test_interpret_node_payload_derives_matcher_from_metadata_provenance() -> No
     assert row["semantic_lane"] == LANE_MATCHER_SHORTCUT
     assert row["node_cognitive_hint"] == {"lane": "matcher_shortcut"}
     assert row["reason_code"] == "direct_node_response"
+    assert row["node_outcome"]["provider_actual"] == ""
 
 
 def test_interpret_node_payload_bridge_without_actions() -> None:
@@ -190,12 +193,46 @@ def test_interpret_node_payload_action_execution() -> None:
         parsed={
             "response": "ok",
             "execution_request": {"actions": [{"tool": "read_file"}]},
+            "metadata": {"execution_provenance": {"provider_actual": "openai"}},
         },
         stdout="x",
     )
     assert row["fallback"] is False
     assert row["semantic_lane"] == LANE_TRUE_ACTION_EXECUTION
     assert row["reason_code"] == "node_execution_request"
+    assert row["node_outcome"]["provider_actual"] == "openai"
+
+
+def test_interpret_node_payload_empty_response_becomes_fallback() -> None:
+    row = interpret_node_payload(
+        parsed={},
+        stdout="",
+    )
+    assert row["fallback"] is True
+    assert row["semantic_lane"] == LANE_SAFE_DEGRADED_FALLBACK
+    assert row["reason_code"] == "empty_node_response"
+
+
+def test_normalize_node_outcome_tracks_provider_failure_from_provenance() -> None:
+    row = normalize_node_outcome(
+        transport_status=TRANSPORT_SUCCESS,
+        semantic_lane=LANE_TRUE_ACTION_EXECUTION,
+        reason_code="node_execution_request",
+        node_result_envelope={
+            "response": "provider failed",
+            "metadata": {
+                "execution_provenance": {
+                    "provider_actual": "openai",
+                    "provider_failed": True,
+                    "failure_class": "provider_timeout",
+                }
+            },
+        },
+        response_text="provider failed",
+    )
+    assert row["provider_actual"] == "openai"
+    assert row["provider_failed"] is True
+    assert row["failure_class"] == "provider_timeout"
 
 
 def test_classify_execution_runtime_lane_marks_compatibility_path_explicitly() -> None:

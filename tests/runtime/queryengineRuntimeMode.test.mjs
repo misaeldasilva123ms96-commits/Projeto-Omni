@@ -47,4 +47,8 @@ assert.equal(typeof preservedStructured.execution_request, 'object');
 assert.ok(Array.isArray(preservedStructured.execution_request.actions));
 assert.equal(preservedStructured.metadata.engine_mode, 'fusion_authority');
 
+const emptySanitized = runnerModule.sanitizeForUser('');
+assert.equal(emptySanitized.error.failure_class, 'NODE_EMPTY_RESPONSE');
+assert.equal(typeof emptySanitized.response, 'string');
+
 console.log('queryengine runtime mode tests: ok');
