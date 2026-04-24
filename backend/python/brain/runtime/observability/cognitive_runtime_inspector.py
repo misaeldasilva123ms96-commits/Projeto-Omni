@@ -207,7 +207,13 @@ def build_cognitive_runtime_inspection(
     execution_provenance = _extract_execution_provenance(swarm_result, lora_payload, node_outcome)
     provider_actual = str(execution_provenance.get("provider_actual") or "").strip().lower()
     failure_class = str(execution_provenance.get("failure_class") or "").strip().lower()
+    failure_reason = str(execution_provenance.get("failure_reason") or "").strip()
     provider_failed = bool(execution_provenance.get("provider_failed", False)) or failure_class.startswith("provider_")
+    provider_diagnostics = execution_provenance.get("provider_diagnostics")
+    if not isinstance(provider_diagnostics, list):
+        provider_diagnostics = []
+    provider_fallback_occurred = bool(execution_provenance.get("provider_fallback_occurred", False))
+    no_provider_available = bool(execution_provenance.get("no_provider_available", False))
 
     lane_info = classify_runtime_lane(
         response=r,
@@ -508,6 +514,10 @@ def build_cognitive_runtime_inspection(
             "provider_actual": provider_actual,
             "provider_failed": provider_failed,
             "failure_class": failure_class,
+            "failure_reason": failure_reason or None,
+            "provider_diagnostics": provider_diagnostics or None,
+            "provider_fallback_occurred": provider_fallback_occurred,
+            "no_provider_available": no_provider_available,
             "execution_provenance": execution_provenance or None,
             "node_execution_successful": node_execution_successful,
             "coarse_runtime_mode": (

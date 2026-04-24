@@ -65,3 +65,49 @@ What is still true:
 
 - The executor layer can still fail after the bridge is healthy; that is a downstream execution failure, not a bridge parse failure.
 - Frontend consumers still need to prefer `error` and `cognitive_runtime_inspection.signals` over plain response text for diagnostics.
+
+## Frontend debug surface
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- The chat UI now preserves runtime metadata from the backend response instead of dropping it in the wire adapter.
+- The status panel exposes the last turn's:
+  - `runtime_mode`
+  - `runtime_reason`
+  - `execution_path_used`
+  - `fallback_triggered`
+  - `compatibility_execution_active`
+  - `provider_actual`
+  - `provider_failed`
+  - `failure_class`
+  - presence of `cognitive_runtime_inspection`
+  - presence of `execution_provenance`
+- Structured error payloads from chat endpoints can now reach the frontend debug surface instead of collapsing to a generic text-only failure.
+
+What is still true:
+
+- The frontend can only show fields that survive the HTTP contract; if a backend route omits a field, the panel reports `n/a`.
+- The chat UI is now a better first-stop diagnostic surface, but backend logs may still be needed for low-level executor failures.
+
+## Provider diagnostics
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- Omni now exposes a public-safe `provider_diagnostics` structure.
+- The runtime can now distinguish:
+  - configured providers
+  - selected provider
+  - attempted provider
+  - provider failure vs bridge failure
+  - provider fallback routing
+  - no-provider-available state
+- The frontend debug panel now surfaces this provider context directly.
+
+What is still true:
+
+- `configured` and `available` are currently configuration-level signals, not active network health checks.
+- A selected provider does not guarantee an actual remote provider call happened on that turn.

@@ -3,6 +3,7 @@ import type { UiRuntimeStatus } from '../../types/ui/runtime'
 import { ErrorNotice } from '../ui/ErrorNotice'
 import { MetricRow } from '../ui/MetricRow'
 import { PanelCard } from '../ui/PanelCard'
+import { RuntimeDebugSection } from './RuntimeDebugSection'
 
 type StatusPanelProps = {
   apiConfigured: boolean
@@ -75,6 +76,8 @@ export function StatusPanel({
           ) : null}
         </div>
       </section>
+
+      <RuntimeDebugSection metadata={lastMetadata} />
 
       {error ? (
         <section className="status-section">

@@ -133,6 +133,10 @@ def parse_execution_provenance(
         cost_estimate=cost,
         provider_failed=bool(base.provider_failed),
         failure_class=_merge_str(base.failure_class, "", 64).lower(),
+        failure_reason=_merge_str(base.failure_reason, "", 256),
+        provider_diagnostics=list(base.provider_diagnostics),
+        provider_fallback_occurred=bool(base.provider_fallback_occurred),
+        no_provider_available=bool(base.no_provider_available),
         provenance_source=source,
         provenance_confidence=min(1.0, max(0.0, conf)),
     )

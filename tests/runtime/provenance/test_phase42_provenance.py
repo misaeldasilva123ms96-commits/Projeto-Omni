@@ -41,6 +41,23 @@ class Phase42ProvenanceTest(unittest.TestCase):
                     "cost_estimate": None,
                     "provider_failed": False,
                     "failure_class": "",
+                    "failure_reason": "",
+                    "provider_diagnostics": [
+                        {
+                            "provider": "openai",
+                            "configured": True,
+                            "available": True,
+                            "selected": True,
+                            "attempted": True,
+                            "succeeded": True,
+                            "failed": False,
+                            "failure_class": None,
+                            "failure_reason": None,
+                            "latency_ms": 120,
+                        }
+                    ],
+                    "provider_fallback_occurred": False,
+                    "no_provider_available": False,
                     "provenance_source": "node_authority",
                     "provenance_confidence": 0.9,
                 }
@@ -57,6 +74,8 @@ class Phase42ProvenanceTest(unittest.TestCase):
         self.assertEqual(p.model_actual, "gpt-4.1-mini")
         self.assertTrue(p.policy_match)
         self.assertEqual(p.usage_tokens_input, 120)
+        self.assertEqual(p.provider_diagnostics[0]["provider"], "openai")
+        self.assertFalse(p.provider_fallback_occurred)
 
     def test_parser_sparse_no_crash(self) -> None:
         p = parse_execution_provenance({}, orchestrator_context=None, strategy_mode="", fallback_used=True, latency_total_ms=0)
@@ -72,6 +91,7 @@ class Phase42ProvenanceTest(unittest.TestCase):
                     "policy_match": False,
                     "provider_failed": True,
                     "failure_class": "provider_timeout",
+                    "failure_reason": "request timed out",
                 }
             }
         }
@@ -79,6 +99,7 @@ class Phase42ProvenanceTest(unittest.TestCase):
         self.assertFalse(p.policy_match)
         self.assertTrue(p.provider_failed)
         self.assertEqual(p.failure_class, "provider_timeout")
+        self.assertEqual(p.failure_reason, "request timed out")
 
     def test_performance_uses_provider_actual(self) -> None:
         ps = PerformanceStore(self.root)

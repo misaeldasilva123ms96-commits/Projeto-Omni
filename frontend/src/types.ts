@@ -9,6 +9,41 @@ export type ChatUsage = {
   output_tokens?: number
 }
 
+export type RuntimeErrorPayload = {
+  code?: string
+  message?: string
+  details?: unknown
+}
+
+export type ProviderDiagnostic = {
+  provider?: string
+  configured?: boolean
+  available?: boolean
+  selected?: boolean
+  attempted?: boolean
+  succeeded?: boolean
+  failed?: boolean
+  failure_class?: string | null
+  failure_reason?: string | null
+  latency_ms?: number | null
+}
+
+export type RuntimeSignals = {
+  runtime_reason?: string
+  execution_path_used?: string
+  fallback_triggered?: boolean
+  compatibility_execution_active?: boolean
+  provider_actual?: string
+  provider_failed?: boolean
+  failure_class?: string
+  failure_reason?: string
+  execution_provenance?: unknown
+  node_execution_successful?: boolean
+  provider_diagnostics?: ProviderDiagnostic[] | null
+  provider_fallback_occurred?: boolean
+  no_provider_available?: boolean
+}
+
 export type RuntimeMetadata = {
   sessionId?: string
   source?: string
@@ -26,6 +61,23 @@ export type RuntimeMetadata = {
   conversationId?: string
   /** `api_version` when the response came from `POST /api/v1/chat`. */
   chatApiVersion?: string
+  runtimeMode?: string
+  runtimeReason?: string
+  cognitiveRuntimeInspection?: Record<string, unknown>
+  signals?: RuntimeSignals
+  executionPathUsed?: string
+  fallbackTriggered?: boolean
+  compatibilityExecutionActive?: boolean
+  providerActual?: string
+  providerFailed?: boolean
+  failureClass?: string
+  failureReason?: string
+  executionProvenance?: unknown
+  providers?: unknown[]
+  providerDiagnostics?: ProviderDiagnostic[]
+  providerFallbackOccurred?: boolean
+  noProviderAvailable?: boolean
+  error?: RuntimeErrorPayload
 }
 
 export type ChatMessage = {
@@ -55,6 +107,22 @@ export type ChatApiResponse = {
   api_version?: string
   /** Rust/Python cognitive envelope when present; never fabricate client-side. */
   cognitive_runtime_inspection?: Record<string, unknown>
+  runtime_mode?: string
+  runtime_reason?: string
+  signals?: RuntimeSignals
+  execution_path_used?: string
+  fallback_triggered?: boolean
+  compatibility_execution_active?: boolean
+  provider_actual?: string
+  provider_failed?: boolean
+  failure_class?: string
+  failure_reason?: string
+  execution_provenance?: unknown
+  providers?: unknown[]
+  provider_diagnostics?: ProviderDiagnostic[]
+  provider_fallback_occurred?: boolean
+  no_provider_available?: boolean
+  error?: RuntimeErrorPayload
 }
 
 export type ChatRequestState = 'idle' | 'loading' | 'error'

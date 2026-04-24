@@ -10,7 +10,7 @@ from typing import Any
 
 from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
-from config.provider_registry import get_available_providers
+from config.provider_registry import describe_provider_diagnostics, get_available_providers
 
 USER_FALLBACK_RESPONSE = (
     "[degraded:python_main] O adaptador Python não pôde concluir o turno. "
@@ -237,6 +237,32 @@ def main() -> int:
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
         safe_response["cognitive_runtime_inspection"] = inspection
+    signals = inspection.get("signals") if isinstance(inspection, dict) else None
+    if isinstance(signals, dict):
+        if "provider_diagnostics" in signals:
+            safe_response["provider_diagnostics"] = signals.get("provider_diagnostics")
+        if "provider_actual" in signals:
+            safe_response["provider_actual"] = signals.get("provider_actual")
+        if "provider_failed" in signals:
+            safe_response["provider_failed"] = signals.get("provider_failed")
+        if "failure_class" in signals:
+            safe_response["failure_class"] = signals.get("failure_class")
+    if not isinstance(safe_response.get("provider_diagnostics"), list):
+        safe_response["provider_diagnostics"] = describe_provider_diagnostics(
+            actual_provider=str(safe_response.get("provider_actual", "") or ""),
+            attempted_provider=str(safe_response.get("provider_actual", "") or ""),
+            failure_class=str(safe_response.get("failure_class", "") or ""),
+            include_embedded_local=True,
+        )
+    safe_response.setdefault(
+        "provider_diagnostics",
+        describe_provider_diagnostics(
+            actual_provider=str(safe_response.get("provider_actual", "") or ""),
+            attempted_provider=str(safe_response.get("provider_actual", "") or ""),
+            failure_class=str(safe_response.get("failure_class", "") or ""),
+            include_embedded_local=True,
+        ),
+    )
     # JSON-only stdout for Rust bridge — never print() diagnostics here.
     safe_response["providers"] = get_available_providers()
     return emit_public_json(safe_response)
@@ -272,8 +298,10 @@ if __name__ == "__main__":
                             "provider_actual": "",
                             "provider_failed": False,
                             "execution_provenance": None,
+                            "provider_diagnostics": describe_provider_diagnostics(include_embedded_local=True),
                         },
                     },
+                    "provider_diagnostics": describe_provider_diagnostics(include_embedded_local=True),
                     "providers": get_available_providers(),
                 }
             )

@@ -7,7 +7,7 @@ const { buildExecutionTree } = require('../planning/executionTree');
 const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
-const { chooseProvider } = require('../../platform/providers/providerRouter');
+const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
 const { resolveExecutionMode } = require('../../runtime/execution/runtimeMode');
@@ -342,6 +342,36 @@ function buildActionAudit(workspace, delegation) {
   };
 }
 
+function buildProviderDiagnosticContext({
+  selectedProviderName = '',
+  actualProviderName = '',
+  attemptedProviderName = '',
+  succeededProviderName = '',
+  failureClass = '',
+  failureReason = '',
+  latencyMs = null,
+} = {}) {
+  const availableProviders = getAvailableProviders();
+  const remoteAvailable = availableProviders.some(provider => provider.kind !== 'embedded');
+  return {
+    providerDiagnostics: buildProviderDiagnostics({
+      selectedProviderName,
+      actualProviderName,
+      attemptedProviderName,
+      succeededProviderName,
+      failureClass,
+      failureReason,
+      latencyMs,
+    }),
+    providerFallbackOccurred: Boolean(
+      selectedProviderName
+      && actualProviderName
+      && String(selectedProviderName).trim().toLowerCase() !== String(actualProviderName).trim().toLowerCase()
+    ),
+    noProviderAvailable: !remoteAvailable,
+  };
+}
+
 class QueryEngineAuthority {
   constructor(config = {}) {
     this.config = config;
@@ -358,6 +388,13 @@ class QueryEngineAuthority {
     if (tinyGreeting) {
       const epGreet = buildExecutionProvenance({
         provider: { name: 'local-heuristic', model: 'native-heuristic' },
+        ...buildProviderDiagnosticContext({
+          selectedProviderName: 'local-heuristic',
+          actualProviderName: 'local-heuristic',
+          attemptedProviderName: 'local-heuristic',
+          succeededProviderName: 'local-heuristic',
+          latencyMs: Date.now() - authorityStarted,
+        }),
         toolCalls: [],
         strategyActual: 'regex_greeting',
         executionMode: 'matcher_shortcut',
@@ -381,6 +418,13 @@ class QueryEngineAuthority {
     if (directConversationResponse) {
       const ep = buildExecutionProvenance({
         provider: { name: 'local-heuristic', model: 'native-heuristic' },
+        ...buildProviderDiagnosticContext({
+          selectedProviderName: 'local-heuristic',
+          actualProviderName: 'local-heuristic',
+          attemptedProviderName: 'local-heuristic',
+          succeededProviderName: 'local-heuristic',
+          latencyMs: Date.now() - authorityStarted,
+        }),
         toolCalls: [],
         strategyActual: 'conversational_matcher',
         executionMode: 'matcher_shortcut',
@@ -412,6 +456,7 @@ class QueryEngineAuthority {
     const complexity = inferComplexity(message);
     const hintEnv = readPolicyHintEnvelope();
     const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
+    const selectedProviderName = provider && provider.name ? provider.name : '';
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });
@@ -637,6 +682,12 @@ class QueryEngineAuthority {
 
       const epNoTool = buildExecutionProvenance({
         provider,
+        ...buildProviderDiagnosticContext({
+          selectedProviderName,
+          actualProviderName: '',
+          attemptedProviderName: '',
+          succeededProviderName: '',
+        }),
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
         strategyActual: String(intent),
         executionMode: 'no_tool_local',
@@ -667,6 +718,12 @@ class QueryEngineAuthority {
     if (runtimeMode.primary.owner === 'python') {
       const epBridge = buildExecutionProvenance({
         provider,
+        ...buildProviderDiagnosticContext({
+          selectedProviderName,
+          actualProviderName: '',
+          attemptedProviderName: '',
+          succeededProviderName: '',
+        }),
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(Boolean),
         strategyActual: String(intent),
         executionMode: 'python_executor_bridge',
@@ -929,6 +986,23 @@ class QueryEngineAuthority {
 
     const epRun = buildExecutionProvenance({
       provider,
+      ...buildProviderDiagnosticContext({
+        selectedProviderName,
+        actualProviderName: provider && provider.name ? provider.name : '',
+        attemptedProviderName: provider && provider.name ? provider.name : '',
+        succeededProviderName: stepResults.some(item => item.ok) ? (provider && provider.name ? provider.name : '') : '',
+        failureClass: String(
+          stepResults
+            .map(item => String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase())
+            .find(Boolean) || ''
+        ),
+        failureReason: String(
+          stepResults
+            .map(item => String(item?.error_payload?.message || item?.error?.message || '').trim())
+            .find(Boolean) || ''
+        ),
+        latencyMs: Date.now() - authorityStarted,
+      }),
       toolCalls: stepResults
         .map(item => (item.action && item.action.selected_tool) || '')
         .filter(t => t && t !== 'none'),

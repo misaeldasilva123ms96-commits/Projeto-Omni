@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../../types'
 import { useTypewriter } from '../../hooks/useTypewriter'
 import { MarkdownRenderer } from '../MarkdownRenderer'
+import { SystemBadges } from '../SystemBadges'
 
 type BubbleMessage = ChatMessage & {
   isLoading?: boolean
@@ -132,24 +133,27 @@ export function MessageBubble({ message, onTypingComplete }: MessageBubbleProps)
             ))}
           </div>
         ) : (
-          <div style={{ alignItems: 'flex-end', display: 'flex', gap: '0.15rem' }}>
-            <div style={{ minWidth: 0 }}>
-              <MarkdownRenderer content={visibleText || '...'} />
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <div style={{ alignItems: 'flex-end', display: 'flex', gap: '0.15rem' }}>
+              <div style={{ minWidth: 0 }}>
+                <MarkdownRenderer content={visibleText || '...'} />
+              </div>
+              {isTyping ? (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    animation: 'omni-bubble-blink 1s step-end infinite',
+                    color: isAssistant ? '#2563eb' : 'rgba(255,255,255,0.92)',
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  ▋
+                </span>
+              ) : null}
             </div>
-            {isTyping ? (
-              <span
-                aria-hidden="true"
-                style={{
-                  animation: 'omni-bubble-blink 1s step-end infinite',
-                  color: isAssistant ? '#2563eb' : 'rgba(255,255,255,0.92)',
-                  fontWeight: 700,
-                  lineHeight: 1,
-                  marginBottom: '0.25rem',
-                }}
-              >
-                ▋
-              </span>
-            ) : null}
+            {isAssistant ? <SystemBadges metadata={message.metadata} /> : null}
           </div>
         )}
       </div>

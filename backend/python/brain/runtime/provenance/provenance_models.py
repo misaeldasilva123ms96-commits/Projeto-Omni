@@ -32,6 +32,10 @@ class ExecutionProvenance:
     cost_estimate: float | None = None
     provider_failed: bool = False
     failure_class: str = ""
+    failure_reason: str = ""
+    provider_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    provider_fallback_occurred: bool = False
+    no_provider_available: bool = False
     provenance_source: str = ""
     provenance_confidence: float = 0.0
 
@@ -39,6 +43,7 @@ class ExecutionProvenance:
         d = asdict(self)
         d["tool_calls"] = list(self.tool_calls)
         d["latency_breakdown_ms"] = dict(self.latency_breakdown_ms)
+        d["provider_diagnostics"] = [dict(item) for item in self.provider_diagnostics]
         return d
 
     @classmethod
@@ -61,6 +66,26 @@ class ExecutionProvenance:
         uo = raw.get("usage_tokens_output")
         ce = raw.get("cost_estimate")
         pm = raw.get("policy_match")
+        diagnostics_raw = raw.get("provider_diagnostics")
+        diagnostics: list[dict[str, Any]] = []
+        if isinstance(diagnostics_raw, list):
+            for item in diagnostics_raw[:16]:
+                if not isinstance(item, dict):
+                    continue
+                diagnostics.append(
+                    {
+                        "provider": _s(item.get("provider"), 64).lower(),
+                        "configured": bool(item.get("configured")),
+                        "available": bool(item.get("available")),
+                        "selected": bool(item.get("selected")),
+                        "attempted": bool(item.get("attempted")),
+                        "succeeded": bool(item.get("succeeded")),
+                        "failed": bool(item.get("failed")),
+                        "failure_class": _s(item.get("failure_class"), 64).lower() or None,
+                        "failure_reason": _s(item.get("failure_reason"), 256) or None,
+                        "latency_ms": int(item.get("latency_ms")) if isinstance(item.get("latency_ms"), (int, float)) else None,
+                    }
+                )
         return cls(
             provider_actual=_s(raw.get("provider_actual"), 64),
             model_actual=_s(raw.get("model_actual"), 128),
@@ -80,6 +105,10 @@ class ExecutionProvenance:
             cost_estimate=float(ce) if isinstance(ce, (int, float)) else None,
             provider_failed=bool(raw.get("provider_failed")),
             failure_class=_s(raw.get("failure_class"), 64).lower(),
+            failure_reason=_s(raw.get("failure_reason"), 256),
+            provider_diagnostics=diagnostics,
+            provider_fallback_occurred=bool(raw.get("provider_fallback_occurred")),
+            no_provider_available=bool(raw.get("no_provider_available")),
             provenance_source=_s(raw.get("provenance_source"), 64),
             provenance_confidence=float(raw.get("provenance_confidence") or 0.0),
         )

@@ -21,6 +21,18 @@ export type ChatClientContext = {
   sessionId?: string
 }
 
+export class ChatRequestError extends Error {
+  status?: number
+  payload?: ChatApiResponse
+
+  constructor(message: string, options?: { status?: number; payload?: ChatApiResponse }) {
+    super(message)
+    this.name = 'ChatRequestError'
+    this.status = options?.status
+    this.payload = options?.payload
+  }
+}
+
 function legacyChatOnlyFromEnv(): boolean {
   return import.meta.env.VITE_OMNI_CHAT_LEGACY_ONLY === 'true'
 }
@@ -46,6 +58,29 @@ function chatHttpErrorMessage(status: number, bodyText: string): string {
     : `Omni request failed with status ${status}.`
 }
 
+async function buildChatRequestError(res: Response): Promise<ChatRequestError> {
+  const payload = await parseResponseBody(res)
+  try {
+    const parsed = parseWireChatPayload(payload)
+    const message =
+      parsed.error?.message
+      ?? parsed.response
+      ?? `Omni request failed with status ${res.status}.`
+    return new ChatRequestError(message, {
+      status: res.status,
+      payload: parsed,
+    })
+  } catch {
+    const bodyText =
+      typeof payload === 'string'
+        ? payload
+        : JSON.stringify(payload)
+    return new ChatRequestError(chatHttpErrorMessage(res.status, bodyText), {
+      status: res.status,
+    })
+  }
+}
+
 export async function sendOmniMessage(
   message: string,
   clientContext?: ChatClientContext,
@@ -68,8 +103,7 @@ export async function sendOmniMessage(
   async function sendLegacy(): Promise<ChatApiResponse> {
     const res = await postChatJson(CHAT_LEGACY_PATH, legacyBody)
     if (!res.ok) {
-      const text = await res.text()
-      throw new Error(chatHttpErrorMessage(res.status, text))
+      throw await buildChatRequestError(res)
     }
     const payload = await parseResponseBody(res)
     return parseWireChatPayload(payload)
@@ -100,6 +134,5 @@ export async function sendOmniMessage(
     return sendLegacy()
   }
 
-  const text = await v1Res.text()
-  throw new Error(chatHttpErrorMessage(v1Res.status, text))
+  throw await buildChatRequestError(v1Res)
 }

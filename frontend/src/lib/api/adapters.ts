@@ -56,7 +56,10 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
         ? record.message
         : ''
 
-  if (!response.trim()) {
+  const error = adaptRuntimeError(record.error)
+  const responseText = response.trim() || error?.message?.trim() || ''
+
+  if (!responseText) {
     throw new Error('Omni returned an empty response.')
   }
 
@@ -76,8 +79,46 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
       ? (inspectionRaw as Record<string, unknown>)
       : undefined
 
+  const signals = adaptRuntimeSignals(record.signals)
+  const runtime_reason =
+    readString(record.runtime_reason)
+    ?? signals?.runtime_reason
+  const execution_path_used =
+    readString(record.execution_path_used)
+    ?? signals?.execution_path_used
+  const fallback_triggered =
+    readBoolean(record.fallback_triggered)
+    ?? signals?.fallback_triggered
+  const compatibility_execution_active =
+    readBoolean(record.compatibility_execution_active)
+    ?? signals?.compatibility_execution_active
+  const provider_actual =
+    readString(record.provider_actual)
+    ?? signals?.provider_actual
+  const provider_failed =
+    readBoolean(record.provider_failed)
+    ?? signals?.provider_failed
+  const failure_class =
+    readString(record.failure_class)
+    ?? signals?.failure_class
+  const failure_reason =
+    readString(record.failure_reason)
+    ?? signals?.failure_reason
+  const execution_provenance = record.execution_provenance ?? signals?.execution_provenance
+  const providers = Array.isArray(record.providers) ? record.providers : undefined
+  const provider_diagnostics =
+    adaptProviderDiagnostics(record.provider_diagnostics)
+    ?? signals?.provider_diagnostics
+    ?? undefined
+  const provider_fallback_occurred =
+    readBoolean(record.provider_fallback_occurred)
+    ?? signals?.provider_fallback_occurred
+  const no_provider_available =
+    readBoolean(record.no_provider_available)
+    ?? signals?.no_provider_available
+
   return {
-    response,
+    response: responseText,
     session_id:
       typeof record.session_id === 'string' ? record.session_id : undefined,
     client_session_id:
@@ -106,6 +147,22 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     conversation_id,
     api_version,
     cognitive_runtime_inspection,
+    runtime_mode: readString(record.runtime_mode),
+    runtime_reason,
+    signals,
+    execution_path_used,
+    fallback_triggered,
+    compatibility_execution_active,
+    provider_actual,
+    provider_failed,
+    failure_class,
+    failure_reason,
+    execution_provenance,
+    providers,
+    provider_diagnostics,
+    provider_fallback_occurred,
+    no_provider_available,
+    error,
   }
 }
 
@@ -115,6 +172,68 @@ function adaptUsage(record: Record<string, unknown>): ChatUsage {
       typeof record.input_tokens === 'number' ? record.input_tokens : undefined,
     output_tokens:
       typeof record.output_tokens === 'number' ? record.output_tokens : undefined,
+  }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function adaptRuntimeSignals(value: unknown): ChatApiResponse['signals'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  return {
+    runtime_reason: readString(record.runtime_reason),
+    execution_path_used: readString(record.execution_path_used),
+    fallback_triggered: readBoolean(record.fallback_triggered),
+    compatibility_execution_active: readBoolean(record.compatibility_execution_active),
+    provider_actual: readString(record.provider_actual),
+    provider_failed: readBoolean(record.provider_failed),
+    failure_class: readString(record.failure_class),
+    failure_reason: readString(record.failure_reason),
+    execution_provenance: record.execution_provenance,
+    node_execution_successful: readBoolean(record.node_execution_successful),
+    provider_diagnostics: adaptProviderDiagnostics(record.provider_diagnostics) ?? undefined,
+    provider_fallback_occurred: readBoolean(record.provider_fallback_occurred),
+    no_provider_available: readBoolean(record.no_provider_available),
+  }
+}
+
+function adaptProviderDiagnostics(value: unknown): ChatApiResponse['provider_diagnostics'] {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({
+      provider: readString(item.provider),
+      configured: readBoolean(item.configured),
+      available: readBoolean(item.available),
+      selected: readBoolean(item.selected),
+      attempted: readBoolean(item.attempted),
+      succeeded: readBoolean(item.succeeded),
+      failed: readBoolean(item.failed),
+      failure_class: readString(item.failure_class) ?? null,
+      failure_reason: readString(item.failure_reason) ?? null,
+      latency_ms: typeof item.latency_ms === 'number' ? item.latency_ms : null,
+    }))
+}
+
+function adaptRuntimeError(value: unknown): ChatApiResponse['error'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  const record = value as Record<string, unknown>
+  return {
+    code: readString(record.code),
+    message: readString(record.message),
+    details: record.details,
   }
 }
 
@@ -181,6 +300,26 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
         outputTokens: res.usage.output_tokens,
       }
       : undefined,
+    runtimeMode: res.runtime_mode,
+    runtimeReason: res.runtime_reason,
+    cognitiveRuntimeInspection: res.cognitive_runtime_inspection,
+    signals: res.signals,
+    executionPathUsed: res.execution_path_used ?? res.signals?.execution_path_used,
+    fallbackTriggered: res.fallback_triggered ?? res.signals?.fallback_triggered,
+    compatibilityExecutionActive:
+      res.compatibility_execution_active ?? res.signals?.compatibility_execution_active,
+    providerActual: res.provider_actual ?? res.signals?.provider_actual,
+    providerFailed: res.provider_failed ?? res.signals?.provider_failed,
+    failureClass: res.failure_class ?? res.signals?.failure_class,
+    failureReason: res.failure_reason ?? res.signals?.failure_reason,
+    executionProvenance: res.execution_provenance ?? res.signals?.execution_provenance,
+    providers: res.providers,
+    providerDiagnostics: res.provider_diagnostics ?? res.signals?.provider_diagnostics ?? undefined,
+    providerFallbackOccurred:
+      res.provider_fallback_occurred ?? res.signals?.provider_fallback_occurred,
+    noProviderAvailable:
+      res.no_provider_available ?? res.signals?.no_provider_available,
+    error: res.error,
   }
 }
 
