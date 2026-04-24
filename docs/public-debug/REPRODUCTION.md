@@ -104,6 +104,28 @@ Recommended interpretation order:
 7. `compatibility_execution_active`
 8. `provider_actual` and `execution_provenance`
 
+## Bridge failure diagnosis
+
+Use `error.failure_class` first when the response is degraded at a runtime boundary.
+
+Current bridge failure classes:
+
+- `PYTHON_BRIDGE_EMPTY_STDOUT`
+- `PYTHON_BRIDGE_INVALID_JSON`
+- `PYTHON_BRIDGE_NONZERO_EXIT`
+- `NODE_BRIDGE_EMPTY_STDOUT`
+- `NODE_BRIDGE_INVALID_JSON`
+- `NODE_BRIDGE_NONZERO_EXIT`
+- `NODE_BRIDGE_TIMEOUT`
+- `NODE_EMPTY_RESPONSE`
+- `FRONTEND_RESPONSE_SHAPE_MISMATCH`
+
+Layer hints:
+
+- `PYTHON_*`: Rust did not receive a valid public JSON object from Python
+- `NODE_*`: Python did not receive a valid public JSON object from Node
+- `FRONTEND_RESPONSE_SHAPE_MISMATCH`: Python main could not normalize the internal response into the public shape
+
 ## How to report classification bugs
 
 When reporting a wrong-classification bug, include:
@@ -119,3 +141,4 @@ When reporting a wrong-classification bug, include:
 - Some prompts still route through compatibility-heavy execution.
 - The repository intentionally exposes degraded or partial behavior rather than hiding it.
 - A response existing does not prove the strongest runtime path was taken.
+- A response existing also does not prove the bridge itself was healthy; check `error.failure_class` and `signals.execution_path_used`.

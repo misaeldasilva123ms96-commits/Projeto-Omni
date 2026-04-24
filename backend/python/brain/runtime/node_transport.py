@@ -4,6 +4,12 @@ import json
 import subprocess
 from typing import Any
 
+NODE_BRIDGE_EMPTY_STDOUT = "NODE_BRIDGE_EMPTY_STDOUT"
+NODE_BRIDGE_INVALID_JSON = "NODE_BRIDGE_INVALID_JSON"
+NODE_BRIDGE_NONZERO_EXIT = "NODE_BRIDGE_NONZERO_EXIT"
+NODE_BRIDGE_TIMEOUT = "NODE_BRIDGE_TIMEOUT"
+NODE_EMPTY_RESPONSE = "NODE_EMPTY_RESPONSE"
+
 
 def truncate_node_text(value: str, limit: int = 1200) -> str:
     normalized = value.strip()
@@ -43,27 +49,27 @@ def classify_node_subprocess_failure(
     combined = f"{stdout}\n{stderr}".lower()
 
     if not diagnostics["node_resolved"]:
-        return "node_not_found", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if not diagnostics["runner_exists"]:
-        return "runner_not_found", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if not diagnostics["cwd_exists"]:
-        return "cwd_not_found", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if diagnostics["missing_paths"]:
-        return "module_resolution_error", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if timed_out:
-        return "timeout", details
+        return NODE_BRIDGE_TIMEOUT, details
     if exception is not None:
-        return "subprocess_exception", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if not stdout.strip() and not stderr.strip() and returncode == 0:
-        return "empty_stdout", details
+        return NODE_BRIDGE_EMPTY_STDOUT, details
     if "err_module_not_found" in combined or "cannot find module" in combined or "module not found" in combined:
-        return "module_resolution_error", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if "unknown file extension \".ts\"" in combined or "cannot use import statement outside a module" in combined:
         details["typescript_direct_execution_detected"] = True
-        return "module_resolution_error", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
     if returncode not in (None, 0):
-        return "node_subprocess_failed", details
-    return "invalid_json", details
+        return NODE_BRIDGE_NONZERO_EXIT, details
+    return NODE_BRIDGE_INVALID_JSON, details
 
 
 def run_node_subprocess(
@@ -147,7 +153,6 @@ def run_node_subprocess(
             returncode=completed.returncode,
             stdout=completed.stdout or "",
             stderr=stderr,
-            exception=error,
         )
         return {
             "ok": False,

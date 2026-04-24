@@ -294,6 +294,16 @@ def build_cognitive_runtime_inspection(
         "invalid_json",
         "invalid_node_payload",
         "invalid_execution_request",
+        "node_bridge_empty_stdout",
+        "node_bridge_invalid_json",
+        "node_bridge_nonzero_exit",
+        "node_bridge_timeout",
+        "node_empty_response",
+        "NODE_BRIDGE_EMPTY_STDOUT",
+        "NODE_BRIDGE_INVALID_JSON",
+        "NODE_BRIDGE_NONZERO_EXIT",
+        "NODE_BRIDGE_TIMEOUT",
+        "NODE_EMPTY_RESPONSE",
     }
     node_failure = semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and runtime_reason in node_failure_reasons
     fallback_triggered = (

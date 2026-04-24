@@ -45,3 +45,23 @@ What is still true:
 - Some prompts still resolve to `COMPATIBILITY_EXECUTION` or `PARTIAL_COGNITIVE_RUNTIME`.
 - The strongest path is now visible, but it is not yet dominant for every prompt family.
 - Classification truth does not guarantee execution success; a truthful `true_action_execution` turn can still fail later in the tool/runtime layer.
+
+## Bridge pipeline reliability
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- Rust now rejects empty Python stdout and invalid Python JSON as structured bridge failures.
+- Python main reserves stdout for a single JSON object and emits structured `error` payloads on boundary failures.
+- Python → Node transport now classifies:
+  - `NODE_BRIDGE_EMPTY_STDOUT`
+  - `NODE_BRIDGE_INVALID_JSON`
+  - `NODE_BRIDGE_NONZERO_EXIT`
+  - `NODE_BRIDGE_TIMEOUT`
+- Node runner now returns structured `error` payloads for empty/invalid result shapes instead of silently collapsing to plain fallback text.
+
+What is still true:
+
+- The executor layer can still fail after the bridge is healthy; that is a downstream execution failure, not a bridge parse failure.
+- Frontend consumers still need to prefer `error` and `cognitive_runtime_inspection.signals` over plain response text for diagnostics.

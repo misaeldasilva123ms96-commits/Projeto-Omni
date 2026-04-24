@@ -44,7 +44,7 @@ class NodeTransportTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["stage"], "exception")
-        self.assertEqual(result["reason_code"], "subprocess_exception")
+        self.assertEqual(result["reason_code"], "NODE_BRIDGE_NONZERO_EXIT")
         self.assertIsNone(result["parsed"])
 
     def test_transport_success_returns_parsed_payload_without_semantic_interpretation(self) -> None:
@@ -65,6 +65,38 @@ class NodeTransportTest(unittest.TestCase):
         self.assertEqual(result["reason_code"], "success")
         self.assertEqual(result["parsed"]["response"], "Olá!")
         self.assertEqual(result["parsed"]["metadata"]["execution_provenance"]["execution_mode"], "matcher_shortcut")
+
+    def test_transport_empty_stdout_is_structured_failure(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["node", "runner.js"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        with patch("brain.runtime.node_transport.subprocess.run", return_value=completed):
+            result = run_node_subprocess(
+                diagnostics=_diagnostics(),
+                payload="{}",
+                timeout_seconds=1,
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "NODE_BRIDGE_EMPTY_STDOUT")
+
+    def test_transport_invalid_json_is_structured_failure(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["node", "runner.js"],
+            returncode=0,
+            stdout="{not-json",
+            stderr="",
+        )
+        with patch("brain.runtime.node_transport.subprocess.run", return_value=completed):
+            result = run_node_subprocess(
+                diagnostics=_diagnostics(),
+                payload="{}",
+                timeout_seconds=1,
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "NODE_BRIDGE_INVALID_JSON")
 
 
 if __name__ == "__main__":

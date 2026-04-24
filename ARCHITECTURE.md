@@ -116,3 +116,5 @@ For a simpler introduction, see:
 - [docs/architecture/layers.md](docs/architecture/layers.md)
 - [docs/architecture/runtime-flow.md](docs/architecture/runtime-flow.md)
 - [docs/architecture/runtime-modes.md](docs/architecture/runtime-modes.md)
+- [docs/architecture/bridge-pipeline.md](docs/architecture/bridge-pipeline.md)
+- [docs/architecture/bridge-response-contract.md](docs/architecture/bridge-response-contract.md)

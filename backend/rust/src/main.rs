@@ -115,6 +115,9 @@ struct ChatResponse {
     /// Logical LLM provider ids with validated env keys (Python `main.py`); never secret values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     providers: Option<Vec<String>>,
+    /// Structured bridge/runtime failure when available. Additive and backward-compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<Value>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -1419,7 +1422,7 @@ fn extract_response_text_from_python_json(json: &Value) -> String {
             }
         }
     }
-    PYTHON_FALLBACK_RESPONSE.to_string()
+    String::new()
 }
 
 fn extract_stop_reason_from_python_json(json: &Value) -> Option<String> {
@@ -1436,6 +1439,23 @@ struct ParsedPythonChat {
     cognitive_runtime_inspection: Option<Value>,
     providers: Option<Vec<String>>,
     stop_reason: Option<String>,
+    error: Option<Value>,
+}
+
+fn build_bridge_error(failure_class: &str, message: &str, detail: Option<&str>) -> Value {
+    let mut out = Map::new();
+    out.insert(
+        "failure_class".into(),
+        Value::String(failure_class.trim().to_string()),
+    );
+    out.insert("message".into(), Value::String(message.trim().to_string()));
+    if let Some(d) = detail {
+        let t = d.trim();
+        if !t.is_empty() {
+            out.insert("detail".into(), Value::String(t.to_string()));
+        }
+    }
+    Value::Object(out)
 }
 
 fn extract_providers_from_python_json(json: &Value) -> Option<Vec<String>> {
@@ -1459,12 +1479,28 @@ fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
             response: PYTHON_FALLBACK_RESPONSE.to_string(),
             conversation_id: None,
             cognitive_runtime_inspection: Some(json!({
+                "runtime_mode": "SAFE_FALLBACK",
+                "runtime_reason": "PYTHON_BRIDGE_EMPTY_STDOUT",
                 "execution_tier": "technical_fallback",
                 "rust_boundary": true,
                 "reason": "python_stdout_empty_trimmed",
+                "signals": {
+                    "failure_class": "PYTHON_BRIDGE_EMPTY_STDOUT",
+                    "fallback_triggered": true,
+                    "execution_path_used": "rust_python_bridge",
+                    "compatibility_execution_active": false,
+                    "provider_actual": "",
+                    "provider_failed": false,
+                    "execution_provenance": serde_json::Value::Null,
+                }
             })),
             providers: None,
             stop_reason: Some("python_empty_stdout".to_string()),
+            error: Some(build_bridge_error(
+                "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "Python bridge returned empty stdout.",
+                None,
+            )),
         };
     }
 
@@ -1475,31 +1511,60 @@ fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
     match serde_json::from_str::<Value>(trimmed) {
         Ok(json) => {
             let conversation_id = extract_conversation_id_from_python_json(&json);
-            let response = extract_response_text_from_python_json(&json);
+            let mut response = extract_response_text_from_python_json(&json);
             let inspection = json.get("cognitive_runtime_inspection").cloned();
             let providers = extract_providers_from_python_json(&json);
             let stop_reason = extract_stop_reason_from_python_json(&json);
+            let mut error = json.get("error").cloned();
+            if response.trim().is_empty() {
+                response = PYTHON_FALLBACK_RESPONSE.to_string();
+                if error.is_none() {
+                    error = Some(build_bridge_error(
+                        "PYTHON_BRIDGE_INVALID_JSON",
+                        "Python bridge returned JSON without a usable response field.",
+                        Some("missing_or_empty_response"),
+                    ));
+                }
+            }
             ParsedPythonChat {
                 response,
                 conversation_id,
                 cognitive_runtime_inspection: inspection,
                 providers,
                 stop_reason,
+                error,
             }
         }
         Err(err) => {
             warn!(error = %err, "failed to parse python output");
+            let parse_detail = err.to_string();
             ParsedPythonChat {
                 response: PYTHON_PARSE_FAILURE_RESPONSE.to_string(),
                 conversation_id: None,
                 cognitive_runtime_inspection: Some(json!({
+                    "runtime_mode": "SAFE_FALLBACK",
+                    "runtime_reason": "PYTHON_BRIDGE_INVALID_JSON",
                     "execution_tier": "technical_fallback",
                     "rust_boundary": true,
                     "reason": "python_stdout_json_parse_failed",
                     "parse_error": err.to_string(),
+                    "signals": {
+                        "failure_class": "PYTHON_BRIDGE_INVALID_JSON",
+                        "fallback_triggered": true,
+                        "execution_path_used": "rust_python_bridge",
+                        "compatibility_execution_active": false,
+                        "provider_actual": "",
+                        "provider_failed": false,
+                        "execution_provenance": serde_json::Value::Null,
+                    }
                 })),
                 providers: None,
                 stop_reason: Some("python_stdout_invalid_json".to_string()),
+                error: Some(build_bridge_error(
+                    "PYTHON_BRIDGE_INVALID_JSON",
+                    "Rust could not parse Python stdout as JSON.",
+                    Some(parse_detail.as_str()),
+                )),
             }
         }
     }
@@ -1543,10 +1608,27 @@ fn build_python_fallback_response(
     detail: Option<&str>,
 ) -> ChatResponse {
     let mut inspection = json!({
+        "runtime_mode": "SAFE_FALLBACK",
+        "runtime_reason": stop_reason,
         "execution_tier": "technical_fallback",
         "rust_boundary": true,
         "source": source,
         "stop_reason": stop_reason,
+        "signals": {
+            "failure_class": match stop_reason {
+                "python_empty_stdout" => "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "python_stdout_invalid_json" => "PYTHON_BRIDGE_INVALID_JSON",
+                "python_subprocess_nonzero_exit" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                "python_subprocess_timeout" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                _ => "PYTHON_BRIDGE_NONZERO_EXIT",
+            },
+            "fallback_triggered": true,
+            "execution_path_used": "rust_python_bridge",
+            "compatibility_execution_active": false,
+            "provider_actual": "",
+            "provider_failed": false,
+            "execution_provenance": serde_json::Value::Null,
+        }
     });
     if let Some(d) = detail {
         if let Some(obj) = inspection.as_object_mut() {
@@ -1566,6 +1648,17 @@ fn build_python_fallback_response(
         conversation_id: None,
         cognitive_runtime_inspection: Some(inspection),
         providers: None,
+        error: Some(build_bridge_error(
+            match stop_reason {
+                "python_empty_stdout" => "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "python_stdout_invalid_json" => "PYTHON_BRIDGE_INVALID_JSON",
+                "python_subprocess_nonzero_exit" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                "python_subprocess_timeout" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                _ => "PYTHON_BRIDGE_NONZERO_EXIT",
+            },
+            PYTHON_FALLBACK_RESPONSE,
+            detail,
+        )),
     }
 }
 
@@ -1595,7 +1688,6 @@ async fn call_python(
     let mut command = Command::new(&state.python_bin);
     command
         .arg(&state.python_entry)
-        .arg(message)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1745,6 +1837,7 @@ async fn call_python(
         conversation_id: parsed.conversation_id,
         cognitive_runtime_inspection: parsed.cognitive_runtime_inspection,
         providers: parsed.providers,
+        error: parsed.error,
     })
 }
 
@@ -1770,6 +1863,7 @@ fn build_mock_response(
         conversation_id: None,
         cognitive_runtime_inspection: None,
         providers: None,
+        error: None,
     }
 }
 
@@ -1968,6 +2062,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
                 conversation_id: Some("conv-9".into()),
                 cognitive_runtime_inspection: None,
                 providers: None,
+                error: None,
             },
         };
         let v = serde_json::to_value(&body).expect("serialize");
@@ -1993,6 +2088,7 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
                 conversation_id: None,
                 cognitive_runtime_inspection: None,
                 providers: Some(vec!["openai".into(), "groq".into()]),
+                error: None,
             },
         };
         let v = serde_json::to_value(&body).expect("serialize");
@@ -2012,6 +2108,14 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             Some("python_subprocess_timeout")
         );
         assert!(response.cognitive_runtime_inspection.is_some());
+        assert_eq!(
+            response
+                .error
+                .as_ref()
+                .and_then(|e| e.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_BRIDGE_NONZERO_EXIT")
+        );
     }
 
     #[tokio::test]
@@ -2030,6 +2134,14 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             Some("python_subprocess_nonzero_exit")
         );
         assert!(response.cognitive_runtime_inspection.is_some());
+        assert_eq!(
+            response
+                .error
+                .as_ref()
+                .and_then(|e| e.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_BRIDGE_NONZERO_EXIT")
+        );
     }
 
     #[test]
