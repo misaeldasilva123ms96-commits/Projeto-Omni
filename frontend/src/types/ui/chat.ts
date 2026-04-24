@@ -1,3 +1,5 @@
+import type { RuntimeErrorPayload, RuntimeSignals } from '../../types'
+
 /**
  * UI-stable chat result (decoupled from wire field names like `matched_commands`).
  */
@@ -22,4 +24,17 @@ export type UiChatResponse = {
     inputTokens?: number
     outputTokens?: number
   }
+  runtimeMode?: string
+  runtimeReason?: string
+  cognitiveRuntimeInspection?: Record<string, unknown>
+  signals?: RuntimeSignals
+  executionPathUsed?: string
+  fallbackTriggered?: boolean
+  compatibilityExecutionActive?: boolean
+  providerActual?: string
+  providerFailed?: boolean
+  failureClass?: string
+  executionProvenance?: unknown
+  providers?: unknown[]
+  error?: RuntimeErrorPayload
 }

@@ -93,6 +93,19 @@ The canonical mode definitions live in:
 
 - [../architecture/runtime-modes.md](../architecture/runtime-modes.md)
 
+The frontend chat status panel now exposes the last turn's runtime debug fields directly. When reproducing a bug through the browser, open the right-side status panel and inspect:
+
+- `Runtime mode`
+- `Runtime reason`
+- `Execution path`
+- `Fallback triggered`
+- `Compatibility execution`
+- `Provider actual`
+- `Provider failed`
+- `Failure class`
+- whether `Cognitive runtime inspection` is present
+- whether `Execution provenance` is present
+
 Recommended interpretation order:
 
 1. `runtime_mode`

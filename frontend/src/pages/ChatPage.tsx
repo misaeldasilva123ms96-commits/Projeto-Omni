@@ -13,6 +13,7 @@ import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
 import { supabase } from '../lib/supabase'
+import { ChatRequestError } from '../lib/api/chat'
 import type {
   ChatMessage,
   ChatMode,
@@ -94,6 +95,19 @@ function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): Runti
         output_tokens: ui.usage.outputTokens,
       }
       : undefined,
+    runtimeMode: ui.runtimeMode,
+    runtimeReason: ui.runtimeReason,
+    cognitiveRuntimeInspection: ui.cognitiveRuntimeInspection,
+    signals: ui.signals,
+    executionPathUsed: ui.executionPathUsed,
+    fallbackTriggered: ui.fallbackTriggered,
+    compatibilityExecutionActive: ui.compatibilityExecutionActive,
+    providerActual: ui.providerActual,
+    providerFailed: ui.providerFailed,
+    failureClass: ui.failureClass,
+    executionProvenance: ui.executionProvenance,
+    providers: ui.providers,
+    error: ui.error,
   }
 }
 
@@ -349,6 +363,13 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     } catch (err) {
       setInput(previousInput)
       setRequestState('error')
+      const chatErrorPayload = err instanceof ChatRequestError ? err.payload : undefined
+      const failedUi = chatErrorPayload ? chatApiResponseToUi(chatErrorPayload) : undefined
+      const failedMetadata = failedUi ? normalizeMetadata(failedUi, sessionId) : null
+      if (failedMetadata) {
+        setSessionId(failedMetadata.sessionId ?? sessionId)
+        setLastMetadata(failedMetadata)
+      }
       setError(
         err instanceof Error
           ? err.message
@@ -358,10 +379,11 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         message.id === loadingMessageId
           ? {
             ...message,
-            content: 'Não consegui processar sua mensagem. Tente novamente.',
+            content: failedUi?.text?.trim() || 'Não consegui processar sua mensagem. Tente novamente.',
             isLoading: false,
             isNew: true,
             requestState: 'failed' as const,
+            metadata: failedMetadata ?? undefined,
           }
           : message
       )))

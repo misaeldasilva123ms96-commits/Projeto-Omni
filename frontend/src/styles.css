@@ -478,6 +478,41 @@ button {
   gap: 12px;
 }
 
+.runtime-debug-details {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-debug-disclosure {
+  border: 1px solid rgba(138, 160, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.runtime-debug-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 12px 14px;
+  color: #dbe6ff;
+  font-weight: 600;
+}
+
+.runtime-debug-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.runtime-debug-disclosure pre {
+  margin: 0;
+  padding: 0 14px 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #9eb0d1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .panel-error {
   line-height: 1.5;
 }
