@@ -89,6 +89,8 @@ Recommended flow:
 ## Good entry points
 
 - [docs/public-debug/PROJECT_STATUS.md](docs/public-debug/PROJECT_STATUS.md)
+- [docs/public-debug/REPRODUCTION.md](docs/public-debug/REPRODUCTION.md)
+- [docs/public-debug/CONTRIBUTOR_TASKS.md](docs/public-debug/CONTRIBUTOR_TASKS.md)
 - [docs/audits/brain-runtime-flow-map.md](docs/audits/brain-runtime-flow-map.md)
 - [docs/architecture/runtime-flow.md](docs/architecture/runtime-flow.md)
 
