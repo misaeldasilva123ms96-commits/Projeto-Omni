@@ -148,11 +148,13 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
                 response = orchestrator.run("analise o arquivo package.json")
             execute_actions.assert_not_called()
             self.assertEqual(response, "[execução_python_requerida] análise preparada")
-            self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], "compatibility_execution")
+            self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], LANE_BRIDGE_EXECUTION_REQUEST)
             self.assertFalse(orchestrator.last_strategy_execution["true_action_execution_active"])
+            self.assertFalse(orchestrator.last_strategy_execution["compatibility_execution_active"])
+            self.assertEqual(orchestrator.last_strategy_execution["execution_path_used"], "node_execution")
             inspection = orchestrator.last_cognitive_runtime_inspection or {}
             self.assertEqual(inspection.get("signals", {}).get("semantic_runtime_lane"), LANE_BRIDGE_EXECUTION_REQUEST)
-            self.assertEqual(inspection.get("signals", {}).get("execution_runtime_lane"), "compatibility_execution")
+            self.assertEqual(inspection.get("signals", {}).get("execution_runtime_lane"), LANE_BRIDGE_EXECUTION_REQUEST)
 
     def test_real_runner_prompt_can_trigger_true_action_execution_end_to_end(self) -> None:
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)

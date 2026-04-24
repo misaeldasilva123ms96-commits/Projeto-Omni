@@ -17,8 +17,64 @@ class StrategyExecutorBase(ABC):
         self,
         request: StrategyExecutionRequest,
         compat_execute: Callable[[], dict[str, Any]] | None = None,
+        node_execute: Callable[[], dict[str, Any]] | None = None,
+        local_tool_execute: Callable[[], dict[str, Any]] | None = None,
+        planner_execute: Callable[[], dict[str, Any]] | None = None,
     ) -> StrategyExecutionResult:
         raise NotImplementedError
+
+    @staticmethod
+    def _validate_execution_result(
+        raw_result: dict[str, Any] | None,
+        *,
+        failure_reason_prefix: str,
+    ) -> tuple[dict[str, Any] | None, str]:
+        payload = dict(raw_result or {})
+        response_text = str(payload.get("response", "") or "").strip()
+        if response_text:
+            return payload, ""
+        return None, f"{failure_reason_prefix}_empty_response"
+
+    def _execute_preferred_path(
+        self,
+        request: StrategyExecutionRequest,
+        *,
+        compat_execute: Callable[[], dict[str, Any]] | None = None,
+        node_execute: Callable[[], dict[str, Any]] | None = None,
+        local_tool_execute: Callable[[], dict[str, Any]] | None = None,
+        planner_execute: Callable[[], dict[str, Any]] | None = None,
+    ) -> tuple[dict[str, Any] | None, str, str]:
+        primary_execution_type = str(request.metadata.get("primary_execution_type", "") or "").strip().upper()
+        callback_map: dict[str, tuple[str, Callable[[], dict[str, Any]] | None]] = {
+            "NODE_EXECUTION": ("node_execution", node_execute),
+            "LOCAL_TOOL_EXECUTION": ("local_tool_execution", local_tool_execute),
+            "PLANNER_EXECUTION": ("planner_execution", planner_execute),
+        }
+        path_name, callback = callback_map.get(primary_execution_type, ("", None))
+        if callback is not None:
+            try:
+                validated, failure_reason = self._validate_execution_result(
+                    callback(),
+                    failure_reason_prefix=path_name or "primary_execution",
+                )
+            except Exception as exc:
+                validated = None
+                failure_reason = f"{path_name or 'primary_execution'}_exception:{str(exc)[:160]}"
+            if validated is not None:
+                return validated, path_name, ""
+            if compat_execute is None:
+                return None, path_name, failure_reason or "primary_execution_failed"
+        if compat_execute is None:
+            return None, path_name or "compatibility_execution", "compatibility_execution_callback_missing"
+        try:
+            validated, failure_reason = self._validate_execution_result(
+                compat_execute(),
+                failure_reason_prefix="compatibility_execution",
+            )
+        except Exception as exc:
+            validated = None
+            failure_reason = f"compatibility_execution_exception:{str(exc)[:160]}"
+        return validated, path_name or "compatibility_execution", failure_reason
 
     def build_trace(
         self,
@@ -108,4 +164,3 @@ class StrategyExecutorBase(ABC):
             error=reason,
             metadata={"fallback_reason": reason},
         )
-

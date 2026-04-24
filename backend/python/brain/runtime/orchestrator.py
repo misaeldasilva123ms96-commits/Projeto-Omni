@@ -1070,6 +1070,9 @@ class BrainOrchestrator:
         )
 
         self._last_strategy_performance_payload = {}
+        # Historical collapse point: every strategy reached execution through compat_execute().
+        # Phase 3 keeps the compatibility callback available, but only as an explicit fallback
+        # after a primary execution branch is attempted.
         strategy_execution = self._dispatch_strategy_execution(
             session_id=session_id,
             run_id="",
@@ -1077,6 +1080,27 @@ class BrainOrchestrator:
             upgrade_artifacts=upgrade_artifacts,
             selected_tools=suggested_capabilities,
             direct_response=direct_response,
+            node_execute=lambda: self._execute_primary_node_path(
+                session_id=session_id,
+                runtime_message=runtime_message,
+                predicted_intent=predicted_intent,
+                memory_store=memory_store,
+                available_capabilities=available_capabilities,
+                extra_session={},
+            ),
+            local_tool_execute=lambda: self._execute_primary_local_tool_path(
+                session_id=session_id,
+                runtime_message=runtime_message,
+                predicted_intent=predicted_intent,
+                selected_tools=suggested_capabilities,
+            ),
+            planner_execute=lambda: self._execute_primary_planner_path(
+                session_id=session_id,
+                runtime_message=runtime_message,
+                predicted_intent=predicted_intent,
+                memory_store=memory_store,
+                available_capabilities=available_capabilities,
+            ),
             compat_execute=lambda: self._execute_strategy_compatible_path(
                 session_id=session_id,
                 runtime_message=runtime_message,
@@ -2933,6 +2957,12 @@ class BrainOrchestrator:
                 "execution_strategy": str(getattr(routing_decision, "execution_strategy", "") or ""),
             },
         )
+        primary_execution_type = self._select_primary_execution_type(
+            routing_decision=routing_decision,
+            upgrade_artifacts=upgrade_artifacts,
+            selected_tools=selected_tools,
+            direct_response=direct_response,
+        )
         return StrategyExecutionRequest(
             selected_strategy=str(getattr(routing_decision, "strategy", "") or "SAFE_FALLBACK"),
             manifest_id=str(manifest_payload.get("manifest_id", "") or ""),
@@ -2950,8 +2980,244 @@ class BrainOrchestrator:
             metadata={
                 "direct_response": str(direct_response or ""),
                 "selected_tools": list(selected_tools or []),
+                "primary_execution_type": primary_execution_type,
             },
         )
+
+    def _select_primary_execution_type(
+        self,
+        *,
+        routing_decision: Any,
+        upgrade_artifacts: dict[str, Any],
+        selected_tools: list[str] | None,
+        direct_response: str,
+    ) -> str:
+        if str(direct_response or "").strip():
+            return "DIRECT_RESPONSE"
+        manifest_payload = dict(upgrade_artifacts.get("manifest") or {})
+        step_plan = list(manifest_payload.get("step_plan", []) or [])
+        step_kinds = {
+            str(item.get("kind", "") or "").strip().lower()
+            for item in step_plan
+            if isinstance(item, dict)
+        }
+        oil_intent = str((upgrade_artifacts.get("oil_summary") or {}).get("intent", "") or "").strip().lower()
+        output_mode = str(manifest_payload.get("output_mode", "") or "").strip().lower()
+        if "delegate" in step_kinds or bool(getattr(routing_decision, "requires_node_runtime", False)):
+            return "NODE_EXECUTION"
+        if len(step_plan) > 2 or str(getattr(routing_decision, "execution_strategy", "") or "").strip().lower() in {
+            "multi_step_reasoning",
+            "planning",
+            "planner_execution",
+        }:
+            return "PLANNER_EXECUTION"
+        if oil_intent in {"analyze", "debug", "inspect", "review", "execute", "plan"} or output_mode == "structured":
+            return "NODE_EXECUTION"
+        if "tool" in step_kinds:
+            return "LOCAL_TOOL_EXECUTION"
+        return "COMPATIBILITY_EXECUTION"
+
+    def _build_primary_node_result(
+        self,
+        *,
+        response_text: str,
+        predicted_intent: str,
+    ) -> dict[str, Any]:
+        node_env = getattr(self, "_last_node_result_envelope", None)
+        node_outcome = getattr(self, "_last_node_outcome", None)
+        primary_result: dict[str, Any] = {
+            "response": response_text,
+            "intent": predicted_intent,
+            "delegates": [],
+            "agent_trace": [],
+            "memory_signal": {},
+            "metadata": {"execution_path": "primary_node_execution"},
+        }
+        if isinstance(node_env, dict):
+            metadata = node_env.get("metadata")
+            if isinstance(metadata, dict):
+                primary_result["metadata"] = {
+                    **dict(primary_result.get("metadata") or {}),
+                    **metadata,
+                }
+            execution_provenance = metadata.get("execution_provenance") if isinstance(metadata, dict) else None
+            if isinstance(execution_provenance, dict):
+                primary_result["execution_provenance"] = execution_provenance
+            cognitive_runtime_hint = node_env.get("cognitive_runtime_hint")
+            if isinstance(cognitive_runtime_hint, dict):
+                primary_result["cognitive_runtime_hint"] = cognitive_runtime_hint
+        if isinstance(node_outcome, dict):
+            semantic_lane = str(node_outcome.get("semantic_lane", "") or "").strip()
+            execution_lane = str(node_outcome.get("execution_runtime_lane", "") or "").strip()
+            if semantic_lane:
+                primary_result["semantic_runtime_lane"] = semantic_lane
+                primary_result["execution_runtime_lane"] = execution_lane or semantic_lane
+            if bool(node_outcome.get("actions_executed")):
+                primary_result["true_action_execution_active"] = True
+                primary_result["compatibility_execution_active"] = False
+        return primary_result
+
+    def _execute_primary_node_path(
+        self,
+        *,
+        session_id: str,
+        runtime_message: str,
+        predicted_intent: str,
+        memory_store: dict[str, Any],
+        available_capabilities: list[dict[str, str]],
+        extra_session: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self._append_runtime_event(
+            event_type="runtime.execution.primary_path",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={"strategy_selected": "primary_node_execution", "fallback_triggered": False},
+        )
+        response_text = str(
+            self._call_node_query_engine(
+                message=runtime_message,
+                memory_store=memory_store,
+                available_capabilities=available_capabilities,
+                session_id=session_id,
+                extra_session=extra_session or {},
+            )
+            or ""
+        ).strip()
+        node_outcome = getattr(self, "_last_node_outcome", None)
+        semantic_lane = str((node_outcome or {}).get("semantic_lane", "") or "").strip()
+        if not response_text or semantic_lane == LANE_SAFE_DEGRADED_FALLBACK:
+            self._append_runtime_event(
+                event_type="runtime.execution.primary_path",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "strategy_selected": "primary_node_execution",
+                    "node_call_result": str(self.last_runtime_reason or "empty_node_response"),
+                    "fallback_triggered": True,
+                },
+            )
+            return {}
+        primary_result = self._build_primary_node_result(
+            response_text=response_text,
+            predicted_intent=predicted_intent,
+        )
+        self._append_runtime_event(
+            event_type="runtime.execution.primary_path",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "strategy_selected": "primary_node_execution",
+                "execution_path_used": "node_execution",
+                "node_call_result": semantic_lane or str(self.last_runtime_reason or "direct_node_response"),
+                "fallback_triggered": False,
+            },
+        )
+        return primary_result
+
+    def _extract_local_tool_target(self, message: str) -> str:
+        match = re.search(r"([A-Za-z0-9_./\\\\-]+\.(?:json|md|py|js|ts|tsx|rs|toml|yaml|yml))", str(message or ""))
+        if not match:
+            return ""
+        return str(match.group(1) or "").strip()
+
+    def _execute_primary_local_tool_path(
+        self,
+        *,
+        session_id: str,
+        runtime_message: str,
+        predicted_intent: str,
+        selected_tools: list[str],
+    ) -> dict[str, Any]:
+        tool_name = str(selected_tools[0] if selected_tools else "").strip()
+        if not tool_name:
+            return {}
+        target_path = self._extract_local_tool_target(runtime_message)
+        if tool_name in {"read_file", "filesystem_read"} and not target_path:
+            return {}
+        tool_arguments: dict[str, Any] = {}
+        if tool_name in {"read_file", "filesystem_read"}:
+            tool_arguments["path"] = target_path
+        step_results = self._execute_runtime_actions(
+            session_id=session_id,
+            message=runtime_message,
+            actions=[
+                {
+                    "step_id": "primary-local-tool",
+                    "selected_tool": tool_name,
+                    "tool_arguments": tool_arguments,
+                    "description": f"Primary local tool execution via {tool_name}",
+                }
+            ],
+            task_id=f"task-{session_id}",
+            run_id=coerce_runtime_run_id(run_id="", session_id=session_id),
+            provider="local-runtime",
+            intent=predicted_intent,
+            delegation={},
+            critic_review={},
+            plan_kind="linear",
+            plan_graph=None,
+            semantic_retrieval=[],
+            plan_hierarchy=None,
+            learning_guidance=[],
+            policy_summary=[],
+            branch_plan=None,
+            simulation_summary=None,
+            cooperative_plan=None,
+            strategy_suggestions=[],
+            execution_tree=None,
+            negotiation_summary=None,
+            strategy_optimization=None,
+            repository_analysis=None,
+            repo_impact_analysis=None,
+            verification_plan=None,
+            verification_selection=None,
+            milestone_plan=None,
+            engineering_review=None,
+            engineering_workflow=None,
+            operator_control_enabled=True,
+        )
+        response_text = str(self._synthesize_runtime_response(step_results, "") or "").strip()
+        if not response_text:
+            return {}
+        self.last_runtime_reason = "local_tool_execution"
+        return {
+            "response": response_text,
+            "intent": predicted_intent,
+            "delegates": [],
+            "agent_trace": [],
+            "memory_signal": {},
+            "step_results": step_results,
+            "metadata": {"execution_path": "primary_local_tool_execution", "selected_tool": tool_name},
+            "semantic_runtime_lane": LANE_LOCAL_DIRECT_RESPONSE,
+            "execution_runtime_lane": "local_tool_execution",
+            "compatibility_execution_active": False,
+        }
+
+    def _execute_primary_planner_path(
+        self,
+        *,
+        session_id: str,
+        runtime_message: str,
+        predicted_intent: str,
+        memory_store: dict[str, Any],
+        available_capabilities: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        primary_result = self._execute_primary_node_path(
+            session_id=session_id,
+            runtime_message=runtime_message,
+            predicted_intent=predicted_intent,
+            memory_store=memory_store,
+            available_capabilities=available_capabilities,
+            extra_session={},
+        )
+        if primary_result:
+            metadata = dict(primary_result.get("metadata") or {})
+            metadata["execution_path"] = "primary_planner_execution"
+            primary_result["metadata"] = metadata
+        return primary_result
 
     def _execute_strategy_compatible_path(
         self,
@@ -3138,6 +3404,9 @@ class BrainOrchestrator:
         upgrade_artifacts: dict[str, Any],
         selected_tools: list[str] | None,
         direct_response: str,
+        node_execute: Any = None,
+        local_tool_execute: Any = None,
+        planner_execute: Any = None,
         compat_execute: Any,
     ) -> dict[str, Any]:
         request = self._build_strategy_execution_request(
@@ -3154,6 +3423,7 @@ class BrainOrchestrator:
             "fallback_allowed": request.fallback_allowed,
             "governance_blocked": request.governance_blocked,
             "manifest_driven_execution": bool(request.manifest),
+            "primary_execution_type": str(request.metadata.get("primary_execution_type", "") or ""),
         }
         self.memory_facade.record_event(
             event_type="runtime_strategy_dispatched",
@@ -3168,7 +3438,13 @@ class BrainOrchestrator:
             payload=dispatch_payload,
         )
         try:
-            result = self.strategy_dispatcher.dispatch(request, compat_execute=compat_execute)
+            result = self.strategy_dispatcher.dispatch(
+                request,
+                compat_execute=compat_execute,
+                node_execute=node_execute,
+                local_tool_execute=local_tool_execute,
+                planner_execute=planner_execute,
+            )
         except Exception as exc:
             self.memory_facade.record_event(
                 event_type="runtime_strategy_execution_fallback",
@@ -3222,6 +3498,7 @@ class BrainOrchestrator:
         result_payload.setdefault("selected_strategy", request.selected_strategy)
         result_payload["manifest_id"] = request.manifest_id
         result_payload["strategy_dispatch_applied"] = True
+        result_payload["primary_execution_type"] = str(request.metadata.get("primary_execution_type", "") or "")
         result_payload["ranking_source"] = str((self.last_decision_ranking or {}).get("decision_source", "rule") or "rule")
         result_payload["decision_final_source"] = (
             "strategy_dispatch_fallback" if result.fallback_applied else "strategy_dispatch"
@@ -3262,10 +3539,12 @@ class BrainOrchestrator:
         )
         trace_payload["compatibility_execution_active"] = compatibility_execution_active
         trace_payload["true_action_execution_active"] = true_action_execution_active
+        trace_payload["primary_execution_type"] = str(request.metadata.get("primary_execution_type", "") or "")
         result_payload["trace"] = trace_payload
         result_payload["execution_runtime_lane"] = trace_payload["execution_runtime_lane"]
         result_payload["compatibility_execution_active"] = compatibility_execution_active
         result_payload["true_action_execution_active"] = true_action_execution_active
+        result_payload["execution_path_used"] = str(trace_payload.get("metadata", {}).get("execution_path_used", "") or "")
 
         event_type = "runtime_strategy_execution_blocked" if result.blocked else "runtime_strategy_executed"
         event_desc = (

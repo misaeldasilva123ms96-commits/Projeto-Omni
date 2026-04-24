@@ -29,10 +29,19 @@ class StrategyDispatcher:
         request: StrategyExecutionRequest,
         *,
         compat_execute: Callable[[], dict[str, Any]] | None = None,
+        node_execute: Callable[[], dict[str, Any]] | None = None,
+        local_tool_execute: Callable[[], dict[str, Any]] | None = None,
+        planner_execute: Callable[[], dict[str, Any]] | None = None,
     ) -> StrategyExecutionResult:
         executor = self._find_executor(request.selected_strategy)
         try:
-            result = executor.execute(request, compat_execute=compat_execute)
+            result = executor.execute(
+                request,
+                compat_execute=compat_execute,
+                node_execute=node_execute,
+                local_tool_execute=local_tool_execute,
+                planner_execute=planner_execute,
+            )
         except Exception as exc:
             result = self.safe_fallback_executor.safe_fallback(
                 request,
