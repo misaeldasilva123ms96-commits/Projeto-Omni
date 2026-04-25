@@ -134,3 +134,32 @@ What is still true:
 - Some tool-capable prompts still choose a suboptimal planned tool.
 - Rust-backed actions can still fail even when provider and bridge health are fine.
 - A truthful `FULL_COGNITIVE_RUNTIME` turn does not guarantee the tool itself succeeded; inspect `tool_execution` before assuming the action completed.
+
+## Cognitive decision quality
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- Omni now has a curated cognitive decision dataset under:
+  - `tests/cognitive/decision_dataset.yaml`
+- Deterministic routing now distinguishes:
+  - direct conversational requests
+  - explicit file reads
+  - explicit file searches
+  - verification requests
+  - Node-specific mutation requests
+- Structured decision fields are now exposed through runtime inspection signals:
+  - `decision_task_type`
+  - `decision_reasoning`
+  - `decision_reason_codes`
+  - `decision_requires_tools`
+  - `decision_requires_node_runtime`
+  - `decision_must_execute`
+  - `decision_suggested_tools`
+
+What is still true:
+
+- Decision quality is stronger for deterministic prompt families than for broad ambiguous requests.
+- Some recovery and planning prompts still depend on conservative planner behavior instead of a fully specialized decision policy.
+- Passing the decision dataset does not guarantee the downstream action itself will succeed.

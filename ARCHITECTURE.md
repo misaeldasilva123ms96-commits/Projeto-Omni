@@ -119,3 +119,4 @@ For a simpler introduction, see:
 - [docs/architecture/bridge-pipeline.md](docs/architecture/bridge-pipeline.md)
 - [docs/architecture/bridge-response-contract.md](docs/architecture/bridge-response-contract.md)
 - [docs/architecture/tool-runtime.md](docs/architecture/tool-runtime.md)
+- [docs/architecture/cognitive-decision-model.md](docs/architecture/cognitive-decision-model.md)

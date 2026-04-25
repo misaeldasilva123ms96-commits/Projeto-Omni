@@ -120,6 +120,32 @@ Recommended interpretation order:
 7. `compatibility_execution_active`
 8. `provider_actual` and `execution_provenance`
 
+## Cognitive decision diagnosis
+
+The canonical decision-quality rules live in:
+
+- [../architecture/cognitive-decision-model.md](../architecture/cognitive-decision-model.md)
+
+The curated regression dataset lives in:
+
+- `tests/cognitive/decision_dataset.yaml`
+
+To validate decision quality directly:
+
+```bash
+python -m pytest -q tests/cognitive/test_decision_quality.py
+```
+
+When reporting a decision bug, include:
+
+- the exact prompt
+- expected strategy
+- expected tool, if any
+- expected `primary_execution_type`
+- actual `decision_reasoning`
+- actual `decision_reason_codes`
+- actual `decision_suggested_tools`
+
 ## Tool runtime diagnosis
 
 For tool-capable prompts, inspect these fields before reading backend logs:

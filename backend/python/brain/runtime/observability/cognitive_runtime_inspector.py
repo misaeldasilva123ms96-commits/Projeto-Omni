@@ -490,6 +490,16 @@ def build_cognitive_runtime_inspection(
             "manifest_driven_execution": bool(lora_payload.get("manifest_driven_execution", False)),
             "response_synthesis_mode": str(lora_payload.get("response_synthesis_mode", "") or ""),
             "governance_downgrade_applied": bool(lora_payload.get("governance_downgrade_applied", False)),
+            "decision_task_type": str(lora_payload.get("decision_task_type", "") or ""),
+            "decision_reasoning": str(lora_payload.get("decision_reasoning", "") or ""),
+            "decision_reason_codes": list(lora_payload.get("decision_reason_codes", []) or []),
+            "decision_requires_tools": bool(lora_payload.get("decision_requires_tools", False)),
+            "decision_requires_node_runtime": bool(lora_payload.get("decision_requires_node_runtime", False)),
+            "decision_must_execute": bool(lora_payload.get("decision_must_execute", False)),
+            "decision_suggested_tools": list(lora_payload.get("decision_suggested_tools", []) or []),
+            "decision_preferred_capability_path": str(
+                lora_payload.get("decision_preferred_capability_path", "") or ""
+            ),
             "execution_trace_summary": str(
                 (lora_payload.get("trace") or {}).get("execution_trace_summary", "")
                 if isinstance(lora_payload.get("trace"), dict)

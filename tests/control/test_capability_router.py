@@ -29,6 +29,8 @@ class CapabilityRouterTest(unittest.TestCase):
         self.assertEqual(decision.verification_intensity, "low")
         self.assertEqual(decision.recommended_specialists, [])
         self.assertFalse(decision.specialist_delegation_recommended)
+        self.assertFalse(decision.must_execute)
+        self.assertEqual(decision.suggested_tools, [])
 
     def test_repository_analysis_route(self) -> None:
         decision = self.router.classify_task("analise o repositorio e dependencias")
@@ -38,6 +40,7 @@ class CapabilityRouterTest(unittest.TestCase):
         self.assertEqual(decision.verification_intensity, "medium")
         self.assertIn("repoImpactAnalyzer", decision.recommended_specialists)
         self.assertTrue(decision.specialist_delegation_recommended)
+        self.assertIn("code_search", decision.suggested_tools)
 
     def test_single_file_code_mutation_route(self) -> None:
         decision = self.router.classify_task("corrija este arquivo e aplique o patch")
@@ -52,6 +55,7 @@ class CapabilityRouterTest(unittest.TestCase):
         self.assertIn("dependencyImpactSpecialist", decision.recommended_specialists)
         self.assertIn("testSelectionSpecialist", decision.recommended_specialists)
         self.assertTrue(decision.specialist_delegation_recommended)
+        self.assertTrue(decision.must_execute)
 
     def test_large_task_mutation_route(self) -> None:
         decision = self.router.classify_task(
@@ -79,6 +83,7 @@ class CapabilityRouterTest(unittest.TestCase):
         self.assertEqual(decision.execution_strategy, "verify_only")
         self.assertEqual(decision.verification_intensity, "high")
         self.assertIn("testSelectionSpecialist", decision.recommended_specialists)
+        self.assertEqual(decision.suggested_tools, ["test_runner"])
 
     def test_recovery_route(self) -> None:
         decision = self.router.classify_task("debug why this failed and retry after failure")
@@ -106,6 +111,23 @@ class CapabilityRouterTest(unittest.TestCase):
         self.assertTrue(decision.requires_node_runtime)
         runtime_record = decision.as_runtime_record().as_dict()
         self.assertEqual(runtime_record["strategy"], "NODE_RUNTIME_DELEGATION")
+
+    def test_file_read_route_prefers_local_tool(self) -> None:
+        decision = self.router.classify_task("analise o arquivo package.json")
+        self.assertEqual(decision.strategy, "TOOL_ASSISTED")
+        self.assertTrue(decision.requires_tools)
+        self.assertFalse(decision.requires_node_runtime)
+        self.assertEqual(decision.execution_strategy, "inspect_then_report")
+        self.assertEqual(decision.suggested_tools, ["read_file"])
+        self.assertTrue(decision.must_execute)
+        self.assertIn("explicit_file_read", decision.decision_reason_codes)
+
+    def test_file_search_route_prefers_glob_search(self) -> None:
+        decision = self.router.classify_task("encontre o arquivo tsconfig.json")
+        self.assertEqual(decision.strategy, "TOOL_ASSISTED")
+        self.assertEqual(decision.suggested_tools, ["glob_search"])
+        self.assertTrue(decision.must_execute)
+        self.assertIn("explicit_file_search", decision.decision_reason_codes)
 
 
 if __name__ == "__main__":
