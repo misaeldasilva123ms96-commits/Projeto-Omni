@@ -2,7 +2,7 @@ import { motion } from 'framer-motion'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ChatRequestState, RuntimeMetadata } from '../../types'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
-import { mockRuntimeState } from '../../state/runtimeConsoleStore'
+import { TOP_ACTIONS, mockRuntimeState, useRuntimeConsoleStore } from '../../state/runtimeConsoleStore'
 import { useLiveRuntimeMetrics } from '../../hooks/useLiveRuntimeMetrics'
 import { getGlowState } from '../../lib/ui/glow'
 
@@ -109,6 +109,9 @@ function RuntimeMetric({ label, value }: { label: string; value: string }) {
 }
 
 export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, sessionId }: RuntimePanelProps) {
+  const activeAction = useRuntimeConsoleStore((state) => state.activeAction)
+  const selectTopAction = useRuntimeConsoleStore((state) => state.selectTopAction)
+  const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
   const runtimeActive = requestState === 'loading' || lastMetadata?.signals?.node_execution_successful === true
   const liveMetrics = useLiveRuntimeMetrics(runtimeActive)
   const confidence = lastMetadata ? inferConfidence(lastMetadata) : liveMetrics.confidence
@@ -135,17 +138,25 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-teal-300 omni-active-dot" />
-            <button className={`rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} type="button">
+            <button className={`rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Runtime Intelligence está em modo monitor. Use Logs para abrir detalhes de observabilidade.')} type="button">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
             </button>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-sm">
-          {['Pesquisa', 'Pensar', 'Memória'].map((item, index) => (
-            <div key={item} className={`rounded-2xl border px-3 py-2 text-slate-200/85 transition ${index === 1 ? `bg-white/[0.07] ${getGlowState('active')}` : `border-white/8 bg-white/[0.04] ${getGlowState('hover')}`}`}>
-              {item}
-            </div>
-          ))}
+          {TOP_ACTIONS.slice(0, 3).map((item) => {
+            const active = activeAction === item.id
+            return (
+              <button
+                key={item.id}
+                className={`rounded-2xl border px-3 py-2 text-slate-200/85 transition ${active ? `bg-white/[0.07] ${getGlowState('active')}` : `border-white/8 bg-white/[0.04] ${getGlowState('hover')}`}`}
+                onClick={() => selectTopAction(item.id)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            )
+          })}
         </div>
       </div>
 

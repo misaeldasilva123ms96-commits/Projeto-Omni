@@ -17,6 +17,7 @@ type SidebarProps = {
   onChangeMode: (mode: ChatMode) => void
   onNewConversation?: () => void
   onSelectView: (view: View) => void
+  onSidebarItemSelected?: (item: SidebarItem) => void
   view: View
 }
 
@@ -83,9 +84,11 @@ export function Sidebar({
   onChangeMode,
   onNewConversation,
   onSelectView,
+  onSidebarItemSelected,
 }: SidebarProps) {
   const activeSidebarItem = useRuntimeConsoleStore((state) => state.activeSidebarItem)
-  const setActiveSidebarItem = useRuntimeConsoleStore((state) => state.setActiveSidebarItem)
+  const selectSidebarItem = useRuntimeConsoleStore((state) => state.selectSidebarItem)
+  const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
 
   return (
     <motion.div
@@ -106,7 +109,7 @@ export function Sidebar({
               <div className="text-sm text-slate-300/70">Cognitive runtime console</div>
             </div>
           </div>
-          <button className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} type="button">
+          <button className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Seletor de perfil Omni ainda não possui múltiplos perfis nesta branch.')} type="button">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
           </button>
         </div>
@@ -128,7 +131,8 @@ export function Sidebar({
                     : `border-white/5 bg-white/[0.03] text-slate-200/80 hover:bg-white/[0.06] hover:text-white ${getGlowState('hover')}`
                 }`}
                 onClick={() => {
-                  setActiveSidebarItem(item.id)
+                  selectSidebarItem(item.id)
+                  onSidebarItemSelected?.(item.id)
                   handleItemSelection(item.id, onSelectView, onNewConversation)
                 }}
                 type="button"
@@ -162,7 +166,8 @@ export function Sidebar({
                     : `border-white/5 bg-white/[0.03] text-slate-200/80 hover:bg-white/[0.06] hover:text-white ${getGlowState('hover')}`
                 }`}
                 onClick={() => {
-                  setActiveSidebarItem(item.id)
+                  selectSidebarItem(item.id)
+                  onSidebarItemSelected?.(item.id)
                   handleItemSelection(item.id, onSelectView, onNewConversation)
                 }}
                 type="button"

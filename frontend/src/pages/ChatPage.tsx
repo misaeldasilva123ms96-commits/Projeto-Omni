@@ -9,6 +9,7 @@ import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
 import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
+import { useRuntimeConsoleStore, type ConsoleAction, type SidebarItem } from '../state/runtimeConsoleStore'
 import type {
   ChatMessage,
   ChatMode,
@@ -165,6 +166,25 @@ const MODE_LABELS: Record<ChatMode, string> = {
   pesquisa: 'Pesquisa',
 }
 
+const SIDEBAR_PROMPTS: Partial<Record<SidebarItem, { mode: ChatMode; prompt: string }>> = {
+  brainstorm: {
+    mode: 'chat',
+    prompt: 'Faça um brainstorm estruturado com hipóteses, riscos e próximos passos.',
+  },
+  'analisar-dados': {
+    mode: 'pesquisa',
+    prompt: 'Analise os dados disponíveis e destaque padrões, riscos e lacunas.',
+  },
+  'criar-plano': {
+    mode: 'agente',
+    prompt: 'Crie um plano de execução incremental com etapas, critérios de validação e riscos.',
+  },
+  'executar-tarefa': {
+    mode: 'agente',
+    prompt: 'Prepare a execução desta tarefa, identifique ações necessárias e confirme limitações.',
+  },
+}
+
 export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPageProps) {
   const [messages, setMessages] = useState<ExtendedChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -174,6 +194,12 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
   const [telemetryTick, setTelemetryTick] = useState(0)
+  const resetRuntimeConsoleConversation = useRuntimeConsoleStore((state) => state.resetConversation)
+  const setConsoleCurrentMode = useRuntimeConsoleStore((state) => state.setCurrentMode)
+  const setConsoleIsSending = useRuntimeConsoleStore((state) => state.setIsSending)
+  const setConsoleLastError = useRuntimeConsoleStore((state) => state.setLastError)
+  const setConsoleRuntimeMetadata = useRuntimeConsoleStore((state) => state.setRuntimeMetadata)
+  const setConsoleUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
   const apiReady = canUseApi()
   const telemetry = useCognitiveTelemetry(apiReady, telemetryTick)
   const healthUi: UiRuntimeStatus | null = telemetry.publicRuntime
@@ -301,6 +327,8 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     setError(null)
     setRequestState('loading')
     setIsLoading(true)
+    setConsoleIsSending(true)
+    setConsoleLastError(null)
 
     try {
       const data = await sendWithRetry(prompt, { sessionId })
@@ -313,6 +341,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       await sleep(420)
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
+      setConsoleRuntimeMetadata(metadata)
       setMessages((current) => current.map((message) => (
         message.id === loadingMessageId
           ? {
@@ -336,12 +365,14 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       if (failedMetadata) {
         setSessionId(failedMetadata.sessionId ?? sessionId)
         setLastMetadata(failedMetadata)
+        setConsoleRuntimeMetadata(failedMetadata)
       }
-      setError(
+      const safeError =
         err instanceof Error
           ? err.message
-          : 'Falha inesperada ao consultar o runtime.',
-      )
+          : 'Falha inesperada ao consultar o runtime.'
+      setError(safeError)
+      setConsoleLastError(safeError)
       setMessages((current) => current.map((message) => (
         message.id === loadingMessageId
           ? {
@@ -356,6 +387,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       )))
     } finally {
       setIsLoading(false)
+      setConsoleIsSending(false)
     }
   }
 
@@ -368,6 +400,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     setRequestState('idle')
     setIsLoading(false)
     setSessionId(nextSessionId)
+    resetRuntimeConsoleConversation()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       input: '',
       lastMetadata: null,
@@ -375,6 +408,27 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       requestState: 'idle',
       sessionId: nextSessionId,
     } satisfies StoredChatState))
+  }
+
+  function handleTopActionSelect(action: ConsoleAction) {
+    const nextMode: ChatMode = action === 'pesquisa' ? 'pesquisa' : action === 'executar' || action === 'objetivos' ? 'agente' : 'chat'
+    setConsoleCurrentMode(nextMode)
+    onChangeMode(nextMode)
+  }
+
+  function handleSidebarItemSelected(item: SidebarItem) {
+    const preset = SIDEBAR_PROMPTS[item]
+    if (preset) {
+      onChangeMode(preset.mode)
+      setConsoleCurrentMode(preset.mode)
+      setInput(preset.prompt)
+      setConsoleUiNotice(`Preset "${item}" carregado no composer. Revise e envie quando quiser executar.`)
+      return
+    }
+
+    if (item === 'memoria' || item === 'simulacoes' || item === 'insights' || item === 'configuracoes-ia') {
+      setConsoleUiNotice('Este módulo ainda não possui backend dedicado nesta branch, mas a navegação e o estado da interface estão funcionais.')
+    }
   }
 
   return (
@@ -386,6 +440,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           mode={mode}
           onChangeMode={onChangeMode}
           onNewConversation={handleNewConversation}
+          onSidebarItemSelected={handleSidebarItemSelected}
           onSelectView={onChangeView}
           view={view}
         />
@@ -404,6 +459,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           onSubmit={() => {
             void handleSubmit()
           }}
+          onTopActionSelect={handleTopActionSelect}
           requestState={requestState}
           sessionId={sessionId}
         />
