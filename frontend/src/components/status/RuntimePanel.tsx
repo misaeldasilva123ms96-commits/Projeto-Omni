@@ -126,12 +126,11 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
   const confidence = inferConfidence(lastMetadata)
   const progress = goalProgress(lastMetadata)
   const ranked = simulationPaths(lastMetadata)
-  const runtimeMode = lastMetadata?.runtimeMode ?? health?.runtimeMode ?? modeLabel
-  const executionPath = lastMetadata?.executionPathUsed ?? 'not-recorded'
+  const runtimeMode = lastMetadata?.runtimeMode ?? 'Cognitive Runtime'
 
   return (
     <motion.div
-      className="flex h-full flex-col overflow-hidden rounded-[30px] border border-white/10 bg-panel-gradient px-4 py-5 shadow-neon-blue backdrop-blur-xl"
+      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[rgba(98,141,255,0.16)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-[0_0_0_1px_rgba(78,164,255,0.1),0_0_18px_rgba(78,164,255,0.18),0_20px_52px_rgba(0,0,0,0.36)] backdrop-blur-xl"
       initial={{ opacity: 0, x: 12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
@@ -141,7 +140,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[radial-gradient(circle_at_40%_35%,rgba(255,255,255,0.92),rgba(181,109,255,0.76)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.45)_72%)] shadow-[0_0_24px_rgba(123,97,255,0.38)]" />
             <div>
-              <div className="text-[34px] font-semibold tracking-tight text-white">Omni AI</div>
+              <div className="text-[22px] font-semibold tracking-tight text-white">Omni AI</div>
               <div className="text-sm text-slate-300/70">Runtime Intelligence</div>
             </div>
           </div>
@@ -162,19 +161,17 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto pr-1">
-        <section className="rounded-[26px] border border-white/10 bg-black/15 px-4 py-4">
-          <h3 className="mb-3 text-[32px] font-medium tracking-tight text-white">Runtime Status</h3>
+        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+          <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Runtime Status</h3>
           <RuntimeMetric label="Mode" value={runtimeMode} />
           <RuntimeMetric label="Strategy" value={inferStrategy(lastMetadata)} />
           <RuntimeMetric label="Confidence" value={confidence.toFixed(2)} />
           <RuntimeMetric label="Execution Time" value={inferExecutionTime(lastMetadata)} />
           <RuntimeMetric label="Memory" value={inferMemoryStatus(lastMetadata)} />
-          <RuntimeMetric label="Execution Path" value={executionPath} />
-          <RuntimeMetric label="Request State" value={requestState} />
         </section>
 
-        <section className="rounded-[26px] border border-white/10 bg-black/15 px-4 py-4">
-          <h3 className="mb-3 text-[30px] font-medium tracking-tight text-white">Goal Model</h3>
+        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+          <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Goal Model</h3>
           <div className="space-y-3">
             <div>
               <div className="text-sm text-slate-300/70">Current Goal</div>
@@ -199,8 +196,8 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </div>
         </section>
 
-        <section className="rounded-[26px] border border-white/10 bg-black/15 px-4 py-4">
-          <h3 className="mb-3 text-[30px] font-medium tracking-tight text-white">Simulation</h3>
+        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+          <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Simulation</h3>
           <div className="mb-3 text-sm text-slate-300/70">
             Paths considered: {lastMetadata?.matchedTools?.length ?? mockRuntimeState.pathsConsidered}
           </div>
@@ -213,10 +210,10 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </ol>
         </section>
 
-        <section className="rounded-[26px] border border-white/10 bg-black/15 px-4 py-4">
+        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-[30px] font-medium tracking-tight text-white">Cognitive Evolution</h3>
+              <h3 className="text-[18px] font-medium tracking-tight text-white">Cognitive Evolution</h3>
               <div className="mt-1 text-sm text-slate-300/70">Run ID: {sessionId || mockRuntimeState.runId}</div>
             </div>
             <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs uppercase tracking-[0.28em] text-slate-300">
@@ -242,29 +239,6 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </section>
-
-        <section className="rounded-[26px] border border-white/10 bg-black/15 px-4 py-4">
-          <h3 className="mb-3 text-xl font-medium text-white">Runtime Truth</h3>
-          <RuntimeMetric label="Provider" value={providerSummary(lastMetadata)} />
-          <RuntimeMetric label="Failure Class" value={lastMetadata?.failureClass ?? 'none'} />
-          <RuntimeMetric label="Fallback Triggered" value={boolText(lastMetadata?.fallbackTriggered)} />
-          <RuntimeMetric
-            label="Compatibility Execution"
-            value={boolText(lastMetadata?.compatibilityExecutionActive)}
-          />
-          <RuntimeMetric
-            label="Inspection Present"
-            value={lastMetadata?.cognitiveRuntimeInspection ? 'yes' : 'no'}
-          />
-          <RuntimeMetric
-            label="Provenance Present"
-            value={lastMetadata?.executionProvenance ? 'yes' : 'no'}
-          />
-          <RuntimeMetric
-            label="Tool Selected"
-            value={lastMetadata?.toolExecution?.tool_selected ?? 'none'}
-          />
         </section>
       </div>
     </motion.div>
