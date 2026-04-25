@@ -1,7 +1,9 @@
 import { create } from 'zustand'
+import type { ChatMode, RuntimeMetadata } from '../types'
 
 export type ConsoleAction = 'pesquisa' | 'pensar' | 'executar' | 'objetivos'
 export type ConsoleTab = 'plano' | 'simulacao' | 'raciocinio'
+export type ConsolePanelView = 'chat' | 'history' | 'memory' | 'simulation' | 'insights' | 'logs' | 'settings'
 export type SidebarItem =
   | 'nova-conversa'
   | 'historico'
@@ -43,11 +45,29 @@ export type RuntimeConsoleMockState = {
 
 type RuntimeConsoleState = {
   activeAction: ConsoleAction
+  activeTopAction: ConsoleAction
   activeSidebarItem: SidebarItem
   activeTab: ConsoleTab
+  currentMode: ChatMode
+  isSending: boolean
+  lastError: string | null
+  lastRuntimeMetadata: RuntimeMetadata | null
+  panelView: ConsolePanelView
+  selectedTool: SidebarItem | null
+  uiNotice: string | null
+  clearUiNotice: () => void
+  resetConversation: () => void
+  selectBottomTab: (tab: ConsoleTab) => void
+  selectSidebarItem: (item: SidebarItem) => void
+  selectTopAction: (action: ConsoleAction) => void
   setActiveAction: (action: ConsoleAction) => void
   setActiveSidebarItem: (item: SidebarItem) => void
   setActiveTab: (tab: ConsoleTab) => void
+  setCurrentMode: (mode: ChatMode) => void
+  setIsSending: (isSending: boolean) => void
+  setLastError: (lastError: string | null) => void
+  setRuntimeMetadata: (metadata: RuntimeMetadata | null) => void
+  setUiNotice: (uiNotice: string | null) => void
 }
 
 export const TOP_ACTIONS: Array<{ id: ConsoleAction; label: string }> = [
@@ -102,11 +122,63 @@ export const mockRuntimeState: RuntimeConsoleMockState = {
   ],
 }
 
+const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
+  'nova-conversa': 'chat',
+  historico: 'history',
+  memoria: 'memory',
+  simulacoes: 'simulation',
+  brainstorm: 'chat',
+  'analisar-dados': 'chat',
+  'criar-plano': 'chat',
+  'executar-tarefa': 'chat',
+  insights: 'insights',
+  logs: 'logs',
+  'configuracoes-ia': 'settings',
+}
+
 export const useRuntimeConsoleStore = create<RuntimeConsoleState>((set) => ({
   activeAction: 'pensar',
+  activeTopAction: 'pensar',
   activeSidebarItem: 'nova-conversa',
   activeTab: 'plano',
-  setActiveAction: (activeAction) => set({ activeAction }),
-  setActiveSidebarItem: (activeSidebarItem) => set({ activeSidebarItem }),
+  currentMode: 'chat',
+  isSending: false,
+  lastError: null,
+  lastRuntimeMetadata: null,
+  panelView: 'chat',
+  selectedTool: null,
+  uiNotice: null,
+  clearUiNotice: () => set({ uiNotice: null }),
+  resetConversation: () => set({
+    activeSidebarItem: 'nova-conversa',
+    lastError: null,
+    lastRuntimeMetadata: null,
+    panelView: 'chat',
+    selectedTool: null,
+    uiNotice: 'Nova conversa iniciada. O estado local da sessão foi limpo.',
+  }),
+  selectBottomTab: (activeTab) => set({ activeTab, uiNotice: null }),
+  selectSidebarItem: (activeSidebarItem) => set({
+    activeSidebarItem,
+    panelView: sidebarPanelView[activeSidebarItem],
+    selectedTool: TOOL_ITEMS.some((item) => item.id === activeSidebarItem) ? activeSidebarItem : null,
+    uiNotice: activeSidebarItem === 'nova-conversa' ? null : null,
+  }),
+  selectTopAction: (activeAction) => set({
+    activeAction,
+    activeTopAction: activeAction,
+    currentMode: activeAction === 'pesquisa' ? 'pesquisa' : activeAction === 'executar' ? 'agente' : 'chat',
+    uiNotice: null,
+  }),
+  setActiveAction: (activeAction) => set({ activeAction, activeTopAction: activeAction }),
+  setActiveSidebarItem: (activeSidebarItem) => set({
+    activeSidebarItem,
+    panelView: sidebarPanelView[activeSidebarItem],
+  }),
   setActiveTab: (activeTab) => set({ activeTab }),
+  setCurrentMode: (currentMode) => set({ currentMode }),
+  setIsSending: (isSending) => set({ isSending }),
+  setLastError: (lastError) => set({ lastError }),
+  setRuntimeMetadata: (lastRuntimeMetadata) => set({ lastRuntimeMetadata }),
+  setUiNotice: (uiNotice) => set({ uiNotice }),
 }))

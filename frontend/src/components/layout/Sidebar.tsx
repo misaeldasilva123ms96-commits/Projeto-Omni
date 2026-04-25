@@ -6,6 +6,7 @@ import {
   useRuntimeConsoleStore,
   type SidebarItem,
 } from '../../state/runtimeConsoleStore'
+import { getGlowState } from '../../lib/ui/glow'
 
 type View = 'chat' | 'dashboard' | 'observability'
 
@@ -16,6 +17,7 @@ type SidebarProps = {
   onChangeMode: (mode: ChatMode) => void
   onNewConversation?: () => void
   onSelectView: (view: View) => void
+  onSidebarItemSelected?: (item: SidebarItem) => void
   view: View
 }
 
@@ -82,22 +84,24 @@ export function Sidebar({
   onChangeMode,
   onNewConversation,
   onSelectView,
+  onSidebarItemSelected,
 }: SidebarProps) {
   const activeSidebarItem = useRuntimeConsoleStore((state) => state.activeSidebarItem)
-  const setActiveSidebarItem = useRuntimeConsoleStore((state) => state.setActiveSidebarItem)
+  const selectSidebarItem = useRuntimeConsoleStore((state) => state.selectSidebarItem)
+  const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
 
   return (
     <motion.div
-      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[rgba(180,109,255,0.18)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-neon-purple backdrop-blur-xl"
+      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[rgba(180,109,255,0.18)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-[0_22px_50px_rgba(0,0,0,0.36)] backdrop-blur-xl"
       initial={{ opacity: 0, x: -12 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
       animate={{ opacity: 1, x: 0 }}
     >
-      <div className="mb-5 rounded-[24px] border border-white/8 bg-black/15 px-4 py-4 shadow-glass-edge">
+      <div className="mb-5 rounded-[24px] border border-white/8 bg-black/15 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
         <p className="mb-2 text-[11px] uppercase tracking-[0.45em] text-violet-200/70">IA Console</p>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.95),rgba(181,109,255,0.75)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.4)_70%)] shadow-[0_0_30px_rgba(123,97,255,0.48)]">
+            <div className={`flex h-12 w-12 items-center justify-center rounded-full border bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.95),rgba(181,109,255,0.75)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.4)_70%)] ${getGlowState('runtime')} omni-runtime-glow`}>
               <div className="h-3 w-3 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.95)]" />
             </div>
             <div>
@@ -105,7 +109,7 @@ export function Sidebar({
               <div className="text-sm text-slate-300/70">Cognitive runtime console</div>
             </div>
           </div>
-          <button className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-200/80 transition hover:border-neon-purple/50 hover:text-white" type="button">
+          <button className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Seletor de perfil Omni ainda não possui múltiplos perfis nesta branch.')} type="button">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
           </button>
         </div>
@@ -120,13 +124,15 @@ export function Sidebar({
               <motion.button
                 key={item.id}
                 whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.985, y: 1 }}
                 className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
                   active
-                    ? 'border-neon-purple/70 bg-[linear-gradient(135deg,rgba(181,109,255,0.22),rgba(118,73,255,0.1))] text-white shadow-[0_0_28px_rgba(181,109,255,0.22)]'
-                    : 'border-white/5 bg-white/[0.03] text-slate-200/80 hover:border-neon-blue/30 hover:bg-white/[0.06] hover:text-white'
+                    ? `bg-[linear-gradient(135deg,rgba(181,109,255,0.22),rgba(118,73,255,0.1))] text-white ${getGlowState('active')}`
+                    : `border-white/5 bg-white/[0.03] text-slate-200/80 hover:bg-white/[0.06] hover:text-white ${getGlowState('hover')}`
                 }`}
                 onClick={() => {
-                  setActiveSidebarItem(item.id)
+                  selectSidebarItem(item.id)
+                  onSidebarItemSelected?.(item.id)
                   handleItemSelection(item.id, onSelectView, onNewConversation)
                 }}
                 type="button"
@@ -153,13 +159,15 @@ export function Sidebar({
               <motion.button
                 key={item.id}
                 whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.985, y: 1 }}
                 className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
                   active
-                    ? 'border-neon-blue/60 bg-white/10 text-white shadow-neon-blue'
-                    : 'border-white/5 bg-white/[0.03] text-slate-200/80 hover:border-neon-blue/30 hover:bg-white/[0.06] hover:text-white'
+                    ? `bg-white/10 text-white ${getGlowState('active')}`
+                    : `border-white/5 bg-white/[0.03] text-slate-200/80 hover:bg-white/[0.06] hover:text-white ${getGlowState('hover')}`
                 }`}
                 onClick={() => {
-                  setActiveSidebarItem(item.id)
+                  selectSidebarItem(item.id)
+                  onSidebarItemSelected?.(item.id)
                   handleItemSelection(item.id, onSelectView, onNewConversation)
                 }}
                 type="button"
