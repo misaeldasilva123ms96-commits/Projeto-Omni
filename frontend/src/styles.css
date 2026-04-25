@@ -1,3 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    font-family: "Inter", "Geist", "Segoe UI Variable", "Segoe UI", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(87, 108, 255, 0.18), transparent 28%),
+      radial-gradient(circle at top right, rgba(29, 214, 194, 0.12), transparent 22%),
+      linear-gradient(180deg, #040814 0%, #07101f 48%, #08111c 100%);
+    color: #eef4ff;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-cosmic-gradient text-slate-50 antialiased;
+    margin: 0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  button,
+  textarea {
+    font: inherit;
+  }
+
+  button,
+  textarea,
+  a {
+    pointer-events: auto;
+  }
+
+  button {
+    border: 0;
+  }
+}
+
+@layer utilities {
+  .omni-scrollbar {
+    scrollbar-color: rgba(181, 109, 255, 0.38) transparent;
+    scrollbar-width: thin;
+  }
+
+  .omni-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .omni-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background: linear-gradient(180deg, rgba(181, 109, 255, 0.45), rgba(78, 164, 255, 0.45));
+    background-clip: padding-box;
+  }
+
+  .omni-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
 :root {
   --omni-space-1: 8px;
   --omni-space-2: 12px;

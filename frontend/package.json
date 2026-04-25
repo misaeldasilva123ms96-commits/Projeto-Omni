@@ -11,14 +11,20 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.1",
+    "framer-motion": "^12.38.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^3.8.1",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }
