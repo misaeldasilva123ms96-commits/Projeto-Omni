@@ -120,6 +120,37 @@ Recommended interpretation order:
 7. `compatibility_execution_active`
 8. `provider_actual` and `execution_provenance`
 
+## Tool runtime diagnosis
+
+For tool-capable prompts, inspect these fields before reading backend logs:
+
+- `tool_execution.tool_selected`
+- `tool_execution.tool_attempted`
+- `tool_execution.tool_succeeded`
+- `tool_execution.tool_failed`
+- `tool_execution.tool_denied`
+- `tool_execution.tool_failure_class`
+- `tool_execution.tool_failure_reason`
+- `tool_execution.tool_latency_ms`
+
+Interpretation:
+
+- `tool_attempted=false`
+  - the turn planned or exposed a tool, but did not actually execute one
+- `tool_denied=true`
+  - governance/policy/operator blocked the action
+- `tool_failed=true`
+  - the tool runtime was reached and failed after attempt
+- `tool_succeeded=true`
+  - the action executed successfully
+
+If `tool_failed=true` but:
+
+- `provider_failed=false`
+- `failure_class` is empty or bridge-safe
+
+then the problem is downstream in the tool runtime, not in provider routing.
+
 ## Bridge failure diagnosis
 
 Use `error.failure_class` first when the response is degraded at a runtime boundary.

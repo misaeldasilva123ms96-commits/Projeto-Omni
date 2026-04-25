@@ -111,3 +111,26 @@ What is still true:
 
 - `configured` and `available` are currently configuration-level signals, not active network health checks.
 - A selected provider does not guarantee an actual remote provider call happened on that turn.
+
+## Tool runtime reliability
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- Tool/action turns now emit normalized diagnostics through:
+  - `tool_execution`
+  - `tool_diagnostics`
+  - `cognitive_runtime_inspection.signals.tool_execution`
+- Common local engineering-tool aliases now execute directly in Python:
+  - `read_file`
+  - `write_file`
+  - `glob_search`
+- Tool denial is now distinguishable from tool failure.
+- The frontend debug panel can now show the last turn's tool execution metadata.
+
+What is still true:
+
+- Some tool-capable prompts still choose a suboptimal planned tool.
+- Rust-backed actions can still fail even when provider and bridge health are fine.
+- A truthful `FULL_COGNITIVE_RUNTIME` turn does not guarantee the tool itself succeeded; inspect `tool_execution` before assuming the action completed.

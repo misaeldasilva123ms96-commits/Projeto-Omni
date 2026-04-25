@@ -247,6 +247,10 @@ def main() -> int:
             safe_response["provider_failed"] = signals.get("provider_failed")
         if "failure_class" in signals:
             safe_response["failure_class"] = signals.get("failure_class")
+        if "tool_execution" in signals:
+            safe_response["tool_execution"] = signals.get("tool_execution")
+        if "tool_diagnostics" in signals:
+            safe_response["tool_diagnostics"] = signals.get("tool_diagnostics")
     if not isinstance(safe_response.get("provider_diagnostics"), list):
         safe_response["provider_diagnostics"] = describe_provider_diagnostics(
             actual_provider=str(safe_response.get("provider_actual", "") or ""),
@@ -297,6 +301,8 @@ if __name__ == "__main__":
                             "compatibility_execution_active": False,
                             "provider_actual": "",
                             "provider_failed": False,
+                            "tool_execution": None,
+                            "tool_diagnostics": None,
                             "execution_provenance": None,
                             "provider_diagnostics": describe_provider_diagnostics(include_embedded_local=True),
                         },

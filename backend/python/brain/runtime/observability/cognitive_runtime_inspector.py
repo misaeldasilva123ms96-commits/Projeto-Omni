@@ -214,6 +214,20 @@ def build_cognitive_runtime_inspection(
         provider_diagnostics = []
     provider_fallback_occurred = bool(execution_provenance.get("provider_fallback_occurred", False))
     no_provider_available = bool(execution_provenance.get("no_provider_available", False))
+    tool_execution = None
+    tool_diagnostics: list[dict[str, Any]] = []
+    if isinstance(lora_payload, dict):
+        maybe_tool_execution = lora_payload.get("tool_execution")
+        if isinstance(maybe_tool_execution, dict):
+            tool_execution = dict(maybe_tool_execution)
+        maybe_tool_diagnostics = lora_payload.get("tool_diagnostics")
+        if isinstance(maybe_tool_diagnostics, list):
+            tool_diagnostics = [dict(item) for item in maybe_tool_diagnostics if isinstance(item, dict)]
+        raw_result = lora_payload.get("raw_result")
+        if tool_execution is None and isinstance(raw_result, dict) and isinstance(raw_result.get("tool_execution"), dict):
+            tool_execution = dict(raw_result.get("tool_execution") or {})
+        if not tool_diagnostics and isinstance(raw_result, dict) and isinstance(raw_result.get("tool_diagnostics"), list):
+            tool_diagnostics = [dict(item) for item in raw_result.get("tool_diagnostics", []) if isinstance(item, dict)]
 
     lane_info = classify_runtime_lane(
         response=r,
@@ -518,6 +532,18 @@ def build_cognitive_runtime_inspection(
             "provider_diagnostics": provider_diagnostics or None,
             "provider_fallback_occurred": provider_fallback_occurred,
             "no_provider_available": no_provider_available,
+            "tool_execution": tool_execution,
+            "tool_diagnostics": tool_diagnostics or None,
+            "tool_requested": bool(tool_execution.get("tool_requested")) if isinstance(tool_execution, dict) else False,
+            "tool_selected": tool_execution.get("tool_selected") if isinstance(tool_execution, dict) else None,
+            "tool_available": bool(tool_execution.get("tool_available")) if isinstance(tool_execution, dict) else False,
+            "tool_attempted": bool(tool_execution.get("tool_attempted")) if isinstance(tool_execution, dict) else False,
+            "tool_succeeded": bool(tool_execution.get("tool_succeeded")) if isinstance(tool_execution, dict) else False,
+            "tool_failed": bool(tool_execution.get("tool_failed")) if isinstance(tool_execution, dict) else False,
+            "tool_denied": bool(tool_execution.get("tool_denied")) if isinstance(tool_execution, dict) else False,
+            "tool_failure_class": tool_execution.get("tool_failure_class") if isinstance(tool_execution, dict) else None,
+            "tool_failure_reason": tool_execution.get("tool_failure_reason") if isinstance(tool_execution, dict) else None,
+            "tool_latency_ms": tool_execution.get("tool_latency_ms") if isinstance(tool_execution, dict) else None,
             "execution_provenance": execution_provenance or None,
             "node_execution_successful": node_execution_successful,
             "coarse_runtime_mode": (
