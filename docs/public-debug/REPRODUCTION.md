@@ -146,6 +146,10 @@ When reporting a decision bug, include:
 - actual `decision_reason_codes`
 - actual `decision_suggested_tools`
 
+For learning-loop inspection:
+
+- [LEARNING_DEBUGGING.md](./LEARNING_DEBUGGING.md)
+
 ## Tool runtime diagnosis
 
 For tool-capable prompts, inspect these fields before reading backend logs:

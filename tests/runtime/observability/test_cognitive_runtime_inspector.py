@@ -364,3 +364,23 @@ def test_decision_reasoning_signals_are_exposed() -> None:
     assert row["signals"]["decision_requires_node_runtime"] is False
     assert row["signals"]["decision_must_execute"] is True
     assert row["signals"]["decision_suggested_tools"] == ["read_file"]
+
+
+def test_learning_debug_signals_are_exposed() -> None:
+    row = build_cognitive_runtime_inspection(
+        **_base_kwargs(
+            response="conteudo do arquivo",
+            learning_record={
+                "assessment": {"execution_path": "swarm"},
+                "phase10_learning_record": {"record_id": "clr-1", "selected_strategy": "TOOL_ASSISTED"},
+                "phase10_improvement_signals": [{"type": "ROUTING_IMPROVEMENT"}],
+                "learning_record_created": True,
+                "decision_correct": True,
+                "decision_issue": "",
+            },
+        )
+    )
+    assert row["signals"]["learning_record_created"] is True
+    assert row["signals"]["decision_correct"] is True
+    assert row["signals"]["phase10_learning_record"]["record_id"] == "clr-1"
+    assert row["signals"]["phase10_improvement_signals"][0]["type"] == "ROUTING_IMPROVEMENT"

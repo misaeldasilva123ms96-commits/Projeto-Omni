@@ -337,10 +337,24 @@ def build_cognitive_runtime_inspection(
     )
 
     learning_path = ""
+    phase10_learning_record = {}
+    learning_record_created = False
+    phase10_decision_correct = None
+    phase10_decision_issue = ""
+    phase10_improvement_signals: list[dict[str, Any]] = []
     if isinstance(learning_record, dict):
         assess = learning_record.get("assessment")
         if isinstance(assess, dict):
             learning_path = str(assess.get("execution_path") or "")
+        if isinstance(learning_record.get("phase10_learning_record"), dict):
+            phase10_learning_record = dict(learning_record.get("phase10_learning_record") or {})
+        learning_record_created = bool(learning_record.get("learning_record_created", False))
+        phase10_decision_correct = learning_record.get("decision_correct")
+        phase10_decision_issue = str(learning_record.get("decision_issue", "") or "")
+        if isinstance(learning_record.get("phase10_improvement_signals"), list):
+            phase10_improvement_signals = [
+                dict(item) for item in learning_record.get("phase10_improvement_signals", []) if isinstance(item, dict)
+            ]
 
     if provider_failed:
         runtime_reason = failure_class or runtime_reason or "provider_failure"
@@ -580,6 +594,11 @@ def build_cognitive_runtime_inspection(
             "node_cognitive_hint": node_cognitive_hint if isinstance(node_cognitive_hint, dict) else None,
             "node_outcome": node_outcome if isinstance(node_outcome, dict) else None,
             "duration_ms": int(duration_ms),
+            "learning_record_created": learning_record_created,
+            "decision_correct": phase10_decision_correct,
+            "decision_issue": phase10_decision_issue or None,
+            "phase10_learning_record": phase10_learning_record or None,
+            "phase10_improvement_signals": phase10_improvement_signals or None,
             **lora_signals,
         },
     }
