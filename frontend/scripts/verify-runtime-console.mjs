@@ -12,6 +12,8 @@ const sidebar = read('src/components/layout/Sidebar.tsx')
 const runtimePanel = read('src/components/status/RuntimePanel.tsx')
 const store = read('src/state/runtimeConsoleStore.ts')
 const chatApi = read('src/lib/api/chat.ts')
+const layout = read('src/components/layout/Layout.tsx')
+const main = read('src/main.tsx')
 
 assert.match(chatApi, /POST \/api\/v1\/chat|CHAT_V1_PATH = '\/api\/v1\/chat'/, 'chat API must prefer /api/v1/chat')
 assert.match(chatApi, /CHAT_LEGACY_PATH = '\/chat'/, 'chat API must preserve legacy /chat fallback')
@@ -20,6 +22,7 @@ assert.match(chatApi, /if \(!trimmed\)/, 'empty chat messages must be rejected b
 assert.match(chatPage, /createMessage\('user', prompt\)/, 'user message must render immediately')
 assert.match(chatPage, /isLoading: true/, 'assistant loading state must render while sending')
 assert.match(chatPage, /setConsoleRuntimeMetadata\(metadata\)/, 'runtime metadata must be stored after success')
+assert.match(chatPage, /streamAssistantMessage/, 'chat response must be stream-ready via simulated token rendering')
 assert.match(chatPage, /handleSidebarItemSelected/, 'sidebar selections must be handled by ChatPage')
 assert.match(chatPage, /handleTopActionSelect/, 'top actions must update runtime mode')
 
@@ -41,5 +44,12 @@ assert.match(chatPanel, /Este módulo ainda não possui backend dedicado/, 'unsu
 
 assert.match(runtimePanel, /selectTopAction\(item\.id\)/, 'runtime panel action chips must be clickable')
 assert.match(runtimePanel, /setUiNotice/, 'runtime panel dropdown must provide visible feedback')
+assert.match(runtimePanel, /Debug Mode/, 'runtime panel must expose debug mode')
+assert.match(runtimePanel, /debugPayload/, 'runtime panel must expose raw debug payload')
+
+assert.match(layout, /mobilePanel/, 'layout must expose responsive panel state')
+assert.match(layout, /Runtime/, 'layout must expose runtime tab for mobile/tablet')
+assert.match(layout, /Tools/, 'layout must expose tools tab for mobile/tablet')
+assert.match(main, /ErrorBoundary/, 'app root must be protected by ErrorBoundary')
 
 console.log('runtime console wiring checks passed')

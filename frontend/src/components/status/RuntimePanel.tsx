@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { useMemo, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ChatRequestState, RuntimeMetadata } from '../../types'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
@@ -109,6 +110,7 @@ function RuntimeMetric({ label, value }: { label: string; value: string }) {
 }
 
 export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, sessionId }: RuntimePanelProps) {
+  const [debugMode, setDebugMode] = useState(false)
   const activeAction = useRuntimeConsoleStore((state) => state.activeAction)
   const selectTopAction = useRuntimeConsoleStore((state) => state.selectTopAction)
   const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
@@ -119,6 +121,20 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
   const ranked = simulationPaths(lastMetadata)
   const runtimeMode = lastMetadata?.runtimeMode ?? health?.runtimeMode ?? modeLabel ?? 'Cognitive Runtime'
   const executionTime = lastMetadata ? inferExecutionTime(lastMetadata) : liveMetrics.executionTime
+  const debugPayload = useMemo(() => ({
+    api_response: lastMetadata ?? null,
+    latency_breakdown: {
+      execution_time: executionTime,
+      provider_latency_ms: lastMetadata?.providerDiagnostics?.find((provider) => provider.selected)?.latency_ms ?? null,
+      tool_latency_ms: lastMetadata?.toolExecution?.tool_latency_ms ?? null,
+    },
+    runtime: {
+      execution_path: lastMetadata?.executionPathUsed ?? null,
+      provider: lastMetadata?.providerActual ?? null,
+      runtime_mode: runtimeMode,
+      session_id: sessionId,
+    },
+  }), [executionTime, lastMetadata, runtimeMode, sessionId])
 
   return (
     <motion.div
@@ -138,6 +154,13 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-teal-300 omni-active-dot" />
+            <button
+              className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition active:translate-y-px ${debugMode ? `bg-neon-cyan/10 text-white ${getGlowState('active')}` : `border-white/10 bg-white/[0.05] text-slate-200/80 ${getGlowState('hover')}`}`}
+              onClick={() => setDebugMode((value) => !value)}
+              type="button"
+            >
+              Debug
+            </button>
             <button className={`rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Runtime Intelligence está em modo monitor. Use Logs para abrir detalhes de observabilidade.')} type="button">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
             </button>
@@ -252,6 +275,24 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
             </ResponsiveContainer>
           </div>
         </section>
+
+        {debugMode ? (
+          <section className="rounded-[24px] border border-neon-cyan/20 bg-black/20 px-4 py-4">
+            <details open>
+              <summary className="cursor-pointer text-[16px] font-medium tracking-tight text-white">
+                Debug Mode
+              </summary>
+              <div className="mt-3 grid gap-2 text-sm text-slate-200/80">
+                <RuntimeMetric label="Provider" value={lastMetadata?.providerActual ?? 'unknown'} />
+                <RuntimeMetric label="Execution Path" value={lastMetadata?.executionPathUsed ?? 'unknown'} />
+                <RuntimeMetric label="Failure Class" value={lastMetadata?.failureClass ?? 'none'} />
+              </div>
+              <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/35 p-3 text-[11px] leading-5 text-slate-200/80">
+                {JSON.stringify(debugPayload, null, 2)}
+              </pre>
+            </details>
+          </section>
+        ) : null}
       </div>
     </motion.div>
   )

@@ -284,6 +284,28 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     })
   }
 
+  async function streamAssistantMessage(messageId: string, text: string, metadata: RuntimeMetadata, requestState: ChatMessage['requestState']) {
+    const chunks = text.match(/.{1,28}(\s|$)/g) ?? [text]
+    let streamed = ''
+
+    for (const chunk of chunks) {
+      streamed += chunk
+      setMessages((current) => current.map((message) => (
+        message.id === messageId
+          ? {
+            ...message,
+            content: streamed.trimEnd(),
+            isLoading: false,
+            isNew: true,
+            metadata,
+            requestState,
+          }
+          : message
+      )))
+      await sleep(28)
+    }
+  }
+
   async function sendWithRetry(prompt: string, options: { sessionId: string }, maxRetries = 2) {
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
@@ -342,18 +364,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
       setConsoleRuntimeMetadata(metadata)
-      setMessages((current) => current.map((message) => (
-        message.id === loadingMessageId
-          ? {
-            ...message,
-            content: displayText,
-            isLoading: false,
-            isNew: true,
-            requestState: assistantOutcome,
-            metadata,
-          }
-          : message
-      )))
+      await streamAssistantMessage(loadingMessageId, displayText, metadata, assistantOutcome)
       setRequestState('idle')
       setTelemetryTick((value) => value + 1)
     } catch (err) {
