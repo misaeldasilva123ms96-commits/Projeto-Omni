@@ -21,13 +21,85 @@ _TASK_TYPE_BY_INTENT = {
 }
 
 _CAPABILITY_HINTS_BY_INTENT = {
-    "ask_question": ["read_file", "glob_search"],
-    "summarize": ["read_file"],
+    "ask_question": [],
+    "summarize": [],
     "compare": ["read_file", "grep_search"],
     "analyze": ["code_search", "grep_search"],
     "plan": ["git_status", "test_runner"],
     "execute_tool_like_action": ["shell_command", "test_runner"],
 }
+
+_READ_FILE_PATTERNS = (
+    "analise o arquivo",
+    "leia o arquivo",
+    "read the file",
+    "read file",
+    "open the file",
+    "abra o arquivo",
+    "show the file",
+    "mostre o arquivo",
+)
+
+_GLOB_SEARCH_PATTERNS = (
+    "encontre o arquivo",
+    "find the file",
+    "find file",
+    "procure o arquivo",
+    "search file",
+    "localize o arquivo",
+)
+
+_VERIFICATION_PATTERNS = (
+    "rode os testes",
+    "run tests",
+    "typecheck",
+    "lint",
+    "valide",
+    "validate",
+    "regress",
+)
+
+_MUTATION_PATTERNS = (
+    "corrija",
+    "fix ",
+    "fixe",
+    "refatore",
+    "refactor",
+    "implemente",
+    "implement",
+    "patch",
+    "aplique",
+    "change ",
+    "mude ",
+)
+
+_RECOVERY_PATTERNS = (
+    "debug why this failed",
+    "retry after failure",
+    "recover",
+    "recupere",
+    "conserte a execucao",
+    "broken execution path",
+)
+
+_FILE_REFERENCE_HINTS = (
+    ".json",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".py",
+    ".rs",
+    ".toml",
+    ".md",
+    ".yaml",
+    ".yml",
+    "package.json",
+    "cargo.toml",
+    "requirements.txt",
+    "pyproject.toml",
+    "tsconfig.json",
+)
 
 
 class ReasoningEngine:
@@ -189,7 +261,21 @@ class ReasoningEngine:
         memory_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         confidence = float(interpretation.get("confidence", 0.0))
-        suggested_capabilities = list(_CAPABILITY_HINTS_BY_INTENT.get(oil_request.intent, ["read_file"]))
+        normalized_input = str(oil_request.extensions.get("normalized_input", "") or "").strip().lower()
+        suggested_capabilities = list(_CAPABILITY_HINTS_BY_INTENT.get(oil_request.intent, []))
+        if any(pattern in normalized_input for pattern in _READ_FILE_PATTERNS) or (
+            any(hint in normalized_input for hint in _FILE_REFERENCE_HINTS)
+            and any(token in normalized_input for token in ("analise", "analyze", "leia", "read", "abra", "open"))
+        ):
+            suggested_capabilities = ["read_file"]
+        elif any(pattern in normalized_input for pattern in _GLOB_SEARCH_PATTERNS):
+            suggested_capabilities = ["glob_search"]
+        elif any(pattern in normalized_input for pattern in _VERIFICATION_PATTERNS):
+            suggested_capabilities = ["test_runner"]
+        elif any(pattern in normalized_input for pattern in _RECOVERY_PATTERNS):
+            suggested_capabilities = ["read_file", "test_runner"]
+        elif any(pattern in normalized_input for pattern in _MUTATION_PATTERNS):
+            suggested_capabilities = ["write_file", "test_runner"]
         if mode in {"deep", "critical"} and "code_search" not in suggested_capabilities:
             suggested_capabilities.append("code_search")
         sources = list((memory_context or {}).get("sources_used", []))

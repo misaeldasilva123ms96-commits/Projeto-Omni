@@ -65,6 +65,7 @@ from brain.runtime.learning import (
     DecisionCandidateBuilder,
     DecisionRankingEngine,
     LearningEngine,
+    LearningLogger,
     LearningExecutor,
     LoRADecisionEngine,
     LoRAInferenceEngine,
@@ -347,6 +348,7 @@ class BrainOrchestrator:
         )
         self.planning_engine = PlanningEngine()
         self.runtime_learning_engine = LearningEngine(self.paths.root)
+        self.learning_logger = LearningLogger(self.paths.root)
         self.lora_inference_engine = LoRAInferenceEngine(self.paths.root)
         self.lora_router_adapter = LoRARouterAdapter(self.lora_inference_engine)
         self.decision_ambiguity_detector = DecisionAmbiguityDetector()
@@ -1440,7 +1442,16 @@ class BrainOrchestrator:
             },
         }
         self.session_store.save(session_id, session_payload)
-        return self._emit_cognitive_runtime_inspection(
+        phase10_base_lora_payload = {
+            **dict(self.last_decision_ranking or {}),
+            **dict(self.last_strategy_execution or {}),
+            **dict(lora_decision),
+            "provider_actual": prov_model.provider_actual,
+            "provider_failed": bool(getattr(prov_model, "provider_failed", False)),
+            "failure_class": str(getattr(prov_model, "failure_class", "") or ""),
+            "execution_provenance": prov_model.as_dict(),
+        }
+        response = self._emit_cognitive_runtime_inspection(
             response,
             reasoning_payload=reasoning_payload,
             strategy_payload=strategy_payload,
@@ -1453,16 +1464,48 @@ class BrainOrchestrator:
             controlled_evolution_payload=controlled_evolution_payload,
             direct_memory_hit=bool(direct_response),
             duration_ms=duration_ms,
+            lora_payload=phase10_base_lora_payload,
+        )
+        controlled_learning = self.learning_logger.log_turn(
+            input_text=message,
+            response_text=response,
+            strategy_execution=dict(self.last_strategy_execution or {}),
+            decision_ranking=dict(self.last_decision_ranking or {}),
+            cognitive_runtime_inspection=dict(self.last_cognitive_runtime_inspection or {}),
+            tool_execution=dict(getattr(self, "_last_tool_execution", {}) or {}),
+        )
+        learning_payload["controlled_learning"] = dict(controlled_learning)
+        session_payload["runtime_learning"] = dict(learning_payload)
+        self.session_store.save(session_id, session_payload)
+        learning_record_for_inspection = {
+            **learning_record.as_dict(),
+            "phase10_learning_record": dict(controlled_learning.get("record") or {}),
+            "phase10_improvement_signals": list(controlled_learning.get("improvement_signals") or []),
+            "learning_record_created": bool(controlled_learning.get("learning_record_created", False)),
+            "decision_correct": controlled_learning.get("decision_correct"),
+            "decision_issue": str(controlled_learning.get("decision_issue", "") or ""),
+        }
+        self._emit_cognitive_runtime_inspection(
+            response,
+            reasoning_payload=reasoning_payload,
+            strategy_payload=strategy_payload,
+            memory_context_payload=memory_context_payload,
+            planning_payload=planning_payload,
+            swarm_result=swarm_result,
+            learning_record=learning_record_for_inspection,
+            coordination_payload=coordination_payload,
+            self_improving_system_trace=self_improving_system_trace,
+            controlled_evolution_payload=controlled_evolution_payload,
+            direct_memory_hit=bool(direct_response),
+            duration_ms=duration_ms,
             lora_payload={
-                **dict(self.last_decision_ranking or {}),
-                **dict(self.last_strategy_execution or {}),
-                **dict(lora_decision),
-                "provider_actual": prov_model.provider_actual,
-                "provider_failed": bool(getattr(prov_model, "provider_failed", False)),
-                "failure_class": str(getattr(prov_model, "failure_class", "") or ""),
-                "execution_provenance": prov_model.as_dict(),
+                **phase10_base_lora_payload,
+                "learning_record_created": bool(controlled_learning.get("learning_record_created", False)),
+                "decision_correct": controlled_learning.get("decision_correct"),
+                "decision_issue": str(controlled_learning.get("decision_issue", "") or ""),
             },
         )
+        return response
 
     async def _async_node_execution(
         self,
@@ -2952,6 +2995,7 @@ class BrainOrchestrator:
     ) -> StrategyExecutionRequest:
         manifest_payload = dict(upgrade_artifacts.get("manifest") or {})
         ranked_decision = dict(self.last_decision_ranking or {})
+        effective_selected_tools = list(selected_tools or getattr(routing_decision, "suggested_tools", []) or [])
         governance_flags = {
             "runtime_mode": str(self.last_runtime_mode or ""),
             "runtime_reason": str(self.last_runtime_reason or ""),
@@ -2976,7 +3020,7 @@ class BrainOrchestrator:
         primary_execution_type = self._select_primary_execution_type(
             routing_decision=routing_decision,
             upgrade_artifacts=upgrade_artifacts,
-            selected_tools=selected_tools,
+            selected_tools=effective_selected_tools,
             direct_response=direct_response,
         )
         return StrategyExecutionRequest(
@@ -2986,7 +3030,7 @@ class BrainOrchestrator:
             oil_summary=dict(upgrade_artifacts.get("oil_summary") or {}),
             routing_decision=routing_decision.as_dict() if hasattr(routing_decision, "as_dict") else {},
             ranked_decision=ranked_decision,
-            tool_metadata=self._tool_metadata_payload(selected_tools),
+            tool_metadata=self._tool_metadata_payload(effective_selected_tools),
             governance_blocked=False,
             governance_flags=governance_flags,
             fallback_allowed=bool(getattr(routing_decision, "fallback_allowed", True)),
@@ -2995,8 +3039,18 @@ class BrainOrchestrator:
             context=context,
             metadata={
                 "direct_response": str(direct_response or ""),
-                "selected_tools": list(selected_tools or []),
+                "selected_tools": list(effective_selected_tools),
                 "primary_execution_type": primary_execution_type,
+                "decision_task_type": str(getattr(routing_decision, "task_type", "") or ""),
+                "decision_reasoning": str(getattr(routing_decision, "reasoning", "") or ""),
+                "decision_reason_codes": list(getattr(routing_decision, "decision_reason_codes", []) or []),
+                "decision_requires_tools": bool(getattr(routing_decision, "requires_tools", False)),
+                "decision_requires_node_runtime": bool(getattr(routing_decision, "requires_node_runtime", False)),
+                "decision_must_execute": bool(getattr(routing_decision, "must_execute", False)),
+                "decision_suggested_tools": list(getattr(routing_decision, "suggested_tools", []) or []),
+                "decision_preferred_capability_path": str(
+                    getattr(routing_decision, "preferred_capability_path", "") or ""
+                ),
             },
         )
 
@@ -3019,8 +3073,11 @@ class BrainOrchestrator:
         }
         oil_intent = str((upgrade_artifacts.get("oil_summary") or {}).get("intent", "") or "").strip().lower()
         output_mode = str(manifest_payload.get("output_mode", "") or "").strip().lower()
+        selected_strategy = str(getattr(routing_decision, "strategy", "") or "").strip().upper()
         if "delegate" in step_kinds or bool(getattr(routing_decision, "requires_node_runtime", False)):
             return "NODE_EXECUTION"
+        if selected_strategy == "MULTI_STEP_REASONING":
+            return "PLANNER_EXECUTION"
         if selected_tools and "tool" in step_kinds and all(supports_engineering_tool(str(tool)) for tool in selected_tools):
             return "LOCAL_TOOL_EXECUTION"
         if len(step_plan) > 2 or str(getattr(routing_decision, "execution_strategy", "") or "").strip().lower() in {
@@ -3029,7 +3086,9 @@ class BrainOrchestrator:
             "planner_execution",
         }:
             return "PLANNER_EXECUTION"
-        if oil_intent in {"analyze", "debug", "inspect", "review", "execute", "plan"} or output_mode == "structured":
+        if selected_strategy == "TOOL_ASSISTED" and selected_tools and "tool" in step_kinds:
+            return "LOCAL_TOOL_EXECUTION" if all(supports_engineering_tool(str(tool)) for tool in selected_tools) else "NODE_EXECUTION"
+        if oil_intent in {"execute", "plan"} or output_mode == "structured":
             return "NODE_EXECUTION"
         if "tool" in step_kinds:
             return "LOCAL_TOOL_EXECUTION"
@@ -3536,6 +3595,17 @@ class BrainOrchestrator:
         result_payload["decision_final_source"] = (
             "strategy_dispatch_fallback" if result.fallback_applied else "strategy_dispatch"
         )
+        for key in (
+            "decision_task_type",
+            "decision_reasoning",
+            "decision_reason_codes",
+            "decision_requires_tools",
+            "decision_requires_node_runtime",
+            "decision_must_execute",
+            "decision_suggested_tools",
+            "decision_preferred_capability_path",
+        ):
+            result_payload[key] = request.metadata.get(key)
         trace_payload = dict(result_payload.get("trace") or {})
         raw_result = dict(result.raw_result or {})
         trace_payload.setdefault("selected_strategy", request.selected_strategy)
@@ -3573,6 +3643,10 @@ class BrainOrchestrator:
         trace_payload["compatibility_execution_active"] = compatibility_execution_active
         trace_payload["true_action_execution_active"] = true_action_execution_active
         trace_payload["primary_execution_type"] = str(request.metadata.get("primary_execution_type", "") or "")
+        trace_payload["decision_reasoning"] = str(request.metadata.get("decision_reasoning", "") or "")
+        trace_payload["decision_reason_codes"] = list(request.metadata.get("decision_reason_codes", []) or [])
+        trace_payload["decision_must_execute"] = bool(request.metadata.get("decision_must_execute", False))
+        trace_payload["decision_suggested_tools"] = list(request.metadata.get("decision_suggested_tools", []) or [])
         result_payload["trace"] = trace_payload
         result_payload["execution_runtime_lane"] = trace_payload["execution_runtime_lane"]
         result_payload["compatibility_execution_active"] = compatibility_execution_active

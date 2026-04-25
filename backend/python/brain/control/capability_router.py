@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from brain.runtime.models.capability_routing import CapabilityRoutingRecord
 
@@ -26,6 +26,9 @@ class RoutingDecision:
     execution_strategy: str
     recommended_specialists: list[str]
     reasoning: str
+    suggested_tools: list[str] = field(default_factory=list)
+    must_execute: bool = False
+    decision_reason_codes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -45,6 +48,48 @@ class RoutingDecision:
 
 
 class CapabilityRouter:
+    _FILE_READ_PATTERNS = (
+        "analise o arquivo",
+        "analyze the file",
+        "analyze file",
+        "leia o arquivo",
+        "read the file",
+        "read file",
+        "abra o arquivo",
+        "open the file",
+        "mostre o arquivo",
+        "show the file",
+        "conteudo do arquivo",
+        "contents of file",
+    )
+    _FILE_SEARCH_PATTERNS = (
+        "encontre o arquivo",
+        "find the file",
+        "find file",
+        "procure o arquivo",
+        "search file",
+        "busque o arquivo",
+        "localize o arquivo",
+        "glob ",
+    )
+    _FILE_REFERENCE_HINTS = (
+        ".json",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".py",
+        ".rs",
+        ".toml",
+        ".md",
+        ".yaml",
+        ".yml",
+        "package.json",
+        "cargo.toml",
+        "requirements.txt",
+        "pyproject.toml",
+        "tsconfig.json",
+    )
     _DIRECT_PATTERNS = (
         "explique",
         "explain",
@@ -73,6 +118,10 @@ class CapabilityRouter:
         "mude",
         "change",
         "patch",
+        "ajuste",
+        "corrija o",
+        "corrija a",
+        "fix the",
         "fix code",
         "refactor",
         "implemente",
@@ -148,14 +197,18 @@ class CapabilityRouter:
 
         if self._is_large_task(lowered, metadata):
             return self._code_mutation_decision(lowered, metadata)
+        if self._looks_like_file_read(lowered):
+            return self._file_read_decision()
+        if self._looks_like_file_search(lowered):
+            return self._file_search_decision()
         if self._matches_any(lowered, self._REPORTING_PATTERNS):
             return self._reporting_decision()
+        if self._matches_any(lowered, self._RECOVERY_PATTERNS):
+            return self._recovery_decision()
         if self._matches_any(lowered, self._VERIFICATION_PATTERNS):
             return self._verification_decision()
         if self._matches_any(lowered, self._MUTATION_PATTERNS):
             return self._code_mutation_decision(lowered, metadata)
-        if self._matches_any(lowered, self._RECOVERY_PATTERNS):
-            return self._recovery_decision()
         if self._matches_any(lowered, self._REPOSITORY_PATTERNS):
             return self._repository_analysis_decision()
         if self._matches_any(lowered, self._DIRECT_PATTERNS):
@@ -197,6 +250,20 @@ class CapabilityRouter:
             return True
         return False
 
+    def _looks_like_file_read(self, lowered: str) -> bool:
+        if self._matches_any(lowered, self._FILE_READ_PATTERNS):
+            return True
+        return any(hint in lowered for hint in self._FILE_REFERENCE_HINTS) and any(
+            token in lowered for token in ("analise", "analyze", "leia", "read", "abra", "open", "explique", "explain")
+        )
+
+    def _looks_like_file_search(self, lowered: str) -> bool:
+        if self._matches_any(lowered, self._FILE_SEARCH_PATTERNS):
+            return True
+        return any(hint in lowered for hint in self._FILE_REFERENCE_HINTS) and any(
+            token in lowered for token in ("encontre", "find", "procure", "search", "busque", "localize")
+        )
+
     @staticmethod
     def _default_decision() -> RoutingDecision:
         return RoutingDecision(
@@ -217,6 +284,59 @@ class CapabilityRouter:
             execution_strategy="direct_response",
             recommended_specialists=[],
             reasoning="default conversational read-only routing",
+            suggested_tools=[],
+            must_execute=False,
+            decision_reason_codes=["default_conversational_route"],
+        )
+
+    @staticmethod
+    def _file_read_decision() -> RoutingDecision:
+        return RoutingDecision(
+            intent="analyze",
+            strategy="TOOL_ASSISTED",
+            confidence=0.88,
+            requires_tools=True,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="explicit file inspection should use a deterministic local read path before synthesis",
+            task_type="repository_analysis",
+            preferred_mode=RuntimeMode.EXPLORE,
+            preferred_capability_path="repository_intelligence",
+            specialist_delegation_recommended=False,
+            risk_level="low",
+            requires_evidence=True,
+            verification_intensity="medium",
+            execution_strategy="inspect_then_report",
+            recommended_specialists=[],
+            reasoning="explicit file inspection request detected",
+            suggested_tools=["read_file"],
+            must_execute=True,
+            decision_reason_codes=["explicit_file_read", "deterministic_tool_first"],
+        )
+
+    @staticmethod
+    def _file_search_decision() -> RoutingDecision:
+        return RoutingDecision(
+            intent="analyze",
+            strategy="TOOL_ASSISTED",
+            confidence=0.84,
+            requires_tools=True,
+            requires_node_runtime=False,
+            fallback_allowed=True,
+            internal_reasoning_hint="workspace file discovery should use deterministic search before higher-cost reasoning",
+            task_type="repository_analysis",
+            preferred_mode=RuntimeMode.EXPLORE,
+            preferred_capability_path="repository_intelligence",
+            specialist_delegation_recommended=False,
+            risk_level="low",
+            requires_evidence=True,
+            verification_intensity="medium",
+            execution_strategy="inspect_then_report",
+            recommended_specialists=[],
+            reasoning="explicit workspace file search request detected",
+            suggested_tools=["glob_search"],
+            must_execute=True,
+            decision_reason_codes=["explicit_file_search", "deterministic_tool_first"],
         )
 
     @staticmethod
@@ -239,6 +359,9 @@ class CapabilityRouter:
             execution_strategy="analyze_then_report",
             recommended_specialists=["repoImpactAnalyzer", "largeTaskPlanner"],
             reasoning="repository-analysis request detected",
+            suggested_tools=["code_search"],
+            must_execute=False,
+            decision_reason_codes=["repository_analysis_route"],
         )
 
     def _code_mutation_decision(self, lowered: str, metadata: dict[str, object]) -> RoutingDecision:
@@ -273,6 +396,12 @@ class CapabilityRouter:
                 "testSelectionSpecialist",
             ],
             reasoning="large engineering mutation request detected" if is_large_task else "mutation-oriented request detected",
+            suggested_tools=["read_file", "test_runner"] if requires_node_runtime else ["write_file", "test_runner"],
+            must_execute=True,
+            decision_reason_codes=[
+                "code_mutation_route",
+                "node_runtime_required" if requires_node_runtime else "tool_assisted_mutation",
+            ],
         )
 
     @staticmethod
@@ -295,6 +424,9 @@ class CapabilityRouter:
             execution_strategy="verify_only",
             recommended_specialists=["testSelectionSpecialist"],
             reasoning="verification-oriented request detected",
+            suggested_tools=["test_runner"],
+            must_execute=True,
+            decision_reason_codes=["verification_route", "tool_backed_validation"],
         )
 
     @staticmethod
@@ -317,6 +449,9 @@ class CapabilityRouter:
             execution_strategy="recover_then_verify",
             recommended_specialists=["dependencyImpactSpecialist", "testSelectionSpecialist"],
             reasoning="recovery-oriented request detected",
+            suggested_tools=["read_file", "test_runner"],
+            must_execute=True,
+            decision_reason_codes=["recovery_route", "diagnose_then_verify"],
         )
 
     @staticmethod
@@ -339,6 +474,9 @@ class CapabilityRouter:
             execution_strategy="report_only",
             recommended_specialists=["pr_summary_generator"],
             reasoning="reporting-oriented request detected",
+            suggested_tools=[],
+            must_execute=False,
+            decision_reason_codes=["reporting_route"],
         )
 
 

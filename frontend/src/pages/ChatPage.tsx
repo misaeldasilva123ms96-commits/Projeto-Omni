@@ -1,19 +1,14 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChatHeader } from '../components/chat/ChatHeader'
-import { Composer } from '../components/chat/Composer'
-import { EmptyState } from '../components/chat/EmptyState'
-import { MessageBubble } from '../components/chat/MessageBubble'
-import { AppShell } from '../components/layout/AppShell'
+import { useEffect, useMemo, useState } from 'react'
+import { ChatPanel } from '../components/chat/ChatPanel'
+import { Layout } from '../components/layout/Layout'
 import { Sidebar } from '../components/layout/Sidebar'
-import { CognitivePanel } from '../components/status/CognitivePanel'
+import { RuntimePanel } from '../components/status/RuntimePanel'
 import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
 import { publicStatusV1ToUiRuntimeStatus } from '../features/runtime'
 import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
-import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
+import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
-import { supabase } from '../lib/supabase'
-import { ChatRequestError } from '../lib/api/chat'
 import type {
   ChatMessage,
   ChatMode,
@@ -179,18 +174,11 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
   const [telemetryTick, setTelemetryTick] = useState(0)
-  const [observabilityAuth, setObservabilityAuth] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const apiReady = canUseApi()
   const telemetry = useCognitiveTelemetry(apiReady, telemetryTick)
   const healthUi: UiRuntimeStatus | null = telemetry.publicRuntime
     ? publicStatusV1ToUiRuntimeStatus(telemetry.publicRuntime)
     : null
-  const {
-    snapshot: observabilitySnapshot,
-    loading: observabilityLoading,
-    error: observabilityError,
-  } = useObservabilitySnapshot(apiReady && observabilityAuth)
 
   useEffect(() => {
     const stored = loadStoredState()
@@ -218,10 +206,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [input, lastMetadata, messages, requestState, sessionId])
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -253,23 +237,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     })
   }, [lastMetadata, messages, mode, requestState, sessionId])
 
-  useEffect(() => {
-    let cancelled = false
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled) {
-        setObservabilityAuth(Boolean(data.session?.access_token))
-      }
-    })
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      setObservabilityAuth(Boolean(session?.access_token))
-    })
-    return () => {
-      cancelled = true
-      subscription.subscription.unsubscribe()
-    }
-  }, [])
-
-  const loading = requestState === 'loading'
   const trimmedInput = input.trim()
   const canSend = Boolean(trimmedInput) && !isLoading
 
@@ -282,8 +249,8 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }], [messages, mode, sessionId])
 
   const helperText = apiReady
-    ? 'Rust bridge to Python cognition and Node runtime.'
-    : API_CONFIGURATION_ERROR || 'A API do Omni nao esta configurada. Voce ainda pode escrever e preparar a mensagem.'
+    ? 'Rust → Python → Node/Bun → Python → Rust. Runtime truth and execution telemetry preserved.'
+    : API_CONFIGURATION_ERROR || 'A API do Omni nao esta configurada. Voce ainda pode preparar a mensagem.'
 
   function sleep(ms: number) {
     return new Promise((resolve) => {
@@ -305,12 +272,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     }
 
     throw new Error('Failed to send message after retries.')
-  }
-
-  function markMessageAsCompleted(messageId: string) {
-    setMessages((current) => current.map((message) => (
-      message.id === messageId ? { ...message, isNew: false } : message
-    )))
   }
 
   async function handleSubmit() {
@@ -351,19 +312,18 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
 
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
-      setMessages((current) => [
-        ...current.map((message) => (
-          message.id === loadingMessageId
-            ? {
-              ...message,
-              content: displayText,
-              isLoading: false,
-              isNew: true,
-              requestState: assistantOutcome,
-            }
-            : message
-        )),
-      ])
+      setMessages((current) => current.map((message) => (
+        message.id === loadingMessageId
+          ? {
+            ...message,
+            content: displayText,
+            isLoading: false,
+            isNew: true,
+            requestState: assistantOutcome,
+            metadata,
+          }
+          : message
+      )))
       setRequestState('idle')
       setTelemetryTick((value) => value + 1)
     } catch (err) {
@@ -417,7 +377,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }
 
   return (
-    <AppShell
+    <Layout
       sidebar={(
         <Sidebar
           activeConversationId={sessionId}
@@ -429,54 +389,33 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           view={view}
         />
       )}
-      statusPanel={(
-        <CognitivePanel
-          apiConfigured={apiReady}
-          chatError={error}
-          health={healthUi}
-          lastMetadata={lastMetadata}
-          modeLabel={MODE_LABELS[mode]}
-          observabilityCanRequest={observabilityAuth}
-          observabilityError={observabilityError}
-          observabilityLoading={observabilityLoading}
-          observabilitySnapshot={observabilityAuth ? observabilitySnapshot : null}
-          requestState={requestState}
-          sessionId={sessionId}
-          telemetry={telemetry}
-        />
-      )}
-    >
-      <div className="chat-page omni-chat-page">
-        <ChatHeader loading={loading} mode={mode} sessionId={sessionId} />
-        <section className="chat-surface panel-card omni-chat-surface">
-          <section className="messages omni-message-list">
-            {messages.length === 0 ? (
-              <EmptyState onSelectPrompt={(prompt) => setInput(prompt)} />
-            ) : (
-              messages.map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  onTypingComplete={markMessageAsCompleted}
-                />
-              ))
-            )}
-            <div ref={bottomRef} />
-          </section>
-        </section>
-        <Composer
+      center={(
+        <ChatPanel
           canSend={canSend}
           error={error}
           helperText={helperText}
+          input={input}
+          lastMetadata={lastMetadata}
           loading={isLoading}
+          messages={messages}
           onChange={setInput}
+          onSelectPrompt={setInput}
           onSubmit={() => {
             void handleSubmit()
           }}
-          value={input}
+          requestState={requestState}
+          sessionId={sessionId}
         />
-      </div>
-    </AppShell>
+      )}
+      right={(
+        <RuntimePanel
+          health={healthUi}
+          lastMetadata={lastMetadata}
+          modeLabel={MODE_LABELS[mode]}
+          requestState={requestState}
+          sessionId={sessionId}
+        />
+      )}
+    />
   )
 }
-

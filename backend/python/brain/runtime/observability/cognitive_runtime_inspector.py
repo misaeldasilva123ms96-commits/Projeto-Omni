@@ -337,10 +337,24 @@ def build_cognitive_runtime_inspection(
     )
 
     learning_path = ""
+    phase10_learning_record = {}
+    learning_record_created = False
+    phase10_decision_correct = None
+    phase10_decision_issue = ""
+    phase10_improvement_signals: list[dict[str, Any]] = []
     if isinstance(learning_record, dict):
         assess = learning_record.get("assessment")
         if isinstance(assess, dict):
             learning_path = str(assess.get("execution_path") or "")
+        if isinstance(learning_record.get("phase10_learning_record"), dict):
+            phase10_learning_record = dict(learning_record.get("phase10_learning_record") or {})
+        learning_record_created = bool(learning_record.get("learning_record_created", False))
+        phase10_decision_correct = learning_record.get("decision_correct")
+        phase10_decision_issue = str(learning_record.get("decision_issue", "") or "")
+        if isinstance(learning_record.get("phase10_improvement_signals"), list):
+            phase10_improvement_signals = [
+                dict(item) for item in learning_record.get("phase10_improvement_signals", []) if isinstance(item, dict)
+            ]
 
     if provider_failed:
         runtime_reason = failure_class or runtime_reason or "provider_failure"
@@ -490,6 +504,16 @@ def build_cognitive_runtime_inspection(
             "manifest_driven_execution": bool(lora_payload.get("manifest_driven_execution", False)),
             "response_synthesis_mode": str(lora_payload.get("response_synthesis_mode", "") or ""),
             "governance_downgrade_applied": bool(lora_payload.get("governance_downgrade_applied", False)),
+            "decision_task_type": str(lora_payload.get("decision_task_type", "") or ""),
+            "decision_reasoning": str(lora_payload.get("decision_reasoning", "") or ""),
+            "decision_reason_codes": list(lora_payload.get("decision_reason_codes", []) or []),
+            "decision_requires_tools": bool(lora_payload.get("decision_requires_tools", False)),
+            "decision_requires_node_runtime": bool(lora_payload.get("decision_requires_node_runtime", False)),
+            "decision_must_execute": bool(lora_payload.get("decision_must_execute", False)),
+            "decision_suggested_tools": list(lora_payload.get("decision_suggested_tools", []) or []),
+            "decision_preferred_capability_path": str(
+                lora_payload.get("decision_preferred_capability_path", "") or ""
+            ),
             "execution_trace_summary": str(
                 (lora_payload.get("trace") or {}).get("execution_trace_summary", "")
                 if isinstance(lora_payload.get("trace"), dict)
@@ -570,6 +594,11 @@ def build_cognitive_runtime_inspection(
             "node_cognitive_hint": node_cognitive_hint if isinstance(node_cognitive_hint, dict) else None,
             "node_outcome": node_outcome if isinstance(node_outcome, dict) else None,
             "duration_ms": int(duration_ms),
+            "learning_record_created": learning_record_created,
+            "decision_correct": phase10_decision_correct,
+            "decision_issue": phase10_decision_issue or None,
+            "phase10_learning_record": phase10_learning_record or None,
+            "phase10_improvement_signals": phase10_improvement_signals or None,
             **lora_signals,
         },
     }

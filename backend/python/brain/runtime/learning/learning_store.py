@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 from .models import LearningEvidence, LearningSignal, LearningSignalType, LearningSnapshot, PatternRecord
 
@@ -104,3 +105,113 @@ class LearningStore:
             json.dumps(snapshot.as_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+
+class ControlledLearningStore:
+    """Phase 10 append-only store for safe learning records and advisory signals."""
+
+    def __init__(self, root: Path, *, max_records: int = 200) -> None:
+        self.base_dir = root / ".logs" / "fusion-runtime" / "learning" / "controlled"
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.records_path = self.base_dir / "learning_records.jsonl"
+        self.signals_path = self.base_dir / "improvement_signals.jsonl"
+        self.max_records = max(1, int(max_records))
+
+    def append_learning_record(self, record: dict[str, Any]) -> bool:
+        return self._append_jsonl(self.records_path, record)
+
+    def append_improvement_signal(self, signal: dict[str, Any]) -> bool:
+        return self._append_jsonl(self.signals_path, signal)
+
+    def read_recent_learning_records(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return self._read_recent_jsonl(self.records_path, limit=limit)
+
+    def read_recent_improvement_signals(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return self._read_recent_jsonl(self.signals_path, limit=limit)
+
+    def filter_learning_records(self, *, failure_class: str | None = None, decision_issue: str | None = None, tool_used: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        failure_class = str(failure_class or "").strip()
+        decision_issue = str(decision_issue or "").strip()
+        tool_used = str(tool_used or "").strip()
+        records = self.read_recent_learning_records(limit=max(limit, self.max_records))
+        filtered: list[dict[str, Any]] = []
+        for record in records:
+            if failure_class and str(record.get("failure_class", "") or "").strip() != failure_class:
+                continue
+            decision_payload = record.get("decision_evaluation") if isinstance(record.get("decision_evaluation"), dict) else {}
+            outcome_payload = record.get("execution_outcome") if isinstance(record.get("execution_outcome"), dict) else {}
+            if decision_issue and str(decision_payload.get("decision_issue", "") or "").strip() != decision_issue:
+                continue
+            if tool_used and str(outcome_payload.get("tool_used", "") or "").strip() != tool_used:
+                continue
+            filtered.append(record)
+            if len(filtered) >= limit:
+                break
+        return filtered
+
+    def group_learning_records(self, *, field_name: str, limit: int = 100) -> dict[str, int]:
+        grouped: dict[str, int] = {}
+        for record in self.read_recent_learning_records(limit=max(limit, self.max_records)):
+            value = self._group_value(record, field_name)
+            if not value:
+                continue
+            grouped[value] = grouped.get(value, 0) + 1
+        return grouped
+
+    def _group_value(self, record: dict[str, Any], field_name: str) -> str:
+        if field_name == "failure_class":
+            return str(record.get("failure_class", "") or "").strip()
+        if field_name == "decision_issue":
+            payload = record.get("decision_evaluation") if isinstance(record.get("decision_evaluation"), dict) else {}
+            return str(payload.get("decision_issue", "") or "").strip()
+        if field_name == "tool_used":
+            payload = record.get("execution_outcome") if isinstance(record.get("execution_outcome"), dict) else {}
+            return str(payload.get("tool_used", "") or "").strip()
+        return str(record.get(field_name, "") or "").strip()
+
+    def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> bool:
+        try:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False))
+                handle.write("\n")
+            self._trim_jsonl(path)
+            return True
+        except OSError:
+            return False
+
+    def _read_recent_jsonl(self, path: Path, *, limit: int) -> list[dict[str, Any]]:
+        if limit <= 0 or not path.exists():
+            return []
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        out: list[dict[str, Any]] = []
+        for line in reversed(text.splitlines()):
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                out.append(payload)
+            if len(out) >= limit:
+                break
+        return out
+
+    def _trim_jsonl(self, path: Path) -> None:
+        if not path.exists():
+            return
+        try:
+            lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        except OSError:
+            return
+        if len(lines) <= self.max_records:
+            return
+        trimmed = lines[-self.max_records :]
+        try:
+            path.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
+        except OSError:
+            return

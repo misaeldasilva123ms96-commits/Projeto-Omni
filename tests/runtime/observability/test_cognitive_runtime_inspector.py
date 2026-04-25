@@ -337,3 +337,50 @@ def test_bridge_execution_request_without_compatibility_is_partial_runtime() -> 
     assert row["runtime_mode"] == RUNTIME_MODE_PARTIAL
     assert row["signals"]["semantic_runtime_lane"] == LANE_BRIDGE_EXECUTION_REQUEST
     assert row["signals"]["execution_runtime_lane"] == LANE_BRIDGE_EXECUTION_REQUEST
+
+
+def test_decision_reasoning_signals_are_exposed() -> None:
+    row = build_cognitive_runtime_inspection(
+        **_base_kwargs(
+            response="conteudo do arquivo",
+            last_runtime_reason="local_tool_execution",
+            lora_payload={
+                "strategy_dispatch_applied": True,
+                "decision_task_type": "repository_analysis",
+                "decision_reasoning": "explicit file inspection request detected",
+                "decision_reason_codes": ["explicit_file_read", "deterministic_tool_first"],
+                "decision_requires_tools": True,
+                "decision_requires_node_runtime": False,
+                "decision_must_execute": True,
+                "decision_suggested_tools": ["read_file"],
+                "decision_preferred_capability_path": "repository_intelligence",
+            },
+        )
+    )
+    assert row["signals"]["decision_task_type"] == "repository_analysis"
+    assert row["signals"]["decision_reasoning"] == "explicit file inspection request detected"
+    assert row["signals"]["decision_reason_codes"] == ["explicit_file_read", "deterministic_tool_first"]
+    assert row["signals"]["decision_requires_tools"] is True
+    assert row["signals"]["decision_requires_node_runtime"] is False
+    assert row["signals"]["decision_must_execute"] is True
+    assert row["signals"]["decision_suggested_tools"] == ["read_file"]
+
+
+def test_learning_debug_signals_are_exposed() -> None:
+    row = build_cognitive_runtime_inspection(
+        **_base_kwargs(
+            response="conteudo do arquivo",
+            learning_record={
+                "assessment": {"execution_path": "swarm"},
+                "phase10_learning_record": {"record_id": "clr-1", "selected_strategy": "TOOL_ASSISTED"},
+                "phase10_improvement_signals": [{"type": "ROUTING_IMPROVEMENT"}],
+                "learning_record_created": True,
+                "decision_correct": True,
+                "decision_issue": "",
+            },
+        )
+    )
+    assert row["signals"]["learning_record_created"] is True
+    assert row["signals"]["decision_correct"] is True
+    assert row["signals"]["phase10_learning_record"]["record_id"] == "clr-1"
+    assert row["signals"]["phase10_improvement_signals"][0]["type"] == "ROUTING_IMPROVEMENT"
