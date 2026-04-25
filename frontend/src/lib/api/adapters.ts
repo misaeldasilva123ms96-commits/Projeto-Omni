@@ -168,8 +168,8 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     provider_diagnostics,
     provider_fallback_occurred,
     no_provider_available,
-    tool_execution,
-    tool_diagnostics,
+    tool_execution: tool_execution ?? undefined,
+    tool_diagnostics: tool_diagnostics ?? undefined,
     error,
   }
 }
@@ -357,7 +357,7 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
       res.provider_fallback_occurred ?? res.signals?.provider_fallback_occurred,
     noProviderAvailable:
       res.no_provider_available ?? res.signals?.no_provider_available,
-    toolExecution: res.tool_execution ?? res.signals?.tool_execution,
+    toolExecution: res.tool_execution ?? res.signals?.tool_execution ?? undefined,
     toolDiagnostics: res.tool_diagnostics ?? res.signals?.tool_diagnostics ?? undefined,
     error: res.error,
   }
