@@ -207,6 +207,24 @@ def build_public_error(
     return error
 
 
+def _first_provider_from_diagnostics(
+    diagnostics: Any,
+    *,
+    key: str,
+) -> str:
+    if not isinstance(diagnostics, list):
+        return ""
+    for item in diagnostics:
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get(key, False)):
+            continue
+        provider = str(item.get("provider", "") or "").strip()
+        if provider:
+            return provider
+    return ""
+
+
 def emit_public_json(payload: dict[str, Any]) -> int:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
     sys.stdout.write("\n")
@@ -252,17 +270,27 @@ def main() -> int:
         if "tool_diagnostics" in signals:
             safe_response["tool_diagnostics"] = signals.get("tool_diagnostics")
     if not isinstance(safe_response.get("provider_diagnostics"), list):
+        diagnostics_source = safe_response.get("provider_diagnostics")
+        selected_provider = str(safe_response.get("provider_selected", "") or "")
+        actual_provider = str(safe_response.get("provider_actual", "") or "")
+        attempted_provider = str(safe_response.get("provider_attempted", "") or "")
+        if not selected_provider:
+            selected_provider = _first_provider_from_diagnostics(diagnostics_source, key="selected") or actual_provider
+        if not attempted_provider:
+            attempted_provider = _first_provider_from_diagnostics(diagnostics_source, key="attempted") or actual_provider
         safe_response["provider_diagnostics"] = describe_provider_diagnostics(
-            actual_provider=str(safe_response.get("provider_actual", "") or ""),
-            attempted_provider=str(safe_response.get("provider_actual", "") or ""),
+            selected_provider=selected_provider,
+            actual_provider=actual_provider,
+            attempted_provider=attempted_provider,
             failure_class=str(safe_response.get("failure_class", "") or ""),
             include_embedded_local=True,
         )
     safe_response.setdefault(
         "provider_diagnostics",
         describe_provider_diagnostics(
+            selected_provider=str(safe_response.get("provider_selected", "") or ""),
             actual_provider=str(safe_response.get("provider_actual", "") or ""),
-            attempted_provider=str(safe_response.get("provider_actual", "") or ""),
+            attempted_provider=str(safe_response.get("provider_attempted", "") or ""),
             failure_class=str(safe_response.get("failure_class", "") or ""),
             include_embedded_local=True,
         ),
