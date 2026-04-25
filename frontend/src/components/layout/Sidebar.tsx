@@ -88,20 +88,20 @@ export function Sidebar({
 
   return (
     <motion.div
-      className="flex h-full flex-col overflow-hidden rounded-[30px] border border-white/10 bg-panel-gradient px-4 py-5 shadow-neon-purple backdrop-blur-xl"
+      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[rgba(180,109,255,0.18)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-neon-purple backdrop-blur-xl"
       initial={{ opacity: 0, x: -12 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
       animate={{ opacity: 1, x: 0 }}
     >
-      <div className="mb-5 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 shadow-glass-edge">
+      <div className="mb-5 rounded-[24px] border border-white/8 bg-black/15 px-4 py-4 shadow-glass-edge">
         <p className="mb-2 text-[11px] uppercase tracking-[0.45em] text-violet-200/70">IA Console</p>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.95),rgba(181,109,255,0.75)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.4)_70%)] shadow-[0_0_28px_rgba(123,97,255,0.4)]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.95),rgba(181,109,255,0.75)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.4)_70%)] shadow-[0_0_30px_rgba(123,97,255,0.48)]">
               <div className="h-3 w-3 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.95)]" />
             </div>
             <div>
-              <div className="text-3xl font-semibold tracking-tight text-white">Omni AI</div>
+              <div className="text-[22px] font-semibold tracking-tight text-white">Omni AI</div>
               <div className="text-sm text-slate-300/70">Cognitive runtime console</div>
             </div>
           </div>
@@ -113,7 +113,7 @@ export function Sidebar({
 
       <div className="flex-1 space-y-6 overflow-y-auto pr-1">
         <section className="space-y-2">
-          <h2 className="px-2 text-lg font-medium text-fuchsia-200">Conversa</h2>
+          <h2 className="px-2 text-[15px] font-medium text-fuchsia-200">Conversa</h2>
           {CONVERSATION_ITEMS.map((item) => {
             const active = activeSidebarItem === item.id
             return (
@@ -122,7 +122,7 @@ export function Sidebar({
                 whileHover={{ x: 4 }}
                 className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
                   active
-                    ? 'border-neon-purple/60 bg-white/10 text-white shadow-neon-purple'
+                    ? 'border-neon-purple/70 bg-[linear-gradient(135deg,rgba(181,109,255,0.22),rgba(118,73,255,0.1))] text-white shadow-[0_0_28px_rgba(181,109,255,0.22)]'
                     : 'border-white/5 bg-white/[0.03] text-slate-200/80 hover:border-neon-blue/30 hover:bg-white/[0.06] hover:text-white'
                 }`}
                 onClick={() => {
@@ -136,8 +136,7 @@ export function Sidebar({
                     <SidebarIcon item={item.id} />
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-[15px] font-medium">{item.label}</div>
-                    <div className="truncate text-xs text-slate-400/80">{item.description}</div>
+                    <div className="truncate text-[14px] font-medium">{item.label}</div>
                   </div>
                 </div>
                 <svg className={`h-4 w-4 ${active ? 'text-neon-cyan' : 'text-slate-500 group-hover:text-neon-cyan'}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
@@ -147,7 +146,7 @@ export function Sidebar({
         </section>
 
         <section className="space-y-2 border-t border-white/8 pt-5">
-          <h2 className="px-2 text-lg font-medium text-fuchsia-200">Ferramentas</h2>
+          <h2 className="px-2 text-[15px] font-medium text-fuchsia-200">Ferramentas</h2>
           {TOOL_ITEMS.map((item) => {
             const active = activeSidebarItem === item.id
             return (
@@ -170,8 +169,7 @@ export function Sidebar({
                     <SidebarIcon item={item.id} />
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-[15px] font-medium">{item.label}</div>
-                    <div className="truncate text-xs text-slate-400/80">{item.description}</div>
+                    <div className="truncate text-[14px] font-medium">{item.label}</div>
                   </div>
                 </div>
                 <svg className={`h-4 w-4 ${active ? 'text-neon-cyan' : 'text-slate-500 group-hover:text-neon-cyan'}`} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
@@ -179,58 +177,6 @@ export function Sidebar({
             )
           })}
         </section>
-
-        <section className="rounded-[26px] border border-white/8 bg-black/20 px-4 py-4">
-          <div className="mb-3 text-[11px] uppercase tracking-[0.35em] text-slate-400">Modo ativo</div>
-          <div className="grid grid-cols-2 gap-2">
-            {MODE_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                className={`rounded-2xl border px-3 py-2 text-sm transition ${
-                  mode === option.id
-                    ? 'border-neon-purple/60 bg-neon-purple/15 text-white shadow-[0_0_18px_rgba(181,109,255,0.22)]'
-                    : 'border-white/8 bg-white/[0.03] text-slate-300 hover:border-neon-blue/30 hover:text-white'
-                }`}
-                onClick={() => onChangeMode(option.id)}
-                type="button"
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 px-4 py-4">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-[0.35em] text-slate-400">Histórico ativo</p>
-          <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.25em] text-emerald-200">
-            Live
-          </span>
-        </div>
-        <div className="space-y-3">
-          {conversations.slice(0, 3).map((conversation) => (
-            <div
-              key={conversation.id}
-              className={`rounded-2xl border px-3 py-3 ${
-                conversation.id === activeConversationId
-                  ? 'border-neon-purple/40 bg-white/[0.06]'
-                  : 'border-white/8 bg-white/[0.03]'
-              }`}
-            >
-              <div className="truncate text-sm font-medium text-white">{conversation.title}</div>
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-400">
-                <span>{conversation.messageCount} mensagens</span>
-                <span>{new Date(conversation.updatedAt).toLocaleTimeString('pt-BR')}</span>
-              </div>
-            </div>
-          ))}
-          {conversations.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-400">
-              Nenhuma conversa persistida nesta sessão.
-            </div>
-          ) : null}
-        </div>
       </div>
     </motion.div>
   )
