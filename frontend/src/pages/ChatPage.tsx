@@ -310,6 +310,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       const displayText = ui.text.trim() || '...'
       const assistantOutcome = ui.wireHealth === 'degraded' ? ('degraded' as const) : ('completed' as const)
 
+      await sleep(420)
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
       setMessages((current) => current.map((message) => (

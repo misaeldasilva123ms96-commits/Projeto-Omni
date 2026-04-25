@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import type { ChatMessage, RuntimeMetadata } from '../../types'
 import {
@@ -8,6 +8,7 @@ import {
   mockRuntimeState,
   useRuntimeConsoleStore,
 } from '../../state/runtimeConsoleStore'
+import { getGlowState } from '../../lib/ui/glow'
 
 type ExtendedChatMessage = ChatMessage & {
   isLoading?: boolean
@@ -103,6 +104,7 @@ export function ChatPanel({
   requestState,
   sessionId,
 }: ChatPanelProps) {
+  const [inputFocused, setInputFocused] = useState(false)
   const activeAction = useRuntimeConsoleStore((state) => state.activeAction)
   const activeTab = useRuntimeConsoleStore((state) => state.activeTab)
   const setActiveAction = useRuntimeConsoleStore((state) => state.setActiveAction)
@@ -120,11 +122,12 @@ export function ChatPanel({
       createdAt: new Date().toISOString(),
       metadata: lastMetadata ?? undefined,
     }]
+  const runtimeActive = loading || requestState === 'loading'
 
   return (
     <div className="flex h-full min-h-[calc(100vh-4rem)] flex-col gap-5">
       <motion.div
-        className="mx-auto w-full max-w-[720px] rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,16,46,0.76),rgba(9,10,26,0.72))] p-3 shadow-[0_0_0_1px_rgba(78,164,255,0.14),0_0_18px_rgba(78,164,255,0.22),0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl"
+        className={`mx-auto w-full max-w-[720px] rounded-[28px] border bg-[linear-gradient(180deg,rgba(18,16,46,0.76),rgba(9,10,26,0.72))] p-3 shadow-[0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-white/10'}`}
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: 'easeOut' }}
@@ -137,13 +140,14 @@ export function ChatPanel({
                 key={action.id}
                 className={`flex items-center justify-center gap-2 rounded-[22px] border px-4 py-3 text-sm font-medium transition ${
                   active
-                    ? 'border-neon-blue/60 bg-neon-blue/12 text-white shadow-[0_0_0_1px_rgba(78,164,255,0.16),0_0_18px_rgba(78,164,255,0.2)]'
-                    : 'border-white/8 bg-white/[0.04] text-slate-200/80 hover:border-neon-purple/30 hover:text-white'
+                    ? `bg-neon-blue/12 text-white ${getGlowState('active')}`
+                    : `border-white/8 bg-white/[0.04] text-slate-200/80 hover:text-white ${getGlowState('hover')}`
                 }`}
                 onClick={() => setActiveAction(action.id)}
+                onFocus={() => setActiveAction(action.id)}
                 type="button"
               >
-                <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-r from-neon-purple to-neon-cyan shadow-[0_0_16px_rgba(81,246,255,0.7)]" />
+                <span className={`h-2.5 w-2.5 rounded-full bg-gradient-to-r from-neon-purple to-neon-cyan ${active ? 'omni-active-dot' : ''}`} />
                 {action.label}
               </button>
             )
@@ -155,7 +159,7 @@ export function ChatPanel({
         <div className="flex items-start justify-end">
           <motion.div
             animate={{ opacity: 1, x: 0 }}
-            className="mr-8 max-w-[52%] rounded-[26px] border border-neon-blue/60 bg-[linear-gradient(135deg,rgba(28,60,190,0.68),rgba(10,24,74,0.96))] px-8 py-4 text-center text-[18px] font-medium tracking-tight text-white shadow-[0_0_0_1px_rgba(78,164,255,0.16),0_0_20px_rgba(78,164,255,0.28)]"
+            className={`mr-8 max-w-[52%] rounded-[26px] border bg-[linear-gradient(135deg,rgba(28,60,190,0.74),rgba(10,24,74,0.98))] px-8 py-4 text-center text-[18px] font-medium tracking-tight text-white ${getGlowState('active')}`}
             initial={{ opacity: 0, x: 18 }}
             transition={{ duration: 0.35, delay: 0.08 }}
           >
@@ -163,13 +167,14 @@ export function ChatPanel({
           </motion.div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden rounded-[32px] border border-[rgba(180,109,255,0.16)] bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-5 py-5 shadow-[0_0_0_1px_rgba(181,109,255,0.08),0_18px_48px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+        <div className={`min-h-0 flex-1 overflow-hidden rounded-[32px] border bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-5 py-5 shadow-[0_18px_48px_rgba(0,0,0,0.32)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(180,109,255,0.16)]'}`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
               <div className="text-xs uppercase tracking-[0.35em] text-slate-400">Hoje</div>
               <div className="mt-1 text-sm text-slate-300/80">Sessão {sessionId}</div>
             </div>
             <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs uppercase tracking-[0.3em] text-slate-300">
+              <span className={`mr-2 inline-block h-2 w-2 rounded-full ${runtimeActive ? 'bg-neon-cyan omni-active-dot' : 'bg-slate-500'}`} />
               {requestState}
             </div>
           </div>
@@ -186,20 +191,27 @@ export function ChatPanel({
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.28, delay: Math.min(index * 0.04, 0.18) }}
                   >
-                    <div className="w-full max-w-[84%] rounded-[28px] border border-[rgba(180,109,255,0.16)] bg-[linear-gradient(180deg,rgba(15,15,32,0.82),rgba(8,9,22,0.72))] px-8 py-6 text-slate-100 shadow-[0_0_0_1px_rgba(181,109,255,0.08),0_14px_34px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+                    <div className={`w-full max-w-[84%] rounded-[28px] border bg-[linear-gradient(180deg,rgba(15,15,32,0.88),rgba(8,9,22,0.74))] px-8 py-6 text-slate-100 shadow-[0_14px_34px_rgba(0,0,0,0.28)] backdrop-blur-xl ${message.isLoading ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(180,109,255,0.16)]'}`}>
                       <div className="mb-4 flex items-center justify-between gap-4 text-xs uppercase tracking-[0.32em] text-slate-300/70">
                         <span>Omni Runtime</span>
                         <span>{new Date(message.createdAt).toLocaleTimeString('pt-BR')}</span>
                       </div>
                       {message.isLoading ? (
-                        <div className="flex items-center gap-2 py-3">
-                          {[0, 1, 2].map((dot) => (
-                            <span
-                              key={dot}
+                        <div className="space-y-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {[0, 1, 2].map((dot) => (
+                              <span
+                                key={dot}
                               className="h-2.5 w-2.5 animate-shimmer rounded-full bg-gradient-to-r from-neon-purple via-neon-blue to-neon-cyan"
                               style={{ animationDelay: `${dot * 140}ms` }}
-                            />
-                          ))}
+                              />
+                            ))}
+                          </div>
+                          <div className="space-y-2">
+                            <div className="h-3 w-5/6 rounded-full bg-white/10 omni-skeleton" />
+                            <div className="h-3 w-3/4 rounded-full bg-white/10 omni-skeleton" />
+                            <div className="h-3 w-2/3 rounded-full bg-white/10 omni-skeleton" />
+                          </div>
                         </div>
                       ) : (
                         <div className="space-y-5">
@@ -235,7 +247,7 @@ export function ChatPanel({
         </div>
 
         <motion.div
-          className="rounded-[30px] border border-[rgba(180,109,255,0.16)] bg-[linear-gradient(180deg,rgba(14,15,34,0.8),rgba(10,11,27,0.74))] p-4 shadow-[0_0_0_1px_rgba(181,109,255,0.1),0_0_18px_rgba(181,109,255,0.18),0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl"
+          className="rounded-[30px] border border-[rgba(180,109,255,0.16)] bg-[linear-gradient(180deg,rgba(14,15,34,0.8),rgba(10,11,27,0.74))] p-4 shadow-[0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl"
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.12 }}
@@ -249,10 +261,11 @@ export function ChatPanel({
                     key={tab.id}
                     className={`rounded-2xl border px-4 py-2 text-sm transition ${
                       active
-                        ? 'border-neon-purple/50 bg-neon-purple/14 text-white shadow-[0_0_20px_rgba(181,109,255,0.2)]'
-                        : 'border-white/8 bg-white/[0.03] text-slate-300 hover:border-neon-blue/30 hover:text-white'
+                        ? `bg-neon-purple/14 text-white ${getGlowState('active')}`
+                        : `border-white/8 bg-white/[0.03] text-slate-300 hover:text-white ${getGlowState('hover')}`
                     }`}
                     onClick={() => setActiveTab(tab.id)}
+                    onFocus={() => setActiveTab(tab.id)}
                     type="button"
                   >
                     {tab.label}
@@ -261,7 +274,7 @@ export function ChatPanel({
               })}
             </div>
             <button
-              className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-200 transition hover:border-neon-blue/30 hover:text-white"
+              className={`rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
               onClick={() => useRuntimeConsoleStore.getState().setActiveAction('executar')}
               type="button"
             >
@@ -280,16 +293,18 @@ export function ChatPanel({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 rounded-[26px] border border-white/10 bg-[rgba(7,8,22,0.78)] px-4 py-3">
-            <button className="rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:border-neon-purple/40 hover:text-white" type="button">
+          <div className={`flex items-center gap-3 rounded-[26px] border bg-[rgba(7,8,22,0.78)] px-4 py-3 transition-all duration-300 ${inputFocused ? `${getGlowState('focus')} scale-[1.01]` : 'border-white/10'}`}>
+            <button className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} type="button">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18h.01M8 10a4 4 0 1 1 8 0c0 4-4 4-4 7" /></svg>
             </button>
-            <button className="rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:border-neon-purple/40 hover:text-white" type="button">
+            <button className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} type="button">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v7a3 3 0 0 0 3 3Z" /><path d="M19 11v4a7 7 0 0 1-14 0v-4M12 22v-3" /></svg>
             </button>
             <textarea
-              className="min-h-[64px] flex-1 resize-none rounded-[22px] border border-neon-purple/20 bg-[rgba(11,15,34,0.92)] px-5 py-4 text-base text-white outline-none placeholder:text-violet-200/40 focus:border-neon-blue/50 focus:shadow-[0_0_0_1px_rgba(78,164,255,0.18),0_0_26px_rgba(78,164,255,0.14)]"
+              className={`flex-1 resize-none rounded-[22px] border border-neon-purple/20 bg-[rgba(11,15,34,0.92)] px-5 py-4 text-base text-white outline-none placeholder:text-violet-200/40 transition-all duration-300 ${inputFocused ? 'min-h-[82px]' : 'min-h-[64px]'}`}
               onChange={(event) => onChange(event.target.value)}
+              onBlur={() => setInputFocused(false)}
+              onFocus={() => setInputFocused(true)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
@@ -301,13 +316,13 @@ export function ChatPanel({
               placeholder="Digite uma mensagem..."
               value={input}
             />
-            <button className="rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:border-neon-blue/40 hover:text-white" type="button">
+            <button className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} type="button">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v7a3 3 0 0 0 3 3Z" /><path d="M19 11v4a7 7 0 0 1-14 0v-4M12 22v-3" /></svg>
             </button>
             <button
               className={`rounded-full px-6 py-4 text-sm font-semibold uppercase tracking-[0.28em] transition ${
                 canSend
-                  ? 'bg-[linear-gradient(135deg,rgba(181,109,255,0.92),rgba(78,164,255,0.92))] text-white shadow-neon-purple hover:scale-[1.01]'
+                  ? `bg-[linear-gradient(135deg,rgba(181,109,255,0.92),rgba(78,164,255,0.92))] text-white hover:scale-[1.01] active:translate-y-px ${getGlowState('active')}`
                   : 'cursor-not-allowed bg-white/[0.08] text-slate-400'
               }`}
               onClick={onSubmit}
@@ -322,7 +337,7 @@ export function ChatPanel({
               {PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
-                  className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-200/80 transition hover:border-neon-purple/40 hover:text-white"
+                  className={`rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
                   onClick={() => onSelectPrompt(prompt)}
                   type="button"
                 >
@@ -330,7 +345,9 @@ export function ChatPanel({
                 </button>
               ))}
             </div>
-            {error ? <div className="text-rose-300">{error}</div> : null}
+            <div className="max-w-[360px] text-right text-xs leading-5 text-slate-300/60">
+              {error ? <span className="text-rose-300">{error}</span> : helperText}
+            </div>
           </div>
         </motion.div>
       </div>

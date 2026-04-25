@@ -65,6 +65,65 @@
   .omni-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  .omni-active-dot {
+    animation: omni-active-dot 1.6s ease-in-out infinite;
+    box-shadow: 0 0 14px rgba(81, 246, 255, 0.72);
+  }
+
+  .omni-runtime-glow {
+    animation: omni-runtime-glow 2.8s ease-in-out infinite;
+  }
+
+  .omni-skeleton {
+    overflow: hidden;
+    position: relative;
+  }
+
+  .omni-skeleton::after {
+    animation: omni-skeleton-scan 1.35s ease-in-out infinite;
+    background: linear-gradient(90deg, transparent, rgba(181, 109, 255, 0.28), rgba(81, 246, 255, 0.22), transparent);
+    content: "";
+    inset: 0;
+    position: absolute;
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes omni-active-dot {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.86);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes omni-runtime-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(81, 246, 255, 0.1),
+      0 0 16px rgba(81, 246, 255, 0.12),
+      0 20px 52px rgba(0, 0, 0, 0.34);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(181, 109, 255, 0.18),
+      0 0 24px rgba(81, 246, 255, 0.2),
+      0 20px 52px rgba(0, 0, 0, 0.34);
+  }
+}
+
+@keyframes omni-skeleton-scan {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 :root {
