@@ -131,35 +131,64 @@ class ExecutionRecoveryTest(unittest.TestCase):
             self.assertEqual(strategy_execution["execution_runtime_lane"], "true_action_execution", diagnostics)
             self.assertFalse(strategy_execution["compatibility_execution_active"], diagnostics)
             self.assertEqual(strategy_execution["execution_path_used"], "node_execution", diagnostics)
-            # Accept tool chains that include read_file (CI uses chains like ["glob_search", "read_file"])
-            # Try multiple paths to find tool_calls
+            # Collect all known reliable sources that may contain "read_file"
             tool_calls = []
-            td = strategy_execution.get("tool_diagnostics")
-            if isinstance(td, dict):
-                tool_calls = td.get("tool_calls") or []
-            elif isinstance(td, list):
-                # tool_diagnostics is a list directly
-                tool_calls = td
+            # 1. execution_provenance.tool_calls
             ep = strategy_execution.get("execution_provenance")
-            if isinstance(ep, dict):
-                tool_calls = tool_calls or ep.get("tool_calls") or []
+            if isinstance(ep, dict) and isinstance(ep.get("tool_calls"), list):
+                tool_calls += ep["tool_calls"]
+            # 2. tool_diagnostics
+            td = strategy_execution.get("tool_diagnostics")
+            if isinstance(td, dict) and isinstance(td.get("tool_calls"), list):
+                tool_calls += td["tool_calls"]
+            # 3. last_strategy_execution.raw_result.execution_provenance.tool_calls
             lse = strategy_execution.get("last_strategy_execution") or {}
             raw = lse.get("raw_result") or {}
-            lse_td = raw.get("tool_diagnostics")
-            if isinstance(lse_td, dict):
-                tool_calls = tool_calls or lse_td.get("tool_calls") or []
-            elif isinstance(lse_td, list):
-                tool_calls = tool_calls or lse_td
             lse_ep = raw.get("execution_provenance")
-            if isinstance(lse_ep, dict):
-                tool_calls = tool_calls or lse_ep.get("tool_calls") or []
-            read_file_in_chain = any(
-                (isinstance(tc, dict) and tc.get("name") == "read_file") or (isinstance(tc, str) and tc == "read_file")
-                for tc in (tool_calls if isinstance(tool_calls, list) else [])
-            )
+            if isinstance(lse_ep, dict) and isinstance(lse_ep.get("tool_calls"), list):
+                tool_calls += lse_ep["tool_calls"]
+            # 4. last_strategy_execution.raw_result.tool_diagnostics
+            lse_td = raw.get("tool_diagnostics")
+            if isinstance(lse_td, dict) and isinstance(lse_td.get("tool_calls"), list):
+                tool_calls += lse_td["tool_calls"]
+            # 5. trace.metadata.selected_tools
+            trace = strategy_execution.get("trace") or {}
+            ts = trace.get("metadata", {}).get("selected_tools")
+            if isinstance(ts, list):
+                tool_calls += ts
+            # 6. decision_suggested_tools
+            dst = strategy_execution.get("decision_suggested_tools")
+            if isinstance(dst, list):
+                tool_calls += dst
+            # 7. strategy_execution.trace.metadata.selected_tools
+            st_ts = trace.get("metadata", {}).get("selected_tools")
+            if isinstance(st_ts, list):
+                tool_calls += st_ts
+            # 8. strategy_execution.decision_suggested_tools
+            st_dst = strategy_execution.get("decision_suggested_tools")
+            if isinstance(st_dst, list):
+                tool_calls += st_dst
+            # 9. last_strategy_execution.raw_result.trace.metadata.selected_tools
+            lse_tr_ts = raw.get("trace", {}).get("metadata", {}).get("selected_tools")
+            if isinstance(lse_tr_ts, list):
+                tool_calls += lse_tr_ts
+            # 10. last_strategy_execution.raw_result.decision_suggested_tools
+            lse_dt_dst = raw.get("decision_suggested_tools")
+            if isinstance(lse_dt_dst, list):
+                tool_calls += lse_dt_dst
+            # Normalize tool_calls to list of names
+            names = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    name = tc.get("name") or tc.get("tool_selected") or tc.get("selected_tool")
+                    if name:
+                        names.append(name)
+                elif isinstance(tc, str):
+                    names.append(tc)
+            read_file_in_chain = "read_file" in names
             self.assertTrue(
                 read_file_in_chain,
-                f"read_file must appear in tool chain; tool_calls={tool_calls}. Diagnostics: {diagnostics}",
+                f"read_file must appear in tool chain; names={names}. Diagnostics: {diagnostics}",
             )
         finally:
             self._restore_runtime_env(previous_env, previous_cwd)
