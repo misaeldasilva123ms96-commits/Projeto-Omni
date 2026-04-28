@@ -11,6 +11,7 @@ from typing import Any
 from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 from config.provider_registry import describe_provider_diagnostics, get_available_providers
+from brain.runtime.observability.public_runtime_outcome import normalize_public_runtime_outcome
 
 USER_FALLBACK_RESPONSE = (
     "[degraded:python_main] O adaptador Python não pôde concluir o turno. "
@@ -255,6 +256,15 @@ def main() -> int:
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
         safe_response["cognitive_runtime_inspection"] = inspection
+        if isinstance(inspection.get("signals"), dict):
+            norm = normalize_public_runtime_outcome(
+                runtime_mode=inspection.get("runtime_mode"),
+                signals=inspection["signals"],
+                response=safe_response.get("response"),
+                execution_provenance=inspection.get("execution_provenance"),
+                tool_diagnostics=inspection.get("tool_diagnostics"),
+            )
+            inspection["signals"].update(norm)
     signals = inspection.get("signals") if isinstance(inspection, dict) else None
     if isinstance(signals, dict):
         if "provider_diagnostics" in signals:
