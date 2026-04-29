@@ -28,6 +28,14 @@ const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit'
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
 const { buildCooperativePlan } = require('../../features/multiagent/cooperativeCoordinator');
 const { buildVerificationPlan } = require('../../features/multiagent/verificationPlanner');
+function safeSpecialistCall(fn, args) {
+  try {
+    return fn(args);
+  } catch (err) {
+    console.error(`[specialist] ${fn.name || 'unknown'} failed: ${err.message}`);
+    return { invoked: true, degraded: true, specialist_id: fn.name || 'unknown', fallback: true };
+  }
+}
 const { planTask } = require('../../features/multiagent/specialists/advancedPlannerSpecialist');
 const { enrichWithMemory } = require('../../features/multiagent/specialists/memorySpecialist');
 const { extractArtifacts, summarizeExecutionResult } = require('../../features/multiagent/specialists/researcherSpecialist');
@@ -523,11 +531,11 @@ class QueryEngineAuthority {
       rankedStrategies: strategySuggestions,
       plannerResult,
     });
-    const dependencyImpactReview = reviewDependencyImpact({
+    const dependencyImpactReview = safeSpecialistCall(reviewDependencyImpact, {
       repositoryImpactAnalysis,
       repositoryAnalysis,
     });
-    const verificationSelection = selectVerificationTargets({
+    const verificationSelection = safeSpecialistCall(selectVerificationTargets, {
       repositoryImpactAnalysis,
       repositoryAnalysis,
     });

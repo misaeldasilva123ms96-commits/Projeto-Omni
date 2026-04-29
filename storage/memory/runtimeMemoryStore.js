@@ -6,7 +6,12 @@ const {
   describeEmbeddingMode,
   rankSemanticCandidates,
 } = require('./semanticMemory');
-const { isSupabaseConfigured, supabase, supabaseUrl } = require('./supabaseClient');
+const {
+  getSupabaseDiagnostics,
+  isSupabaseConfigured,
+  supabase,
+  supabaseUrl,
+} = require('./supabaseClient');
 
 const SUPABASE_VECTOR_TABLE = 'runtime_memory_embeddings';
 
@@ -53,6 +58,7 @@ function flattenEnvelope(envelope) {
     semantic_last_matches: Array.isArray(envelope.semantic?.last_matches) ? envelope.semantic.last_matches : [],
     vector_mode: envelope.semantic?.vector_mode || describeEmbeddingMode(),
     vector_backend: envelope.semantic?.vector_backend || (isSupabaseConfigured() ? 'supabase' : 'local-file'),
+    vector_diagnostics: getSupabaseDiagnostics(),
     repository_analysis: envelope.repository || {},
   };
 }

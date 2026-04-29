@@ -108,6 +108,73 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(payload["provider_diagnostics"][0]["provider"], "openai")
         self.assertTrue(payload["provider_diagnostics"][0]["failed"])
 
+    def test_main_uses_attempted_provider_separately_from_actual_provider(self) -> None:
+        script = (
+            "import importlib.util, json, sys\n"
+            f"sys.path.insert(0, r'{PROJECT_ROOT / 'backend' / 'python'}')\n"
+            f"spec = importlib.util.spec_from_file_location('omni_python_main_provider_args', r'{PYTHON_MAIN_PATH}')\n"
+            "module = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(module)\n"
+            "module.resolve_entry_message = lambda: ('ola', {})\n"
+            "module.apply_bridge_env = lambda bridge: None\n"
+            "module.sanitize_for_user = lambda raw: raw\n"
+            "module.get_available_providers = lambda: ['openai', 'groq']\n"
+            "module.emit_public_json = lambda payload: 0\n"
+            "class _OkOrchestrator:\n"
+            "    def __init__(self, *a, **k):\n"
+            "        self.last_cognitive_runtime_inspection = {\n"
+            "            'runtime_mode': 'PROVIDER_FAILURE',\n"
+            "            'signals': {\n"
+            "                'provider_actual': 'groq',\n"
+            "                'provider_failed': True,\n"
+            "                'failure_class': 'provider_timeout',\n"
+            "            },\n"
+            "        }\n"
+            "    def run(self, *a, **k):\n"
+            "        return {\n"
+            "            'response': 'provider failed',\n"
+            "            'provider_actual': 'groq',\n"
+            "            'provider_attempted': 'openai',\n"
+            "            'provider_failed': True,\n"
+            "            'fallback_triggered': True,\n"
+            "            'failure_class': 'provider_timeout',\n"
+            "            'provider_diagnostics': None,\n"
+            "        }\n"
+            "captured = {}\n"
+            "def _capture_provider_diag(**kwargs):\n"
+            "    captured.update(kwargs)\n"
+            "    return [\n"
+            "        {\n"
+            "            'provider': kwargs.get('attempted_provider') or '',\n"
+            "            'selected': kwargs.get('selected_provider') == kwargs.get('attempted_provider'),\n"
+            "            'attempted': True,\n"
+            "            'failed': bool(kwargs.get('failure_class')),\n"
+            "            'actual': kwargs.get('actual_provider') or '',\n"
+            "        }\n"
+            "    ]\n"
+            "module.describe_provider_diagnostics = _capture_provider_diag\n"
+            "module.BrainOrchestrator = _OkOrchestrator\n"
+            "module.main()\n"
+            "print(json.dumps(captured))\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0)
+        captured = json.loads(completed.stdout.strip().splitlines()[-1])
+        self.assertEqual(captured["actual_provider"], "groq")
+        self.assertEqual(captured["attempted_provider"], "openai")
+        self.assertEqual(captured["failure_class"], "provider_timeout")
+        self.assertTrue(captured["include_embedded_local"])
+        self.assertEqual(captured["selected_provider"], "")
+
     def test_python_main_structured_error_on_orchestrator_failure(self) -> None:
         script = (
             "import importlib.util, json, sys\n"
