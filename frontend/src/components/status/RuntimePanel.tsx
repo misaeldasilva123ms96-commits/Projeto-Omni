@@ -1,8 +1,11 @@
 import { motion } from 'framer-motion'
+import { useMemo, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ChatRequestState, RuntimeMetadata } from '../../types'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
-import { mockRuntimeState } from '../../state/runtimeConsoleStore'
+import { TOP_ACTIONS, mockRuntimeState, useRuntimeConsoleStore } from '../../state/runtimeConsoleStore'
+import { useLiveRuntimeMetrics } from '../../hooks/useLiveRuntimeMetrics'
+import { getGlowState } from '../../lib/ui/glow'
 
 type RuntimePanelProps = {
   health: UiRuntimeStatus | null
@@ -97,22 +100,6 @@ function goalProgress(metadata: RuntimeMetadata | null) {
   return mockRuntimeState.goalProgress
 }
 
-function providerSummary(metadata: RuntimeMetadata | null) {
-  const provider = metadata?.providerActual ?? 'n/a'
-  const failed = metadata?.providerFailed ? 'failed' : 'healthy'
-  return `${provider} · ${failed}`
-}
-
-function boolText(value: boolean | undefined) {
-  if (value === true) {
-    return 'yes'
-  }
-  if (value === false) {
-    return 'no'
-  }
-  return 'unknown'
-}
-
 function RuntimeMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5 last:border-b-0">
@@ -123,14 +110,35 @@ function RuntimeMetric({ label, value }: { label: string; value: string }) {
 }
 
 export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, sessionId }: RuntimePanelProps) {
-  const confidence = inferConfidence(lastMetadata)
-  const progress = goalProgress(lastMetadata)
+  const [debugMode, setDebugMode] = useState(false)
+  const activeAction = useRuntimeConsoleStore((state) => state.activeAction)
+  const selectTopAction = useRuntimeConsoleStore((state) => state.selectTopAction)
+  const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
+  const runtimeActive = requestState === 'loading' || lastMetadata?.signals?.node_execution_successful === true
+  const liveMetrics = useLiveRuntimeMetrics(runtimeActive)
+  const confidence = lastMetadata ? inferConfidence(lastMetadata) : liveMetrics.confidence
+  const progress = lastMetadata ? goalProgress(lastMetadata) : liveMetrics.progress
   const ranked = simulationPaths(lastMetadata)
-  const runtimeMode = lastMetadata?.runtimeMode ?? 'Cognitive Runtime'
+  const runtimeMode = lastMetadata?.runtimeMode ?? health?.runtimeMode ?? modeLabel ?? 'Cognitive Runtime'
+  const executionTime = lastMetadata ? inferExecutionTime(lastMetadata) : liveMetrics.executionTime
+  const debugPayload = useMemo(() => ({
+    api_response: lastMetadata ?? null,
+    latency_breakdown: {
+      execution_time: executionTime,
+      provider_latency_ms: lastMetadata?.providerDiagnostics?.find((provider) => provider.selected)?.latency_ms ?? null,
+      tool_latency_ms: lastMetadata?.toolExecution?.tool_latency_ms ?? null,
+    },
+    runtime: {
+      execution_path: lastMetadata?.executionPathUsed ?? null,
+      provider: lastMetadata?.providerActual ?? null,
+      runtime_mode: runtimeMode,
+      session_id: sessionId,
+    },
+  }), [executionTime, lastMetadata, runtimeMode, sessionId])
 
   return (
     <motion.div
-      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[rgba(98,141,255,0.16)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-[0_0_0_1px_rgba(78,164,255,0.1),0_0_18px_rgba(78,164,255,0.18),0_20px_52px_rgba(0,0,0,0.36)] backdrop-blur-xl"
+      className={`flex h-full flex-col overflow-hidden rounded-[28px] border bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-[0_20px_52px_rgba(0,0,0,0.36)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(98,141,255,0.16)]'}`}
       initial={{ opacity: 0, x: 12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
@@ -145,18 +153,33 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-teal-300 shadow-[0_0_16px_rgba(94,255,216,0.9)]" />
-            <button className="rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200/80 transition hover:border-neon-blue/40 hover:text-white" type="button">
+            <span className="h-2.5 w-2.5 rounded-full bg-teal-300 omni-active-dot" />
+            <button
+              className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition active:translate-y-px ${debugMode ? `bg-neon-cyan/10 text-white ${getGlowState('active')}` : `border-white/10 bg-white/[0.05] text-slate-200/80 ${getGlowState('hover')}`}`}
+              onClick={() => setDebugMode((value) => !value)}
+              type="button"
+            >
+              Debug
+            </button>
+            <button className={`rounded-full border border-white/10 bg-white/[0.05] p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Runtime Intelligence está em modo monitor. Use Logs para abrir detalhes de observabilidade.')} type="button">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
             </button>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-sm">
-          {['Pesquisa', 'Pensar', 'Memória'].map((item) => (
-            <div key={item} className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2 text-slate-200/85">
-              {item}
-            </div>
-          ))}
+          {TOP_ACTIONS.slice(0, 3).map((item) => {
+            const active = activeAction === item.id
+            return (
+              <button
+                key={item.id}
+                className={`rounded-2xl border px-3 py-2 text-slate-200/85 transition ${active ? `bg-white/[0.07] ${getGlowState('active')}` : `border-white/8 bg-white/[0.04] ${getGlowState('hover')}`}`}
+                onClick={() => selectTopAction(item.id)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -165,8 +188,20 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Runtime Status</h3>
           <RuntimeMetric label="Mode" value={runtimeMode} />
           <RuntimeMetric label="Strategy" value={inferStrategy(lastMetadata)} />
-          <RuntimeMetric label="Confidence" value={confidence.toFixed(2)} />
-          <RuntimeMetric label="Execution Time" value={inferExecutionTime(lastMetadata)} />
+          <div className="border-b border-white/8 py-2.5">
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <span className="text-sm text-slate-300/70">Confidence</span>
+              <span className="text-right text-sm font-medium text-white">{confidence.toFixed(2)}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+              <motion.div
+                animate={{ width: `${Math.round(confidence * 100)}%` }}
+                className="h-full rounded-full bg-[linear-gradient(90deg,rgba(181,109,255,0.9),rgba(81,246,255,0.85))]"
+                transition={{ duration: 0.45, ease: 'easeOut' }}
+              />
+            </div>
+          </div>
+          <RuntimeMetric label="Execution Time" value={executionTime} />
           <RuntimeMetric label="Memory" value={inferMemoryStatus(lastMetadata)} />
         </section>
 
@@ -222,7 +257,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </div>
           <div className="h-48 rounded-[22px] border border-white/8 bg-[rgba(7,10,24,0.86)] p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={mockRuntimeState.evolution}>
+              <LineChart data={liveMetrics.graph}>
                 <XAxis axisLine={false} dataKey="label" tick={{ fill: '#9fb0d7', fontSize: 11 }} tickLine={false} />
                 <YAxis axisLine={false} domain={[0, 1]} tick={false} tickLine={false} />
                 <Tooltip
@@ -240,6 +275,24 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
             </ResponsiveContainer>
           </div>
         </section>
+
+        {debugMode ? (
+          <section className="rounded-[24px] border border-neon-cyan/20 bg-black/20 px-4 py-4">
+            <details open>
+              <summary className="cursor-pointer text-[16px] font-medium tracking-tight text-white">
+                Debug Mode
+              </summary>
+              <div className="mt-3 grid gap-2 text-sm text-slate-200/80">
+                <RuntimeMetric label="Provider" value={lastMetadata?.providerActual ?? 'unknown'} />
+                <RuntimeMetric label="Execution Path" value={lastMetadata?.executionPathUsed ?? 'unknown'} />
+                <RuntimeMetric label="Failure Class" value={lastMetadata?.failureClass ?? 'none'} />
+              </div>
+              <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/35 p-3 text-[11px] leading-5 text-slate-200/80">
+                {JSON.stringify(debugPayload, null, 2)}
+              </pre>
+            </details>
+          </section>
+        ) : null}
       </div>
     </motion.div>
   )
