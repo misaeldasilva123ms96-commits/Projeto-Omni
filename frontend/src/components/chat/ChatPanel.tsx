@@ -25,18 +25,11 @@ type ChatPanelProps = {
   loading: boolean
   messages: ExtendedChatMessage[]
   onChange: (value: string) => void
-  onSelectPrompt: (prompt: string) => void
   onSubmit: () => void
   onTopActionSelect: (action: ConsoleAction) => void
   requestState: 'idle' | 'loading' | 'error'
   sessionId: string
 }
-
-const PROMPTS = [
-  'Como criar um SaaS com validação e execução incremental?',
-  'Analise o arquivo package.json e mostre riscos estruturais.',
-  'Monte um plano de execução para estabilizar o provider runtime.',
-]
 
 const PREVIEW_REPLY = `Claro! Aqui está um plano passo a passo para criar um SaaS:
 
@@ -132,7 +125,6 @@ export function ChatPanel({
   loading,
   messages,
   onChange,
-  onSelectPrompt,
   onSubmit,
   onTopActionSelect,
   requestState,
@@ -366,11 +358,21 @@ export function ChatPanel({
           </div>
 
           <div className={`flex items-center gap-3 rounded-[26px] border bg-[rgba(7,8,22,0.78)] px-4 py-3 transition-all duration-300 ${inputFocused ? `${getGlowState('focus')} scale-[1.01]` : 'border-white/10'}`}>
-            <button className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Ajuda contextual ainda não possui backend dedicado nesta branch.')} type="button">
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18h.01M8 10a4 4 0 1 1 8 0c0 4-4 4-4 7" /></svg>
+            <button
+              aria-label="Adicionar ação"
+              className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
+              onClick={() => setUiNotice('Ações adicionais ainda não possuem backend dedicado nesta branch.')}
+              type="button"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
             </button>
-            <button className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Entrada por voz ainda não está implementada nesta branch. Use o composer textual.')} type="button">
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v7a3 3 0 0 0 3 3Z" /><path d="M19 11v4a7 7 0 0 1-14 0v-4M12 22v-3" /></svg>
+            <button
+              aria-label="Anexar arquivo"
+              className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
+              onClick={() => setUiNotice('Anexos ainda não estão conectados ao runtime nesta branch.')}
+              type="button"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.4 9.4a2 2 0 0 1-2.8-2.8l8.8-8.8" /></svg>
             </button>
             <textarea
               className={`flex-1 resize-none rounded-[22px] border border-neon-purple/20 bg-[rgba(11,15,34,0.92)] px-5 py-4 text-base text-white outline-none placeholder:text-violet-200/40 transition-all duration-300 ${inputFocused ? 'min-h-[82px]' : 'min-h-[64px]'}`}
@@ -388,7 +390,7 @@ export function ChatPanel({
               placeholder="Digite uma mensagem..."
               value={input}
             />
-            <button className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Microfone ainda não está conectado a um runtime de voz nesta branch.')} type="button">
+            <button aria-label="Entrada por voz" className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Microfone ainda não está conectado a um runtime de voz nesta branch.')} type="button">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v7a3 3 0 0 0 3 3Z" /><path d="M19 11v4a7 7 0 0 1-14 0v-4M12 22v-3" /></svg>
             </button>
             <button
@@ -405,20 +407,8 @@ export function ChatPanel({
             </button>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <div className="flex flex-wrap gap-2">
-              {PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  className={`rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
-                  onClick={() => onSelectPrompt(prompt)}
-                  type="button"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-            <div className="max-w-[360px] text-right text-xs leading-5 text-slate-300/60">
+          <div className="mt-3 flex justify-end text-sm">
+            <div className="max-w-[420px] text-right text-xs leading-5 text-slate-300/60">
               {error ? <span className="text-rose-300">{error}</span> : helperText}
             </div>
           </div>

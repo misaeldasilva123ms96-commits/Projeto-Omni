@@ -466,7 +466,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           loading={isLoading}
           messages={messages}
           onChange={setInput}
-          onSelectPrompt={setInput}
           onSubmit={() => {
             void handleSubmit()
           }}

@@ -10,7 +10,6 @@ const baseProps = {
   loading: false,
   messages: [],
   onChange: vi.fn(),
-  onSelectPrompt: vi.fn(),
   onSubmit: vi.fn(),
   onTopActionSelect: vi.fn(),
   requestState: 'idle' as const,
