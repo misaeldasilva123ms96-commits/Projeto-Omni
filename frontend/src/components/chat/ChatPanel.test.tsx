@@ -5,7 +5,6 @@ import { ChatPanel } from './ChatPanel'
 
 const baseProps = {
   error: null,
-  helperText: 'helper',
   lastMetadata: null,
   loading: false,
   messages: [],

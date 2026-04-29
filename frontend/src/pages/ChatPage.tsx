@@ -454,7 +454,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         <ChatPanel
           canSend={canSend}
           error={error}
-          helperText={helperText}
           input={input}
           lastMetadata={lastMetadata}
           loading={isLoading}

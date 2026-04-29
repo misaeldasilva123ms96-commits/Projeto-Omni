@@ -17,7 +17,6 @@ type ExtendedChatMessage = ChatMessage & {
 type ChatPanelProps = {
   canSend: boolean
   error: string | null
-  helperText: string
   input: string
   lastMetadata: RuntimeMetadata | null
   loading: boolean
@@ -94,7 +93,6 @@ function sidebarModuleCopy(item: string, metadata: RuntimeMetadata | null) {
 export function ChatPanel({
   canSend,
   error,
-  helperText,
   input,
   lastMetadata,
   loading,
@@ -135,7 +133,7 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full min-h-[calc(100vh-2rem)] flex-col">
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className={`min-h-0 flex-1 overflow-hidden rounded-[32px] border bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-5 py-5 shadow-[0_18px_48px_rgba(0,0,0,0.32)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(180,109,255,0.16)]'}`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -148,7 +146,7 @@ export function ChatPanel({
             </div>
           </div>
 
-          <div className="flex max-h-[calc(100vh-20rem)] min-h-[320px] flex-col gap-4 overflow-y-auto pr-2">
+          <div className="flex max-h-[calc(100vh-18rem)] min-h-[360px] flex-col gap-4 overflow-y-auto pr-2">
             <AnimatePresence initial={false}>
               {visibleMessages.map((message, index) => {
                 const isUser = message.role === 'user'
@@ -223,19 +221,19 @@ export function ChatPanel({
         </div>
 
         <motion.div
-          className="rounded-[28px] border border-[rgba(180,109,255,0.16)] bg-[linear-gradient(180deg,rgba(14,15,34,0.8),rgba(10,11,27,0.74))] p-3 shadow-[0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl"
+          className="rounded-[24px] border border-[rgba(180,109,255,0.16)] bg-[linear-gradient(180deg,rgba(14,15,34,0.8),rgba(10,11,27,0.74))] p-2 shadow-[0_20px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl"
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.12 }}
         >
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               {BOTTOM_TABS.map((tab) => {
                 const active = activeTab === tab.id
                 return (
                   <button
                     key={tab.id}
-                    className={`rounded-2xl border px-3.5 py-2 text-sm transition ${
+                    className={`rounded-2xl border px-3 py-1.5 text-xs transition ${
                       active
                         ? `bg-neon-purple/14 text-white ${getGlowState('active')}`
                         : `border-white/8 bg-white/[0.03] text-slate-300 hover:text-white ${getGlowState('hover')}`
@@ -250,7 +248,7 @@ export function ChatPanel({
               })}
             </div>
             <button
-              className={`rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
+              className={`rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
               onClick={() => setUiNotice('Logs detalhados vivem na rota de observabilidade. Use o item Logs da sidebar para abrir o painel completo.')}
               type="button"
             >
@@ -292,25 +290,25 @@ export function ChatPanel({
             </div>
           ) : null}
 
-          <div className={`flex items-center gap-3 rounded-[24px] border bg-[rgba(7,8,22,0.78)] px-3 py-3 transition-all duration-300 ${inputFocused ? `${getGlowState('focus')} scale-[1.01]` : 'border-white/10'}`}>
+          <div className={`flex items-center gap-2 rounded-[22px] border bg-[rgba(7,8,22,0.78)] px-2.5 py-1.5 transition-all duration-300 ${inputFocused ? `${getGlowState('focus')} scale-[1.005]` : 'border-white/10'}`}>
             <button
               aria-label="Adicionar ação"
-              className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
+              className={`rounded-full border border-white/12 bg-white/[0.05] p-2 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
               onClick={() => setUiNotice('Ações adicionais ainda não possuem backend dedicado nesta branch.')}
               type="button"
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
             </button>
             <button
               aria-label="Anexar arquivo"
-              className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
+              className={`rounded-full border border-white/12 bg-white/[0.05] p-2 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`}
               onClick={() => setUiNotice('Anexos ainda não estão conectados ao runtime nesta branch.')}
               type="button"
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.4 9.4a2 2 0 0 1-2.8-2.8l8.8-8.8" /></svg>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.4 9.4a2 2 0 0 1-2.8-2.8l8.8-8.8" /></svg>
             </button>
             <textarea
-              className={`flex-1 resize-none rounded-[22px] border border-neon-purple/20 bg-[rgba(11,15,34,0.92)] px-5 py-3.5 text-base text-white outline-none placeholder:text-violet-200/40 transition-all duration-300 ${inputFocused ? 'min-h-[78px]' : 'min-h-[58px]'}`}
+              className={`flex-1 resize-none rounded-[20px] border border-neon-purple/20 bg-[rgba(11,15,34,0.92)] px-4 py-2 text-sm text-white outline-none placeholder:text-violet-200/40 transition-all duration-300 ${inputFocused ? 'min-h-[52px]' : 'min-h-[40px]'}`}
               onChange={(event) => onChange(event.target.value)}
               onBlur={() => setInputFocused(false)}
               onFocus={() => setInputFocused(true)}
@@ -325,11 +323,11 @@ export function ChatPanel({
               placeholder="Digite uma mensagem..."
               value={input}
             />
-            <button aria-label="Entrada por voz" className={`rounded-full border border-white/12 bg-white/[0.05] p-3 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Microfone ainda não está conectado a um runtime de voz nesta branch.')} type="button">
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v7a3 3 0 0 0 3 3Z" /><path d="M19 11v4a7 7 0 0 1-14 0v-4M12 22v-3" /></svg>
+            <button aria-label="Entrada por voz" className={`rounded-full border border-white/12 bg-white/[0.05] p-2 text-slate-200 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Microfone ainda não está conectado a um runtime de voz nesta branch.')} type="button">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 18a3 3 0 0 0 3-3V8a3 3 0 1 0-6 0v7a3 3 0 0 0 3 3Z" /><path d="M19 11v4a7 7 0 0 1-14 0v-4M12 22v-3" /></svg>
             </button>
             <button
-              className={`rounded-full px-6 py-4 text-sm font-semibold uppercase tracking-[0.28em] transition ${
+              className={`rounded-full px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.24em] transition ${
                 canSend
                   ? `bg-[linear-gradient(135deg,rgba(181,109,255,0.92),rgba(78,164,255,0.92))] text-white hover:scale-[1.01] active:translate-y-px ${getGlowState('active')}`
                   : 'cursor-not-allowed bg-white/[0.08] text-slate-400'
@@ -342,11 +340,13 @@ export function ChatPanel({
             </button>
           </div>
 
-          <div className="mt-3 flex justify-end text-sm">
-            <div className="max-w-[420px] text-right text-xs leading-5 text-slate-300/60">
-              {error ? <span className="text-rose-300">{error}</span> : helperText}
+          {error ? (
+            <div className="mt-1.5 flex justify-end text-sm">
+              <div className="max-w-[420px] text-right text-[11px] leading-4 text-rose-300">
+                {error}
+              </div>
             </div>
-          </div>
+          ) : null}
         </motion.div>
       </div>
     </div>
