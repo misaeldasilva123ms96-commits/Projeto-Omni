@@ -9,7 +9,7 @@ import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
 import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
-import { useRuntimeConsoleStore, type ConsoleAction, type SidebarItem } from '../state/runtimeConsoleStore'
+import { useRuntimeConsoleStore, type SidebarItem } from '../state/runtimeConsoleStore'
 import type {
   ChatMessage,
   ChatMode,
@@ -421,12 +421,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     } satisfies StoredChatState))
   }
 
-  function handleTopActionSelect(action: ConsoleAction) {
-    const nextMode: ChatMode = action === 'pesquisa' ? 'pesquisa' : action === 'executar' || action === 'objetivos' ? 'agente' : 'chat'
-    setConsoleCurrentMode(nextMode)
-    onChangeMode(nextMode)
-  }
-
   function handleSidebarItemSelected(item: SidebarItem) {
     const preset = SIDEBAR_PROMPTS[item]
     if (preset) {
@@ -460,17 +454,14 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         <ChatPanel
           canSend={canSend}
           error={error}
-          helperText={helperText}
           input={input}
           lastMetadata={lastMetadata}
           loading={isLoading}
           messages={messages}
           onChange={setInput}
-          onSelectPrompt={setInput}
           onSubmit={() => {
             void handleSubmit()
           }}
-          onTopActionSelect={handleTopActionSelect}
           requestState={requestState}
           sessionId={sessionId}
         />
