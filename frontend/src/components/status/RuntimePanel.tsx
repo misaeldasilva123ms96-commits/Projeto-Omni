@@ -138,24 +138,24 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
 
   return (
     <motion.div
-      className={`flex h-full flex-col overflow-hidden rounded-[28px] border bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-[0_20px_52px_rgba(0,0,0,0.36)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(98,141,255,0.16)]'}`}
+      className={`flex h-full flex-col overflow-hidden rounded-[26px] border bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-3.5 py-4 shadow-[0_20px_52px_rgba(0,0,0,0.36)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(98,141,255,0.16)]'}`}
       initial={{ opacity: 0, x: 12 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
     >
-      <div className="mb-4 border-b border-white/10 pb-4">
+      <div className="mb-3 border-b border-white/10 pb-3">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[radial-gradient(circle_at_40%_35%,rgba(255,255,255,0.92),rgba(181,109,255,0.76)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.45)_72%)] shadow-[0_0_24px_rgba(123,97,255,0.38)]" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[radial-gradient(circle_at_40%_35%,rgba(255,255,255,0.92),rgba(181,109,255,0.76)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.45)_72%)] shadow-[0_0_24px_rgba(123,97,255,0.38)]" />
             <div>
-              <div className="text-[22px] font-semibold tracking-tight text-white">Omni AI</div>
-              <div className="text-sm text-slate-300/70">Runtime Intelligence</div>
+              <div className="text-[20px] font-semibold tracking-tight text-white">Omni AI</div>
+              <div className="text-xs text-slate-300/70">Runtime Intelligence</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-teal-300 omni-active-dot" />
             <button
-              className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] transition active:translate-y-px ${debugMode ? `bg-neon-cyan/10 text-white ${getGlowState('active')}` : `border-white/10 bg-white/[0.05] text-slate-200/80 ${getGlowState('hover')}`}`}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] transition active:translate-y-px ${debugMode ? `bg-neon-cyan/10 text-white ${getGlowState('active')}` : `border-white/10 bg-white/[0.05] text-slate-200/80 ${getGlowState('hover')}`}`}
               onClick={() => setDebugMode((value) => !value)}
               type="button"
             >
@@ -172,7 +172,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
             return (
               <button
                 key={item.id}
-                className={`rounded-2xl border px-3 py-2 text-slate-200/85 transition ${active ? `bg-white/[0.07] ${getGlowState('active')}` : `border-white/8 bg-white/[0.04] ${getGlowState('hover')}`}`}
+                className={`rounded-2xl border px-2.5 py-1.5 text-slate-200/85 transition ${active ? `bg-white/[0.07] ${getGlowState('active')}` : `border-white/8 bg-white/[0.04] ${getGlowState('hover')}`}`}
                 onClick={() => selectTopAction(item.id)}
                 type="button"
               >
@@ -183,8 +183,8 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto pr-1">
-        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+        <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
           <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Runtime Status</h3>
           <RuntimeMetric label="Mode" value={runtimeMode} />
           <RuntimeMetric label="Strategy" value={inferStrategy(lastMetadata)} />
@@ -205,7 +205,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           <RuntimeMetric label="Memory" value={inferMemoryStatus(lastMetadata)} />
         </section>
 
-        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+        <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
           <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Goal Model</h3>
           <div className="space-y-3">
             <div>
@@ -231,7 +231,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </div>
         </section>
 
-        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+        <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
           <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Simulation</h3>
           <div className="mb-3 text-sm text-slate-300/70">
             Paths considered: {lastMetadata?.matchedTools?.length ?? mockRuntimeState.pathsConsidered}
@@ -245,7 +245,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
           </ol>
         </section>
 
-        <section className="rounded-[24px] border border-white/10 bg-black/15 px-4 py-4">
+        <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="text-[18px] font-medium tracking-tight text-white">Cognitive Evolution</h3>

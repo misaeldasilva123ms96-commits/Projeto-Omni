@@ -19,7 +19,7 @@ export function Layout({ sidebar, center, right }: LayoutProps) {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_36%,rgba(140,94,255,0.12),transparent_18%),radial-gradient(circle_at_64%_68%,rgba(98,121,255,0.06),transparent_22%)] opacity-90" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1580px] flex-col px-5 py-8 lg:px-10">
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-4 py-4 lg:px-6">
         <div className="mb-4 grid grid-cols-3 gap-2 lg:hidden">
           {[
             ['chat', 'Chat'],
@@ -42,17 +42,17 @@ export function Layout({ sidebar, center, right }: LayoutProps) {
         </div>
         <motion.div
           animate={{ opacity: 1, y: 0 }}
-          className="grid min-h-[calc(100vh-4rem)] gap-6 lg:grid-cols-[262px_minmax(0,1fr)_316px]"
+          className="grid min-h-[calc(100vh-2rem)] gap-4 lg:grid-cols-[246px_minmax(0,1fr)_300px]"
           initial={{ opacity: 0, y: 12 }}
           transition={{ duration: 0.45, ease: 'easeOut' }}
         >
-          <aside className={`${mobilePanel === 'tools' ? 'block' : 'hidden'} min-h-0 lg:sticky lg:top-8 lg:block lg:h-[calc(100vh-4rem)]`}>
+          <aside className={`${mobilePanel === 'tools' ? 'block' : 'hidden'} min-h-0 lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)]`}>
             {sidebar}
           </aside>
           <main className={`${mobilePanel === 'chat' ? 'block' : 'hidden'} min-h-0 lg:block`}>
             {center}
           </main>
-          <aside className={`${mobilePanel === 'runtime' ? 'block md:fixed md:inset-y-6 md:right-6 md:z-30 md:w-[360px] md:max-w-[calc(100vw-3rem)] lg:static lg:w-auto' : 'hidden'} min-h-0 lg:sticky lg:top-8 lg:block lg:h-[calc(100vh-4rem)]`}>
+          <aside className={`${mobilePanel === 'runtime' ? 'block md:fixed md:inset-y-6 md:right-6 md:z-30 md:w-[360px] md:max-w-[calc(100vw-3rem)] lg:static lg:w-auto' : 'hidden'} min-h-0 lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)]`}>
             {right}
           </aside>
         </motion.div>

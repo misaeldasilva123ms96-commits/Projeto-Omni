@@ -11,7 +11,6 @@ const baseProps = {
   messages: [],
   onChange: vi.fn(),
   onSubmit: vi.fn(),
-  onTopActionSelect: vi.fn(),
   requestState: 'idle' as const,
   sessionId: 'session-test',
 }

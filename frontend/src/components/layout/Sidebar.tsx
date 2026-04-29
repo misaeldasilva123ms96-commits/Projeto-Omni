@@ -92,21 +92,21 @@ export function Sidebar({
 
   return (
     <motion.div
-      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-[rgba(180,109,255,0.18)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-4 py-5 shadow-[0_22px_50px_rgba(0,0,0,0.36)] backdrop-blur-xl"
+      className="flex h-full flex-col overflow-hidden rounded-[26px] border border-[rgba(180,109,255,0.18)] bg-[linear-gradient(180deg,rgba(14,16,36,0.9),rgba(11,13,29,0.84))] px-3 py-4 shadow-[0_22px_50px_rgba(0,0,0,0.36)] backdrop-blur-xl"
       initial={{ opacity: 0, x: -12 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
       animate={{ opacity: 1, x: 0 }}
     >
-      <div className="mb-5 rounded-[24px] border border-white/8 bg-black/15 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+      <div className="mb-4 rounded-[22px] border border-white/8 bg-black/15 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
         <p className="mb-2 text-[11px] uppercase tracking-[0.45em] text-violet-200/70">IA Console</p>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className={`flex h-12 w-12 items-center justify-center rounded-full border bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.95),rgba(181,109,255,0.75)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.4)_70%)] ${getGlowState('runtime')} omni-runtime-glow`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.95),rgba(181,109,255,0.75)_28%,rgba(78,164,255,0.72)_58%,rgba(9,12,28,0.4)_70%)] ${getGlowState('runtime')} omni-runtime-glow`}>
               <div className="h-3 w-3 rounded-full bg-white/90 shadow-[0_0_14px_rgba(255,255,255,0.95)]" />
             </div>
             <div>
-              <div className="text-[22px] font-semibold tracking-tight text-white">Omni AI</div>
-              <div className="text-sm text-slate-300/70">Cognitive runtime console</div>
+              <div className="text-[20px] font-semibold tracking-tight text-white">Omni AI</div>
+              <div className="text-xs text-slate-300/70">Cognitive runtime console</div>
             </div>
           </div>
           <button className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-200/80 transition hover:text-white active:translate-y-px ${getGlowState('hover')}`} onClick={() => setUiNotice('Seletor de perfil Omni ainda não possui múltiplos perfis nesta branch.')} type="button">
@@ -115,7 +115,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="flex-1 space-y-6 overflow-y-auto pr-1">
+      <div className="flex-1 space-y-5 overflow-y-auto pr-1">
         <section className="space-y-2">
           <h2 className="px-2 text-[15px] font-medium text-fuchsia-200">Conversa</h2>
           {CONVERSATION_ITEMS.map((item) => {
@@ -125,7 +125,7 @@ export function Sidebar({
                 key={item.id}
                 whileHover={{ x: 4 }}
                 whileTap={{ scale: 0.985, y: 1 }}
-                className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
+                className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-2.5 text-left transition ${
                   active
                     ? `bg-[linear-gradient(135deg,rgba(181,109,255,0.22),rgba(118,73,255,0.1))] text-white ${getGlowState('active')}`
                     : `border-white/5 bg-white/[0.03] text-slate-200/80 hover:bg-white/[0.06] hover:text-white ${getGlowState('hover')}`
@@ -160,7 +160,7 @@ export function Sidebar({
                 key={item.id}
                 whileHover={{ x: 4 }}
                 whileTap={{ scale: 0.985, y: 1 }}
-                className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition ${
+                className={`group flex w-full items-center justify-between rounded-2xl border px-3 py-2.5 text-left transition ${
                   active
                     ? `bg-white/10 text-white ${getGlowState('active')}`
                     : `border-white/5 bg-white/[0.03] text-slate-200/80 hover:bg-white/[0.06] hover:text-white ${getGlowState('hover')}`
