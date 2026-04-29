@@ -150,17 +150,24 @@ export function ChatPanel({
 
   const tabSummary = useMemo(() => panelSummary(activeTab, lastMetadata), [activeTab, lastMetadata])
   const moduleCopy = useMemo(() => sidebarModuleCopy(activeSidebarItem, lastMetadata), [activeSidebarItem, lastMetadata])
-  const previewUserPrompt = messages.findLast((message) => message.role === 'user')?.content ?? 'Como criar um SaaS?'
-  const assistantMessages = messages.filter((message) => message.role === 'assistant')
-  const visibleAssistantMessages = assistantMessages.length > 0
-    ? assistantMessages
-    : [{
-      id: 'preview-assistant',
-      role: 'assistant' as const,
-      content: PREVIEW_REPLY,
-      createdAt: new Date().toISOString(),
-      metadata: lastMetadata ?? undefined,
-    }]
+  const latestUserPrompt = messages.findLast((message) => message.role === 'user')?.content ?? 'Como criar um SaaS?'
+  const visibleMessages: ExtendedChatMessage[] = messages.length > 0
+    ? messages
+    : [
+        {
+          id: 'preview-user',
+          role: 'user',
+          content: latestUserPrompt,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'preview-assistant',
+          role: 'assistant',
+          content: PREVIEW_REPLY,
+          createdAt: new Date().toISOString(),
+          metadata: lastMetadata ?? undefined,
+        },
+      ]
   const runtimeActive = loading || requestState === 'loading'
 
   return (
@@ -198,17 +205,6 @@ export function ChatPanel({
       </motion.div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-5">
-        <div className="flex items-start justify-end">
-          <motion.div
-            animate={{ opacity: 1, x: 0 }}
-            className={`mr-8 max-w-[52%] rounded-[26px] border bg-[linear-gradient(135deg,rgba(28,60,190,0.74),rgba(10,24,74,0.98))] px-8 py-4 text-center text-[18px] font-medium tracking-tight text-white ${getGlowState('active')}`}
-            initial={{ opacity: 0, x: 18 }}
-            transition={{ duration: 0.35, delay: 0.08 }}
-          >
-            {previewUserPrompt}
-          </motion.div>
-        </div>
-
         <div className={`min-h-0 flex-1 overflow-hidden rounded-[32px] border bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-5 py-5 shadow-[0_18px_48px_rgba(0,0,0,0.32)] backdrop-blur-xl ${runtimeActive ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(180,109,255,0.16)]'}`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -223,64 +219,71 @@ export function ChatPanel({
 
           <div className="flex max-h-[calc(100vh-25rem)] min-h-[340px] flex-col gap-4 overflow-y-auto pr-2">
             <AnimatePresence initial={false}>
-              {visibleAssistantMessages.map((message, index) => {
+              {visibleMessages.map((message, index) => {
+                const isUser = message.role === 'user'
                 const badges = messageBadges(message.metadata)
                 return (
                   <motion.article
                     key={message.id}
-                    className="flex justify-start"
+                    className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.28, delay: Math.min(index * 0.04, 0.18) }}
                   >
-                    <div className={`w-full max-w-[84%] rounded-[28px] border bg-[linear-gradient(180deg,rgba(15,15,32,0.88),rgba(8,9,22,0.74))] px-8 py-6 text-slate-100 shadow-[0_14px_34px_rgba(0,0,0,0.28)] backdrop-blur-xl ${message.isLoading ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(180,109,255,0.16)]'}`}>
-                      <div className="mb-4 flex items-center justify-between gap-4 text-xs uppercase tracking-[0.32em] text-slate-300/70">
-                        <span>Omni Runtime</span>
-                        <span>{new Date(message.createdAt).toLocaleTimeString('pt-BR')}</span>
+                    {isUser ? (
+                      <div className={`max-w-[72%] rounded-[26px] border bg-[linear-gradient(135deg,rgba(28,60,190,0.74),rgba(10,24,74,0.98))] px-8 py-4 text-right text-[18px] font-medium leading-8 tracking-tight text-white ${getGlowState('active')}`}>
+                        {safeMessageContent(message)}
                       </div>
-                      {message.isLoading ? (
-                        <div className="space-y-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {[0, 1, 2].map((dot) => (
-                              <span
-                                key={dot}
-                              className="h-2.5 w-2.5 animate-shimmer rounded-full bg-gradient-to-r from-neon-purple via-neon-blue to-neon-cyan"
-                              style={{ animationDelay: `${dot * 140}ms` }}
-                              />
-                            ))}
-                          </div>
-                          <div className="space-y-2">
-                            <div className="h-3 w-5/6 rounded-full bg-white/10 omni-skeleton" />
-                            <div className="h-3 w-3/4 rounded-full bg-white/10 omni-skeleton" />
-                            <div className="h-3 w-2/3 rounded-full bg-white/10 omni-skeleton" />
-                          </div>
+                    ) : (
+                      <div className={`w-full max-w-[84%] rounded-[28px] border bg-[linear-gradient(180deg,rgba(15,15,32,0.88),rgba(8,9,22,0.74))] px-8 py-6 text-slate-100 shadow-[0_14px_34px_rgba(0,0,0,0.28)] backdrop-blur-xl ${message.isLoading ? `${getGlowState('runtime')} omni-runtime-glow` : 'border-[rgba(180,109,255,0.16)]'}`}>
+                        <div className="mb-4 flex items-center justify-between gap-4 text-xs uppercase tracking-[0.32em] text-slate-300/70">
+                          <span>Omni Runtime</span>
+                          <span>{new Date(message.createdAt).toLocaleTimeString('pt-BR')}</span>
                         </div>
-                      ) : (
-                        <div className="space-y-5">
-                          <MarkdownRenderer content={safeMessageContent(message)} />
-                          {badges.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {badges.map((badge) => (
+                        {message.isLoading ? (
+                          <div className="space-y-4 py-3">
+                            <div className="flex items-center gap-2">
+                              {[0, 1, 2].map((dot) => (
                                 <span
-                                  key={badge}
-                                  className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-200/75"
-                                >
-                                  {badge}
-                                </span>
+                                  key={dot}
+                                className="h-2.5 w-2.5 animate-shimmer rounded-full bg-gradient-to-r from-neon-purple via-neon-blue to-neon-cyan"
+                                style={{ animationDelay: `${dot * 140}ms` }}
+                                />
                               ))}
                             </div>
-                          ) : null}
-                          <div className="flex justify-end gap-3 text-violet-200/80">
-                            <button className="rounded-full border border-white/8 bg-white/[0.04] p-2 transition hover:border-neon-purple/40 hover:text-white" onClick={() => setUiNotice('Feedback positivo registrado apenas no estado local da interface.')} type="button">
-                              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3L6 9v11h10.28a2 2 0 0 0 1.98-1.72l1.2-8A2 2 0 0 0 17.48 8H15a1 1 0 0 0-1 1Z" /></svg>
-                            </button>
-                            <button className="rounded-full border border-white/8 bg-white/[0.04] p-2 transition hover:border-neon-blue/40 hover:text-white" onClick={() => setUiNotice('Feedback negativo registrado apenas no estado local da interface.')} type="button">
-                              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l5-7V4H7.72a2 2 0 0 0-1.98 1.72l-1.2 8A2 2 0 0 0 6.52 16H9a1 1 0 0 0 1-1Z" /></svg>
-                            </button>
+                            <div className="space-y-2">
+                              <div className="h-3 w-5/6 rounded-full bg-white/10 omni-skeleton" />
+                              <div className="h-3 w-3/4 rounded-full bg-white/10 omni-skeleton" />
+                              <div className="h-3 w-2/3 rounded-full bg-white/10 omni-skeleton" />
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
+                        ) : (
+                          <div className="space-y-5">
+                            <MarkdownRenderer content={safeMessageContent(message)} />
+                            {badges.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {badges.map((badge) => (
+                                  <span
+                                    key={badge}
+                                    className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-slate-200/75"
+                                  >
+                                    {badge}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            <div className="flex justify-end gap-3 text-violet-200/80">
+                              <button className="rounded-full border border-white/8 bg-white/[0.04] p-2 transition hover:border-neon-purple/40 hover:text-white" onClick={() => setUiNotice('Feedback positivo registrado apenas no estado local da interface.')} type="button">
+                                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3L6 9v11h10.28a2 2 0 0 0 1.98-1.72l1.2-8A2 2 0 0 0 17.48 8H15a1 1 0 0 0-1 1Z" /></svg>
+                              </button>
+                              <button className="rounded-full border border-white/8 bg-white/[0.04] p-2 transition hover:border-neon-blue/40 hover:text-white" onClick={() => setUiNotice('Feedback negativo registrado apenas no estado local da interface.')} type="button">
+                                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l5-7V4H7.72a2 2 0 0 0-1.98 1.72l-1.2 8A2 2 0 0 0 6.52 16H9a1 1 0 0 0 1-1Z" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </motion.article>
                 )
               })}
