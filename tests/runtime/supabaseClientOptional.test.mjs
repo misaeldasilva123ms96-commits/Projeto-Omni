@@ -29,13 +29,15 @@ try {
   assert.equal(client.isSupabaseConfigured(), false);
   assert.equal(client.supabase, null);
   assert.deepEqual(client.getSupabaseDiagnostics(), {
-    backend: 'local-file',
-    available: false,
-    configured: false,
-    package_available: false,
-    reason: 'package_missing',
-    package: '@supabase/supabase-js',
+    supabase_configured: false,
+    url_present: false,
+    anon_key_present: false,
+    service_role_present: false,
   });
+  assert.equal(Object.prototype.hasOwnProperty.call(client, 'supabaseKey'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(client, 'supabaseUrl'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(client, 'raw_key'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(client, 'raw_url'), false);
 } finally {
   Module._load = originalLoad;
   delete require.cache[require.resolve(clientPath)];

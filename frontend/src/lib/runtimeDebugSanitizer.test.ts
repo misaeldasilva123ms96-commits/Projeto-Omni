@@ -23,6 +23,8 @@ describe('sanitizeRuntimeDebugPayload', () => {
       api_key: 'sk-proj-abcdefghijklmnop',
       jwt: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature',
       raw_payload: { value: 'hidden' },
+      raw_key: 'hidden',
+      raw_url: 'https://example.supabase.co',
       execution_request: { actions: [] },
       nested: {
         provider_raw: { body: 'raw' },
@@ -51,6 +53,8 @@ describe('sanitizeRuntimeDebugPayload', () => {
       'api_key',
       'jwt',
       'raw_payload',
+      'raw_key',
+      'raw_url',
       'execution_request',
       'provider_raw',
       'raw_response',
@@ -69,7 +73,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
         'Paths /home/render/project/.env /root/secret /tmp/x /var/log/app /usr/bin/node /etc/passwd ' +
         'C:\\Users\\Misael\\secret.txt C:\\Windows\\System32\\config C:\\Program Files\\Omni\\secret.txt ' +
         'sk-proj-abcdefghijklmnop Bearer abcdefghijklmnopqrstuvwxyz ' +
-        'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature user@example.com +55 11 99999-9999',
+        'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature https://project.supabase.co user@example.com +55 11 99999-9999',
     })
     const payload = text(sanitized)
 
@@ -85,6 +89,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
     expect(payload).not.toContain('sk-proj-')
     expect(payload).not.toContain('Bearer abcdefghijklmnopqrstuvwxyz')
     expect(payload).not.toContain('eyJhbGci')
+    expect(payload).not.toContain('project.supabase.co')
     expect(payload).not.toContain('user@example.com')
     expect(payload).not.toContain('+55 11 99999-9999')
     expect(payload).toContain('[redacted_location]')

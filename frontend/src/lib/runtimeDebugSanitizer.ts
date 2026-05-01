@@ -16,6 +16,8 @@ const DANGEROUS_KEY_FRAGMENTS = [
   'stdout',
   'stderr',
   'raw',
+  'raw_key',
+  'raw_url',
   'payload',
   'execution_request',
   'memory_content',
@@ -30,6 +32,7 @@ const WINDOWS_PATH_PATTERN = /(?:[A-Z]:\\(?:Users|Windows|Program Files|Program 
 const OPENAI_KEY_PATTERN = /\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b/g
 const BEARER_PATTERN = /\bbearer\s+[A-Za-z0-9._~+/=-]{12,}/gi
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g
+const SUPABASE_URL_PATTERN = /https:\/\/[a-z0-9-]+\.supabase\.co(?:\/[^\s"'`{}[\],;]*)?/gi
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 const PHONE_PATTERN = /(?:\+?\d[\d\s().-]{7,}\d)/g
 
@@ -49,6 +52,7 @@ function redactString(value: string): string {
     .replace(OPENAI_KEY_PATTERN, '[redacted_secret]')
     .replace(BEARER_PATTERN, 'Bearer [redacted_secret]')
     .replace(JWT_PATTERN, '[redacted_jwt]')
+    .replace(SUPABASE_URL_PATTERN, '[redacted_supabase_url]')
     .replace(EMAIL_PATTERN, '[redacted_email]')
     .replace(PHONE_PATTERN, '[redacted_phone]')
 }

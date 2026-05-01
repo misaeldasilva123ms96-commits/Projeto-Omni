@@ -46,6 +46,8 @@ def test_public_runtime_payload_removes_internal_fields_recursively() -> None:
         "raw_provider": {"body": "raw"},
         "raw_response": {"body": "raw"},
         "raw_payload": {"body": "raw"},
+        "raw_key": "secret",
+        "raw_url": "https://project.supabase.co",
         "execution_request": {"actions": [{"name": "danger"}]},
         "tool_raw_result": {"content": "raw tool"},
         "memory_raw": {"rows": ["raw memory"]},
@@ -77,6 +79,8 @@ def test_public_runtime_payload_removes_internal_fields_recursively() -> None:
         "raw_provider",
         "raw_response",
         "raw_payload",
+        "raw_key",
+        "raw_url",
         "execution_request",
         "tool_raw_result",
         "memory_raw",
@@ -94,7 +98,8 @@ def test_public_runtime_payload_redacts_sensitive_values() -> None:
             "C:\\Users\\Misael\\secret.txt C:\\Windows\\System32\\config "
             "C:\\Program Files\\Omni\\secret.txt sk-proj-abcdefghijklmnop "
             "Bearer abcdefghijklmnopqrstuvwxyz "
-            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature "
+            "https://project.supabase.co/private"
         )
     }
 
@@ -112,6 +117,7 @@ def test_public_runtime_payload_redacts_sensitive_values() -> None:
     assert "sk-proj-" not in text
     assert "Bearer abcdefghijklmnopqrstuvwxyz" not in text
     assert "eyJhbGci" not in text
+    assert "project.supabase.co" not in text
 
 
 def test_public_cognitive_runtime_inspection_preserves_public_fields_and_summary() -> None:

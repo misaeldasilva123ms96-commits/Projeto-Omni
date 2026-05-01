@@ -29,6 +29,8 @@ _DANGEROUS_KEY_FRAGMENTS = (
     "raw_provider",
     "raw_response",
     "raw_payload",
+    "raw_key",
+    "raw_url",
     "execution_request",
     "tool_raw_result",
     "memory_raw",

@@ -29,6 +29,8 @@ DANGEROUS_KEY_FRAGMENTS = (
     "raw_provider",
     "raw_response",
     "raw_payload",
+    "raw_key",
+    "raw_url",
     "execution_request",
     "tool_raw_result",
     "memory_raw",
@@ -74,6 +76,7 @@ _WINDOWS_PATH_RE = re.compile(
 _OPENAI_KEY_RE = re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b")
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
+_SUPABASE_URL_RE = re.compile(r"https://[a-z0-9-]+\.supabase\.co(?:/[^\s\"'`{}[\],;]*)?", re.IGNORECASE)
 
 
 def _dangerous_key(key: Any) -> bool:
@@ -87,6 +90,7 @@ def _redact_string(value: str) -> str:
     redacted = _OPENAI_KEY_RE.sub("[redacted_secret]", redacted)
     redacted = _BEARER_RE.sub("Bearer [redacted_secret]", redacted)
     redacted = _JWT_RE.sub("[redacted_jwt]", redacted)
+    redacted = _SUPABASE_URL_RE.sub("[redacted_supabase_url]", redacted)
     return redacted
 
 

@@ -28,9 +28,9 @@ try {
   const memory = runtimeMemoryStore.getSessionRuntimeMemory(cwd, 'supabase-optional-test');
 
   assert.equal(memory.vector_backend, 'local-file');
-  assert.equal(memory.vector_diagnostics.backend, 'local-file');
-  assert.equal(memory.vector_diagnostics.available, false);
-  assert.equal(memory.vector_diagnostics.configured, false);
+  assert.equal(memory.vector_diagnostics.supabase_configured, false);
+  assert.equal(memory.vector_diagnostics.url_present, false);
+  assert.equal(memory.vector_diagnostics.anon_key_present, false);
   assert.equal(typeof runtimeMemoryStore.recordSemanticEntry, 'function');
 
   runtimeMemoryStore.recordSemanticEntry(cwd, 'supabase-optional-test', {
@@ -68,7 +68,12 @@ try {
   const supabaseClient = require(supabaseClientPath);
 
   assert.equal(supabaseClient.isSupabaseConfigured(), true);
-  assert.equal(supabaseClient.getSupabaseDiagnostics().backend, 'supabase');
+  assert.deepEqual(supabaseClient.getSupabaseDiagnostics(), {
+    supabase_configured: true,
+    url_present: true,
+    anon_key_present: true,
+    service_role_present: false,
+  });
   assert.equal(createdWith.url, 'https://example.supabase.co');
   assert.equal(createdWith.key, 'public-anon-key');
   assert.equal(createdWith.options.auth.persistSession, false);
