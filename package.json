@@ -17,6 +17,7 @@
     "test:python": "python -m unittest discover -s tests -p test_*.py",
     "test:python:pytest": "python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability tests/runtime/test_orchestrator_decomposition.py --cov=backend/python/brain/runtime/language --cov=backend/python/brain/runtime/control --cov=backend/python/brain/runtime/observability --cov=backend/python/brain/runtime/orchestrator_services --cov-config=.coveragerc --cov-report=term-missing",
     "test:python:pytest:audit": "python -m pytest -q tests/performance tests/contracts/test_runtime_contract_audit.py",
+    "test:security": "node tests/security/security-regression-suite.mjs",
     "test": "npm run test:node && npm run test:python",
     "test:e2e:chat-contract": "tsx tests/e2e/chat-contract.e2e.ts",
     "test:queryengine": "node tests/runtime/queryengine.smoke.test.mjs",
