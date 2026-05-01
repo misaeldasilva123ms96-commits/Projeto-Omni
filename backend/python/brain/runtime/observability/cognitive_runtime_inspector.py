@@ -43,6 +43,17 @@ RUNTIME_MODE_ACTION = RUNTIME_MODE_NODE_EXECUTION_SUCCESS
 RUNTIME_MODE_BRIDGE = RUNTIME_MODE_PARTIAL_COGNITIVE_RUNTIME
 RUNTIME_MODE_ERROR_DEGRADED = RUNTIME_MODE_SAFE_FALLBACK
 
+TRUTH_MODE_FULL_COGNITIVE_RUNTIME = "FULL_COGNITIVE_RUNTIME"
+TRUTH_MODE_PARTIAL_COGNITIVE = "PARTIAL_COGNITIVE"
+TRUTH_MODE_MATCHER_SHORTCUT = "MATCHER_SHORTCUT"
+TRUTH_MODE_RULE_BASED_INTENT = "RULE_BASED_INTENT"
+TRUTH_MODE_SAFE_FALLBACK = "SAFE_FALLBACK"
+TRUTH_MODE_NODE_FALLBACK = "NODE_FALLBACK"
+TRUTH_MODE_PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+TRUTH_MODE_TOOL_BLOCKED = "TOOL_BLOCKED"
+TRUTH_MODE_TOOL_EXECUTED = "TOOL_EXECUTED"
+TRUTH_MODE_MEMORY_ONLY_RESPONSE = "MEMORY_ONLY_RESPONSE"
+
 CHAIN_COMPLETE = "COMPLETE"
 CHAIN_PARTIAL = "PARTIAL"
 CHAIN_BROKEN = "BROKEN"
@@ -136,6 +147,42 @@ def _evolution_applied_summary(
             out["proposal_count"] = 0
         out["simulation_ran"] = out["simulation_ran"] or bool(controlled_evolution.get("opportunities"))
     return out
+
+
+def _truth_public_summary(runtime_mode: str) -> str:
+    if runtime_mode == TRUTH_MODE_MATCHER_SHORTCUT:
+        return "Responded using a local pattern matcher. No AI provider was used."
+    if runtime_mode == TRUTH_MODE_SAFE_FALLBACK:
+        return "System operated in safe fallback mode due to runtime constraints."
+    if runtime_mode == TRUTH_MODE_FULL_COGNITIVE_RUNTIME:
+        return "Full cognitive execution with provider and tool verification."
+    if runtime_mode == TRUTH_MODE_TOOL_EXECUTED:
+        return "A real tool/action executed successfully."
+    if runtime_mode == TRUTH_MODE_TOOL_BLOCKED:
+        return "A requested tool/action was blocked by policy."
+    if runtime_mode == TRUTH_MODE_PROVIDER_UNAVAILABLE:
+        return "No usable LLM provider completed this turn."
+    if runtime_mode == TRUTH_MODE_NODE_FALLBACK:
+        return "Node runtime did not produce a usable execution result."
+    if runtime_mode == TRUTH_MODE_MEMORY_ONLY_RESPONSE:
+        return "Responded from memory/context without provider execution."
+    return f"Execution completed in {runtime_mode or 'unknown'} mode."
+
+
+def _truth_tool_status(tool_execution: dict[str, Any] | None) -> str:
+    if not isinstance(tool_execution, dict):
+        return "not_invoked"
+    if bool(tool_execution.get("tool_denied")):
+        return "blocked"
+    if bool(tool_execution.get("tool_succeeded")):
+        return "executed"
+    if bool(tool_execution.get("tool_failed")):
+        return "failed"
+    if bool(tool_execution.get("tool_attempted")):
+        return "attempted"
+    if tool_execution.get("tool_selected") or tool_execution.get("tool_requested"):
+        return "invoked"
+    return "not_invoked"
 
 
 def _extract_execution_provenance(
@@ -527,9 +574,94 @@ def build_cognitive_runtime_inspection(
         and runtime_mode in {RUNTIME_MODE_NODE_OK, RUNTIME_MODE_FULL, RUNTIME_MODE_LOCAL_TOOL_SUCCESS}
     )
 
+    tool_status = _truth_tool_status(tool_execution)
+    tool_invoked = tool_status not in {"not_invoked"}
+    tool_executed = tool_status == "executed"
+    tool_blocked = tool_status == "blocked"
+    matcher_used = semantic_lane == LANE_MATCHER_SHORTCUT
+    provider_is_llm = bool(provider_actual and provider_actual not in {"local-heuristic", "embedded", "native-heuristic"})
+    llm_provider_attempted = bool(provider_is_llm and not matcher_used)
+    llm_provider_succeeded = bool(llm_provider_attempted and not provider_failed and not failure_class)
+    node_invoked = bool(execution_path_used == "node_execution" or isinstance(node_outcome, dict) or node_cognitive_hint)
+    node_exit_code = None
+    if isinstance(node_outcome, dict):
+        raw_exit_code = node_outcome.get("exit_code", node_outcome.get("returncode"))
+        try:
+            node_exit_code = int(raw_exit_code) if raw_exit_code is not None else None
+        except (TypeError, ValueError):
+            node_exit_code = None
+    intent = ""
+    intent_source = "rule_based"
+    classifier_version = "regex_v1"
+    if isinstance(node_outcome, dict):
+        intent = str(node_outcome.get("intent") or "").strip()
+        intent_source = str(node_outcome.get("intent_source") or intent_source).strip() or "rule_based"
+        classifier_version = str(node_outcome.get("classifier_version") or classifier_version).strip() or "regex_v1"
+        raw_truth = node_outcome.get("runtime_truth")
+        if isinstance(raw_truth, dict):
+            intent = str(raw_truth.get("intent") or intent).strip()
+            intent_source = str(raw_truth.get("intent_source") or intent_source).strip() or "rule_based"
+            classifier_version = str(raw_truth.get("classifier_version") or classifier_version).strip() or "regex_v1"
+    if isinstance(lora_payload, dict):
+        raw_truth = lora_payload.get("runtime_truth")
+        if isinstance(raw_truth, dict):
+            intent = str(raw_truth.get("intent") or intent).strip()
+            intent_source = str(raw_truth.get("intent_source") or intent_source).strip() or "rule_based"
+            classifier_version = str(raw_truth.get("classifier_version") or classifier_version).strip() or "regex_v1"
+
+    if node_failure:
+        truth_runtime_mode = TRUTH_MODE_NODE_FALLBACK
+    elif fallback_triggered:
+        truth_runtime_mode = TRUTH_MODE_SAFE_FALLBACK
+    elif provider_failed or no_provider_available:
+        truth_runtime_mode = TRUTH_MODE_PROVIDER_UNAVAILABLE
+        llm_provider_succeeded = False
+    elif tool_blocked:
+        truth_runtime_mode = TRUTH_MODE_TOOL_BLOCKED
+    elif tool_executed:
+        truth_runtime_mode = TRUTH_MODE_TOOL_EXECUTED
+    elif matcher_used:
+        truth_runtime_mode = TRUTH_MODE_MATCHER_SHORTCUT
+        llm_provider_attempted = False
+        llm_provider_succeeded = False
+        tool_invoked = False
+    elif direct_memory_hit:
+        truth_runtime_mode = TRUTH_MODE_MEMORY_ONLY_RESPONSE
+        llm_provider_succeeded = False
+    elif semantic_lane == LANE_LOCAL_DIRECT_RESPONSE:
+        truth_runtime_mode = TRUTH_MODE_RULE_BASED_INTENT
+    elif runtime_mode == RUNTIME_MODE_FULL:
+        truth_runtime_mode = TRUTH_MODE_FULL_COGNITIVE_RUNTIME
+    elif semantic_lane == LANE_BRIDGE_EXECUTION_REQUEST:
+        truth_runtime_mode = TRUTH_MODE_PARTIAL_COGNITIVE
+    else:
+        truth_runtime_mode = TRUTH_MODE_PARTIAL_COGNITIVE
+
+    if fallback_triggered and truth_runtime_mode == TRUTH_MODE_FULL_COGNITIVE_RUNTIME:
+        truth_runtime_mode = TRUTH_MODE_SAFE_FALLBACK
+
+    runtime_truth = {
+        "runtime_mode": truth_runtime_mode,
+        "runtime_reason": runtime_reason,
+        "intent": intent,
+        "intent_source": intent_source,
+        "classifier_version": classifier_version,
+        "matcher_used": matcher_used,
+        "llm_provider_attempted": llm_provider_attempted,
+        "llm_provider_succeeded": llm_provider_succeeded,
+        "tool_invoked": tool_invoked,
+        "tool_executed": tool_executed,
+        "tool_status": tool_status,
+        "fallback_triggered": fallback_triggered,
+        "node_invoked": node_invoked,
+        "node_exit_code": node_exit_code,
+        "public_summary": _truth_public_summary(truth_runtime_mode),
+    }
+
     return {
         "runtime_mode": runtime_mode,
         "runtime_reason": runtime_reason,
+        "runtime_truth": runtime_truth,
         "cognitive_chain": cognitive_chain,
         "cognitive_chain_steps": chain_parts,
         "source_of_truth": source,
@@ -541,6 +673,19 @@ def build_cognitive_runtime_inspection(
         "final_verdict": verdict,
         "signals": {
             "runtime_reason": runtime_reason,
+            "runtime_truth": runtime_truth,
+            "intent": intent,
+            "intent_source": intent_source,
+            "classifier_version": classifier_version,
+            "matcher_used": matcher_used,
+            "llm_provider_attempted": llm_provider_attempted,
+            "llm_provider_succeeded": llm_provider_succeeded,
+            "tool_invoked": tool_invoked,
+            "tool_executed": tool_executed,
+            "tool_status": tool_status,
+            "node_invoked": node_invoked,
+            "node_exit_code": node_exit_code,
+            "public_summary": runtime_truth["public_summary"],
             "last_runtime_mode": str(last_runtime_mode or ""),
             "last_runtime_reason": str(last_runtime_reason or ""),
             "semantic_runtime_lane": semantic_lane or LANE_COMPATIBILITY_EXECUTION,

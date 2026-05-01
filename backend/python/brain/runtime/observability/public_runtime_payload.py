@@ -37,7 +37,16 @@ DANGEROUS_KEY_FRAGMENTS = (
 
 PUBLIC_INSPECTION_KEYS = {
     "runtime_mode",
+    "runtime_truth",
     "runtime_reason",
+    "intent",
+    "intent_source",
+    "classifier_version",
+    "matcher_used",
+    "llm_provider_attempted",
+    "llm_provider_succeeded",
+    "tool_invoked",
+    "tool_executed",
     "cognitive_chain",
     "source_of_truth",
     "final_verdict",
@@ -106,6 +115,16 @@ def build_public_summary(runtime_mode: Any) -> str:
         return "System operated in safe fallback mode due to runtime constraints."
     if mode == "FULL_COGNITIVE_RUNTIME":
         return "Full cognitive execution with provider and tool verification."
+    if mode == "TOOL_EXECUTED":
+        return "A real tool/action executed successfully."
+    if mode == "TOOL_BLOCKED":
+        return "A requested tool/action was blocked by policy."
+    if mode == "PROVIDER_UNAVAILABLE":
+        return "No usable LLM provider completed this turn."
+    if mode == "NODE_FALLBACK":
+        return "Node runtime did not produce a usable execution result."
+    if mode == "MEMORY_ONLY_RESPONSE":
+        return "Responded from memory/context without provider execution."
     return f"Execution completed in {mode or 'unknown'} mode."
 
 
@@ -131,6 +150,11 @@ def build_public_cognitive_runtime_inspection(inspection: Any) -> dict[str, Any]
 
     if "runtime_mode" not in public:
         public["runtime_mode"] = _sanitize_recursive(source.get("runtime_mode", "UNKNOWN"))
+    if "runtime_truth" in public and isinstance(public["runtime_truth"], Mapping):
+        truth = dict(public["runtime_truth"])
+        truth_mode = str(truth.get("runtime_mode") or "").strip()
+        truth["public_summary"] = str(truth.get("public_summary") or build_public_summary(truth_mode))
+        public["runtime_truth"] = _sanitize_recursive(truth)
     if "runtime_reason" not in public:
         public["runtime_reason"] = _sanitize_recursive(source.get("runtime_reason", ""))
     if "fallback_triggered" not in public and isinstance(signals, Mapping):
@@ -150,7 +174,11 @@ def build_public_cognitive_runtime_inspection(inspection: Any) -> dict[str, Any]
             public["tool_status"] = "attempted"
     if "latency_ms" not in public and isinstance(signals, Mapping) and "duration_ms" in signals:
         public["latency_ms"] = _sanitize_recursive(signals.get("duration_ms"))
-    public["public_summary"] = build_public_summary(public.get("runtime_mode"))
+    public["public_summary"] = build_public_summary(
+        (public.get("runtime_truth") or {}).get("runtime_mode")
+        if isinstance(public.get("runtime_truth"), Mapping)
+        else public.get("runtime_mode")
+    )
     return public
 
 
