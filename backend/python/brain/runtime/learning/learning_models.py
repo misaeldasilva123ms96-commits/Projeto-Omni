@@ -80,6 +80,7 @@ class LearningRecord:
     provider_actual: str = ""
     notes: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    learning_safety: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -98,4 +99,5 @@ class LearningRecord:
             "provider_actual": self.provider_actual,
             "notes": self.notes,
             "metadata": dict(self.metadata),
+            "learning_safety": dict(self.learning_safety),
         }

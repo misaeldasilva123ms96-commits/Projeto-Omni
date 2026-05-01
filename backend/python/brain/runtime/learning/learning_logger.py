@@ -11,6 +11,7 @@ from .learning_models import (
     LearningRecord,
     new_controlled_learning_record_id,
 )
+from .learning_safety import build_learning_safety_metadata
 from .learning_store import ControlledLearningStore
 from .models import utc_now_iso
 from .redaction import redact_learning_record, redact_sensitive_payload, redact_sensitive_text
@@ -58,6 +59,9 @@ class LearningLogger:
         fallback_triggered = bool(signals.get("fallback_triggered", False))
         compatibility_execution_active = bool(signals.get("compatibility_execution_active", False))
         provider_failed = bool(signals.get("provider_failed", False))
+        provider_succeeded = _coerce_bool(signals.get("provider_succeeded"))
+        if provider_succeeded is None:
+            provider_succeeded = _coerce_bool(signals.get("llm_provider_succeeded"))
         tool_succeeded = _coerce_bool(tool_execution.get("tool_succeeded"))
         tool_failed = _coerce_bool(tool_execution.get("tool_failed"))
         tool_denied = _coerce_bool(tool_execution.get("tool_denied"))
@@ -109,9 +113,37 @@ class LearningLogger:
                 "decision_requires_node_runtime": bool(signals.get("decision_requires_node_runtime", False)),
                 "decision_suggested_tools": list(signals.get("decision_suggested_tools", []) or []),
                 "node_execution_successful": bool(signals.get("node_execution_successful", False)),
+                "provider_succeeded": provider_succeeded,
+                "provider_failed": provider_failed,
+                "fallback_triggered": fallback_triggered,
+                "runtime_truth_confidence": str(signals.get("runtime_truth_confidence", "") or "").strip(),
+                "tool_status": str(tool_execution.get("tool_status", "") or "").strip(),
+                "governance_status": str(
+                    tool_execution.get("governance_status")
+                    or tool_execution.get("governance_decision")
+                    or signals.get("governance_status")
+                    or signals.get("governance_decision")
+                    or ""
+                ).strip(),
+                "error_public_code": str(
+                    signals.get("error_public_code")
+                    or inspection.get("error_public_code")
+                    or ""
+                ).strip(),
+                "error_severity": str(
+                    signals.get("severity")
+                    or inspection.get("severity")
+                    or ""
+                ).strip(),
+                "internal_error_redacted": bool(
+                    signals.get("internal_error_redacted")
+                    or inspection.get("internal_error_redacted")
+                ),
                 "tool_execution": redact_sensitive_payload(dict(tool_execution)) if tool_execution else None,
             },
         )
+        safety_metadata = build_learning_safety_metadata(record.as_dict())
+        record.learning_safety = safety_metadata
         record_payload = redact_learning_record(record.as_dict())
         stored = self.store.append_learning_record(record_payload)
         improvement_signals = self.improvement_engine.generate(record)

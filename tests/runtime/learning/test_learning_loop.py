@@ -50,6 +50,9 @@ class LearningLoopTest(unittest.TestCase):
         self.assertTrue(record["runtime_mode"])
         self.assertIn("decision_evaluation", record)
         self.assertIn("execution_outcome", record)
+        self.assertIn("learning_safety", record)
+        self.assertIn("positive_training_candidate", record["learning_safety"])
+        self.assertIn("learning_classification", record["learning_safety"])
         self.assertIn("success", record)
         self.assertIsNotNone(record["decision_evaluation"]["decision_correct"])
 
