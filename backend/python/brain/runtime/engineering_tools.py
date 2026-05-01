@@ -10,6 +10,7 @@ from typing import Any
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk
 from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, review_patch_set
 from brain.runtime.shell_policy import build_shell_blocked_result, validate_shell_command
+from brain.runtime.tool_governance_policy import build_governance_blocked_result, evaluate_tool_governance
 from brain.runtime.workspace_manager import WorkspaceManager
 
 
@@ -46,6 +47,9 @@ def execute_engineering_action(
     tool = str(action.get("selected_tool", ""))
     arguments = dict(action.get("tool_arguments", {}) or {})
     workspace_root = Path(arguments.get("workspace_root") or project_root).resolve()
+    governance_decision = evaluate_tool_governance(action)
+    if not governance_decision.get("allowed"):
+        return build_governance_blocked_result(tool, governance_decision)
 
     if tool in {"filesystem_read", "read_file"}:
         target = (workspace_root / str(arguments.get("path", ""))).resolve()

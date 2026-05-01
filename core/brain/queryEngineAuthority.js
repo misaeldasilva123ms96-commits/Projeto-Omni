@@ -56,7 +56,12 @@ const { buildRustRuntimeManifest } = require('../../runtime/execution/rustRuntim
 const { getKairosManifest } = require('../../features/kairos/manifest');
 const { getCodexIntegrationStatus } = require('../../platform/integrations/codexIntegration');
 const { getCliPlatformManifest } = require('../../platform/cli/manifest');
-const { buildPolicyDecision, describeTool } = require('../../runtime/tooling/toolGovernance');
+const {
+  buildGovernanceBlockedResult,
+  buildPolicyDecision,
+  describeTool,
+  evaluateToolGovernance,
+} = require('../../runtime/tooling/toolGovernance');
 
 const GLOBAL_CONVERSATIONAL_FALLBACK =
   '[degraded:authority_local] O plano não pôde ser executado com ferramentas ou LLM neste ambiente. Reformule com um ficheiro ou objetivo concreto, ou verifique credenciais de LLM / executor Python.';
@@ -964,6 +969,18 @@ class QueryEngineAuthority {
         continue;
       }
 
+      const governanceDecision = evaluateToolGovernance(action);
+      if (!governanceDecision.allowed) {
+        stepResults.push({
+          ...buildGovernanceBlockedResult(action, governanceDecision),
+          action,
+        });
+        if (plannerResult.stop_on_error) {
+          break;
+        }
+        continue;
+      }
+
       let execution = null;
       const correctionAttempts = [];
       const attempts = Math.max(1, action.retry_policy?.max_attempts || 1);
@@ -1112,6 +1129,7 @@ class QueryEngineAuthority {
           correction_attempts: item.correction_attempts || [],
           goal_id: item.action?.execution_context?.goal_id || null,
           policy_decision: item.action?.policy_decision || null,
+          governance_audit: item.governance_audit || null,
         })),
         task_id: taskId,
         run_id: runId,

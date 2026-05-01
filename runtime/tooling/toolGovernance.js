@@ -22,6 +22,142 @@ const TOOL_TAXONOMY = {
   human_approval: { category: 'human_approval', policy_level: 'high', mutating: false, privileged: true },
 };
 
+const POLICY_VERSION = 'tool_governance_v1';
+const READ_SAFE_TOOLS = new Set(['status', 'health', 'list', 'directory_tree', 'git_status', 'git_diff', 'dependency_inspection', 'glob_search', 'grep_search', 'code_search']);
+const READ_SENSITIVE_TOOLS = new Set(['read_file', 'filesystem_read', 'memory_read', 'debug_inspection']);
+const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'filesystem_write', 'filesystem_patch_set', 'generated_file_write']);
+const DESTRUCTIVE_TOOLS = new Set(['delete', 'overwrite', 'git_reset', 'git_clean', 'rm', 'remove_file']);
+const SHELL_TOOLS = new Set(['shell_command', 'run_command', 'test_runner', 'verification_runner', 'package_manager', 'autonomous_debug_loop']);
+const NETWORK_TOOLS = new Set(['curl', 'fetch', 'web_request', 'network_request']);
+const GIT_SENSITIVE_TOOLS = new Set(['git_commit', 'git_push', 'git_branch_mutation']);
+
+function envTruthy(...names) {
+  return names.some(name => ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase()));
+}
+
+function isPublicDemoMode() {
+  return envTruthy('OMNI_PUBLIC_DEMO_MODE', 'OMINI_PUBLIC_DEMO_MODE');
+}
+
+function classifyToolCategory(toolName) {
+  const tool = String(toolName || '').trim();
+  if (READ_SAFE_TOOLS.has(tool)) return 'read_safe';
+  if (READ_SENSITIVE_TOOLS.has(tool)) return 'read_sensitive';
+  if (WRITE_TOOLS.has(tool)) return 'write';
+  if (DESTRUCTIVE_TOOLS.has(tool)) return 'destructive';
+  if (SHELL_TOOLS.has(tool)) return 'shell';
+  if (NETWORK_TOOLS.has(tool)) return 'network';
+  if (GIT_SENSITIVE_TOOLS.has(tool) || (tool.startsWith('git_') && !['git_status', 'git_diff'].includes(tool))) {
+    return 'git_sensitive';
+  }
+  return 'unknown';
+}
+
+function buildPublicGovernanceAudit({ allowed, category, reasonCode, approvalRequired = false, publicDemoBlocked = false }) {
+  return {
+    allowed: Boolean(allowed),
+    category: String(category || 'unknown'),
+    reason_code: String(reasonCode || 'unknown'),
+    approval_required: Boolean(approvalRequired),
+    public_demo_blocked: Boolean(publicDemoBlocked),
+    policy_version: POLICY_VERSION,
+  };
+}
+
+function evaluateToolGovernance(action = {}) {
+  const tool = String(action.selected_tool || action.tool || '').trim();
+  const args = action.tool_arguments && typeof action.tool_arguments === 'object' ? action.tool_arguments : {};
+  const category = classifyToolCategory(tool);
+  const approvalState = String(action.approval_state || action.approvalState || '').trim().toLowerCase();
+  const explicitScope = Boolean(action.explicit_scope || action.scope || args.path || args.workspace_root);
+
+  if (isPublicDemoMode() && ['shell', 'write', 'destructive', 'network', 'git_sensitive'].includes(category)) {
+    return decision(false, category, 'public_demo_mode', { publicDemoBlocked: true });
+  }
+  if (category === 'read_safe') return decision(true, category, 'read_safe_allowed');
+  if (category === 'read_sensitive') {
+    return explicitScope
+      ? decision(true, category, 'read_sensitive_scope_allowed')
+      : decision(false, category, 'missing_explicit_scope', { approvalRequired: true });
+  }
+  if (category === 'write') {
+    return approvalState === 'approved'
+      ? decision(true, category, 'write_approved')
+      : decision(false, category, 'missing_approval', { approvalRequired: true });
+  }
+  if (category === 'destructive') return decision(false, category, 'destructive_tool_blocked', { approvalRequired: true });
+  if (category === 'shell') return decision(true, category, 'shell_delegated_to_shell_policy');
+  if (category === 'network') return decision(false, category, 'network_tool_requires_governance', { approvalRequired: true });
+  if (category === 'git_sensitive') {
+    return approvalState === 'approved'
+      ? decision(true, category, 'git_sensitive_approved')
+      : decision(false, category, 'git_sensitive_requires_approval', { approvalRequired: true });
+  }
+  return decision(false, category, 'unknown_tool_requires_governance', { approvalRequired: true });
+}
+
+function decision(allowed, category, reason, { approvalRequired = false, publicDemoBlocked = false } = {}) {
+  const errorPublicCode = publicDemoBlocked
+    ? 'TOOL_BLOCKED_PUBLIC_DEMO'
+    : approvalRequired
+      ? 'TOOL_APPROVAL_REQUIRED'
+      : allowed
+        ? ''
+        : 'TOOL_BLOCKED_BY_GOVERNANCE';
+  const errorPublicMessage = publicDemoBlocked
+    ? 'Tool execution is blocked in public demo mode.'
+    : approvalRequired
+      ? 'Tool execution requires explicit approval before running.'
+      : allowed
+        ? ''
+        : 'Tool execution was blocked by governance policy.';
+  return {
+    allowed: Boolean(allowed),
+    category,
+    reason,
+    error_public_code: errorPublicCode,
+    error_public_message: errorPublicMessage,
+    approval_required: Boolean(approvalRequired),
+    public_demo_blocked: Boolean(publicDemoBlocked),
+    governance_audit: buildPublicGovernanceAudit({
+      allowed,
+      category,
+      reasonCode: reason,
+      approvalRequired,
+      publicDemoBlocked,
+    }),
+  };
+}
+
+function buildGovernanceBlockedResult(action = {}, decisionPayload = {}) {
+  const tool = String(action.selected_tool || action.tool || '');
+  return {
+    ok: false,
+    selected_tool: tool,
+    tool_status: 'blocked',
+    error_public_code: String(decisionPayload.error_public_code || 'TOOL_BLOCKED_BY_GOVERNANCE'),
+    error_public_message: String(decisionPayload.error_public_message || 'Tool execution was blocked by governance policy.'),
+    internal_error_redacted: true,
+    governance_audit: { ...(decisionPayload.governance_audit || {}) },
+    tool_execution: {
+      tool_requested: true,
+      tool_selected: tool,
+      tool_available: true,
+      tool_attempted: false,
+      tool_succeeded: false,
+      tool_failed: false,
+      tool_denied: true,
+      tool_failure_class: String(decisionPayload.error_public_code || 'TOOL_BLOCKED_BY_GOVERNANCE'),
+      tool_failure_reason: String(decisionPayload.error_public_message || 'Tool execution was blocked by governance policy.'),
+    },
+    error_payload: {
+      kind: 'tool_blocked',
+      message: 'Tool execution was blocked by governance policy.',
+      public_code: String(decisionPayload.error_public_code || 'TOOL_BLOCKED_BY_GOVERNANCE'),
+    },
+  };
+}
+
 function describeTool(toolName) {
   return TOOL_TAXONOMY[String(toolName || 'none')] || {
     category: 'unknown',
@@ -83,6 +219,10 @@ function buildPolicyDecision({ toolName, approvalState = 'approved', parallelSaf
 module.exports = {
   TOOL_TAXONOMY,
   buildPolicyDecision,
+  buildGovernanceBlockedResult,
+  buildPublicGovernanceAudit,
+  classifyToolCategory,
   describeTool,
+  evaluateToolGovernance,
   specialistAllowsTool,
 };
