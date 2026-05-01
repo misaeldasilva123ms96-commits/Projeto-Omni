@@ -12,8 +12,11 @@ from uuid import uuid4
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PYTHON_ROOT = PROJECT_ROOT / "backend" / "python"
+MAIN_PY = PYTHON_ROOT / "main.py"
+PACKAGE_JSON = PROJECT_ROOT / "package.json"
 
-sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
+sys.path.insert(0, str(PYTHON_ROOT))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
 from brain.runtime.debug_loop_controller import DebugLoopController  # noqa: E402
@@ -25,13 +28,66 @@ from brain.runtime.workspace_manager import WorkspaceManager  # noqa: E402
 
 
 class Phase2RuntimeTest(unittest.TestCase):
-    def run_main(self, prompt: str, session_id: str) -> str:
-        env = os.environ.copy()
+    def minimal_subprocess_env(self, session_id: str) -> dict[str, str]:
+        env: dict[str, str] = {
+            "AI_SESSION_ID": session_id,
+            "BASE_DIR": str(PROJECT_ROOT),
+            "PYTHON_BASE_DIR": str(PYTHON_ROOT),
+            "CI": "1",
+        }
+        for key in ("PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH", "NODE_PATH"):
+            value = os.environ.get(key)
+            if value:
+                env[key] = value
+        if "PYTHONPATH" not in env:
+            env["PYTHONPATH"] = str(PYTHON_ROOT)
+        return env
+
+    def subprocess_diagnostics(
+        self,
+        *,
+        command: list[str],
+        env: dict[str, str],
+        completed: subprocess.CompletedProcess[str],
+    ) -> str:
+        path_parts = [part for part in env.get("PATH", "").split(os.pathsep) if part]
+        return json.dumps(
+            {
+                "cwd": str(PROJECT_ROOT),
+                "repo_root": str(PROJECT_ROOT),
+                "main_py": str(MAIN_PY),
+                "package_json": str(PACKAGE_JSON),
+                "PYTHONPATH": env.get("PYTHONPATH", ""),
+                "CI": env.get("CI", ""),
+                "BUN_INSTALL": env.get("BUN_INSTALL", ""),
+                "NODE_PATH": env.get("NODE_PATH", ""),
+                "PATH_summary": {
+                    "entries": len(path_parts),
+                    "first_entries": path_parts[:5],
+                },
+                "command": command,
+                "returncode": completed.returncode,
+                "stderr": completed.stderr,
+                "stdout_first3000": completed.stdout[:3000],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    def run_main_process(
+        self,
+        prompt: str,
+        session_id: str,
+        *,
+        isolated_env: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        env = self.minimal_subprocess_env(session_id) if isolated_env else os.environ.copy()
         env["AI_SESSION_ID"] = session_id
         env["BASE_DIR"] = str(PROJECT_ROOT)
-        env["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
-        completed = subprocess.run(
-            ["python", "backend/python/main.py", prompt],
+        env["PYTHON_BASE_DIR"] = str(PYTHON_ROOT)
+        command = [sys.executable, str(MAIN_PY), prompt]
+        return subprocess.run(
+            command,
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
@@ -39,13 +95,16 @@ class Phase2RuntimeTest(unittest.TestCase):
             env=env,
             check=False,
         )
+
+    def run_main(self, prompt: str, session_id: str) -> str:
+        completed = self.run_main_process(prompt, session_id)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         return completed.stdout.strip()
 
     def build_orchestrator(self) -> BrainOrchestrator:
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)
-        os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
-        return BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py"))
+        os.environ["PYTHON_BASE_DIR"] = str(PYTHON_ROOT)
+        return BrainOrchestrator(BrainPaths.from_entrypoint(PYTHON_ROOT / "brain" / "runtime" / "main.py"))
 
     def make_temp_python_repo(self) -> Path:
         base_temp = PROJECT_ROOT / ".phase9-temp"
@@ -69,6 +128,42 @@ class Phase2RuntimeTest(unittest.TestCase):
     def test_real_query_to_execution_path_reads_package(self) -> None:
         output = self.run_main("leia package.json", "phase2-read")
         self.assertIn('"name": "omini-runner"', output)
+
+    def test_package_analysis_uses_full_node_tool_execution_without_degraded_fallback(self) -> None:
+        session_id = f"phase2-package-analysis-regression-{uuid4().hex[:8]}"
+        completed = self.run_main_process(
+            "analise o arquivo package.json",
+            session_id,
+            isolated_env=True,
+        )
+        command = [sys.executable, str(MAIN_PY), "analise o arquivo package.json"]
+        env = self.minimal_subprocess_env(session_id)
+        diagnostics = self.subprocess_diagnostics(command=command, env=env, completed=completed)
+
+        combined_output = f"{completed.stdout}\n{completed.stderr}"
+        self.assertTrue(PACKAGE_JSON.is_file(), diagnostics)
+        self.assertEqual(completed.returncode, 0, diagnostics)
+        self.assertNotIn("@supabase/supabase-js", combined_output, diagnostics)
+        self.assertNotIn('Unknown file extension ".ts"', combined_output, diagnostics)
+        self.assertNotIn("Unknown file extension .ts", combined_output, diagnostics)
+
+        payload = json.loads(completed.stdout)
+        response = str(payload.get("response", ""))
+        inspection = payload.get("cognitive_runtime_inspection", {})
+        signals = inspection.get("signals", {})
+        tool_execution = signals.get("tool_execution", {})
+
+        self.assertIn('"name": "omini-runner"', response, diagnostics)
+        self.assertIn('"version": "1.0.0"', response, diagnostics)
+        self.assertEqual(inspection.get("runtime_mode"), "FULL_COGNITIVE_RUNTIME", diagnostics)
+        self.assertEqual(signals.get("execution_path_used"), "node_execution", diagnostics)
+        self.assertFalse(signals.get("fallback_triggered", True), diagnostics)
+        self.assertEqual(signals.get("transport_status"), "success", diagnostics)
+        self.assertEqual(tool_execution.get("tool_selected"), "read_file", diagnostics)
+        self.assertTrue(tool_execution.get("tool_attempted"), diagnostics)
+        self.assertTrue(tool_execution.get("tool_succeeded"), diagnostics)
+        self.assertEqual(signals.get("node_outcome", {}).get("transport_status"), "success", diagnostics)
+        self.assertTrue(signals.get("node_execution_successful"), diagnostics)
 
     def test_memory_update_and_retrieval_work_in_live_path(self) -> None:
         learn_output = self.run_main(
@@ -1183,4 +1278,3 @@ class Phase2RuntimeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
