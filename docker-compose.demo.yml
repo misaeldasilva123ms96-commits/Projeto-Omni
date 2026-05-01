@@ -1,0 +1,45 @@
+services:
+  omni-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    image: omni-demo:latest
+    environment:
+      APP_HOST: 0.0.0.0
+      PORT: "3001"
+      BASE_DIR: /app
+      PYTHON_BASE_DIR: /app/backend/python
+      PYTHON_ENTRY: /app/backend/python/main.py
+      PYTHON_BIN: /opt/venv/bin/python
+      NODE_BIN: node
+      OMNI_PUBLIC_DEMO_MODE: "true"
+      OMINI_PUBLIC_DEMO_MODE: "true"
+      OMNI_ALLOW_SHELL_TOOLS: "false"
+      OMINI_ALLOW_SHELL_TOOLS: "false"
+      OMNI_DEBUG_INTERNAL_ERRORS: "false"
+      OMINI_DEBUG_INTERNAL_ERRORS: "false"
+      OMNI_RATE_LIMIT_ENABLED: "true"
+      OMNI_RATE_LIMIT_PER_MINUTE: "30"
+      OMNI_MAX_MESSAGE_CHARS: "8000"
+      OMNI_MAX_BODY_BYTES: "65536"
+    ports:
+      - "3001:3001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.logs:size=64m,mode=1777
+      - /app/backend/python/memory:size=32m,mode=1777
+      - /app/backend/python/transcripts:size=32m,mode=1777
+      - /app/backend/python/brain/runtime/sessions:size=32m,mode=1777
+      - /app/storage/local:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
