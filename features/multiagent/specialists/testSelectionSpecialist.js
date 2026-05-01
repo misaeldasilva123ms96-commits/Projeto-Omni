@@ -1,17 +1,23 @@
+const {
+  buildSpecialistFallback,
+  logSpecialistFallback,
+} = require('./specialistErrorPolicy');
+
 function specialistTimeoutMs() {
   const parsed = Number.parseInt(process.env.SPECIALIST_TIMEOUT_MS || '500', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
 }
 
-function fallbackVerificationSelection(reason) {
-  return {
-    invoked: true,
-    degraded: true,
-    specialist_id: 'test_selection_specialist',
-    targeted_tests: [],
-    verification_modes: ['targeted-tests', 'dependency-health'],
-    rationale: `Verification specialist fallback: ${reason}.`,
-  };
+function fallbackVerificationSelection(error = null) {
+  return buildSpecialistFallback({
+    specialistId: 'test_selection_specialist',
+    extra: {
+      targeted_tests: [],
+      verification_modes: ['targeted-tests', 'dependency-health'],
+      rationale: 'Verification specialist fallback: public-safe degraded result.',
+    },
+    err: error,
+  });
 }
 
 function selectVerificationTargets({ repositoryImpactAnalysis, repositoryAnalysis } = {}) {
@@ -43,13 +49,13 @@ function selectVerificationTargets({ repositoryImpactAnalysis, repositoryAnalysi
     };
 
     if (Date.now() - startedAt > specialistTimeoutMs()) {
-      console.error('[specialist] test_selection_specialist timed out; returning degraded fallback');
-      return fallbackVerificationSelection('timeout');
+      logSpecialistFallback({ specialistId: 'test_selection_specialist' });
+      return fallbackVerificationSelection();
     }
     return result;
   } catch (error) {
-    console.error('[specialist] test_selection_specialist failed:', error);
-    return fallbackVerificationSelection(error instanceof Error ? error.message : 'unknown failure');
+    logSpecialistFallback({ specialistId: 'test_selection_specialist', err: error });
+    return fallbackVerificationSelection(error);
   }
 }
 
