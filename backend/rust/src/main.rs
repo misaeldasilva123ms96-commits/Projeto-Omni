@@ -4,19 +4,21 @@ mod observability_auth;
 mod run_control;
 
 use std::{
-    env,
-    fs,
+    collections::{HashMap, VecDeque},
+    env, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
+    body::Bytes,
     extract::State,
-    http::{Request, StatusCode},
+    http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
     middleware::from_fn_with_state,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -25,13 +27,7 @@ use observability_auth::{require_supabase_auth, sanitize_uri_for_logs, SupabaseA
 use runtime::Session;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use tokio::{
-    io::AsyncWriteExt,
-    net::TcpListener,
-    process::Command,
-    sync::RwLock,
-    time::timeout,
-};
+use tokio::{io::AsyncWriteExt, net::TcpListener, process::Command, sync::RwLock, time::timeout};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
 
@@ -48,6 +44,20 @@ struct AppState {
     node_bin: String,
     python_health: Arc<RwLock<DependencyStatus>>,
     supabase_auth: Arc<SupabaseAuthConfig>,
+    chat_security: Arc<ChatSecurityState>,
+}
+
+pub(crate) struct ChatSecurityState {
+    config: ChatSecurityConfig,
+    rate_limiter: Mutex<HashMap<String, VecDeque<Instant>>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ChatSecurityConfig {
+    max_message_chars: usize,
+    max_body_bytes: usize,
+    rate_limit_enabled: bool,
+    rate_limit_per_minute: usize,
 }
 
 /// `POST /chat` JSON body. `message` is required; `client_session_id` is optional.
@@ -58,6 +68,8 @@ struct ChatRequest {
     /// Opaque UI-owned conversation key for logging/correlation; echoed on [`ChatResponse`] when present.
     #[serde(default)]
     client_session_id: Option<String>,
+    #[serde(default)]
+    request_id: Option<String>,
 }
 
 /// `POST /api/v1/chat` JSON body — same execution path as [`ChatRequest`] with an optional nested client context.
@@ -72,6 +84,8 @@ struct PublicChatRequestV1 {
     message: String,
     #[serde(default)]
     client_session_id: Option<String>,
+    #[serde(default)]
+    request_id: Option<String>,
     #[serde(default)]
     client_context: Option<PublicChatClientContextV1>,
 }
@@ -353,16 +367,14 @@ async fn main() -> Result<(), AppError> {
             last_checked_ms: None,
         })),
         supabase_auth,
+        chat_security: default_chat_security_state(),
     };
 
     let protected_observability = Router::new()
         .route("/api/observability/snapshot", get(observability::snapshot))
         .route("/api/observability/stream", get(observability::stream))
         .route("/api/observability/traces", get(observability::traces))
-        .route_layer(from_fn_with_state(
-            state.clone(),
-            require_supabase_auth,
-        ));
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
     let protected_operator = Router::new()
         .route(
             "/api/v1/operator/runtime/signals",
@@ -375,10 +387,7 @@ async fn main() -> Result<(), AppError> {
         .route("/api/v1/operator/milestones", get(operator_v1_milestones))
         .route("/api/v1/operator/swarm", get(operator_v1_swarm))
         .route("/api/v1/operator/pr-digest", get(operator_v1_pr_digest))
-        .route_layer(from_fn_with_state(
-            state.clone(),
-            require_supabase_auth,
-        ));
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
 
     let protected_control = Router::new()
         .route("/api/control/runs", get(run_control::list_runs))
@@ -395,13 +404,19 @@ async fn main() -> Result<(), AppError> {
             "/api/control/runs/with-rollback",
             get(run_control::runs_with_rollback),
         )
-        .route("/api/control/runs/:run_id/pause", post(run_control::pause_run))
-        .route("/api/control/runs/:run_id/resume", post(run_control::resume_run))
-        .route("/api/control/runs/:run_id/approve", post(run_control::approve_run))
-        .route_layer(from_fn_with_state(
-            state.clone(),
-            require_supabase_auth,
-        ));
+        .route(
+            "/api/control/runs/:run_id/pause",
+            post(run_control::pause_run),
+        )
+        .route(
+            "/api/control/runs/:run_id/resume",
+            post(run_control::resume_run),
+        )
+        .route(
+            "/api/control/runs/:run_id/approve",
+            post(run_control::approve_run),
+        )
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
 
     // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
     // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
@@ -414,7 +429,10 @@ async fn main() -> Result<(), AppError> {
             "/api/v1/runtime/signals/summary",
             get(public_v1_runtime_signals_summary),
         )
-        .route("/api/v1/milestones/summary", get(public_v1_milestones_summary))
+        .route(
+            "/api/v1/milestones/summary",
+            get(public_v1_milestones_summary),
+        )
         .route("/api/v1/strategy/summary", get(public_v1_strategy_summary))
         .route("/api/v1/chat", post(public_v1_chat))
         .route("/chat", post(chat))
@@ -447,9 +465,9 @@ async fn main() -> Result<(), AppError> {
         .await
         .map_err(|err| AppError::Internal(format!("failed to bind listener: {err}")))?;
 
-    let bound_address = listener.local_addr().map_err(|err| {
-        AppError::Internal(format!("failed to read listener address: {err}"))
-    })?;
+    let bound_address = listener
+        .local_addr()
+        .map_err(|err| AppError::Internal(format!("failed to read listener address: {err}")))?;
 
     info!(
         "API listening on http://{} (host={}, port={}, render_port_env={}, observability_auth=enabled)",
@@ -526,7 +544,10 @@ fn resolve_python_root(project_root: &Path, python_entry: &Path) -> PathBuf {
         }
     }
 
-    if python_entry.parent().is_some_and(|parent| parent.ends_with("python")) {
+    if python_entry
+        .parent()
+        .is_some_and(|parent| parent.ends_with("python"))
+    {
         return python_entry
             .parent()
             .map(Path::to_path_buf)
@@ -586,6 +607,93 @@ fn unix_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn read_env_alias_usize(canonical: &str, legacy: &str, default: usize) -> usize {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .map(|value| {
+            matches!(
+                value.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(default)
+}
+
+impl ChatSecurityState {
+    fn from_env() -> Self {
+        Self {
+            config: ChatSecurityConfig {
+                max_message_chars: read_env_alias_usize(
+                    "OMNI_MAX_MESSAGE_CHARS",
+                    "OMINI_MAX_MESSAGE_CHARS",
+                    8_000,
+                ),
+                max_body_bytes: read_env_alias_usize(
+                    "OMNI_MAX_BODY_BYTES",
+                    "OMINI_MAX_BODY_BYTES",
+                    65_536,
+                ),
+                rate_limit_enabled: read_env_alias_bool(
+                    "OMNI_RATE_LIMIT_ENABLED",
+                    "OMINI_RATE_LIMIT_ENABLED",
+                    true,
+                ),
+                rate_limit_per_minute: read_env_alias_usize(
+                    "OMNI_RATE_LIMIT_PER_MINUTE",
+                    "OMINI_RATE_LIMIT_PER_MINUTE",
+                    30,
+                ),
+            },
+            rate_limiter: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn with_config(config: ChatSecurityConfig) -> Self {
+        Self {
+            config,
+            rate_limiter: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn check_rate_limit(&self, client_key: &str, now: Instant) -> bool {
+        if !self.config.rate_limit_enabled {
+            return true;
+        }
+        let limit = self.config.rate_limit_per_minute.max(1);
+        let window = Duration::from_secs(60);
+        let mut guard = self
+            .rate_limiter
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hits = guard.entry(client_key.to_string()).or_default();
+        while hits
+            .front()
+            .is_some_and(|instant| now.duration_since(*instant) >= window)
+        {
+            hits.pop_front();
+        }
+        if hits.len() >= limit {
+            return false;
+        }
+        hits.push_back(now);
+        true
+    }
+}
+
+pub(crate) fn default_chat_security_state() -> Arc<ChatSecurityState> {
+    Arc::new(ChatSecurityState::from_env())
+}
+
 /// Shared liveness snapshot used by `/health` and derived public contracts.
 async fn build_health_snapshot(state: &AppState) -> HealthResponse {
     let python_status = state.python_health.read().await.clone();
@@ -637,7 +745,9 @@ async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRespon
 }
 
 /// Versioned public status — subset of `/health` without paths or internal-only diagnostics.
-async fn public_v1_status(State(state): State<AppState>) -> (StatusCode, Json<PublicStatusResponseV1>) {
+async fn public_v1_status(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicStatusResponseV1>) {
     let h = build_health_snapshot(&state).await;
     (
         StatusCode::OK,
@@ -681,7 +791,9 @@ async fn public_v1_runtime_signals_summary(
     let recent_signals = read_recent_jsonl(&audit_path, SAMPLE);
     let recent_mode_transition_count = recent_signals
         .iter()
-        .filter(|item| item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition"))
+        .filter(|item| {
+            item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition")
+        })
         .count();
     let latest_run_summary = read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({}));
     let latest_run_id = latest_run_summary
@@ -805,18 +917,16 @@ async fn public_v1_strategy_summary(
         .join("evolution")
         .join("strategy_log.json");
     let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
-    let strategy_version = strategy_state.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let strategy_version = strategy_state
+        .get("version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let create_plan_weight = strategy_state
         .get("capability_weights")
         .and_then(|cw| cw.get("create_plan"))
         .and_then(Value::as_f64);
     let recent_change_log_count = read_json_value(&strategy_log_path)
-        .and_then(|value| {
-            value
-                .get("changes")
-                .and_then(Value::as_array)
-                .map(Vec::len)
-        })
+        .and_then(|value| value.get("changes").and_then(Value::as_array).map(Vec::len))
         .unwrap_or(0)
         .min(MAX_CHANGE_LOG_COUNT);
 
@@ -889,8 +999,7 @@ fn operator_redact_json(value: &Value, depth: usize) -> Value {
                     out.insert(k.clone(), json!("[REDACTED]"));
                     continue;
                 }
-                if kl.contains("path")
-                    && v.as_str().is_some_and(string_looks_like_filesystem_path)
+                if kl.contains("path") && v.as_str().is_some_and(string_looks_like_filesystem_path)
                 {
                     out.insert(k.clone(), json!("[PATH_REDACTED]"));
                     continue;
@@ -992,13 +1101,25 @@ fn fusion_pr_digest_rows(state: &AppState, limit: usize) -> Vec<Value> {
     .collect()
 }
 
-async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<RuntimeSignalsResponse>) {
-    let audit_path = state.project_root.join(".logs").join("fusion-runtime").join("execution-audit.jsonl");
-    let run_summary_path = state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl");
+async fn runtime_signals(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<RuntimeSignalsResponse>) {
+    let audit_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("execution-audit.jsonl");
+    let run_summary_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("run-summaries.jsonl");
     let recent_signals = read_recent_jsonl(&audit_path, 20);
     let recent_mode_transitions = recent_signals
         .iter()
-        .filter(|item| item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition"))
+        .filter(|item| {
+            item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition")
+        })
         .cloned()
         .collect::<Vec<_>>();
     let latest_run_summary = read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({}));
@@ -1028,9 +1149,19 @@ async fn swarm_log(State(state): State<AppState>) -> (StatusCode, Json<SwarmLogR
     )
 }
 
-async fn strategy_state(State(state): State<AppState>) -> (StatusCode, Json<StrategyStateResponse>) {
-    let strategy_state_path = state.python_root.join("brain").join("evolution").join("strategy_state.json");
-    let strategy_log_path = state.python_root.join("brain").join("evolution").join("strategy_log.json");
+async fn strategy_state(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<StrategyStateResponse>) {
+    let strategy_state_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_state.json");
+    let strategy_log_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_log.json");
     let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
     let recent_changes = read_json_value(&strategy_log_path)
         .and_then(|value| value.get("changes").and_then(Value::as_array).cloned())
@@ -1055,14 +1186,20 @@ async fn strategy_state(State(state): State<AppState>) -> (StatusCode, Json<Stra
 
 async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<MilestonesResponse>) {
     let (latest_run_id, checkpoint) = fusion_latest_checkpoint(&state);
-    let engineering = checkpoint.get("engineering_data").cloned().unwrap_or_else(|| json!({}));
+    let engineering = checkpoint
+        .get("engineering_data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
     (
         StatusCode::OK,
         Json(MilestonesResponse {
             status: "ok",
             latest_run_id,
-            milestone_state: engineering.get("milestone_state").cloned().unwrap_or_else(|| json!({})),
+            milestone_state: engineering
+                .get("milestone_state")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
             patch_sets: engineering
                 .get("patch_sets")
                 .and_then(Value::as_array)
@@ -1073,7 +1210,10 @@ async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<Mileston
                 "next_step_index": checkpoint.get("next_step_index").cloned().unwrap_or_else(|| json!(0)),
                 "total_actions": checkpoint.get("total_actions").cloned().unwrap_or_else(|| json!(0)),
             }),
-            execution_state: checkpoint.get("execution_state").cloned().unwrap_or_else(|| json!({})),
+            execution_state: checkpoint
+                .get("execution_state")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         }),
     )
 }
@@ -1153,7 +1293,10 @@ async fn operator_v1_strategy_changes(
         .join("evolution")
         .join("strategy_log.json");
     let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
-    let strategy_version = strategy_state.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let strategy_version = strategy_state
+        .get("version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let recent_changes: Vec<Value> = read_json_value(&strategy_log_path)
         .and_then(|value| value.get("changes").and_then(Value::as_array).cloned())
         .unwrap_or_default()
@@ -1182,7 +1325,10 @@ async fn operator_v1_milestones(
 ) -> (StatusCode, Json<OperatorMilestonesV1>) {
     const MAX_PATCH: usize = 5;
     let (latest_run_id, checkpoint) = fusion_latest_checkpoint(&state);
-    let engineering = checkpoint.get("engineering_data").cloned().unwrap_or_else(|| json!({}));
+    let engineering = checkpoint
+        .get("engineering_data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let milestone_state = operator_redact_json(
         &engineering
             .get("milestone_state")
@@ -1256,7 +1402,9 @@ async fn operator_v1_swarm(State(state): State<AppState>) -> (StatusCode, Json<O
 }
 
 /// `GET /api/v1/operator/pr-digest` — redacted PR-style rows from `run-summaries.jsonl` (same projection as `/internal/pr-summaries`).
-async fn operator_v1_pr_digest(State(state): State<AppState>) -> (StatusCode, Json<OperatorPrDigestV1>) {
+async fn operator_v1_pr_digest(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorPrDigestV1>) {
     const LIMIT: usize = 6;
     let summaries: Vec<Value> = fusion_pr_digest_rows(&state, LIMIT)
         .iter()
@@ -1295,18 +1443,190 @@ fn normalize_client_session_id(raw: Option<String>) -> Option<String> {
     }
 }
 
-async fn chat(
-    State(state): State<AppState>,
-    Json(payload): Json<ChatRequest>,
-) -> Result<(StatusCode, Json<ChatResponse>), AppError> {
-    let message = payload.message.trim().to_string();
-    if message.is_empty() {
-        return Err(AppError::InvalidRequest(
-            "message must not be empty".to_string(),
+fn build_public_error_payload(code: &str) -> Value {
+    let (message, severity, retryable) = match code {
+        "INPUT_VALIDATION_FAILED" => ("Request input failed validation.", "blocked", false),
+        "PAYLOAD_TOO_LARGE" => (
+            "Request payload exceeds the configured size limit.",
+            "blocked",
+            false,
+        ),
+        "RATE_LIMITED" => ("Too many requests. Please retry later.", "blocked", true),
+        "INVALID_CONTENT_TYPE" => (
+            "Request content type must be application/json.",
+            "blocked",
+            false,
+        ),
+        "INVALID_JSON" => ("Request body must be valid JSON.", "blocked", false),
+        _ => ("Request could not be processed.", "error", false),
+    };
+    json!({
+        "error_public_code": code,
+        "error_public_message": message,
+        "severity": severity,
+        "retryable": retryable,
+        "internal_error_redacted": true,
+    })
+}
+
+fn public_error_response(status: StatusCode, code: &str) -> Response {
+    (status, Json(build_public_error_payload(code))).into_response()
+}
+
+fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
+    let Some(value) = headers.get(CONTENT_TYPE) else {
+        return Err(public_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "INVALID_CONTENT_TYPE",
+        ));
+    };
+    let Ok(raw) = value.to_str() else {
+        return Err(public_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "INVALID_CONTENT_TYPE",
+        ));
+    };
+    let mime = raw.split(';').next().unwrap_or("").trim();
+    if mime.eq_ignore_ascii_case("application/json") {
+        Ok(())
+    } else {
+        Err(public_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "INVALID_CONTENT_TYPE",
+        ))
+    }
+}
+
+fn contains_unsafe_control_chars(value: &str) -> bool {
+    value
+        .chars()
+        .any(|ch| ch.is_control() && ch != '\t' && ch != '\n' && ch != '\r')
+}
+
+fn validate_message(message: &str, max_chars: usize) -> Result<String, Response> {
+    let trimmed = message.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
         ));
     }
+    if trimmed.chars().count() > max_chars {
+        return Err(public_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+        ));
+    }
+    if contains_unsafe_control_chars(&trimmed) {
+        return Err(public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(trimmed)
+}
 
-    let client_session_id = normalize_client_session_id(payload.client_session_id);
+fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > 128 || contains_unsafe_control_chars(&trimmed) {
+        return Err(public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
+    {
+        return Err(public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(Some(trimmed))
+}
+
+fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Response> {
+    if bytes.len() > max_body_bytes {
+        Err(public_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
+    let client_key = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("global");
+    if state
+        .chat_security
+        .check_rate_limit(client_key, Instant::now())
+    {
+        Ok(())
+    } else {
+        Err(public_error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED",
+        ))
+    }
+}
+
+fn parse_chat_request(bytes: &Bytes) -> Result<ChatRequest, Response> {
+    serde_json::from_slice::<ChatRequest>(bytes)
+        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+}
+
+fn parse_public_chat_request(bytes: &Bytes) -> Result<PublicChatRequestV1, Response> {
+    serde_json::from_slice::<PublicChatRequestV1>(bytes)
+        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+}
+
+async fn chat(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    if let Err(response) = validate_content_type(&headers) {
+        return Ok(response);
+    }
+    if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
+        return Ok(response);
+    }
+    if let Err(response) = validate_chat_rate_limit(&state, &headers) {
+        return Ok(response);
+    }
+    let payload = match parse_chat_request(&body) {
+        Ok(payload) => payload,
+        Err(response) => return Ok(response),
+    };
+    let message = match validate_message(
+        &payload.message,
+        state.chat_security.config.max_message_chars,
+    ) {
+        Ok(message) => message,
+        Err(response) => return Ok(response),
+    };
+
+    let client_session_id = match validate_optional_id(payload.client_session_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(response),
+    };
+    if let Err(response) = validate_optional_id(payload.request_id) {
+        return Ok(response);
+    }
 
     info!(
         client_session_id = ?client_session_id,
@@ -1315,21 +1635,42 @@ async fn chat(
         state.runtime_mode
     );
     let response = call_python(&state, &message, client_session_id, None).await?;
-    Ok((StatusCode::OK, Json(response)))
+    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 async fn public_v1_chat(
     State(state): State<AppState>,
-    Json(payload): Json<PublicChatRequestV1>,
-) -> Result<(StatusCode, Json<PublicChatResponseV1>), AppError> {
-    let message = payload.message.trim().to_string();
-    if message.is_empty() {
-        return Err(AppError::InvalidRequest(
-            "message must not be empty".to_string(),
-        ));
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    if let Err(response) = validate_content_type(&headers) {
+        return Ok(response);
     }
+    if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
+        return Ok(response);
+    }
+    if let Err(response) = validate_chat_rate_limit(&state, &headers) {
+        return Ok(response);
+    }
+    let payload = match parse_public_chat_request(&body) {
+        Ok(payload) => payload,
+        Err(response) => return Ok(response),
+    };
+    let message = match validate_message(
+        &payload.message,
+        state.chat_security.config.max_message_chars,
+    ) {
+        Ok(message) => message,
+        Err(response) => return Ok(response),
+    };
 
-    let client_session_id = normalize_client_session_id(payload.client_session_id);
+    let client_session_id = match validate_optional_id(payload.client_session_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(response),
+    };
+    if let Err(response) = validate_optional_id(payload.request_id) {
+        return Ok(response);
+    }
     let client_context_json = payload
         .client_context
         .as_ref()
@@ -1356,7 +1697,8 @@ async fn public_v1_chat(
             api_version: "1",
             chat,
         }),
-    ))
+    )
+        .into_response())
 }
 
 fn bootstrap_runtime_session() -> Session {
@@ -1393,7 +1735,10 @@ fn normalize_conversation_id_from_str(raw: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed.chars().any(|c| c == '\n' || c == '\r' || c.is_control()) {
+    if trimmed
+        .chars()
+        .any(|c| c == '\n' || c == '\r' || c.is_control())
+    {
         return None;
     }
     if trimmed.chars().count() > MAX_CHARS {
@@ -1767,10 +2112,7 @@ async fn call_python(
     if !output.status.success() {
         let code = output.status.code().unwrap_or(-1);
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let message = format!(
-            "python adapter exited with status {}",
-            code
-        );
+        let message = format!("python adapter exited with status {}", code);
         warn!("{message}");
         if !stderr.is_empty() {
             warn!("python stderr: {stderr}");
@@ -1778,7 +2120,11 @@ async fn call_python(
         update_python_health(
             state,
             "failed",
-            Some(if stderr.is_empty() { message.clone() } else { stderr.clone() }),
+            Some(if stderr.is_empty() {
+                message.clone()
+            } else {
+                stderr.clone()
+            }),
         )
         .await;
         return Ok(build_python_fallback_response(
@@ -1786,13 +2132,11 @@ async fn call_python(
             "python-subprocess",
             client_session_id.clone(),
             "python_subprocess_nonzero_exit",
-            Some(
-                if stderr.is_empty() {
-                    message.as_str()
-                } else {
-                    stderr.as_str()
-                },
-            ),
+            Some(if stderr.is_empty() {
+                message.as_str()
+            } else {
+                stderr.as_str()
+            }),
         ));
     }
 
@@ -1903,7 +2247,15 @@ fn read_latest_jsonl(path: &Path) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Method, Request},
+    };
     use std::fs;
+    use std::sync::{Mutex as StdMutex, OnceLock};
+    use tower::ServiceExt;
+
+    static ENV_TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
 
     fn temp_script(content: &str, name: &str) -> PathBuf {
         let root = env::temp_dir().join(format!("omini-rust-tests-{name}"));
@@ -1931,7 +2283,63 @@ mod tests {
                 jwt_secret: "test-secret".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
+            chat_security: Arc::new(ChatSecurityState::with_config(ChatSecurityConfig {
+                max_message_chars: 8_000,
+                max_body_bytes: 65_536,
+                rate_limit_enabled: true,
+                rate_limit_per_minute: 30,
+            })),
         }
+    }
+
+    fn build_test_state_with_security(
+        script_path: PathBuf,
+        python_timeout_ms: u64,
+        config: ChatSecurityConfig,
+    ) -> AppState {
+        let mut state = build_test_state(script_path, python_timeout_ms);
+        state.chat_security = Arc::new(ChatSecurityState::with_config(config));
+        state
+    }
+
+    fn test_chat_security_config() -> ChatSecurityConfig {
+        ChatSecurityConfig {
+            max_message_chars: 20,
+            max_body_bytes: 512,
+            rate_limit_enabled: false,
+            rate_limit_per_minute: 30,
+        }
+    }
+
+    fn chat_router(state: AppState) -> Router {
+        Router::new()
+            .route("/chat", post(chat))
+            .route("/api/v1/chat", post(public_v1_chat))
+            .with_state(state)
+    }
+
+    async fn response_json(response: Response) -> Value {
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        serde_json::from_slice(&body).expect("json body")
+    }
+
+    fn json_post(path: &str, body: impl Into<Body>) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body.into())
+            .expect("request")
+    }
+
+    async fn assert_python_not_invoked(state: &AppState) {
+        let guard = state.python_health.read().await;
+        assert!(!matches!(
+            guard.last_status.as_str(),
+            "ready" | "failed" | "timeout" | "stderr_warning" | "empty_stdout" | "mock"
+        ));
     }
 
     #[tokio::test]
@@ -1946,6 +2354,269 @@ mod tests {
         assert_eq!(response.response, "ok from python");
         assert_eq!(response.source, "python-subprocess");
         assert_eq!(response.stop_reason.as_deref(), Some("python_completed"));
+    }
+
+    #[tokio::test]
+    async fn chat_route_valid_request_invokes_runtime() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-valid"),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","client_session_id":"sess-1","request_id":"req:1"}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["response"].as_str(), Some("ok"));
+        assert_eq!(body["client_session_id"].as_str(), Some("sess-1"));
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_empty_message_before_runtime() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"should-not-run\"}')\n", "chat-empty"),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"   "}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("INPUT_VALIDATION_FAILED")
+        );
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_oversized_message_and_body_before_runtime() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-oversized",
+            ),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 5,
+                max_body_bytes: 32,
+                rate_limit_enabled: false,
+                rate_limit_per_minute: 30,
+            },
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"too long"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("PAYLOAD_TOO_LARGE")
+        );
+
+        let response = chat_router(state.clone())
+            .oneshot(json_post(
+                "/chat",
+                format!(r#"{{"message":"{}"}}"#, "x".repeat(64)),
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_invalid_json_and_content_type_before_runtime() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-invalid-json",
+            ),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", "not-json"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(body["error_public_code"].as_str(), Some("INVALID_JSON"));
+
+        let response = chat_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/chat")
+                    .header(CONTENT_TYPE, "text/plain")
+                    .body(Body::from(r#"{"message":"hello"}"#))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("INVALID_CONTENT_TYPE")
+        );
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_unsafe_control_chars_and_ids() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-control",
+            ),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", "{\"message\":\"bad\\u0000value\"}"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = chat_router(state.clone())
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"ok","client_session_id":"bad/id"}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = chat_router(state.clone())
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"ok","request_id":"bad id"}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_allows_tab_and_newline_in_message() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-control-safe"),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state)
+            .oneshot(json_post("/chat", "{\"message\":\"hello\\n\\tworld\"}"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn chat_route_rate_limits_and_can_disable_rate_limit() {
+        let enabled_state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-rate-enabled"),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 20,
+                max_body_bytes: 512,
+                rate_limit_enabled: true,
+                rate_limit_per_minute: 1,
+            },
+        );
+        let response = chat_router(enabled_state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"one"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = chat_router(enabled_state)
+            .oneshot(json_post("/chat", r#"{"message":"two"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = response_json(response).await;
+        assert_eq!(body["error_public_code"].as_str(), Some("RATE_LIMITED"));
+        assert_eq!(body["retryable"].as_bool(), Some(true));
+
+        let disabled_state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-rate-disabled"),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 20,
+                max_body_bytes: 512,
+                rate_limit_enabled: false,
+                rate_limit_per_minute: 1,
+            },
+        );
+        let response = chat_router(disabled_state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"one"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = chat_router(disabled_state)
+            .oneshot(json_post("/chat", r#"{"message":"two"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn chat_security_env_aliases_work() {
+        let lock = ENV_TEST_LOCK
+            .get_or_init(|| StdMutex::new(()))
+            .lock()
+            .unwrap();
+        let keys = [
+            "OMNI_MAX_MESSAGE_CHARS",
+            "OMINI_MAX_MESSAGE_CHARS",
+            "OMNI_MAX_BODY_BYTES",
+            "OMINI_MAX_BODY_BYTES",
+            "OMNI_RATE_LIMIT_ENABLED",
+            "OMINI_RATE_LIMIT_ENABLED",
+            "OMNI_RATE_LIMIT_PER_MINUTE",
+            "OMINI_RATE_LIMIT_PER_MINUTE",
+        ];
+        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+        env::set_var("OMINI_MAX_MESSAGE_CHARS", "123");
+        env::set_var("OMINI_MAX_BODY_BYTES", "456");
+        env::set_var("OMINI_RATE_LIMIT_ENABLED", "false");
+        env::set_var("OMINI_RATE_LIMIT_PER_MINUTE", "7");
+        let legacy = ChatSecurityState::from_env();
+        assert_eq!(legacy.config.max_message_chars, 123);
+        assert_eq!(legacy.config.max_body_bytes, 456);
+        assert!(!legacy.config.rate_limit_enabled);
+        assert_eq!(legacy.config.rate_limit_per_minute, 7);
+
+        env::set_var("OMNI_MAX_MESSAGE_CHARS", "321");
+        env::set_var("OMNI_MAX_BODY_BYTES", "654");
+        env::set_var("OMNI_RATE_LIMIT_ENABLED", "true");
+        env::set_var("OMNI_RATE_LIMIT_PER_MINUTE", "9");
+        let canonical = ChatSecurityState::from_env();
+        assert_eq!(canonical.config.max_message_chars, 321);
+        assert_eq!(canonical.config.max_body_bytes, 654);
+        assert!(canonical.config.rate_limit_enabled);
+        assert_eq!(canonical.config.rate_limit_per_minute, 9);
+
+        for (key, value) in saved {
+            if let Some(value) = value {
+                env::set_var(key, value);
+            } else {
+                env::remove_var(key);
+            }
+        }
+        drop(lock);
     }
 
     #[tokio::test]
@@ -2037,7 +2708,8 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
 
     #[test]
     fn public_chat_request_v1_deserializes_optional_client_context() {
-        let raw = r#"{"message":"hi","client_session_id":"s1","client_context":{"source":"frontend"}}"#;
+        let raw =
+            r#"{"message":"hi","client_session_id":"s1","client_context":{"source":"frontend"}}"#;
         let p: PublicChatRequestV1 = serde_json::from_str(raw).expect("deserialize");
         assert_eq!(p.message, "hi");
         assert_eq!(p.client_session_id.as_deref(), Some("s1"));
@@ -2097,7 +2769,10 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
 
     #[tokio::test]
     async fn call_python_returns_timeout_fallback() {
-        let state = build_test_state(temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"), 200);
+        let state = build_test_state(
+            temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"),
+            200,
+        );
         let response = call_python(&state, "hello", None, None)
             .await
             .expect("timeout fallback expected");
@@ -2121,7 +2796,10 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
     #[tokio::test]
     async fn call_python_returns_stderr_fallback() {
         let state = build_test_state(
-            temp_script("import sys\nsys.stderr.write('boom')\nsys.exit(1)\n", "stderr"),
+            temp_script(
+                "import sys\nsys.stderr.write('boom')\nsys.exit(1)\n",
+                "stderr",
+            ),
             15_000,
         );
         let response = call_python(&state, "hello", None, None)
@@ -2204,5 +2882,3 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
         assert_eq!(out["pr_summary"]["title"], "ok");
     }
 }
-
-

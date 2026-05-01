@@ -35,6 +35,11 @@ def test_every_required_error_code_has_public_metadata() -> None:
         "SUPABASE_NOT_CONFIGURED",
         "TIMEOUT",
         "INTERNAL_ERROR_REDACTED",
+        "INPUT_VALIDATION_FAILED",
+        "PAYLOAD_TOO_LARGE",
+        "RATE_LIMITED",
+        "INVALID_CONTENT_TYPE",
+        "INVALID_JSON",
     }
 
     assert required == {item.value for item in OmniErrorCode}
@@ -78,6 +83,11 @@ def test_major_error_code_mappings() -> None:
         "PROVIDER_UNAVAILABLE": ("degraded", True),
         "NODE_EMPTY_RESPONSE": ("degraded", True),
         "TIMEOUT": ("error", True),
+        "INPUT_VALIDATION_FAILED": ("blocked", False),
+        "PAYLOAD_TOO_LARGE": ("blocked", False),
+        "RATE_LIMITED": ("blocked", True),
+        "INVALID_CONTENT_TYPE": ("blocked", False),
+        "INVALID_JSON": ("blocked", False),
     }
 
     for code, (severity, retryable) in expectations.items():

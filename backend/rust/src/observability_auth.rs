@@ -208,6 +208,7 @@ mod tests {
             node_bin: "node".to_string(),
             python_health: Arc::new(tokio::sync::RwLock::new(Default::default())),
             supabase_auth: Arc::new(build_config()),
+            chat_security: crate::default_chat_security_state(),
         }
     }
 

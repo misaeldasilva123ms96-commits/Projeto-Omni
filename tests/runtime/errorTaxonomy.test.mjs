@@ -27,6 +27,11 @@ const required = [
   'SUPABASE_NOT_CONFIGURED',
   'TIMEOUT',
   'INTERNAL_ERROR_REDACTED',
+  'INPUT_VALIDATION_FAILED',
+  'PAYLOAD_TOO_LARGE',
+  'RATE_LIMITED',
+  'INVALID_CONTENT_TYPE',
+  'INVALID_JSON',
 ]
 
 for (const code of required) {
@@ -54,5 +59,10 @@ assert.equal(JSON.stringify(unknown).includes('sk-proj'), false)
 assert.equal(buildPublicError('SPECIALIST_FAILED').severity, 'degraded')
 assert.equal(buildPublicError('PROVIDER_UNAVAILABLE').retryable, true)
 assert.equal(buildPublicError('NODE_EMPTY_RESPONSE').retryable, true)
+assert.equal(buildPublicError('INPUT_VALIDATION_FAILED').severity, 'blocked')
+assert.equal(buildPublicError('PAYLOAD_TOO_LARGE').retryable, false)
+assert.equal(buildPublicError('RATE_LIMITED').retryable, true)
+assert.equal(buildPublicError('INVALID_CONTENT_TYPE').severity, 'blocked')
+assert.equal(buildPublicError('INVALID_JSON').severity, 'blocked')
 
 console.log('runtime error taxonomy: js checks passed')

@@ -20,6 +20,11 @@ class OmniErrorCode(StrEnum):
     SUPABASE_NOT_CONFIGURED = "SUPABASE_NOT_CONFIGURED"
     TIMEOUT = "TIMEOUT"
     INTERNAL_ERROR_REDACTED = "INTERNAL_ERROR_REDACTED"
+    INPUT_VALIDATION_FAILED = "INPUT_VALIDATION_FAILED"
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
+    RATE_LIMITED = "RATE_LIMITED"
+    INVALID_CONTENT_TYPE = "INVALID_CONTENT_TYPE"
+    INVALID_JSON = "INVALID_JSON"
 
 
 ERROR_MESSAGES: dict[str, str] = {
@@ -38,6 +43,11 @@ ERROR_MESSAGES: dict[str, str] = {
     OmniErrorCode.SUPABASE_NOT_CONFIGURED: "Supabase is not configured for this environment.",
     OmniErrorCode.TIMEOUT: "The operation timed out.",
     OmniErrorCode.INTERNAL_ERROR_REDACTED: "An internal runtime error occurred and details were redacted.",
+    OmniErrorCode.INPUT_VALIDATION_FAILED: "Request input failed validation.",
+    OmniErrorCode.PAYLOAD_TOO_LARGE: "Request payload exceeds the configured size limit.",
+    OmniErrorCode.RATE_LIMITED: "Too many requests. Please retry later.",
+    OmniErrorCode.INVALID_CONTENT_TYPE: "Request content type must be application/json.",
+    OmniErrorCode.INVALID_JSON: "Request body must be valid JSON.",
 }
 
 ERROR_SEVERITY: dict[str, str] = {
@@ -56,6 +66,11 @@ ERROR_SEVERITY: dict[str, str] = {
     OmniErrorCode.SUPABASE_NOT_CONFIGURED: "info",
     OmniErrorCode.TIMEOUT: "error",
     OmniErrorCode.INTERNAL_ERROR_REDACTED: "critical",
+    OmniErrorCode.INPUT_VALIDATION_FAILED: "blocked",
+    OmniErrorCode.PAYLOAD_TOO_LARGE: "blocked",
+    OmniErrorCode.RATE_LIMITED: "blocked",
+    OmniErrorCode.INVALID_CONTENT_TYPE: "blocked",
+    OmniErrorCode.INVALID_JSON: "blocked",
 }
 
 ERROR_RETRYABLE: dict[str, bool] = {
@@ -74,6 +89,11 @@ ERROR_RETRYABLE: dict[str, bool] = {
     OmniErrorCode.SUPABASE_NOT_CONFIGURED: False,
     OmniErrorCode.TIMEOUT: True,
     OmniErrorCode.INTERNAL_ERROR_REDACTED: False,
+    OmniErrorCode.INPUT_VALIDATION_FAILED: False,
+    OmniErrorCode.PAYLOAD_TOO_LARGE: False,
+    OmniErrorCode.RATE_LIMITED: True,
+    OmniErrorCode.INVALID_CONTENT_TYPE: False,
+    OmniErrorCode.INVALID_JSON: False,
 }
 
 

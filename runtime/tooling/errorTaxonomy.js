@@ -14,6 +14,11 @@ const OMNI_ERROR_CODE = Object.freeze({
   SUPABASE_NOT_CONFIGURED: 'SUPABASE_NOT_CONFIGURED',
   TIMEOUT: 'TIMEOUT',
   INTERNAL_ERROR_REDACTED: 'INTERNAL_ERROR_REDACTED',
+  INPUT_VALIDATION_FAILED: 'INPUT_VALIDATION_FAILED',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+  RATE_LIMITED: 'RATE_LIMITED',
+  INVALID_CONTENT_TYPE: 'INVALID_CONTENT_TYPE',
+  INVALID_JSON: 'INVALID_JSON',
 });
 
 const ERROR_MESSAGES = Object.freeze({
@@ -32,6 +37,11 @@ const ERROR_MESSAGES = Object.freeze({
   [OMNI_ERROR_CODE.SUPABASE_NOT_CONFIGURED]: 'Supabase is not configured for this environment.',
   [OMNI_ERROR_CODE.TIMEOUT]: 'The operation timed out.',
   [OMNI_ERROR_CODE.INTERNAL_ERROR_REDACTED]: 'An internal runtime error occurred and details were redacted.',
+  [OMNI_ERROR_CODE.INPUT_VALIDATION_FAILED]: 'Request input failed validation.',
+  [OMNI_ERROR_CODE.PAYLOAD_TOO_LARGE]: 'Request payload exceeds the configured size limit.',
+  [OMNI_ERROR_CODE.RATE_LIMITED]: 'Too many requests. Please retry later.',
+  [OMNI_ERROR_CODE.INVALID_CONTENT_TYPE]: 'Request content type must be application/json.',
+  [OMNI_ERROR_CODE.INVALID_JSON]: 'Request body must be valid JSON.',
 });
 
 const ERROR_SEVERITY = Object.freeze({
@@ -50,6 +60,11 @@ const ERROR_SEVERITY = Object.freeze({
   [OMNI_ERROR_CODE.SUPABASE_NOT_CONFIGURED]: 'info',
   [OMNI_ERROR_CODE.TIMEOUT]: 'error',
   [OMNI_ERROR_CODE.INTERNAL_ERROR_REDACTED]: 'critical',
+  [OMNI_ERROR_CODE.INPUT_VALIDATION_FAILED]: 'blocked',
+  [OMNI_ERROR_CODE.PAYLOAD_TOO_LARGE]: 'blocked',
+  [OMNI_ERROR_CODE.RATE_LIMITED]: 'blocked',
+  [OMNI_ERROR_CODE.INVALID_CONTENT_TYPE]: 'blocked',
+  [OMNI_ERROR_CODE.INVALID_JSON]: 'blocked',
 });
 
 const ERROR_RETRYABLE = Object.freeze({
@@ -68,6 +83,11 @@ const ERROR_RETRYABLE = Object.freeze({
   [OMNI_ERROR_CODE.SUPABASE_NOT_CONFIGURED]: false,
   [OMNI_ERROR_CODE.TIMEOUT]: true,
   [OMNI_ERROR_CODE.INTERNAL_ERROR_REDACTED]: false,
+  [OMNI_ERROR_CODE.INPUT_VALIDATION_FAILED]: false,
+  [OMNI_ERROR_CODE.PAYLOAD_TOO_LARGE]: false,
+  [OMNI_ERROR_CODE.RATE_LIMITED]: true,
+  [OMNI_ERROR_CODE.INVALID_CONTENT_TYPE]: false,
+  [OMNI_ERROR_CODE.INVALID_JSON]: false,
 });
 
 function normalizeCode(code) {
