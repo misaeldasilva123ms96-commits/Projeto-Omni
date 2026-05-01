@@ -22,6 +22,7 @@ async function testGreetingMatcherTruth() {
   })
 
   assert.equal(result.runtime_truth.runtime_mode, RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT)
+  assert.equal(result.runtime_truth.error_public_code, 'MATCHER_SHORTCUT_USED')
   assert.equal(result.runtime_truth.matcher_used, true)
   assert.equal(result.runtime_truth.llm_provider_attempted, false)
   assert.equal(result.runtime_truth.tool_invoked, false)
@@ -44,6 +45,7 @@ function testTruthHelperModes() {
     providerSucceeded: false,
   })
   assert.equal(providerUnavailable.runtime_mode, RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE)
+  assert.equal(providerUnavailable.error_public_code, 'PROVIDER_UNAVAILABLE')
   assert.equal(providerUnavailable.llm_provider_succeeded, false)
 
   const toolBlocked = buildRuntimeTruth({
@@ -55,6 +57,7 @@ function testTruthHelperModes() {
     toolStatus: 'blocked',
   })
   assert.equal(toolBlocked.tool_executed, false)
+  assert.equal(toolBlocked.error_public_code, 'TOOL_BLOCKED_BY_GOVERNANCE')
   assert.equal(toolBlocked.tool_status, 'blocked')
 
   const toolExecuted = buildRuntimeTruth({

@@ -44,8 +44,11 @@ describe('RuntimeDebugSection', () => {
         tool_diagnostics: [{ tool_selected: 'read_file', tool_raw_result: 'raw tool' }],
       } as unknown as RuntimeMetadata['signals'],
       error: {
-        code: 'SPECIALIST_FAILED',
-        message: 'C:\\Windows\\System32\\config',
+        error_public_code: 'SPECIALIST_FAILED',
+        error_public_message: 'Specialist execution failed. Using fallback.',
+        severity: 'degraded',
+        retryable: true,
+        internal_error_redacted: true,
         details: { env: { SECRET: 'hidden' } },
       },
     }
@@ -55,6 +58,8 @@ describe('RuntimeDebugSection', () => {
     expect(screen.getByText('Runtime debug (last turn)')).toBeInTheDocument()
     expect(screen.getAllByText('SAFE_FALLBACK').length).toBeGreaterThan(0)
     expect(screen.getAllByText('openai').length).toBeGreaterThan(0)
+    expect(screen.getByText('SPECIALIST_FAILED')).toBeInTheDocument()
+    expect(screen.getByText('degraded')).toBeInTheDocument()
 
     const html = document.body.textContent ?? ''
     expect(html).not.toContain('/home/render')

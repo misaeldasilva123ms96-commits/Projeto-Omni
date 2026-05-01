@@ -61,6 +61,8 @@ PUBLIC_INSPECTION_KEYS = {
     "warnings_public",
     "error_public_code",
     "error_public_message",
+    "severity",
+    "retryable",
     "internal_error_redacted",
     "public_summary",
 }

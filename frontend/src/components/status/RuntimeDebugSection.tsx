@@ -70,6 +70,14 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
         <MetricRow label="Provider failed" value={boolLabel(safeMetadata.providerFailed)} />
         <MetricRow label="Failure class" value={safeString(safeMetadata.failureClass)} />
         <MetricRow label="Failure reason" value={safeString(safeMetadata.failureReason)} />
+        <MetricRow label="Public error code" value={safeString(safeMetadata.errorPublicCode ?? safeMetadata.error?.error_public_code ?? safeMetadata.error?.code)} />
+        <MetricRow label="Public error message" value={safeString(safeMetadata.errorPublicMessage ?? safeMetadata.error?.error_public_message ?? safeMetadata.error?.message)} />
+        <MetricRow label="Severity" value={safeString(safeMetadata.severity ?? safeMetadata.error?.severity)} />
+        <MetricRow label="Retryable" value={boolLabel(safeMetadata.retryable ?? safeMetadata.error?.retryable)} />
+        <MetricRow
+          label="Internal error redacted"
+          value={boolLabel(safeMetadata.internalErrorRedacted ?? safeMetadata.error?.internal_error_redacted)}
+        />
         <MetricRow label="Provider fallback routing" value={boolLabel(providerFallbackOccurred)} />
         <MetricRow label="No provider available" value={boolLabel(noProviderAvailable)} />
         <MetricRow

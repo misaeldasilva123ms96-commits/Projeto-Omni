@@ -11,7 +11,12 @@ export type ChatUsage = {
 
 export type RuntimeErrorPayload = {
   code?: string
+  error_public_code?: string
   message?: string
+  error_public_message?: string
+  severity?: 'info' | 'degraded' | 'blocked' | 'error' | 'critical' | string
+  retryable?: boolean
+  internal_error_redacted?: boolean
   details?: unknown
 }
 
@@ -50,6 +55,11 @@ export type RuntimeSignals = {
   provider_failed?: boolean
   failure_class?: string
   failure_reason?: string
+  error_public_code?: string
+  error_public_message?: string
+  severity?: string
+  retryable?: boolean
+  internal_error_redacted?: boolean
   execution_provenance?: unknown
   node_execution_successful?: boolean
   provider_diagnostics?: ProviderDiagnostic[] | null
@@ -87,6 +97,11 @@ export type RuntimeMetadata = {
   providerFailed?: boolean
   failureClass?: string
   failureReason?: string
+  errorPublicCode?: string
+  errorPublicMessage?: string
+  severity?: string
+  retryable?: boolean
+  internalErrorRedacted?: boolean
   executionProvenance?: unknown
   providers?: unknown[]
   providerDiagnostics?: ProviderDiagnostic[]
@@ -134,6 +149,11 @@ export type ChatApiResponse = {
   provider_failed?: boolean
   failure_class?: string
   failure_reason?: string
+  error_public_code?: string
+  error_public_message?: string
+  severity?: string
+  retryable?: boolean
+  internal_error_redacted?: boolean
   execution_provenance?: unknown
   providers?: unknown[]
   provider_diagnostics?: ProviderDiagnostic[]

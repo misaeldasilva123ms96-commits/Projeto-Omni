@@ -58,6 +58,8 @@ function testBlockedResultPublicSafe() {
   assert.equal(result.ok, false)
   assert.equal(result.tool_status, 'blocked')
   assert.equal(result.internal_error_redacted, true)
+  assert.equal(result.severity, 'blocked')
+  assert.equal(result.retryable, false)
   assert.equal(result.tool_execution.tool_denied, true)
 
   const serialized = JSON.stringify(result).toLowerCase()

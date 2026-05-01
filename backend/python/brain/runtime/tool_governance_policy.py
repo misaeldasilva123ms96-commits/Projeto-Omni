@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 POLICY_VERSION = "tool_governance_v1"
@@ -113,23 +114,24 @@ def _decision(
     public_demo_blocked: bool = False,
 ) -> dict[str, Any]:
     if public_demo_blocked:
-        code = "TOOL_BLOCKED_PUBLIC_DEMO"
-        message = "Tool execution is blocked in public demo mode."
+        error = build_public_error(OmniErrorCode.TOOL_BLOCKED_PUBLIC_DEMO)
     elif approval_required:
-        code = "TOOL_APPROVAL_REQUIRED"
-        message = "Tool execution requires explicit approval before running."
+        error = build_public_error(OmniErrorCode.TOOL_APPROVAL_REQUIRED)
     elif allowed:
-        code = ""
-        message = ""
+        error = {
+            "error_public_code": "",
+            "error_public_message": "",
+            "severity": "info",
+            "retryable": False,
+            "internal_error_redacted": True,
+        }
     else:
-        code = "TOOL_BLOCKED_BY_GOVERNANCE"
-        message = "Tool execution was blocked by governance policy."
+        error = build_public_error(OmniErrorCode.TOOL_BLOCKED_BY_GOVERNANCE)
     return {
         "allowed": bool(allowed),
         "category": category,
         "reason": reason,
-        "error_public_code": code,
-        "error_public_message": message,
+        **error,
         "approval_required": bool(approval_required),
         "public_demo_blocked": bool(public_demo_blocked),
         "governance_audit": build_public_governance_audit(
@@ -151,6 +153,8 @@ def build_governance_blocked_result(tool: str, decision: dict[str, Any]) -> dict
         "error_public_message": str(
             decision.get("error_public_message") or "Tool execution was blocked by governance policy."
         ),
+        "severity": str(decision.get("severity") or "blocked"),
+        "retryable": bool(decision.get("retryable", False)),
         "internal_error_redacted": True,
         "governance_audit": dict(decision.get("governance_audit") or {}),
         "tool_execution": {

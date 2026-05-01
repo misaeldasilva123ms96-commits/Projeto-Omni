@@ -1,3 +1,5 @@
+const { OMNI_ERROR_CODE, buildPublicError } = require('./errorTaxonomy');
+
 const TOOL_TAXONOMY = {
   none: { category: 'direct_response', policy_level: 'low', mutating: false, privileged: false },
   read_file: { category: 'code_file_read', policy_level: 'low', mutating: false, privileged: false },
@@ -98,25 +100,26 @@ function evaluateToolGovernance(action = {}) {
 
 function decision(allowed, category, reason, { approvalRequired = false, publicDemoBlocked = false } = {}) {
   const errorPublicCode = publicDemoBlocked
-    ? 'TOOL_BLOCKED_PUBLIC_DEMO'
+    ? OMNI_ERROR_CODE.TOOL_BLOCKED_PUBLIC_DEMO
     : approvalRequired
-      ? 'TOOL_APPROVAL_REQUIRED'
+      ? OMNI_ERROR_CODE.TOOL_APPROVAL_REQUIRED
       : allowed
         ? ''
-        : 'TOOL_BLOCKED_BY_GOVERNANCE';
-  const errorPublicMessage = publicDemoBlocked
-    ? 'Tool execution is blocked in public demo mode.'
-    : approvalRequired
-      ? 'Tool execution requires explicit approval before running.'
-      : allowed
-        ? ''
-        : 'Tool execution was blocked by governance policy.';
+        : OMNI_ERROR_CODE.TOOL_BLOCKED_BY_GOVERNANCE;
+  const error = errorPublicCode
+    ? buildPublicError(errorPublicCode)
+    : {
+        error_public_code: '',
+        error_public_message: '',
+        severity: 'info',
+        retryable: false,
+        internal_error_redacted: true,
+      };
   return {
     allowed: Boolean(allowed),
     category,
     reason,
-    error_public_code: errorPublicCode,
-    error_public_message: errorPublicMessage,
+    ...error,
     approval_required: Boolean(approvalRequired),
     public_demo_blocked: Boolean(publicDemoBlocked),
     governance_audit: buildPublicGovernanceAudit({
@@ -137,6 +140,8 @@ function buildGovernanceBlockedResult(action = {}, decisionPayload = {}) {
     tool_status: 'blocked',
     error_public_code: String(decisionPayload.error_public_code || 'TOOL_BLOCKED_BY_GOVERNANCE'),
     error_public_message: String(decisionPayload.error_public_message || 'Tool execution was blocked by governance policy.'),
+    severity: String(decisionPayload.severity || 'blocked'),
+    retryable: Boolean(decisionPayload.retryable),
     internal_error_redacted: true,
     governance_audit: { ...(decisionPayload.governance_audit || {}) },
     tool_execution: {

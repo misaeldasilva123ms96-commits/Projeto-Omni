@@ -167,6 +167,8 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["tool_status"], "blocked")
         self.assertEqual(result["error_public_code"], code)
+        self.assertIn(result["severity"], {"blocked", "error"})
+        self.assertIsInstance(result["retryable"], bool)
         self.assertTrue(result["internal_error_redacted"])
         self.assertIn("governance_audit", result)
         self.assertIn(result["governance_audit"]["category"], {"read_sensitive", "write", "destructive", "shell"})

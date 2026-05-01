@@ -1,4 +1,5 @@
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
+const { OMNI_ERROR_CODE, buildPublicError } = require('../../../runtime/tooling/errorTaxonomy');
 
 function truthyEnv(name) {
   return TRUE_VALUES.has(String(process.env[name] || '').trim().toLowerCase());
@@ -36,14 +37,13 @@ function sanitizeErrorForInternalDebug(err) {
 }
 
 function buildSpecialistFallback({ specialistId, extra = {}, err = null }) {
+  const publicError = buildPublicError(OMNI_ERROR_CODE.SPECIALIST_FAILED);
   const payload = {
     invoked: true,
     degraded: true,
     specialist_id: specialistId,
     fallback: true,
-    error_public_code: 'SPECIALIST_FAILED',
-    error_public_message: 'Specialist execution failed. Using fallback.',
-    internal_error_redacted: true,
+    ...publicError,
     ...extra,
   };
   if (isInternalDebugEnabled()) {
@@ -58,7 +58,7 @@ function logSpecialistFallback({ specialistId, err = null }) {
     specialist_id: specialistId,
     degraded: true,
     fallback: true,
-    error_public_code: 'SPECIALIST_FAILED',
+    ...buildPublicError(OMNI_ERROR_CODE.SPECIALIST_FAILED),
     internal_error_redacted: true,
   };
   if (isInternalDebugEnabled()) {

@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
+
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 ALLOWLISTED_NPM_RUN_SCRIPTS = {
@@ -55,16 +57,17 @@ def is_shell_allowlist_mode() -> bool:
 
 def build_shell_blocked_result(reason: str) -> dict[str, Any]:
     public_demo = reason == "public_demo_mode"
+    error = build_public_error(
+        OmniErrorCode.TOOL_BLOCKED_PUBLIC_DEMO if public_demo else OmniErrorCode.SHELL_TOOL_BLOCKED
+    )
     return {
         "ok": False,
         "tool_status": "blocked",
-        "error_public_code": "TOOL_BLOCKED_PUBLIC_DEMO" if public_demo else "SHELL_TOOL_BLOCKED",
-        "error_public_message": "Shell execution is disabled by policy.",
-        "internal_error_redacted": True,
+        **error,
         "error_payload": {
             "kind": "shell_policy_blocked",
-            "message": "Shell execution is disabled by policy.",
-            "public_code": "TOOL_BLOCKED_PUBLIC_DEMO" if public_demo else "SHELL_TOOL_BLOCKED",
+            "message": error["error_public_message"],
+            "public_code": error["error_public_code"],
         },
     }
 

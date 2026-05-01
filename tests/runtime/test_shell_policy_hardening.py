@@ -148,7 +148,9 @@ class ShellPolicyHardeningTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["tool_status"], "blocked")
         self.assertEqual(result["error_public_code"], code)
-        self.assertEqual(result["error_public_message"], "Shell execution is disabled by policy.")
+        self.assertTrue(str(result["error_public_message"]).strip())
+        self.assertEqual(result["severity"], "blocked")
+        self.assertFalse(result["retryable"])
         self.assertTrue(result["internal_error_redacted"])
 
 

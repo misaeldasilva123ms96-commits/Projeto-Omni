@@ -104,6 +104,21 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
   const failure_reason =
     readString(record.failure_reason)
     ?? signals?.failure_reason
+  const error_public_code =
+    readString(record.error_public_code)
+    ?? signals?.error_public_code
+  const error_public_message =
+    readString(record.error_public_message)
+    ?? signals?.error_public_message
+  const severity =
+    readString(record.severity)
+    ?? signals?.severity
+  const retryable =
+    readBoolean(record.retryable)
+    ?? signals?.retryable
+  const internal_error_redacted =
+    readBoolean(record.internal_error_redacted)
+    ?? signals?.internal_error_redacted
   const execution_provenance = record.execution_provenance ?? signals?.execution_provenance
   const providers = Array.isArray(record.providers) ? record.providers : undefined
   const provider_diagnostics =
@@ -163,6 +178,11 @@ export function parseWireChatPayload(payload: unknown): ChatApiResponse {
     provider_failed,
     failure_class,
     failure_reason,
+    error_public_code,
+    error_public_message,
+    severity,
+    retryable,
+    internal_error_redacted,
     execution_provenance,
     providers,
     provider_diagnostics,
@@ -350,6 +370,13 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
     providerFailed: res.provider_failed ?? res.signals?.provider_failed,
     failureClass: res.failure_class ?? res.signals?.failure_class,
     failureReason: res.failure_reason ?? res.signals?.failure_reason,
+    errorPublicCode: res.error_public_code ?? res.signals?.error_public_code ?? res.error?.error_public_code ?? res.error?.code,
+    errorPublicMessage:
+      res.error_public_message ?? res.signals?.error_public_message ?? res.error?.error_public_message ?? res.error?.message,
+    severity: res.severity ?? res.signals?.severity ?? res.error?.severity,
+    retryable: res.retryable ?? res.signals?.retryable ?? res.error?.retryable,
+    internalErrorRedacted:
+      res.internal_error_redacted ?? res.signals?.internal_error_redacted ?? res.error?.internal_error_redacted,
     executionProvenance: res.execution_provenance ?? res.signals?.execution_provenance,
     providers: res.providers,
     providerDiagnostics: res.provider_diagnostics ?? res.signals?.provider_diagnostics ?? undefined,

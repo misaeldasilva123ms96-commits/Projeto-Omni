@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.observability.runtime_lane_classifier import (
     LANE_BRIDGE_EXECUTION_REQUEST,
     LANE_COMPATIBILITY_EXECUTION,
@@ -183,6 +184,16 @@ def _truth_tool_status(tool_execution: dict[str, Any] | None) -> str:
     if tool_execution.get("tool_selected") or tool_execution.get("tool_requested"):
         return "invoked"
     return "not_invoked"
+
+
+def _truth_error_code(runtime_mode: str) -> str:
+    return {
+        TRUTH_MODE_MATCHER_SHORTCUT: OmniErrorCode.MATCHER_SHORTCUT_USED.value,
+        TRUTH_MODE_RULE_BASED_INTENT: OmniErrorCode.RULE_BASED_INTENT_USED.value,
+        TRUTH_MODE_PROVIDER_UNAVAILABLE: OmniErrorCode.PROVIDER_UNAVAILABLE.value,
+        TRUTH_MODE_NODE_FALLBACK: OmniErrorCode.NODE_EMPTY_RESPONSE.value,
+        TRUTH_MODE_TOOL_BLOCKED: OmniErrorCode.TOOL_BLOCKED_BY_GOVERNANCE.value,
+    }.get(runtime_mode, "")
 
 
 def _extract_execution_provenance(
@@ -640,6 +651,8 @@ def build_cognitive_runtime_inspection(
     if fallback_triggered and truth_runtime_mode == TRUTH_MODE_FULL_COGNITIVE_RUNTIME:
         truth_runtime_mode = TRUTH_MODE_SAFE_FALLBACK
 
+    truth_error_code = _truth_error_code(truth_runtime_mode)
+    truth_public_error = build_public_error(truth_error_code) if truth_error_code else {}
     runtime_truth = {
         "runtime_mode": truth_runtime_mode,
         "runtime_reason": runtime_reason,
@@ -655,6 +668,11 @@ def build_cognitive_runtime_inspection(
         "fallback_triggered": fallback_triggered,
         "node_invoked": node_invoked,
         "node_exit_code": node_exit_code,
+        "error_public_code": truth_public_error.get("error_public_code", ""),
+        "error_public_message": truth_public_error.get("error_public_message", ""),
+        "severity": truth_public_error.get("severity", "info"),
+        "retryable": bool(truth_public_error.get("retryable", False)),
+        "internal_error_redacted": bool(truth_public_error.get("internal_error_redacted", True)),
         "public_summary": _truth_public_summary(truth_runtime_mode),
     }
 

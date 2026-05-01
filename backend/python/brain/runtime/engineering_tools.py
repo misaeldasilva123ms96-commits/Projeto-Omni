@@ -9,6 +9,7 @@ from typing import Any
 
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk
 from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, review_patch_set
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.shell_policy import build_shell_blocked_result, validate_shell_command
 from brain.runtime.tool_governance_policy import build_governance_blocked_result, evaluate_tool_governance
 from brain.runtime.workspace_manager import WorkspaceManager
@@ -299,7 +300,16 @@ def _run_command(tool: str, command: list[str], *, cwd: Path, timeout_seconds: i
             env=env,
         )
     except subprocess.TimeoutExpired:
-        return _error(tool, "timeout", f"{tool} timed out after {timeout_seconds} seconds")
+        return {
+            "ok": False,
+            "selected_tool": tool,
+            **build_public_error(OmniErrorCode.TIMEOUT),
+            "error_payload": {
+                "kind": "timeout",
+                "message": "The operation timed out.",
+                "public_code": "TIMEOUT",
+            },
+        }
     return {
         "ok": completed.returncode == 0,
         "selected_tool": tool,

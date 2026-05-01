@@ -69,6 +69,7 @@ def test_matcher_truth_contract() -> None:
 
     truth = row["runtime_truth"]
     assert truth["runtime_mode"] == "MATCHER_SHORTCUT"
+    assert truth["error_public_code"] == "MATCHER_SHORTCUT_USED"
     assert truth["matcher_used"] is True
     assert truth["llm_provider_attempted"] is False
     assert truth["tool_invoked"] is False
@@ -94,6 +95,7 @@ def test_provider_unavailable_truth_contract() -> None:
 
     truth = row["runtime_truth"]
     assert truth["runtime_mode"] == "PROVIDER_UNAVAILABLE"
+    assert truth["error_public_code"] == "PROVIDER_UNAVAILABLE"
     assert truth["llm_provider_succeeded"] is False
 
 
@@ -112,6 +114,7 @@ def test_tool_blocked_and_tool_executed_truth_contract() -> None:
         )
     )
     assert blocked["runtime_truth"]["runtime_mode"] == "TOOL_BLOCKED"
+    assert blocked["runtime_truth"]["error_public_code"] == "TOOL_BLOCKED_BY_GOVERNANCE"
     assert blocked["runtime_truth"]["tool_executed"] is False
 
     executed = build_cognitive_runtime_inspection(

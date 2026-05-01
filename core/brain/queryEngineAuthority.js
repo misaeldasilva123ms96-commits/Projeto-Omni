@@ -9,6 +9,7 @@ const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
+const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
 const { resolveExecutionMode } = require('../../runtime/execution/runtimeMode');
 const { appendExecutionAudit, appendRuntimeTranscript } = require('../../storage/transcripts/transcriptPersistence');
@@ -227,6 +228,8 @@ function buildRuntimeTruth({
   const truthMode = fallbackTriggered && runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME
     ? RUNTIME_TRUTH_MODES.SAFE_FALLBACK
     : runtimeMode;
+  const errorCode = runtimeTruthErrorCode(truthMode);
+  const publicError = errorCode ? buildPublicError(errorCode) : {};
   return {
     runtime_mode: truthMode,
     runtime_reason: String(runtimeReason || '').trim(),
@@ -242,8 +245,22 @@ function buildRuntimeTruth({
     fallback_triggered: Boolean(fallbackTriggered),
     node_invoked: Boolean(nodeInvoked),
     node_exit_code: Number.isFinite(Number(nodeExitCode)) ? Number(nodeExitCode) : null,
+    error_public_code: publicError.error_public_code || '',
+    error_public_message: publicError.error_public_message || '',
+    severity: publicError.severity || 'info',
+    retryable: Boolean(publicError.retryable),
+    internal_error_redacted: publicError.internal_error_redacted !== false,
     public_summary: buildRuntimeTruthSummary(truthMode),
   };
+}
+
+function runtimeTruthErrorCode(runtimeMode) {
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT) return OMNI_ERROR_CODE.MATCHER_SHORTCUT_USED;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.RULE_BASED_INTENT) return OMNI_ERROR_CODE.RULE_BASED_INTENT_USED;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE) return OMNI_ERROR_CODE.PROVIDER_UNAVAILABLE;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.NODE_FALLBACK) return OMNI_ERROR_CODE.NODE_EMPTY_RESPONSE;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_BLOCKED) return OMNI_ERROR_CODE.TOOL_BLOCKED_BY_GOVERNANCE;
+  return '';
 }
 
 function buildRuntimeTruthSummary(runtimeMode) {

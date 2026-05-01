@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
 from brain.runtime.observability.public_runtime_payload import (
     build_public_cognitive_runtime_inspection,
     sanitize_public_runtime_payload,
@@ -202,9 +203,17 @@ def build_public_error(
     message: str,
     debug_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    code_map = {
+        "PYTHON_BRIDGE_NONZERO_EXIT": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "PYTHON_BRIDGE_INVALID_JSON": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "FRONTEND_RESPONSE_SHAPE_MISMATCH": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "TIMEOUT": OmniErrorCode.TIMEOUT,
+    }
+    taxonomy = build_taxonomy_error(code_map.get(str(failure_class or ""), failure_class))
     error: dict[str, Any] = {
         "failure_class": str(failure_class or "PYTHON_BRIDGE_INVALID_JSON"),
-        "message": str(message or USER_FALLBACK_RESPONSE),
+        "message": taxonomy["error_public_message"] if not message else str(message),
+        **taxonomy,
     }
     if str(os.getenv("OMINI_PUBLIC_DEBUG", "")).strip().lower() in ("1", "true", "yes"):
         if isinstance(debug_details, dict) and debug_details:
