@@ -213,19 +213,19 @@ Failed:
 
 ## Remaining Blockers
 
-- Rust `run_control` tests fail deterministically with HTTP 500 vs expected HTTP 200.
-- Public demo chat smoke passes, but the full Rust test gate is not green.
+- Superseded by `docs/audit/POST_ROADMAP_RUST_RUN_CONTROL_FIX.md`.
+- Rust `run_control` tests now pass in focused, serial, and full Rust validation on branch `validation/rust-run-control-fix`.
+- The remaining caveat is a local timeout while rebuilding a new Docker tag for the follow-up branch.
 
 ## Public Demo Decision
 
-READY_FOR_CONTROLLED_DEMO: NO
+READY_FOR_CONTROLLED_DEMO: superseded by follow-up validation.
 
 Reason:
 
-- Docker build and public demo smoke are now validated.
+- Docker build and public demo smoke were validated on this branch.
 - Container security checks passed.
-- Required Rust evidence still contains deterministic failing `run_control` tests.
-- A controlled demo should wait for the focused Rust control-route follow-up unless the demo explicitly excludes protected operator/control routes and accepts that exception.
+- Rust run_control evidence was later fixed/validated in `POST_ROADMAP_RUST_RUN_CONTROL_FIX.md`.
 
 ## Rollback
 

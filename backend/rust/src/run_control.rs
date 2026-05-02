@@ -341,6 +341,24 @@ mod tests {
         serde_json::from_slice(&body).expect("json body")
     }
 
+    async fn assert_status(
+        response: axum::response::Response,
+        expected: StatusCode,
+        context: &str,
+    ) -> axum::response::Response {
+        let actual = response.status();
+        if actual != expected {
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read error body");
+            panic!(
+                "{context}: expected {expected}, got {actual}, body={}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        response
+    }
+
     #[tokio::test]
     async fn control_endpoints_require_auth() {
         let workspace = temp_workspace("auth");
@@ -378,7 +396,7 @@ mod tests {
             )
             .await
             .expect("pause response");
-        assert_eq!(pause.status(), StatusCode::OK);
+        let _pause = assert_status(pause, StatusCode::OK, "pause").await;
 
         let resume = router
             .clone()
@@ -392,7 +410,7 @@ mod tests {
             )
             .await
             .expect("resume response");
-        assert_eq!(resume.status(), StatusCode::OK);
+        let _resume = assert_status(resume, StatusCode::OK, "resume").await;
 
         let approve = router
             .oneshot(
@@ -405,7 +423,7 @@ mod tests {
             )
             .await
             .expect("approve response");
-        assert_eq!(approve.status(), StatusCode::OK);
+        let approve = assert_status(approve, StatusCode::OK, "approve").await;
 
         let payload = read_json(approve).await;
         assert_eq!(payload["status"], "ok");
@@ -432,7 +450,7 @@ mod tests {
             )
             .await
             .expect("list response");
-        assert_eq!(list.status(), StatusCode::OK);
+        let list = assert_status(list, StatusCode::OK, "list").await;
         let list_payload = read_json(list).await;
         assert_eq!(list_payload["status"], "ok");
         assert_eq!(list_payload["runs"][0]["run_id"], "run-1");
@@ -449,7 +467,7 @@ mod tests {
             )
             .await
             .expect("show response");
-        assert_eq!(show.status(), StatusCode::OK);
+        let show = assert_status(show, StatusCode::OK, "show").await;
         let show_payload = read_json(show).await;
         assert_eq!(show_payload["run"]["status"], "paused");
 
