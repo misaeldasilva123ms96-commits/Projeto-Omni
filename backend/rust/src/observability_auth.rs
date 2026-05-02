@@ -182,7 +182,12 @@ fn extract_query_token(query: Option<&str>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::{Method, Request}, routing::get, Router};
+    use axum::{
+        body::Body,
+        http::{Method, Request},
+        routing::get,
+        Router,
+    };
     use jsonwebtoken::{encode, EncodingKey, Header};
     use serde_json::{json, Value};
     use std::sync::Arc;
@@ -202,6 +207,12 @@ mod tests {
             python_bin: "python".to_string(),
             python_entry: std::env::temp_dir().join("main.py"),
             python_timeout_ms: 1_000,
+            python_runtime: crate::PythonRuntimeConfig {
+                mode: crate::PythonRuntimeMode::Subprocess,
+                service_host: "127.0.0.1".to_string(),
+                service_port: 7010,
+                service_timeout_ms: 30_000,
+            },
             runtime_mode: "live".to_string(),
             runtime_session_version: 1,
             mock_mode: false,
