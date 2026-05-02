@@ -246,14 +246,13 @@ def emit_public_json(payload: dict[str, Any]) -> int:
     return 0
 
 
-def main() -> int:
+def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None) -> dict[str, Any]:
     python_root = Path(__file__).resolve().parent
     project_root = python_root.parents[1]
     os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
     os.environ.setdefault("BASE_DIR", str(project_root))
     _load_project_dotenv(project_root)
-
-    message, bridge = resolve_entry_message()
+    bridge = dict(bridge or {})
     apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
     raw_response = orchestrator.run(message, bridge=bridge)
@@ -324,7 +323,12 @@ def main() -> int:
     )
     # JSON-only stdout for Rust bridge — never print() diagnostics here.
     safe_response["providers"] = get_available_providers()
-    return emit_public_json(sanitize_public_runtime_payload(safe_response))
+    return sanitize_public_runtime_payload(safe_response)
+
+
+def main() -> int:
+    message, bridge = resolve_entry_message()
+    return emit_public_json(build_public_chat_payload(message, bridge))
 
 
 if __name__ == "__main__":
