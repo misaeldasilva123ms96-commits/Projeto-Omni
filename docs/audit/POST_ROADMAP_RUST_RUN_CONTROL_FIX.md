@@ -46,14 +46,15 @@ Direct Python CLI evidence from the prior validation showed `list` and `pause` r
 
 ## Root Cause
 
-Classification: test harness/process contention with insufficient failure visibility, not missing real Supabase secrets and not Python CLI failure.
+Classification: Python control CLI startup/import occasionally exceeds the previous 5000ms Rust control boundary under Windows/Docker/Cargo load. This was not missing real Supabase secrets and not Python CLI failure.
 
 Evidence:
 
 - `.env` secrets are not required for tests.
 - The run_control test harness uses dummy non-secret JWT material.
 - Direct Python control CLI works manually.
-- After recompilation and focused diagnostic assertions, `run_control` passed in isolated serial mode and full serial/full Rust test runs passed.
+- The failing Rust body was public-safe and explicit: `code=control_cli_timeout`, `control CLI timed out after 5000 ms`.
+- After increasing the bounded control CLI timeout to 30 seconds, `run_control` passed in focused serial mode, full serial mode, and full Rust mode.
 - Previous broad failures were reproducible under stressed/parallel Cargo/Docker conditions and then cleared after sequential execution.
 
 ## Fix Applied
@@ -62,6 +63,8 @@ Smallest safe fix:
 
 - Added test-only `assert_status(...)` helper in `backend/rust/src/run_control.rs`.
 - The helper reads and reports public-safe response bodies when a status assertion fails.
+- Increased `CONTROL_TIMEOUT_MS` from 5000ms to 30000ms so Python control CLI startup/import latency does not fail valid control-route tests.
+- Updated the run_control test harness timeout to match the bounded 30 second control timeout.
 - Existing endpoint assertions remain strict: expected HTTP 200 is still required.
 - No endpoint auth was bypassed.
 - No runtime control route was made public.

@@ -10,7 +10,7 @@ use tokio::{process::Command, time::timeout};
 
 use crate::{AppError, AppState};
 
-const CONTROL_TIMEOUT_MS: u64 = 5_000;
+const CONTROL_TIMEOUT_MS: u64 = 30_000;
 
 pub(crate) async fn pause_run(
     State(state): State<AppState>,
@@ -241,7 +241,7 @@ mod tests {
             python_root: project_python_root(),
             python_bin: std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python".to_string()),
             python_entry: std::env::temp_dir().join("unused.py"),
-            python_timeout_ms: 10_000,
+            python_timeout_ms: 30_000,
             python_runtime: crate::PythonRuntimeConfig {
                 mode: crate::PythonRuntimeMode::Subprocess,
                 service_host: "127.0.0.1".to_string(),
