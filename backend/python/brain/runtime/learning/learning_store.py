@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import LearningEvidence, LearningSignal, LearningSignalType, LearningSnapshot, PatternRecord
+from .redaction import redact_sensitive_payload
 
 
 class LearningStore:
@@ -25,12 +26,12 @@ class LearningStore:
     def append_evidence(self, evidence: LearningEvidence) -> None:
         path = self.evidence_dir / f"{evidence.source_type.value}.jsonl"
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(evidence.as_dict(), ensure_ascii=False))
+            handle.write(json.dumps(redact_sensitive_payload(evidence.as_dict()), ensure_ascii=False))
             handle.write("\n")
 
     def upsert_pattern(self, record: PatternRecord) -> None:
         self._pattern_path(record.pattern_key).write_text(
-            json.dumps(record.as_dict(), ensure_ascii=False, indent=2),
+            json.dumps(redact_sensitive_payload(record.as_dict()), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
@@ -65,7 +66,7 @@ class LearningStore:
     def append_signal(self, signal: LearningSignal) -> None:
         path = self.signals_dir / f"{signal.signal_type.value}.jsonl"
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(signal.as_dict(), ensure_ascii=False))
+            handle.write(json.dumps(redact_sensitive_payload(signal.as_dict()), ensure_ascii=False))
             handle.write("\n")
 
     def load_recent_signals(self, *, limit: int = 50, signal_type: str | None = None) -> list[LearningSignal]:
@@ -102,7 +103,7 @@ class LearningStore:
 
     def save_snapshot(self, snapshot: LearningSnapshot) -> None:
         (self.snapshots_dir / f"{snapshot.snapshot_id}.json").write_text(
-            json.dumps(snapshot.as_dict(), ensure_ascii=False, indent=2),
+            json.dumps(redact_sensitive_payload(snapshot.as_dict()), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
@@ -172,7 +173,7 @@ class ControlledLearningStore:
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> bool:
         try:
             with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False))
+                handle.write(json.dumps(redact_sensitive_payload(payload), ensure_ascii=False))
                 handle.write("\n")
             self._trim_jsonl(path)
             return True

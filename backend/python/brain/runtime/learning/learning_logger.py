@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from pathlib import Path
 from typing import Any
 
@@ -12,15 +11,10 @@ from .learning_models import (
     LearningRecord,
     new_controlled_learning_record_id,
 )
+from .learning_safety import build_learning_safety_metadata
 from .learning_store import ControlledLearningStore
 from .models import utc_now_iso
-
-
-_SECRET_PATTERNS = [
-    (re.compile(r"sk-[A-Za-z0-9]{16,}"), "[REDACTED_API_KEY]"),
-    (re.compile(r"Bearer\s+[A-Za-z0-9_\-\.=]{12,}", re.IGNORECASE), "Bearer [REDACTED_TOKEN]"),
-    (re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE), "[REDACTED_EMAIL]"),
-]
+from .redaction import redact_learning_record, redact_sensitive_payload, redact_sensitive_text
 
 
 class LearningLogger:
@@ -65,6 +59,9 @@ class LearningLogger:
         fallback_triggered = bool(signals.get("fallback_triggered", False))
         compatibility_execution_active = bool(signals.get("compatibility_execution_active", False))
         provider_failed = bool(signals.get("provider_failed", False))
+        provider_succeeded = _coerce_bool(signals.get("provider_succeeded"))
+        if provider_succeeded is None:
+            provider_succeeded = _coerce_bool(signals.get("llm_provider_succeeded"))
         tool_succeeded = _coerce_bool(tool_execution.get("tool_succeeded"))
         tool_failed = _coerce_bool(tool_execution.get("tool_failed"))
         tool_denied = _coerce_bool(tool_execution.get("tool_denied"))
@@ -116,21 +113,50 @@ class LearningLogger:
                 "decision_requires_node_runtime": bool(signals.get("decision_requires_node_runtime", False)),
                 "decision_suggested_tools": list(signals.get("decision_suggested_tools", []) or []),
                 "node_execution_successful": bool(signals.get("node_execution_successful", False)),
-                "tool_execution": dict(tool_execution) if tool_execution else None,
+                "provider_succeeded": provider_succeeded,
+                "provider_failed": provider_failed,
+                "fallback_triggered": fallback_triggered,
+                "runtime_truth_confidence": str(signals.get("runtime_truth_confidence", "") or "").strip(),
+                "tool_status": str(tool_execution.get("tool_status", "") or "").strip(),
+                "governance_status": str(
+                    tool_execution.get("governance_status")
+                    or tool_execution.get("governance_decision")
+                    or signals.get("governance_status")
+                    or signals.get("governance_decision")
+                    or ""
+                ).strip(),
+                "error_public_code": str(
+                    signals.get("error_public_code")
+                    or inspection.get("error_public_code")
+                    or ""
+                ).strip(),
+                "error_severity": str(
+                    signals.get("severity")
+                    or inspection.get("severity")
+                    or ""
+                ).strip(),
+                "internal_error_redacted": bool(
+                    signals.get("internal_error_redacted")
+                    or inspection.get("internal_error_redacted")
+                ),
+                "tool_execution": redact_sensitive_payload(dict(tool_execution)) if tool_execution else None,
             },
         )
-        stored = self.store.append_learning_record(record.as_dict())
+        safety_metadata = build_learning_safety_metadata(record.as_dict())
+        record.learning_safety = safety_metadata
+        record_payload = redact_learning_record(record.as_dict())
+        stored = self.store.append_learning_record(record_payload)
         improvement_signals = self.improvement_engine.generate(record)
         stored_signal_count = 0
         for signal in improvement_signals:
-            if self.store.append_improvement_signal(signal.as_dict()):
+            if self.store.append_improvement_signal(redact_sensitive_payload(signal.as_dict())):
                 stored_signal_count += 1
         return {
-            "record": record.as_dict(),
+            "record": record_payload,
             "learning_record_created": stored,
             "decision_correct": decision_eval.decision_correct,
             "decision_issue": decision_eval.decision_issue,
-            "improvement_signals": [signal.as_dict() for signal in improvement_signals],
+            "improvement_signals": [redact_sensitive_payload(signal.as_dict()) for signal in improvement_signals],
             "stored_signal_count": stored_signal_count,
             "storage_path": str(self.store.records_path),
             "signals_path": str(self.store.signals_path),
@@ -234,9 +260,7 @@ class LearningLogger:
         return hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()
 
     def _sanitize_text(self, value: str, *, limit: int = 240) -> str:
-        sanitized = str(value or "").strip()
-        for pattern, replacement in _SECRET_PATTERNS:
-            sanitized = pattern.sub(replacement, sanitized)
+        sanitized = redact_sensitive_text(str(value or "").strip())
         return sanitized[:limit]
 
 

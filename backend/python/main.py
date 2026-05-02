@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
+from brain.runtime.observability.public_runtime_payload import (
+    build_public_cognitive_runtime_inspection,
+    sanitize_public_runtime_payload,
+)
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 from config.provider_registry import describe_provider_diagnostics, get_available_providers
 from brain.runtime.observability.public_runtime_outcome import normalize_public_runtime_outcome
@@ -131,7 +136,7 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
                 },
             }
         if is_operational_message(trimmed):
-            LOGGER.debug("python_sanitizer_blocked_operational: %r", trimmed)
+            LOGGER.debug("python_sanitizer_blocked_operational")
             return {
                 "response": USER_FALLBACK_RESPONSE,
                 "error": {
@@ -165,7 +170,7 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
             if not trimmed:
                 continue
             if is_operational_message(trimmed):
-                LOGGER.debug("python_sanitizer_blocked_operational: %r", trimmed)
+                LOGGER.debug("python_sanitizer_blocked_operational")
                 continue
             parsed = _parse_structured_string(trimmed)
             if parsed is not None:
@@ -198,13 +203,21 @@ def build_public_error(
     message: str,
     debug_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    code_map = {
+        "PYTHON_BRIDGE_NONZERO_EXIT": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "PYTHON_BRIDGE_INVALID_JSON": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "FRONTEND_RESPONSE_SHAPE_MISMATCH": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "TIMEOUT": OmniErrorCode.TIMEOUT,
+    }
+    taxonomy = build_taxonomy_error(code_map.get(str(failure_class or ""), failure_class))
     error: dict[str, Any] = {
         "failure_class": str(failure_class or "PYTHON_BRIDGE_INVALID_JSON"),
-        "message": str(message or USER_FALLBACK_RESPONSE),
+        "message": taxonomy["error_public_message"] if not message else str(message),
+        **taxonomy,
     }
     if str(os.getenv("OMINI_PUBLIC_DEBUG", "")).strip().lower() in ("1", "true", "yes"):
         if isinstance(debug_details, dict) and debug_details:
-            error["debug"] = debug_details
+            error["debug"] = sanitize_public_runtime_payload(debug_details)
     return error
 
 
@@ -233,18 +246,17 @@ def emit_public_json(payload: dict[str, Any]) -> int:
     return 0
 
 
-def main() -> int:
+def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None) -> dict[str, Any]:
     python_root = Path(__file__).resolve().parent
     project_root = python_root.parents[1]
     os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
     os.environ.setdefault("BASE_DIR", str(project_root))
     _load_project_dotenv(project_root)
-
-    message, bridge = resolve_entry_message()
+    bridge = dict(bridge or {})
     apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
     raw_response = orchestrator.run(message, bridge=bridge)
-    LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
+    LOGGER.debug("python_main_pre_sanitize_type=%s", type(raw_response).__name__)
     safe_response = sanitize_for_user(raw_response)
     if not str(safe_response.get("response", "")).strip():
         safe_response["response"] = USER_FALLBACK_RESPONSE
@@ -255,16 +267,20 @@ def main() -> int:
     safe_response.setdefault("stop_reason", "python_completed")
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
-        safe_response["cognitive_runtime_inspection"] = inspection
-        if isinstance(inspection.get("signals"), dict):
-            norm = normalize_public_runtime_outcome(
-                runtime_mode=inspection.get("runtime_mode"),
-                signals=inspection["signals"],
-                response=safe_response.get("response"),
-                execution_provenance=inspection.get("execution_provenance"),
-                tool_diagnostics=inspection.get("tool_diagnostics"),
-            )
-            inspection["signals"].update(norm)
+        public_inspection = build_public_cognitive_runtime_inspection(inspection)
+        safe_response["cognitive_runtime_inspection"] = public_inspection
+        for key in (
+            "runtime_mode",
+            "runtime_reason",
+            "fallback_triggered",
+            "provider_actual",
+            "provider_failed",
+            "tool_status",
+            "latency_ms",
+            "public_summary",
+        ):
+            if key in public_inspection:
+                safe_response.setdefault(key, public_inspection.get(key))
     signals = inspection.get("signals") if isinstance(inspection, dict) else None
     if isinstance(signals, dict):
         if "provider_diagnostics" in signals:
@@ -307,7 +323,12 @@ def main() -> int:
     )
     # JSON-only stdout for Rust bridge — never print() diagnostics here.
     safe_response["providers"] = get_available_providers()
-    return emit_public_json(safe_response)
+    return sanitize_public_runtime_payload(safe_response)
+
+
+def main() -> int:
+    message, bridge = resolve_entry_message()
+    return emit_public_json(build_public_chat_payload(message, bridge))
 
 
 if __name__ == "__main__":
@@ -316,9 +337,10 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception:
-        logging.exception("Unhandled exception in main execution path")
+        LOGGER.error("Unhandled exception in main execution path; emitting public fallback")
         try:
             emit_public_json(
+                sanitize_public_runtime_payload(
                 {
                     "response": USER_FALLBACK_RESPONSE,
                     "stop_reason": "python_main_exception",
@@ -348,6 +370,7 @@ if __name__ == "__main__":
                     "provider_diagnostics": describe_provider_diagnostics(include_embedded_local=True),
                     "providers": get_available_providers(),
                 }
+                )
             )
         except Exception:
             pass

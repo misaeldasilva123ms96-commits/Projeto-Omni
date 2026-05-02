@@ -8,6 +8,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from brain.runtime.learning.redaction import redact_sensitive_payload
+
 
 def _truncate(s: str, max_chars: int) -> str:
     t = str(s or "").strip()
@@ -19,6 +21,7 @@ def _truncate(s: str, max_chars: int) -> str:
 def _sanitize_metadata(raw: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         return {}
+    raw = redact_sensitive_payload(raw)
     out: dict[str, Any] = {}
     for k, v in list(raw.items())[:24]:
         key = _truncate(str(k), 64)

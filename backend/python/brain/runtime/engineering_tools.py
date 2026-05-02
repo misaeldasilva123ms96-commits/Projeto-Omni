@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk
 from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, review_patch_set
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
+from brain.runtime.shell_policy import build_shell_blocked_result, validate_shell_command
+from brain.runtime.tool_governance_policy import build_governance_blocked_result, evaluate_tool_governance
 from brain.runtime.workspace_manager import WorkspaceManager
 
 
@@ -44,6 +48,9 @@ def execute_engineering_action(
     tool = str(action.get("selected_tool", ""))
     arguments = dict(action.get("tool_arguments", {}) or {})
     workspace_root = Path(arguments.get("workspace_root") or project_root).resolve()
+    governance_decision = evaluate_tool_governance(action)
+    if not governance_decision.get("allowed"):
+        return build_governance_blocked_result(tool, governance_decision)
 
     if tool in {"filesystem_read", "read_file"}:
         target = (workspace_root / str(arguments.get("path", ""))).resolve()
@@ -108,6 +115,10 @@ def execute_engineering_action(
             return _error(tool, "permission_denied", "git_commit requires explicit approval.")
         message = str(arguments.get("message", "Automated commit")).strip()
         return _run_command(tool, ["git", "commit", "-m", message], cwd=workspace_root, timeout_seconds=timeout_seconds)
+
+    if tool == "shell_command":
+        command = _normalize_shell_command(arguments.get("command"))
+        return _run_command(tool, command, cwd=workspace_root, timeout_seconds=timeout_seconds)
 
     if tool == "test_runner":
         command = arguments.get("command")
@@ -228,7 +239,7 @@ def _dependency_inspection(workspace_root: Path) -> dict[str, Any]:
 
 def _default_test_command(workspace_root: Path) -> list[str]:
     if (workspace_root / "package.json").exists():
-        return ["cmd", "/c", "npm", "test"] if os.name == "nt" else ["npm", "test"]
+        return ["npm", "test"]
     return ["python", "-m", "pytest", "-q"]
 
 
@@ -273,6 +284,11 @@ def _run_verification_plan(*, workspace_root: Path, plan: dict[str, Any], timeou
 
 
 def _run_command(tool: str, command: list[str], *, cwd: Path, timeout_seconds: int, env: dict[str, str] | None = None) -> dict[str, Any]:
+    allowed, reason = validate_shell_command(command, repo_root=cwd)
+    if not allowed:
+        blocked = build_shell_blocked_result(reason)
+        blocked["selected_tool"] = tool
+        return blocked
     try:
         completed = subprocess.run(
             command,
@@ -284,7 +300,16 @@ def _run_command(tool: str, command: list[str], *, cwd: Path, timeout_seconds: i
             env=env,
         )
     except subprocess.TimeoutExpired:
-        return _error(tool, "timeout", f"{tool} timed out after {timeout_seconds} seconds")
+        return {
+            "ok": False,
+            "selected_tool": tool,
+            **build_public_error(OmniErrorCode.TIMEOUT),
+            "error_payload": {
+                "kind": "timeout",
+                "message": "The operation timed out.",
+                "public_code": "TIMEOUT",
+            },
+        }
     return {
         "ok": completed.returncode == 0,
         "selected_tool": tool,
@@ -299,6 +324,17 @@ def _run_command(tool: str, command: list[str], *, cwd: Path, timeout_seconds: i
             "message": completed.stderr or completed.stdout or f"{tool} failed",
         },
     }
+
+
+def _normalize_shell_command(command: Any) -> list[str]:
+    if isinstance(command, list):
+        return [str(part) for part in command]
+    if isinstance(command, str):
+        try:
+            return shlex.split(command, posix=os.name != "nt")
+        except ValueError:
+            return []
+    return []
 
 
 def _ok(tool: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -23,11 +23,15 @@ frontend/.env
 .logs/
 .logs/
 logs/
+runtime_logs/
+learning_logs/
 .phase9-temp/
 .tmp-tests/
 tmp/
 temp/
 *.tmp
+*.trace.json
+*.debug.json
 swarm_log.json
 backend/python/brain/runtime/swarm_log.json
 backend/python/brain/runtime/sessions/
@@ -99,6 +103,7 @@ memories/
 private-memory/
 local-memory/
 runtime-memory/
+storage/local/
 
 # Private datasets
 datasets/private/

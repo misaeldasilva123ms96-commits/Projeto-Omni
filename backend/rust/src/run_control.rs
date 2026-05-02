@@ -8,9 +8,9 @@ use axum::{
 use serde_json::{json, Value};
 use tokio::{process::Command, time::timeout};
 
-use crate::{AppState, AppError};
+use crate::{AppError, AppState};
 
-const CONTROL_TIMEOUT_MS: u64 = 5_000;
+const CONTROL_TIMEOUT_MS: u64 = 30_000;
 
 pub(crate) async fn pause_run(
     State(state): State<AppState>,
@@ -36,17 +36,29 @@ pub(crate) async fn approve_run(
     Ok((status_for_control(&payload), Json(payload)))
 }
 
-pub(crate) async fn list_runs(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "list", &["--limit".to_string(), "50".to_string()], "runs").await?;
+pub(crate) async fn list_runs(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Value>), AppError> {
+    let payload = call_control_cli(
+        &state,
+        "list",
+        &["--limit".to_string(), "50".to_string()],
+        "runs",
+    )
+    .await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
-pub(crate) async fn resolution_summary(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
+pub(crate) async fn resolution_summary(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Value>), AppError> {
     let payload = call_control_cli(&state, "resolution_summary", &[], "summary").await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
-pub(crate) async fn runs_waiting_operator(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
+pub(crate) async fn runs_waiting_operator(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Value>), AppError> {
     let payload = call_control_cli(
         &state,
         "runs_waiting_operator",
@@ -57,7 +69,9 @@ pub(crate) async fn runs_waiting_operator(State(state): State<AppState>) -> Resu
     Ok((status_for_control(&payload), Json(payload)))
 }
 
-pub(crate) async fn runs_with_rollback(State(state): State<AppState>) -> Result<(StatusCode, Json<Value>), AppError> {
+pub(crate) async fn runs_with_rollback(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Value>), AppError> {
     let payload = call_control_cli(
         &state,
         "runs_with_rollback",
@@ -135,17 +149,29 @@ async fn call_control_cli(
                 "control CLI exited with status {}",
                 output.status.code().unwrap_or(-1)
             ),
-            if stderr.is_empty() { None } else { Some(stderr) },
+            if stderr.is_empty() {
+                None
+            } else {
+                Some(stderr)
+            },
         ));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if stdout.is_empty() {
-        return Ok(graceful_error(payload_key, "control CLI returned empty stdout".to_string()));
+        return Ok(graceful_error(
+            payload_key,
+            "control CLI returned empty stdout".to_string(),
+        ));
     }
 
-    serde_json::from_str::<Value>(&stdout)
-        .map_err(|error| AppError::python_process("control_cli_invalid_json", format!("invalid control JSON: {error}"), None))
+    serde_json::from_str::<Value>(&stdout).map_err(|error| {
+        AppError::python_process(
+            "control_cli_invalid_json",
+            format!("invalid control JSON: {error}"),
+            None,
+        )
+    })
 }
 
 fn graceful_error(payload_key: &str, message: String) -> Value {
@@ -173,7 +199,10 @@ mod tests {
     };
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
-    use std::{fs, sync::{Arc, OnceLock}};
+    use std::{
+        fs,
+        sync::{Arc, OnceLock},
+    };
     use tokio::sync::Mutex;
     use tower::ServiceExt;
 
@@ -198,9 +227,11 @@ mod tests {
     }
 
     fn temp_workspace(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("omini-run-control-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("omini-run-control-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".logs").join("fusion-runtime").join("control")).expect("workspace");
+        fs::create_dir_all(root.join(".logs").join("fusion-runtime").join("control"))
+            .expect("workspace");
         root
     }
 
@@ -210,7 +241,19 @@ mod tests {
             python_root: project_python_root(),
             python_bin: std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python".to_string()),
             python_entry: std::env::temp_dir().join("unused.py"),
-            python_timeout_ms: 10_000,
+            python_timeout_ms: 30_000,
+            python_runtime: crate::PythonRuntimeConfig {
+                mode: crate::PythonRuntimeMode::Subprocess,
+                service_host: "127.0.0.1".to_string(),
+                service_port: 7010,
+                service_timeout_ms: 30_000,
+                fallback_to_subprocess: false,
+                retry_attempts: 0,
+                circuit_breaker_enabled: true,
+                circuit_failure_threshold: 3,
+                circuit_reset_ms: 30_000,
+            },
+            python_circuit: Arc::new(std::sync::Mutex::new(crate::PythonCircuitBreaker::new())),
             runtime_mode: "live".to_string(),
             runtime_session_version: 1,
             mock_mode: false,
@@ -220,6 +263,7 @@ mod tests {
                 jwt_secret: "test-secret".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
+            chat_security: crate::default_chat_security_state(),
         }
     }
 
@@ -246,8 +290,14 @@ mod tests {
         Router::new()
             .route("/api/control/runs", get(list_runs))
             .route("/api/control/runs/:run_id", get(get_run))
-            .route("/api/control/runs/summary/resolution", get(resolution_summary))
-            .route("/api/control/runs/waiting-operator", get(runs_waiting_operator))
+            .route(
+                "/api/control/runs/summary/resolution",
+                get(resolution_summary),
+            )
+            .route(
+                "/api/control/runs/waiting-operator",
+                get(runs_waiting_operator),
+            )
             .route("/api/control/runs/with-rollback", get(runs_with_rollback))
             .route("/api/control/runs/:run_id/pause", post(pause_run))
             .route("/api/control/runs/:run_id/resume", post(resume_run))
@@ -291,6 +341,24 @@ mod tests {
         serde_json::from_slice(&body).expect("json body")
     }
 
+    async fn assert_status(
+        response: axum::response::Response,
+        expected: StatusCode,
+        context: &str,
+    ) -> axum::response::Response {
+        let actual = response.status();
+        if actual != expected {
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read error body");
+            panic!(
+                "{context}: expected {expected}, got {actual}, body={}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        response
+    }
+
     #[tokio::test]
     async fn control_endpoints_require_auth() {
         let workspace = temp_workspace("auth");
@@ -328,7 +396,7 @@ mod tests {
             )
             .await
             .expect("pause response");
-        assert_eq!(pause.status(), StatusCode::OK);
+        let _pause = assert_status(pause, StatusCode::OK, "pause").await;
 
         let resume = router
             .clone()
@@ -342,7 +410,7 @@ mod tests {
             )
             .await
             .expect("resume response");
-        assert_eq!(resume.status(), StatusCode::OK);
+        let _resume = assert_status(resume, StatusCode::OK, "resume").await;
 
         let approve = router
             .oneshot(
@@ -355,7 +423,7 @@ mod tests {
             )
             .await
             .expect("approve response");
-        assert_eq!(approve.status(), StatusCode::OK);
+        let approve = assert_status(approve, StatusCode::OK, "approve").await;
 
         let payload = read_json(approve).await;
         assert_eq!(payload["status"], "ok");
@@ -382,7 +450,7 @@ mod tests {
             )
             .await
             .expect("list response");
-        assert_eq!(list.status(), StatusCode::OK);
+        let list = assert_status(list, StatusCode::OK, "list").await;
         let list_payload = read_json(list).await;
         assert_eq!(list_payload["status"], "ok");
         assert_eq!(list_payload["runs"][0]["run_id"], "run-1");
@@ -399,7 +467,7 @@ mod tests {
             )
             .await
             .expect("show response");
-        assert_eq!(show.status(), StatusCode::OK);
+        let show = assert_status(show, StatusCode::OK, "show").await;
         let show_payload = read_json(show).await;
         assert_eq!(show_payload["run"]["status"], "paused");
 

@@ -1,18 +1,24 @@
+const {
+  buildSpecialistFallback,
+  logSpecialistFallback,
+} = require('./specialistErrorPolicy');
+
 function specialistTimeoutMs() {
   const parsed = Number.parseInt(process.env.SPECIALIST_TIMEOUT_MS || '500', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
 }
 
-function fallbackDependencyImpact(reason) {
-  return {
-    invoked: true,
-    degraded: true,
-    specialist_id: 'dependency_impact_specialist',
-    focus_modules: [],
-    architectural_hotspots: [],
-    recommended_scope: 'targeted-change',
-    dependency_notes: [`Dependency impact specialist fallback: ${reason}.`],
-  };
+function fallbackDependencyImpact(error = null) {
+  return buildSpecialistFallback({
+    specialistId: 'dependency_impact_specialist',
+    extra: {
+      focus_modules: [],
+      architectural_hotspots: [],
+      recommended_scope: 'targeted-change',
+      dependency_notes: ['Dependency impact specialist fallback: public-safe degraded result.'],
+    },
+    err: error,
+  });
 }
 
 function reviewDependencyImpact({ repositoryImpactAnalysis, repositoryAnalysis } = {}) {
@@ -40,13 +46,13 @@ function reviewDependencyImpact({ repositoryImpactAnalysis, repositoryAnalysis }
     };
 
     if (Date.now() - startedAt > specialistTimeoutMs()) {
-      console.error('[specialist] dependency_impact_specialist timed out; returning degraded fallback');
-      return fallbackDependencyImpact('timeout');
+      logSpecialistFallback({ specialistId: 'dependency_impact_specialist' });
+      return fallbackDependencyImpact();
     }
     return result;
   } catch (error) {
-    console.error('[specialist] dependency_impact_specialist failed:', error);
-    return fallbackDependencyImpact(error instanceof Error ? error.message : 'unknown failure');
+    logSpecialistFallback({ specialistId: 'dependency_impact_specialist', err: error });
+    return fallbackDependencyImpact(error);
   }
 }
 

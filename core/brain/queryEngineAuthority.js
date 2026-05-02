@@ -9,6 +9,7 @@ const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
+const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
 const { resolveExecutionMode } = require('../../runtime/execution/runtimeMode');
 const { appendExecutionAudit, appendRuntimeTranscript } = require('../../storage/transcripts/transcriptPersistence');
@@ -56,7 +57,12 @@ const { buildRustRuntimeManifest } = require('../../runtime/execution/rustRuntim
 const { getKairosManifest } = require('../../features/kairos/manifest');
 const { getCodexIntegrationStatus } = require('../../platform/integrations/codexIntegration');
 const { getCliPlatformManifest } = require('../../platform/cli/manifest');
-const { buildPolicyDecision, describeTool } = require('../../runtime/tooling/toolGovernance');
+const {
+  buildGovernanceBlockedResult,
+  buildPolicyDecision,
+  describeTool,
+  evaluateToolGovernance,
+} = require('../../runtime/tooling/toolGovernance');
 
 const GLOBAL_CONVERSATIONAL_FALLBACK =
   '[degraded:authority_local] O plano não pôde ser executado com ferramentas ou LLM neste ambiente. Reformule com um ficheiro ou objetivo concreto, ou verifique credenciais de LLM / executor Python.';
@@ -173,14 +179,223 @@ function normalizeText(value) {
 function inferIntent(message) {
   const text = normalizeText(message);
   if (/^(oi|ola|olá|bom dia|boa tarde|boa noite)$/.test(text)) return 'greeting';
-  if (text.includes('meu nome') || text.includes('eu trabalho com')) return 'memory';
+  if (text.includes('meu nome') || text.includes('eu trabalho com') || text.includes('lembre')) return 'memory';
   if (text.includes('leia') || text.includes('arquivo') || text.includes('readme')) return 'execution';
   if (text.includes('liste') || text.includes('arquivos') || text.includes('pastas')) return 'execution';
   if (text.includes('busque') || text.includes('procure') || text.includes('grep')) return 'execution';
   if (text.includes('crie o arquivo') || text.includes('escreva no arquivo') || text.includes('salve')) return 'execution';
+  if (text.includes('git status') || text.includes('git diff')) return 'execution';
   if (text.includes('analise') || text.includes('resuma')) return 'analysis';
   if (/(repositorio|repositório|codigo|código|teste|testes|debug|refator|implemente|corrija|fix)/.test(text)) return 'engineering';
   return 'conversation';
+}
+
+function readEnvWithAlias(primaryName, legacyName, fallbackValue = '') {
+  const primaryValue = process.env[primaryName];
+  if (typeof primaryValue === 'string' && primaryValue.trim()) {
+    return primaryValue.trim();
+  }
+  const legacyValue = process.env[legacyName];
+  if (typeof legacyValue === 'string' && legacyValue.trim()) {
+    return legacyValue.trim();
+  }
+  return fallbackValue;
+}
+
+function resolveIntentClassifierMode() {
+  const rawMode = readEnvWithAlias('OMNI_INTENT_CLASSIFIER', 'OMINI_INTENT_CLASSIFIER', 'regex')
+    .toLowerCase();
+  return ['regex', 'embedding', 'llm', 'hybrid'].includes(rawMode) ? rawMode : 'regex';
+}
+
+function resolveMatcherMode() {
+  const rawMode = readEnvWithAlias('OMNI_MATCHER_MODE', 'OMINI_MATCHER_MODE', 'enabled')
+    .toLowerCase();
+  return ['enabled', 'labeled_only', 'disabled'].includes(rawMode) ? rawMode : 'enabled';
+}
+
+function confidenceForRegexIntent(intent) {
+  return intent === 'conversation' ? 0.45 : 0.7;
+}
+
+function buildClassifierResult({
+  intent,
+  intentSource,
+  confidence,
+  classifierVersion,
+  classifierMode,
+  matcherUsed = false,
+  providerAttempted = false,
+  providerSucceeded = false,
+}) {
+  return {
+    intent,
+    intent_source: intentSource,
+    confidence,
+    classifier_version: classifierVersion,
+    classifier_mode: classifierMode,
+    matcher_used: Boolean(matcherUsed),
+    provider_attempted: Boolean(providerAttempted),
+    provider_succeeded: Boolean(providerSucceeded),
+  };
+}
+
+function classifyIntent(message, context = {}) {
+  const classifierMode = context.classifier_mode || resolveIntentClassifierMode();
+  const regexIntent = inferIntent(message);
+  const regexConfidence = confidenceForRegexIntent(regexIntent);
+
+  if (classifierMode === 'embedding') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'embedding',
+      confidence: Math.min(regexConfidence, 0.55),
+      classifierVersion: 'embedding_scaffold_v1',
+      classifierMode,
+    });
+  }
+
+  if (classifierMode === 'llm') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'rule_based',
+      confidence: Math.min(regexConfidence, 0.6),
+      classifierVersion: 'llm_unavailable_regex_fallback_v1',
+      classifierMode,
+      providerAttempted: false,
+      providerSucceeded: false,
+    });
+  }
+
+  if (classifierMode === 'hybrid') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'hybrid',
+      confidence: Math.max(regexConfidence, regexIntent === 'conversation' ? 0.5 : 0.75),
+      classifierVersion: 'hybrid_regex_guard_v1',
+      classifierMode,
+    });
+  }
+
+  return buildClassifierResult({
+    intent: regexIntent,
+    intentSource: 'rule_based',
+    confidence: regexConfidence,
+    classifierVersion: 'regex_v1',
+    classifierMode: 'regex',
+  });
+}
+
+function inferIntentWithSource(message) {
+  return classifyIntent(message, { classifier_mode: 'regex' });
+}
+
+const RUNTIME_TRUTH_MODES = {
+  FULL_COGNITIVE_RUNTIME: 'FULL_COGNITIVE_RUNTIME',
+  PARTIAL_COGNITIVE: 'PARTIAL_COGNITIVE',
+  MATCHER_SHORTCUT: 'MATCHER_SHORTCUT',
+  RULE_BASED_INTENT: 'RULE_BASED_INTENT',
+  SAFE_FALLBACK: 'SAFE_FALLBACK',
+  NODE_FALLBACK: 'NODE_FALLBACK',
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  TOOL_BLOCKED: 'TOOL_BLOCKED',
+  TOOL_EXECUTED: 'TOOL_EXECUTED',
+  MEMORY_ONLY_RESPONSE: 'MEMORY_ONLY_RESPONSE',
+};
+
+function buildRuntimeTruth({
+  runtimeMode,
+  runtimeReason,
+  intentInfo,
+  matcherUsed = false,
+  providerAttempted = false,
+  providerSucceeded = false,
+  toolInvoked = false,
+  toolExecuted = false,
+  toolStatus = 'not_invoked',
+  fallbackTriggered = false,
+  nodeInvoked = true,
+  nodeExitCode = 0,
+}) {
+  const truthMode = fallbackTriggered && runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME
+    ? RUNTIME_TRUTH_MODES.SAFE_FALLBACK
+    : runtimeMode;
+  const errorCode = runtimeTruthErrorCode(truthMode);
+  const publicError = errorCode ? buildPublicError(errorCode) : {};
+  return {
+    runtime_mode: truthMode,
+    runtime_reason: String(runtimeReason || '').trim(),
+    intent: intentInfo?.intent || '',
+    intent_source: intentInfo?.intent_source || 'rule_based',
+    classifier_version: intentInfo?.classifier_version || 'regex_v1',
+    classifier_mode: intentInfo?.classifier_mode || 'regex',
+    classifier_provider_attempted: Boolean(intentInfo?.provider_attempted),
+    classifier_provider_succeeded: Boolean(intentInfo?.provider_succeeded),
+    matcher_used: Boolean(matcherUsed),
+    llm_provider_attempted: Boolean(matcherUsed ? false : providerAttempted),
+    llm_provider_succeeded: Boolean(matcherUsed ? false : providerSucceeded),
+    tool_invoked: Boolean(matcherUsed ? false : toolInvoked),
+    tool_executed: Boolean(toolExecuted),
+    tool_status: String(toolStatus || 'not_invoked'),
+    fallback_triggered: Boolean(fallbackTriggered),
+    node_invoked: Boolean(nodeInvoked),
+    node_exit_code: Number.isFinite(Number(nodeExitCode)) ? Number(nodeExitCode) : null,
+    error_public_code: publicError.error_public_code || '',
+    error_public_message: publicError.error_public_message || '',
+    severity: publicError.severity || 'info',
+    retryable: Boolean(publicError.retryable),
+    internal_error_redacted: publicError.internal_error_redacted !== false,
+    public_summary: buildRuntimeTruthSummary(truthMode),
+  };
+}
+
+function runtimeTruthErrorCode(runtimeMode) {
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT) return OMNI_ERROR_CODE.MATCHER_SHORTCUT_USED;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.RULE_BASED_INTENT) return OMNI_ERROR_CODE.RULE_BASED_INTENT_USED;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE) return OMNI_ERROR_CODE.PROVIDER_UNAVAILABLE;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.NODE_FALLBACK) return OMNI_ERROR_CODE.NODE_EMPTY_RESPONSE;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_BLOCKED) return OMNI_ERROR_CODE.TOOL_BLOCKED_BY_GOVERNANCE;
+  return '';
+}
+
+function buildRuntimeTruthSummary(runtimeMode) {
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT) {
+    return 'Responded using a local pattern matcher. No AI provider was used.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.SAFE_FALLBACK) {
+    return 'System operated in safe fallback mode due to runtime constraints.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME) {
+    return 'Full cognitive execution with provider and tool verification.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_EXECUTED) {
+    return 'A real tool/action executed successfully.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_BLOCKED) {
+    return 'A requested tool/action was blocked by policy.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE) {
+    return 'No usable LLM provider completed this turn.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.NODE_FALLBACK) {
+    return 'Node runtime did not produce a usable execution result.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE) {
+    return 'Responded from memory/context without provider execution.';
+  }
+  return `Execution completed in ${runtimeMode || 'unknown'} mode.`;
+}
+
+function attachRuntimeTruth(payload, runtimeTruth) {
+  const safeTruth = runtimeTruth || {};
+  return {
+    ...payload,
+    runtime_truth: safeTruth,
+    metadata: {
+      ...(payload.metadata || {}),
+      runtime_truth: safeTruth,
+    },
+  };
 }
 
 function inferComplexity(message) {
@@ -241,9 +456,16 @@ function resolveDirectConversational(normalizedInput) {
   return null;
 }
 
-function shouldBypassConversationalMatchers(normalizedMessage, rawMessage) {
+function shouldBypassConversationalMatchers(normalizedMessage, rawMessage, intentInfo = null) {
   if (String(process.env.OMINI_SKIP_CONVERSATIONAL_MATCHERS || '').trim() === '1') {
     return true;
+  }
+  const matcherMode = resolveMatcherMode();
+  if (matcherMode === 'disabled') {
+    const confidence = Number(intentInfo?.confidence || 0);
+    if (confidence >= 0.7) {
+      return true;
+    }
   }
   const msg = String(rawMessage || '');
   if (msg.length > 140) {
@@ -391,7 +613,8 @@ class QueryEngineAuthority {
     const workspace = cwd || process.cwd();
     const sessionId = session?.session_id || 'ephemeral-session';
     const normalizedMessage = normalizeText(message);
-    const bypassMatchers = shouldBypassConversationalMatchers(normalizedMessage, message);
+    const earlyIntentInfo = classifyIntent(message);
+    const bypassMatchers = shouldBypassConversationalMatchers(normalizedMessage, message, earlyIntentInfo);
     const tinyGreeting = !bypassMatchers ? directConversationalResponse(message) : '';
     if (tinyGreeting) {
       const epGreet = buildExecutionProvenance({
@@ -410,7 +633,7 @@ class QueryEngineAuthority {
         provenanceConfidence: 0.55,
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
       });
-      return attachProvenanceMetadata({
+      return attachProvenanceMetadata(attachRuntimeTruth({
         response: tinyGreeting,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'regex_greeting' },
         confidence: 0.55,
@@ -420,7 +643,12 @@ class QueryEngineAuthority {
           runtime_mode: 'matcher_shortcut',
           provider: 'local-heuristic',
         },
-      }, epGreet);
+      }, buildRuntimeTruth({
+        runtimeMode: RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT,
+        runtimeReason: 'regex_greeting',
+        intentInfo: earlyIntentInfo,
+        matcherUsed: true,
+      })), epGreet);
     }
     const directConversationResponse = bypassMatchers ? null : resolveDirectConversational(normalizedMessage);
     if (directConversationResponse) {
@@ -440,7 +668,7 @@ class QueryEngineAuthority {
         provenanceConfidence: 0.52,
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
       });
-      return attachProvenanceMetadata({
+      return attachProvenanceMetadata(attachRuntimeTruth({
         response: directConversationResponse,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
         confidence: 0.52,
@@ -450,7 +678,12 @@ class QueryEngineAuthority {
           runtime_mode: 'matcher_shortcut',
           provider: 'local-heuristic',
         },
-      }, ep);
+      }, buildRuntimeTruth({
+        runtimeMode: RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT,
+        runtimeReason: 'conversational_matcher',
+        intentInfo: earlyIntentInfo,
+        matcherUsed: true,
+      })), ep);
     }
     const runtimeConfig = loadRuntimeConfig();
     const runtimeMode = resolveExecutionMode({
@@ -460,11 +693,14 @@ class QueryEngineAuthority {
     const taskId = session?.task_id || `task-${randomUUID()}`;
     const runId = session?.run_id || `run-${randomUUID()}`;
     const actionIdBase = randomUUID();
-    const intent = inferIntent(message);
+    const intentInfo = earlyIntentInfo;
+    const intent = intentInfo.intent;
     const complexity = inferComplexity(message);
     const hintEnv = readPolicyHintEnvelope();
     const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
     const selectedProviderName = provider && provider.name ? provider.name : '';
+    const llmProviderAttempted = Boolean(provider && provider.kind !== 'embedded');
+    const llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });
@@ -703,7 +939,10 @@ class QueryEngineAuthority {
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
       });
-      return attachProvenanceMetadata({
+      const noToolMode = directMemoryResponse
+        ? RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE
+        : RUNTIME_TRUTH_MODES.RULE_BASED_INTENT;
+      return attachProvenanceMetadata(attachRuntimeTruth({
         response: directResponse,
         cognitive_runtime_hint: { lane: 'no_tool_local', detail: 'all_actions_tool_none' },
         confidence: 0.92,
@@ -720,7 +959,16 @@ class QueryEngineAuthority {
           strategy: intent,
           runtime_mode: 'no-tool-local',
         },
-      }, epNoTool);
+      }, buildRuntimeTruth({
+        runtimeMode: noToolMode,
+        runtimeReason: directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none',
+        intentInfo,
+        providerAttempted: false,
+        providerSucceeded: false,
+        toolInvoked: false,
+        toolExecuted: false,
+        nodeInvoked: true,
+      })), epNoTool);
     }
 
     if (runtimeMode.primary.owner === 'python') {
@@ -741,7 +989,7 @@ class QueryEngineAuthority {
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
       });
-      return attachProvenanceMetadata({
+      return attachProvenanceMetadata(attachRuntimeTruth({
         response:
           directMemoryResponse ||
           buildPythonBridgePendingCopy({
@@ -816,7 +1064,17 @@ class QueryEngineAuthority {
           })),
         },
         confidence: 0.82,
-      }, epBridge);
+      }, buildRuntimeTruth({
+        runtimeMode: RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE,
+        runtimeReason: 'python_executor_bridge',
+        intentInfo,
+        providerAttempted: llmProviderAttempted,
+        providerSucceeded: llmProviderSucceeded,
+        toolInvoked: actionsWithPolicy.some(action => action.selected_tool && action.selected_tool !== 'none'),
+        toolExecuted: false,
+        toolStatus: 'pending_bridge',
+        nodeInvoked: true,
+      })), epBridge);
     }
 
     const stepResults = [];
@@ -827,6 +1085,18 @@ class QueryEngineAuthority {
           summary: directMemoryResponse || 'Resposta direta sem execução de ferramenta.',
           action,
         });
+        continue;
+      }
+
+      const governanceDecision = evaluateToolGovernance(action);
+      if (!governanceDecision.allowed) {
+        stepResults.push({
+          ...buildGovernanceBlockedResult(action, governanceDecision),
+          action,
+        });
+        if (plannerResult.stop_on_error) {
+          break;
+        }
         continue;
       }
 
@@ -978,6 +1248,7 @@ class QueryEngineAuthority {
           correction_attempts: item.correction_attempts || [],
           goal_id: item.action?.execution_context?.goal_id || null,
           policy_decision: item.action?.policy_decision || null,
+          governance_audit: item.governance_audit || null,
         })),
         task_id: taskId,
         run_id: runId,
@@ -1031,7 +1302,24 @@ class QueryEngineAuthority {
       latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
       policyHintEnvelope: hintEnv,
     });
-    return attachProvenanceMetadata({
+    const toolInvoked = stepResults.some(item => item.action && item.action.selected_tool && item.action.selected_tool !== 'none');
+    const toolExecuted = stepResults.some(item => item.ok && item.action && item.action.selected_tool && item.action.selected_tool !== 'none');
+    const toolBlocked = stepResults.some(item => {
+      const kind = String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase();
+      return kind === 'permission_denied' || kind === 'tool_blocked' || kind === 'policy_denied';
+    });
+    const providerFailed = stepResults.some(item => {
+      const kind = String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase();
+      return kind.startsWith('provider_');
+    });
+    const truthMode = toolBlocked
+      ? RUNTIME_TRUTH_MODES.TOOL_BLOCKED
+      : providerFailed
+        ? RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE
+        : toolExecuted
+          ? RUNTIME_TRUTH_MODES.TOOL_EXECUTED
+          : RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE;
+    return attachProvenanceMetadata(attachRuntimeTruth({
       response: synthesizedResponse,
       cognitive_runtime_hint: {
         lane: 'node_local_tool_run',
@@ -1055,10 +1343,28 @@ class QueryEngineAuthority {
         task_id: taskId,
         run_id: runId,
       },
-    }, epRun);
+    }, buildRuntimeTruth({
+      runtimeMode: truthMode,
+      runtimeReason: toolBlocked ? 'tool_blocked' : providerFailed ? 'provider_unavailable' : 'node_local_tool_run',
+      intentInfo,
+      providerAttempted: llmProviderAttempted,
+      providerSucceeded: Boolean(llmProviderAttempted && !providerFailed && toolExecuted),
+      toolInvoked,
+      toolExecuted,
+      toolStatus: toolBlocked ? 'blocked' : toolExecuted ? 'executed' : toolInvoked ? 'failed' : 'not_invoked',
+      fallbackTriggered: false,
+      nodeInvoked: true,
+    })), epRun);
   }
 }
 
 module.exports = {
   QueryEngineAuthority,
+  RUNTIME_TRUTH_MODES,
+  buildRuntimeTruth,
+  classifyIntent,
+  inferIntent,
+  inferIntentWithSource,
+  resolveIntentClassifierMode,
+  resolveMatcherMode,
 };

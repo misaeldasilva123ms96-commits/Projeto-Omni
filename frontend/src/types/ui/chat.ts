@@ -35,6 +35,11 @@ export type UiChatResponse = {
   providerFailed?: boolean
   failureClass?: string
   failureReason?: string
+  errorPublicCode?: string
+  errorPublicMessage?: string
+  severity?: string
+  retryable?: boolean
+  internalErrorRedacted?: boolean
   executionProvenance?: unknown
   providers?: unknown[]
   providerDiagnostics?: ProviderDiagnostic[]

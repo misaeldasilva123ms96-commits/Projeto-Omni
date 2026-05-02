@@ -74,6 +74,8 @@ def describe_provider_diagnostics(
         row: dict[str, Any] = {
             "provider": provider,
             "configured": configured,
+            "key_present": configured if provider != "local-heuristic" else False,
+            "model_configured": True,
             "available": configured,
             "selected": selected_here,
             "attempted": attempted_here,

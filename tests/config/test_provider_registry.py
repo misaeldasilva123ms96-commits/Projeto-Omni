@@ -78,13 +78,22 @@ class ProviderRegistryTest(unittest.TestCase):
             )
             openai = next(item for item in rows if item["provider"] == "openai")
             self.assertTrue(openai["configured"])
+            self.assertTrue(openai["key_present"])
+            self.assertTrue(openai["model_configured"])
             self.assertTrue(openai["selected"])
             self.assertTrue(openai["attempted"])
             self.assertTrue(openai["failed"])
             self.assertEqual(openai["failure_class"], "provider_timeout")
             heuristic = next(item for item in rows if item["provider"] == "local-heuristic")
             self.assertTrue(heuristic["configured"])
+            self.assertFalse(heuristic["key_present"])
+            self.assertTrue(heuristic["model_configured"])
             self.assertFalse(heuristic["selected"])
+            serialized = str(rows).lower()
+            self.assertNotIn("openai-provider-test-key", serialized)
+            self.assertNotIn("key_prefix", serialized)
+            self.assertNotIn("key_length", serialized)
+            self.assertNotIn("key_hash", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:

@@ -5,6 +5,7 @@ import type { ChatRequestState, RuntimeMetadata } from '../../types'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
 import { TOP_ACTIONS, mockRuntimeState, useRuntimeConsoleStore } from '../../state/runtimeConsoleStore'
 import { useLiveRuntimeMetrics } from '../../hooks/useLiveRuntimeMetrics'
+import { sanitizeRuntimeDebugPayload } from '../../lib/runtimeDebugSanitizer'
 import { getGlowState } from '../../lib/ui/glow'
 
 type RuntimePanelProps = {
@@ -121,20 +122,27 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
   const ranked = simulationPaths(lastMetadata)
   const runtimeMode = lastMetadata?.runtimeMode ?? health?.runtimeMode ?? modeLabel ?? 'Cognitive Runtime'
   const executionTime = lastMetadata ? inferExecutionTime(lastMetadata) : liveMetrics.executionTime
-  const debugPayload = useMemo(() => ({
-    api_response: lastMetadata ?? null,
-    latency_breakdown: {
-      execution_time: executionTime,
-      provider_latency_ms: lastMetadata?.providerDiagnostics?.find((provider) => provider.selected)?.latency_ms ?? null,
-      tool_latency_ms: lastMetadata?.toolExecution?.tool_latency_ms ?? null,
-    },
-    runtime: {
-      execution_path: lastMetadata?.executionPathUsed ?? null,
-      provider: lastMetadata?.providerActual ?? null,
-      runtime_mode: runtimeMode,
-      session_id: sessionId,
-    },
-  }), [executionTime, lastMetadata, runtimeMode, sessionId])
+  const safeDebugPayload = useMemo(
+    () =>
+      sanitizeRuntimeDebugPayload({
+        api_response: lastMetadata ?? null,
+        latency_breakdown: {
+          latency_ms: lastMetadata?.providerDiagnostics?.find((provider) => provider.selected)?.latency_ms ?? null,
+          tool_latency_ms: lastMetadata?.toolExecution?.tool_latency_ms ?? null,
+        },
+        runtime: {
+          runtime_mode: runtimeMode,
+          provider_actual: lastMetadata?.providerActual ?? null,
+          fallback_triggered: lastMetadata?.fallbackTriggered ?? null,
+          request_id: sessionId,
+          public_summary:
+            typeof lastMetadata?.cognitiveRuntimeInspection?.public_summary === 'string'
+              ? lastMetadata.cognitiveRuntimeInspection.public_summary
+              : null,
+        },
+      }),
+    [lastMetadata, runtimeMode, sessionId],
+  )
 
   return (
     <motion.div
@@ -288,7 +296,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
                 <RuntimeMetric label="Failure Class" value={lastMetadata?.failureClass ?? 'none'} />
               </div>
               <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/35 p-3 text-[11px] leading-5 text-slate-200/80">
-                {JSON.stringify(debugPayload, null, 2)}
+                {JSON.stringify(safeDebugPayload, null, 2)}
               </pre>
             </details>
           </section>

@@ -129,9 +129,12 @@ function buildProviderDiagnostics({
     const attemptedHere = provider.name === attempted;
     const succeededHere = provider.name === succeeded && !failureKind;
     const failedHere = attemptedHere && Boolean(failureKind);
+    const configured = provider.kind === 'embedded' ? true : provider.kind === 'local' ? Boolean(provider.baseUrl) : true;
     return {
       provider: provider.name,
-      configured: provider.kind === 'embedded' ? true : provider.kind === 'local' ? Boolean(provider.baseUrl) : true,
+      configured,
+      key_present: provider.kind === 'remote' ? configured : false,
+      model_configured: Boolean(provider.model),
       available: true,
       selected: provider.name === selected,
       attempted: attemptedHere,
