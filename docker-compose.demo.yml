@@ -22,6 +22,10 @@ services:
       OMNI_RATE_LIMIT_PER_MINUTE: "30"
       OMNI_MAX_MESSAGE_CHARS: "8000"
       OMNI_MAX_BODY_BYTES: "65536"
+      OMNI_INTENT_CLASSIFIER: regex
+      OMNI_MATCHER_MODE: enabled
+      OMNI_PYTHON_MODE: subprocess
+      OMNI_NODE_MODE: subprocess
     ports:
       - "3001:3001"
     read_only: true
