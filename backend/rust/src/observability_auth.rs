@@ -41,18 +41,27 @@ struct UnauthorizedBody {
 
 impl SupabaseAuthConfig {
     pub(crate) fn from_env() -> Result<Self, String> {
-        let jwt_secret = env::var("SUPABASE_JWT_SECRET")
-            .map_err(|_| "missing SUPABASE_JWT_SECRET environment variable".to_string())?;
+        let public_demo_mode = env_flag("OMNI_PUBLIC_DEMO_MODE")
+            .or_else(|| env_flag("OMINI_PUBLIC_DEMO_MODE"))
+            .unwrap_or(false);
+
+        let jwt_secret = match env::var("SUPABASE_JWT_SECRET") {
+            Ok(value) => value,
+            Err(_) if public_demo_mode => "omni-public-demo-local-auth-key".to_string(),
+            Err(_) => return Err("missing SUPABASE_JWT_SECRET environment variable".to_string()),
+        };
         if jwt_secret.trim().is_empty() {
             return Err("SUPABASE_JWT_SECRET cannot be empty".to_string());
         }
 
-        let supabase_url = env::var("SUPABASE_URL")
-            .or_else(|_| env::var("VITE_SUPABASE_URL"))
-            .map_err(|_| {
+        let supabase_url = match env::var("SUPABASE_URL").or_else(|_| env::var("VITE_SUPABASE_URL")) {
+            Ok(value) => value,
+            Err(_) if public_demo_mode => "https://public-demo.local".to_string(),
+            Err(_) => return Err(
                 "missing SUPABASE_URL (or VITE_SUPABASE_URL) required for Supabase issuer validation"
-                    .to_string()
-            })?;
+                    .to_string(),
+            ),
+        };
         let normalized_url = supabase_url.trim().trim_end_matches('/');
         if normalized_url.is_empty() {
             return Err("SUPABASE_URL cannot be empty".to_string());
@@ -79,6 +88,15 @@ impl SupabaseAuthConfig {
         )
         .map(|data| data.claims)
     }
+}
+
+fn env_flag(name: &str) -> Option<bool> {
+    env::var(name).ok().map(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 pub(crate) async fn require_supabase_auth(
@@ -197,6 +215,44 @@ mod tests {
         SupabaseAuthConfig {
             jwt_secret: "test-secret".to_string(),
             issuer: "https://example.supabase.co/auth/v1".to_string(),
+        }
+    }
+
+    #[test]
+    fn public_demo_mode_uses_local_auth_defaults_without_env_secret() {
+        let previous_secret = env::var("SUPABASE_JWT_SECRET").ok();
+        let previous_url = env::var("SUPABASE_URL").ok();
+        let previous_vite_url = env::var("VITE_SUPABASE_URL").ok();
+        let previous_demo = env::var("OMNI_PUBLIC_DEMO_MODE").ok();
+
+        env::remove_var("SUPABASE_JWT_SECRET");
+        env::remove_var("SUPABASE_URL");
+        env::remove_var("VITE_SUPABASE_URL");
+        env::set_var("OMNI_PUBLIC_DEMO_MODE", "true");
+
+        let config = SupabaseAuthConfig::from_env().expect("public demo auth config");
+        assert_eq!(config.issuer, "https://public-demo.local/auth/v1");
+        assert!(!config.jwt_secret.trim().is_empty());
+
+        if let Some(value) = previous_secret {
+            env::set_var("SUPABASE_JWT_SECRET", value);
+        } else {
+            env::remove_var("SUPABASE_JWT_SECRET");
+        }
+        if let Some(value) = previous_url {
+            env::set_var("SUPABASE_URL", value);
+        } else {
+            env::remove_var("SUPABASE_URL");
+        }
+        if let Some(value) = previous_vite_url {
+            env::set_var("VITE_SUPABASE_URL", value);
+        } else {
+            env::remove_var("VITE_SUPABASE_URL");
+        }
+        if let Some(value) = previous_demo {
+            env::set_var("OMNI_PUBLIC_DEMO_MODE", value);
+        } else {
+            env::remove_var("OMNI_PUBLIC_DEMO_MODE");
         }
     }
 

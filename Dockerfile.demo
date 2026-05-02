@@ -73,7 +73,7 @@ COPY --chown=omni:omni contract ./contract
 COPY --from=rust-builder /build/backend/rust/target/release/omini-api /usr/local/bin/omini-api
 
 RUN mkdir -p /app/.logs /app/backend/python/memory /app/backend/python/transcripts /app/backend/python/brain/runtime/sessions \
-    && chown -R omni:omni /app /opt/venv
+    && chown -R omni:omni /app/.logs /app/backend/python/memory /app/backend/python/transcripts /app/backend/python/brain/runtime/sessions
 
 USER omni
 
