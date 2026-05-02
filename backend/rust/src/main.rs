@@ -45,6 +45,7 @@ struct AppState {
     python_entry: PathBuf,
     python_timeout_ms: u64,
     python_runtime: PythonRuntimeConfig,
+    python_circuit: Arc<Mutex<PythonCircuitBreaker>>,
     runtime_mode: String,
     runtime_session_version: u32,
     mock_mode: bool,
@@ -66,6 +67,38 @@ struct PythonRuntimeConfig {
     service_host: String,
     service_port: u16,
     service_timeout_ms: u64,
+    fallback_to_subprocess: bool,
+    retry_attempts: usize,
+    circuit_breaker_enabled: bool,
+    circuit_failure_threshold: usize,
+    circuit_reset_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CircuitBreakerState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+#[derive(Debug)]
+struct PythonCircuitBreaker {
+    state: CircuitBreakerState,
+    failure_count: usize,
+    opened_at: Option<Instant>,
+    half_open_in_flight: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PythonServiceFailureKind {
+    Timeout,
+    ServiceFailure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PythonServiceFailure {
+    kind: PythonServiceFailureKind,
+    circuit_state: CircuitBreakerState,
 }
 
 pub(crate) struct ChatSecurityState {
@@ -378,6 +411,7 @@ async fn main() -> Result<(), AppError> {
             .filter(|value| *value > 0)
             .unwrap_or(60_000),
         python_runtime: PythonRuntimeConfig::from_env(),
+        python_circuit: Arc::new(Mutex::new(PythonCircuitBreaker::new())),
         runtime_mode: resolve_runtime_mode(mock_mode),
         runtime_session_version: bootstrap_runtime_session().version,
         mock_mode,
@@ -638,6 +672,15 @@ fn read_env_alias_usize(canonical: &str, legacy: &str, default: usize) -> usize 
         .unwrap_or(default)
 }
 
+fn read_env_alias_usize_clamped(
+    canonical: &str,
+    legacy: &str,
+    default: usize,
+    max: usize,
+) -> usize {
+    read_env_alias_usize(canonical, legacy, default).min(max)
+}
+
 fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
     env::var(canonical)
         .ok()
@@ -697,6 +740,112 @@ impl PythonRuntimeConfig {
                 "OMINI_PYTHON_SERVICE_TIMEOUT_MS",
                 30_000,
             ),
+            fallback_to_subprocess: read_env_alias_bool(
+                "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+                "OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+                false,
+            ),
+            retry_attempts: read_env_alias_usize_clamped(
+                "OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+                "OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+                0,
+                3,
+            ),
+            circuit_breaker_enabled: read_env_alias_bool(
+                "OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+                "OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+                true,
+            ),
+            circuit_failure_threshold: read_env_alias_usize(
+                "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+                "OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+                3,
+            ),
+            circuit_reset_ms: read_env_alias_u64(
+                "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+                "OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+                30_000,
+            ),
+        }
+    }
+}
+
+impl PythonCircuitBreaker {
+    fn new() -> Self {
+        Self {
+            state: CircuitBreakerState::Closed,
+            failure_count: 0,
+            opened_at: None,
+            half_open_in_flight: false,
+        }
+    }
+
+    fn state_label(state: CircuitBreakerState) -> &'static str {
+        match state {
+            CircuitBreakerState::Closed => "CLOSED",
+            CircuitBreakerState::Open => "OPEN",
+            CircuitBreakerState::HalfOpen => "HALF_OPEN",
+        }
+    }
+
+    fn before_call(&mut self, config: &PythonRuntimeConfig, now: Instant) -> CircuitBreakerState {
+        if !config.circuit_breaker_enabled {
+            return CircuitBreakerState::Closed;
+        }
+
+        match self.state {
+            CircuitBreakerState::Closed => CircuitBreakerState::Closed,
+            CircuitBreakerState::Open => {
+                let reset_elapsed = self
+                    .opened_at
+                    .map(|opened| now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms)
+                    .unwrap_or(true);
+                if reset_elapsed {
+                    self.state = CircuitBreakerState::HalfOpen;
+                    self.half_open_in_flight = true;
+                    CircuitBreakerState::HalfOpen
+                } else {
+                    CircuitBreakerState::Open
+                }
+            }
+            CircuitBreakerState::HalfOpen => {
+                if self.half_open_in_flight {
+                    CircuitBreakerState::Open
+                } else {
+                    self.half_open_in_flight = true;
+                    CircuitBreakerState::HalfOpen
+                }
+            }
+        }
+    }
+
+    fn record_success(&mut self) {
+        self.state = CircuitBreakerState::Closed;
+        self.failure_count = 0;
+        self.opened_at = None;
+        self.half_open_in_flight = false;
+    }
+
+    fn record_failure(&mut self, config: &PythonRuntimeConfig, now: Instant) {
+        if !config.circuit_breaker_enabled {
+            return;
+        }
+
+        match self.state {
+            CircuitBreakerState::HalfOpen => {
+                self.state = CircuitBreakerState::Open;
+                self.failure_count = config.circuit_failure_threshold.max(1);
+                self.opened_at = Some(now);
+                self.half_open_in_flight = false;
+            }
+            _ => {
+                self.failure_count = self.failure_count.saturating_add(1);
+                self.half_open_in_flight = false;
+                if self.failure_count >= config.circuit_failure_threshold.max(1) {
+                    self.state = CircuitBreakerState::Open;
+                    self.opened_at = Some(now);
+                }
+            }
         }
     }
 }
@@ -2210,6 +2359,174 @@ fn build_python_fallback_response(
     }
 }
 
+fn annotate_service_metadata(
+    response: &mut ChatResponse,
+    fallback_triggered: bool,
+    service_fallback_used: bool,
+    circuit_state: CircuitBreakerState,
+    error_public_code: &str,
+) {
+    let mut inspection = response
+        .cognitive_runtime_inspection
+        .take()
+        .unwrap_or_else(|| json!({}));
+
+    if let Some(obj) = inspection.as_object_mut() {
+        obj.insert("runtime_mode".into(), Value::String("SAFE_FALLBACK".to_string()));
+        obj.insert(
+            "runtime_reason".into(),
+            Value::String(error_public_code.to_string()),
+        );
+        obj.insert("fallback_triggered".into(), Value::Bool(fallback_triggered));
+        obj.insert("service_mode_attempted".into(), Value::Bool(true));
+        obj.insert(
+            "service_fallback_used".into(),
+            Value::Bool(service_fallback_used),
+        );
+        obj.insert(
+            "circuit_breaker_state".into(),
+            Value::String(PythonCircuitBreaker::state_label(circuit_state).to_string()),
+        );
+        obj.insert(
+            "error_public_code".into(),
+            Value::String(error_public_code.to_string()),
+        );
+        obj.insert("internal_error_redacted".into(), Value::Bool(true));
+        let signals = obj
+            .entry("signals")
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Some(signals_obj) = signals.as_object_mut() {
+            signals_obj.insert("fallback_triggered".into(), Value::Bool(fallback_triggered));
+            signals_obj.insert("service_mode_attempted".into(), Value::Bool(true));
+            signals_obj.insert(
+                "service_fallback_used".into(),
+                Value::Bool(service_fallback_used),
+            );
+            signals_obj.insert(
+                "circuit_breaker_state".into(),
+                Value::String(PythonCircuitBreaker::state_label(circuit_state).to_string()),
+            );
+            signals_obj.insert(
+                "failure_class".into(),
+                Value::String(error_public_code.to_string()),
+            );
+        }
+    }
+
+    response.cognitive_runtime_inspection = Some(inspection);
+}
+
+fn service_failure_code(kind: PythonServiceFailureKind) -> &'static str {
+    match kind {
+        PythonServiceFailureKind::Timeout => "TIMEOUT",
+        PythonServiceFailureKind::ServiceFailure => "PYTHON_ORCHESTRATOR_FAILED",
+    }
+}
+
+fn service_failure_stop_reason(kind: PythonServiceFailureKind) -> &'static str {
+    match kind {
+        PythonServiceFailureKind::Timeout => "python_service_timeout",
+        PythonServiceFailureKind::ServiceFailure => "python_service_unavailable",
+    }
+}
+
+fn current_python_circuit_state(state: &AppState) -> CircuitBreakerState {
+    state
+        .python_circuit
+        .lock()
+        .map(|guard| guard.state)
+        .unwrap_or(CircuitBreakerState::Closed)
+}
+
+fn record_python_service_failure(
+    state: &AppState,
+    _kind: PythonServiceFailureKind,
+    observed_state: CircuitBreakerState,
+) {
+    if !state.python_runtime.circuit_breaker_enabled {
+        return;
+    }
+    if let Ok(mut guard) = state.python_circuit.lock() {
+        if guard.state == observed_state || observed_state == CircuitBreakerState::HalfOpen {
+            guard.record_failure(&state.python_runtime, Instant::now());
+        }
+    }
+}
+
+async fn execute_python_service_with_policy(
+    state: &AppState,
+    body: Vec<u8>,
+) -> Result<(String, CircuitBreakerState), PythonServiceFailure> {
+    let attempts = state.python_runtime.retry_attempts.saturating_add(1);
+    let mut last_failure = PythonServiceFailureKind::ServiceFailure;
+    let mut last_state = CircuitBreakerState::Closed;
+
+    for _ in 0..attempts {
+        let circuit_state = {
+            let mut guard = state.python_circuit.lock().map_err(|_| PythonServiceFailure {
+                kind: PythonServiceFailureKind::ServiceFailure,
+                circuit_state: CircuitBreakerState::Open,
+            })?;
+            guard.before_call(&state.python_runtime, Instant::now())
+        };
+        last_state = circuit_state;
+
+        if circuit_state == CircuitBreakerState::Open {
+            return Err(PythonServiceFailure {
+                kind: PythonServiceFailureKind::ServiceFailure,
+                circuit_state,
+            });
+        }
+
+        match post_python_service(state, body.clone()).await {
+            Ok((status, response_body)) if (200..300).contains(&status) => {
+                if serde_json::from_str::<Value>(&response_body).is_err() {
+                    last_failure = PythonServiceFailureKind::ServiceFailure;
+                    record_python_service_failure(state, last_failure, circuit_state);
+                    continue;
+                }
+                if let Ok(mut guard) = state.python_circuit.lock() {
+                    guard.record_success();
+                }
+                return Ok((response_body, circuit_state));
+            }
+            Ok(_) => {
+                last_failure = PythonServiceFailureKind::ServiceFailure;
+                record_python_service_failure(state, last_failure, circuit_state);
+            }
+            Err("timeout") => {
+                last_failure = PythonServiceFailureKind::Timeout;
+                record_python_service_failure(state, last_failure, circuit_state);
+            }
+            Err(_) => {
+                last_failure = PythonServiceFailureKind::ServiceFailure;
+                record_python_service_failure(state, last_failure, circuit_state);
+            }
+        }
+    }
+
+    Err(PythonServiceFailure {
+        kind: last_failure,
+        circuit_state: current_python_circuit_state(state).max_state(last_state),
+    })
+}
+
+trait CircuitStateOrder {
+    fn max_state(self, other: Self) -> Self;
+}
+
+impl CircuitStateOrder for CircuitBreakerState {
+    fn max_state(self, other: Self) -> Self {
+        if self == CircuitBreakerState::Open || other == CircuitBreakerState::Open {
+            CircuitBreakerState::Open
+        } else if self == CircuitBreakerState::HalfOpen || other == CircuitBreakerState::HalfOpen {
+            CircuitBreakerState::HalfOpen
+        } else {
+            CircuitBreakerState::Closed
+        }
+    }
+}
+
 async fn call_python_service(
     state: &AppState,
     message: &str,
@@ -2218,54 +2535,78 @@ async fn call_python_service(
     client_context: Option<&Value>,
 ) -> Result<ChatResponse, AppError> {
     let body = build_python_service_json(message, &client_session_id, &request_id, client_context);
-    let result = post_python_service(state, body).await;
-    let (status, response_body) = match result {
+    let result = execute_python_service_with_policy(state, body).await;
+    let (response_body, circuit_state) = match result {
         Ok(value) => value,
-        Err("timeout") => {
-            update_python_health(state, "timeout", Some("python service timeout".to_string()))
-                .await;
-            return Ok(build_python_fallback_response(
-                state,
-                "python-service",
-                client_session_id,
-                "python_service_timeout",
-                Some("TIMEOUT"),
-            ));
-        }
-        Err(_) => {
+        Err(failure) => {
+            let code = service_failure_code(failure.kind);
+            let stop_reason = service_failure_stop_reason(failure.kind);
             update_python_health(
                 state,
-                "failed",
-                Some("python service unavailable".to_string()),
+                if failure.kind == PythonServiceFailureKind::Timeout {
+                    "timeout"
+                } else {
+                    "failed"
+                },
+                Some(code.to_string()),
             )
             .await;
-            return Ok(build_python_fallback_response(
+
+            if state.python_runtime.fallback_to_subprocess {
+                let mut fallback = call_python_subprocess(
+                    state,
+                    message,
+                    client_session_id,
+                    request_id,
+                    client_context,
+                )
+                .await?;
+                fallback.source = "python-service-subprocess-fallback".to_string();
+                fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
+                annotate_service_metadata(&mut fallback, true, true, failure.circuit_state, code);
+                return Ok(fallback);
+            }
+
+            let mut fallback = build_python_fallback_response(
                 state,
                 "python-service",
                 client_session_id,
-                "python_service_unavailable",
-                Some("PYTHON_ORCHESTRATOR_FAILED"),
-            ));
+                stop_reason,
+                Some(code),
+            );
+            annotate_service_metadata(&mut fallback, true, false, failure.circuit_state, code);
+            return Ok(fallback);
         }
     };
 
-    if !(200..300).contains(&status) {
-        update_python_health(
-            state,
-            "failed",
-            Some("python service returned non-success status".to_string()),
-        )
-        .await;
-        return Ok(build_python_fallback_response(
+    let parsed = extract_chat_from_python_output(&response_body);
+    if parsed.response == PYTHON_FALLBACK_RESPONSE || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE {
+        let kind = PythonServiceFailureKind::ServiceFailure;
+        let code = service_failure_code(kind);
+        let stop_reason = "python_service_error";
+        update_python_health(state, "failed", Some(code.to_string())).await;
+        record_python_service_failure(state, kind, circuit_state);
+        let current_state = current_python_circuit_state(state);
+        if state.python_runtime.fallback_to_subprocess {
+            let mut fallback =
+                call_python_subprocess(state, message, client_session_id, request_id, client_context)
+                    .await?;
+            fallback.source = "python-service-subprocess-fallback".to_string();
+            fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
+            annotate_service_metadata(&mut fallback, true, true, current_state, code);
+            return Ok(fallback);
+        }
+        let mut fallback = build_python_fallback_response(
             state,
             "python-service",
             client_session_id,
-            "python_service_error",
-            Some("PYTHON_ORCHESTRATOR_FAILED"),
-        ));
+            stop_reason,
+            Some(code),
+        );
+        annotate_service_metadata(&mut fallback, true, false, current_state, code);
+        return Ok(fallback);
     }
 
-    let parsed = extract_chat_from_python_output(&response_body);
     let stop_reason = parsed
         .stop_reason
         .clone()
@@ -2299,7 +2640,7 @@ async fn call_python(
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
         return Ok(build_mock_response(
-            &state,
+            state,
             message,
             "mock-env",
             client_session_id,
@@ -2307,14 +2648,28 @@ async fn call_python(
     }
 
     if state.python_runtime.mode == PythonRuntimeMode::Service {
-        return call_python_service(
-            state,
+        return call_python_service(state, message, client_session_id, request_id, client_context)
+            .await;
+    }
+
+    call_python_subprocess(state, message, client_session_id, request_id, client_context).await
+}
+
+async fn call_python_subprocess(
+    state: &AppState,
+    message: &str,
+    client_session_id: Option<String>,
+    request_id: Option<String>,
+    client_context: Option<&Value>,
+) -> Result<ChatResponse, AppError> {
+    if state.mock_mode {
+        update_python_health(state, "mock", None).await;
+        return Ok(build_mock_response(
+            &state,
             message,
+            "mock-env",
             client_session_id,
-            request_id,
-            client_context,
-        )
-        .await;
+        ));
     }
 
     let stdin_body = build_python_stdin_json(
@@ -2574,7 +2929,13 @@ mod tests {
                 service_host: "127.0.0.1".to_string(),
                 service_port: 7010,
                 service_timeout_ms: 30_000,
+                fallback_to_subprocess: false,
+                retry_attempts: 0,
+                circuit_breaker_enabled: true,
+                circuit_failure_threshold: 3,
+                circuit_reset_ms: 30_000,
             },
+            python_circuit: Arc::new(Mutex::new(PythonCircuitBreaker::new())),
             runtime_mode: "live".to_string(),
             runtime_session_version: 1,
             mock_mode: false,
@@ -2610,34 +2971,57 @@ mod tests {
             service_host: "127.0.0.1".to_string(),
             service_port: port,
             service_timeout_ms: timeout_ms,
+            fallback_to_subprocess: false,
+            retry_attempts: 0,
+            circuit_breaker_enabled: true,
+            circuit_failure_threshold: 3,
+            circuit_reset_ms: 30_000,
         };
         state
+    }
+
+    async fn mock_python_service_many(
+        responses: Vec<(u16, Value)>,
+    ) -> (u16, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let handle = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().await.expect("accept");
+                let mut buf = vec![0_u8; 16_384];
+                let n = stream.read(&mut buf).await.expect("read");
+                requests.push(String::from_utf8_lossy(&buf[..n]).to_string());
+                let response_body = serde_json::to_vec(&body).expect("body json");
+                let response = format!(
+                    "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    response_body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write head");
+                stream.write_all(&response_body).await.expect("write body");
+            }
+            requests
+        });
+        (port, handle)
     }
 
     async fn mock_python_service_once(
         status: u16,
         body: Value,
     ) -> (u16, tokio::task::JoinHandle<String>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let port = listener.local_addr().expect("addr").port();
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            let mut buf = vec![0_u8; 16_384];
-            let n = stream.read(&mut buf).await.expect("read");
-            let request = String::from_utf8_lossy(&buf[..n]).to_string();
-            let response_body = serde_json::to_vec(&body).expect("body json");
-            let response = format!(
-                "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                response_body.len()
-            );
-            stream
-                .write_all(response.as_bytes())
+        let (port, handle) = mock_python_service_many(vec![(status, body)]).await;
+        let single = tokio::spawn(async move {
+            handle
                 .await
-                .expect("write head");
-            stream.write_all(&response_body).await.expect("write body");
-            request
+                .expect("requests")
+                .into_iter()
+                .next()
+                .unwrap_or_default()
         });
-        (port, handle)
+        (port, single)
     }
 
     fn test_chat_security_config() -> ChatSecurityConfig {
@@ -2972,6 +3356,16 @@ mod tests {
             "OMINI_PYTHON_SERVICE_PORT",
             "OMNI_PYTHON_SERVICE_TIMEOUT_MS",
             "OMINI_PYTHON_SERVICE_TIMEOUT_MS",
+            "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+            "OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+            "OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+            "OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+            "OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+            "OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+            "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+            "OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+            "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+            "OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
         ];
         let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
         for key in keys {
@@ -2983,26 +3377,51 @@ mod tests {
         assert_eq!(default.service_host, "127.0.0.1");
         assert_eq!(default.service_port, 7010);
         assert_eq!(default.service_timeout_ms, 30_000);
+        assert!(!default.fallback_to_subprocess);
+        assert_eq!(default.retry_attempts, 0);
+        assert!(default.circuit_breaker_enabled);
+        assert_eq!(default.circuit_failure_threshold, 3);
+        assert_eq!(default.circuit_reset_ms, 30_000);
 
         env::set_var("OMINI_PYTHON_MODE", "service");
         env::set_var("OMINI_PYTHON_SERVICE_HOST", "127.0.0.2");
         env::set_var("OMINI_PYTHON_SERVICE_PORT", "7011");
         env::set_var("OMINI_PYTHON_SERVICE_TIMEOUT_MS", "1234");
+        env::set_var("OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "true");
+        env::set_var("OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS", "9");
+        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "false");
+        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "2");
+        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "4567");
         let legacy = PythonRuntimeConfig::from_env();
         assert_eq!(legacy.mode, PythonRuntimeMode::Service);
         assert_eq!(legacy.service_host, "127.0.0.2");
         assert_eq!(legacy.service_port, 7011);
         assert_eq!(legacy.service_timeout_ms, 1234);
+        assert!(legacy.fallback_to_subprocess);
+        assert_eq!(legacy.retry_attempts, 3);
+        assert!(!legacy.circuit_breaker_enabled);
+        assert_eq!(legacy.circuit_failure_threshold, 2);
+        assert_eq!(legacy.circuit_reset_ms, 4567);
 
         env::set_var("OMNI_PYTHON_MODE", "subprocess");
         env::set_var("OMNI_PYTHON_SERVICE_HOST", "127.0.0.3");
         env::set_var("OMNI_PYTHON_SERVICE_PORT", "7012");
         env::set_var("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "4321");
+        env::set_var("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "false");
+        env::set_var("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "1");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "true");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "5");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "9876");
         let canonical = PythonRuntimeConfig::from_env();
         assert_eq!(canonical.mode, PythonRuntimeMode::Subprocess);
         assert_eq!(canonical.service_host, "127.0.0.3");
         assert_eq!(canonical.service_port, 7012);
         assert_eq!(canonical.service_timeout_ms, 4321);
+        assert!(!canonical.fallback_to_subprocess);
+        assert_eq!(canonical.retry_attempts, 1);
+        assert!(canonical.circuit_breaker_enabled);
+        assert_eq!(canonical.circuit_failure_threshold, 5);
+        assert_eq!(canonical.circuit_reset_ms, 9876);
 
         env::set_var("OMNI_PYTHON_MODE", "invalid");
         assert_eq!(
@@ -3132,6 +3551,170 @@ mod tests {
                 .and_then(|v| v.get("failure_class"))
                 .and_then(Value::as_str),
             Some("TIMEOUT")
+        );
+    }
+
+    #[tokio::test]
+    async fn service_retry_is_bounded_and_can_recover() {
+        let (port, handle) = mock_python_service_many(vec![
+            (500, json!({"response": "fail"})),
+            (200, json!({"response": "ok after retry"})),
+        ])
+        .await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_runtime.retry_attempts = 1;
+        state.python_runtime.circuit_failure_threshold = 10;
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("retry response");
+        let requests = handle.await.expect("requests");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(response.response, "ok after retry");
+        assert_eq!(
+            state.python_circuit.lock().expect("circuit").state,
+            CircuitBreakerState::Closed
+        );
+    }
+
+    #[tokio::test]
+    async fn service_failure_optionally_falls_back_to_subprocess() {
+        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let script = r#"print('{"response":"ok from subprocess","cognitive_runtime_inspection":{"runtime_mode":"FULL_COGNITIVE_RUNTIME"}}')"#;
+        let mut state = build_test_state(temp_script(script, "service-fallback"), 15_000);
+        state.python_runtime = PythonRuntimeConfig {
+            mode: PythonRuntimeMode::Service,
+            service_host: "127.0.0.1".to_string(),
+            service_port: port,
+            service_timeout_ms: 5_000,
+            fallback_to_subprocess: true,
+            retry_attempts: 0,
+            circuit_breaker_enabled: true,
+            circuit_failure_threshold: 3,
+            circuit_reset_ms: 30_000,
+        };
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("fallback response");
+        assert_eq!(response.response, "ok from subprocess");
+        assert_eq!(response.source, "python-service-subprocess-fallback");
+        let inspection = response.cognitive_runtime_inspection.expect("inspection");
+        assert_eq!(inspection["runtime_mode"].as_str(), Some("SAFE_FALLBACK"));
+        assert_eq!(inspection["fallback_triggered"].as_bool(), Some(true));
+        assert_eq!(inspection["service_mode_attempted"].as_bool(), Some(true));
+        assert_eq!(inspection["service_fallback_used"].as_bool(), Some(true));
+        assert_ne!(inspection["runtime_mode"].as_str(), Some("FULL_COGNITIVE_RUNTIME"));
+    }
+
+    #[tokio::test]
+    async fn service_failure_without_fallback_does_not_invoke_subprocess() {
+        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_entry = temp_script("print('{\"response\":\"should-not-run\"}')\n", "no-fallback");
+        state.python_runtime.fallback_to_subprocess = false;
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("service failure response");
+        assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
+        assert_eq!(response.source, "python-service");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_service_unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn circuit_opens_skips_service_and_half_open_transitions() {
+        let (port, handle) = mock_python_service_many(vec![
+            (500, json!({"response": "fail-1"})),
+            (500, json!({"response": "fail-2"})),
+            (200, json!({"response": "probe ok"})),
+        ])
+        .await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_runtime.circuit_failure_threshold = 2;
+        state.python_runtime.circuit_reset_ms = 1_000;
+
+        let first = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("first failure");
+        assert_eq!(
+            first
+                .error
+                .as_ref()
+                .and_then(|v| v.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_ORCHESTRATOR_FAILED")
+        );
+
+        let second = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("second failure");
+        assert_eq!(
+            second
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("circuit_breaker_state"))
+                .and_then(Value::as_str),
+            Some("OPEN")
+        );
+
+        let skipped = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("open circuit skip");
+        assert_eq!(
+            skipped
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("circuit_breaker_state"))
+                .and_then(Value::as_str),
+            Some("OPEN")
+        );
+
+        {
+            let mut circuit = state.python_circuit.lock().expect("circuit");
+            circuit.opened_at = Some(Instant::now() - Duration::from_millis(2_000));
+        }
+        let probe = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("half-open probe");
+        assert_eq!(probe.response, "probe ok");
+        assert_eq!(
+            state.python_circuit.lock().expect("circuit").state,
+            CircuitBreakerState::Closed
+        );
+        let requests = handle.await.expect("requests");
+        assert_eq!(requests.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn half_open_failure_reopens_circuit() {
+        let (port, _handle) = mock_python_service_once(500, json!({"response": "probe failed"})).await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_runtime.circuit_failure_threshold = 1;
+        state.python_runtime.circuit_reset_ms = 1;
+        {
+            let mut circuit = state.python_circuit.lock().expect("circuit");
+            circuit.state = CircuitBreakerState::Open;
+            circuit.opened_at = Some(Instant::now() - Duration::from_millis(50));
+        }
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("half-open failure");
+        assert_eq!(
+            response
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("circuit_breaker_state"))
+                .and_then(Value::as_str),
+            Some("OPEN")
+        );
+        assert_eq!(
+            state.python_circuit.lock().expect("circuit").state,
+            CircuitBreakerState::Open
         );
     }
 
