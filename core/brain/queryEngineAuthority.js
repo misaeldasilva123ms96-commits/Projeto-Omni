@@ -179,23 +179,115 @@ function normalizeText(value) {
 function inferIntent(message) {
   const text = normalizeText(message);
   if (/^(oi|ola|olá|bom dia|boa tarde|boa noite)$/.test(text)) return 'greeting';
-  if (text.includes('meu nome') || text.includes('eu trabalho com')) return 'memory';
+  if (text.includes('meu nome') || text.includes('eu trabalho com') || text.includes('lembre')) return 'memory';
   if (text.includes('leia') || text.includes('arquivo') || text.includes('readme')) return 'execution';
   if (text.includes('liste') || text.includes('arquivos') || text.includes('pastas')) return 'execution';
   if (text.includes('busque') || text.includes('procure') || text.includes('grep')) return 'execution';
   if (text.includes('crie o arquivo') || text.includes('escreva no arquivo') || text.includes('salve')) return 'execution';
+  if (text.includes('git status') || text.includes('git diff')) return 'execution';
   if (text.includes('analise') || text.includes('resuma')) return 'analysis';
   if (/(repositorio|repositório|codigo|código|teste|testes|debug|refator|implemente|corrija|fix)/.test(text)) return 'engineering';
   return 'conversation';
 }
 
-function inferIntentWithSource(message) {
+function readEnvWithAlias(primaryName, legacyName, fallbackValue = '') {
+  const primaryValue = process.env[primaryName];
+  if (typeof primaryValue === 'string' && primaryValue.trim()) {
+    return primaryValue.trim();
+  }
+  const legacyValue = process.env[legacyName];
+  if (typeof legacyValue === 'string' && legacyValue.trim()) {
+    return legacyValue.trim();
+  }
+  return fallbackValue;
+}
+
+function resolveIntentClassifierMode() {
+  const rawMode = readEnvWithAlias('OMNI_INTENT_CLASSIFIER', 'OMINI_INTENT_CLASSIFIER', 'regex')
+    .toLowerCase();
+  return ['regex', 'embedding', 'llm', 'hybrid'].includes(rawMode) ? rawMode : 'regex';
+}
+
+function resolveMatcherMode() {
+  const rawMode = readEnvWithAlias('OMNI_MATCHER_MODE', 'OMINI_MATCHER_MODE', 'enabled')
+    .toLowerCase();
+  return ['enabled', 'labeled_only', 'disabled'].includes(rawMode) ? rawMode : 'enabled';
+}
+
+function confidenceForRegexIntent(intent) {
+  return intent === 'conversation' ? 0.45 : 0.7;
+}
+
+function buildClassifierResult({
+  intent,
+  intentSource,
+  confidence,
+  classifierVersion,
+  classifierMode,
+  matcherUsed = false,
+  providerAttempted = false,
+  providerSucceeded = false,
+}) {
   return {
-    intent: inferIntent(message),
-    intent_source: 'rule_based',
-    confidence: 0.7,
-    classifier_version: 'regex_v1',
+    intent,
+    intent_source: intentSource,
+    confidence,
+    classifier_version: classifierVersion,
+    classifier_mode: classifierMode,
+    matcher_used: Boolean(matcherUsed),
+    provider_attempted: Boolean(providerAttempted),
+    provider_succeeded: Boolean(providerSucceeded),
   };
+}
+
+function classifyIntent(message, context = {}) {
+  const classifierMode = context.classifier_mode || resolveIntentClassifierMode();
+  const regexIntent = inferIntent(message);
+  const regexConfidence = confidenceForRegexIntent(regexIntent);
+
+  if (classifierMode === 'embedding') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'embedding',
+      confidence: Math.min(regexConfidence, 0.55),
+      classifierVersion: 'embedding_scaffold_v1',
+      classifierMode,
+    });
+  }
+
+  if (classifierMode === 'llm') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'rule_based',
+      confidence: Math.min(regexConfidence, 0.6),
+      classifierVersion: 'llm_unavailable_regex_fallback_v1',
+      classifierMode,
+      providerAttempted: false,
+      providerSucceeded: false,
+    });
+  }
+
+  if (classifierMode === 'hybrid') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'hybrid',
+      confidence: Math.max(regexConfidence, regexIntent === 'conversation' ? 0.5 : 0.75),
+      classifierVersion: 'hybrid_regex_guard_v1',
+      classifierMode,
+    });
+  }
+
+  return buildClassifierResult({
+    intent: regexIntent,
+    intentSource: 'rule_based',
+    confidence: regexConfidence,
+    classifierVersion: 'regex_v1',
+    classifierMode: 'regex',
+  });
+}
+
+function inferIntentWithSource(message) {
+  return classifyIntent(message, { classifier_mode: 'regex' });
 }
 
 const RUNTIME_TRUTH_MODES = {
@@ -236,6 +328,9 @@ function buildRuntimeTruth({
     intent: intentInfo?.intent || '',
     intent_source: intentInfo?.intent_source || 'rule_based',
     classifier_version: intentInfo?.classifier_version || 'regex_v1',
+    classifier_mode: intentInfo?.classifier_mode || 'regex',
+    classifier_provider_attempted: Boolean(intentInfo?.provider_attempted),
+    classifier_provider_succeeded: Boolean(intentInfo?.provider_succeeded),
     matcher_used: Boolean(matcherUsed),
     llm_provider_attempted: Boolean(matcherUsed ? false : providerAttempted),
     llm_provider_succeeded: Boolean(matcherUsed ? false : providerSucceeded),
@@ -361,9 +456,16 @@ function resolveDirectConversational(normalizedInput) {
   return null;
 }
 
-function shouldBypassConversationalMatchers(normalizedMessage, rawMessage) {
+function shouldBypassConversationalMatchers(normalizedMessage, rawMessage, intentInfo = null) {
   if (String(process.env.OMINI_SKIP_CONVERSATIONAL_MATCHERS || '').trim() === '1') {
     return true;
+  }
+  const matcherMode = resolveMatcherMode();
+  if (matcherMode === 'disabled') {
+    const confidence = Number(intentInfo?.confidence || 0);
+    if (confidence >= 0.7) {
+      return true;
+    }
   }
   const msg = String(rawMessage || '');
   if (msg.length > 140) {
@@ -511,8 +613,8 @@ class QueryEngineAuthority {
     const workspace = cwd || process.cwd();
     const sessionId = session?.session_id || 'ephemeral-session';
     const normalizedMessage = normalizeText(message);
-    const earlyIntentInfo = inferIntentWithSource(message);
-    const bypassMatchers = shouldBypassConversationalMatchers(normalizedMessage, message);
+    const earlyIntentInfo = classifyIntent(message);
+    const bypassMatchers = shouldBypassConversationalMatchers(normalizedMessage, message, earlyIntentInfo);
     const tinyGreeting = !bypassMatchers ? directConversationalResponse(message) : '';
     if (tinyGreeting) {
       const epGreet = buildExecutionProvenance({
@@ -591,7 +693,7 @@ class QueryEngineAuthority {
     const taskId = session?.task_id || `task-${randomUUID()}`;
     const runId = session?.run_id || `run-${randomUUID()}`;
     const actionIdBase = randomUUID();
-    const intentInfo = inferIntentWithSource(message);
+    const intentInfo = earlyIntentInfo;
     const intent = intentInfo.intent;
     const complexity = inferComplexity(message);
     const hintEnv = readPolicyHintEnvelope();
@@ -1260,5 +1362,9 @@ module.exports = {
   QueryEngineAuthority,
   RUNTIME_TRUTH_MODES,
   buildRuntimeTruth,
+  classifyIntent,
+  inferIntent,
   inferIntentWithSource,
+  resolveIntentClassifierMode,
+  resolveMatcherMode,
 };
