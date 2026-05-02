@@ -20,6 +20,7 @@
     "test:python:pytest:audit": "python -m pytest -q tests/performance tests/contracts/test_runtime_contract_audit.py",
     "test:security": "node tests/security/security-regression-suite.mjs",
     "validate:public-demo": "node scripts/validate_public_demo_readiness.mjs",
+    "validate:audit-pack": "node scripts/validate_audit_pack.mjs",
     "test": "npm run test:node && npm run test:python",
     "test:e2e:chat-contract": "tsx tests/e2e/chat-contract.e2e.ts",
     "test:queryengine": "node tests/runtime/queryengine.smoke.test.mjs",
