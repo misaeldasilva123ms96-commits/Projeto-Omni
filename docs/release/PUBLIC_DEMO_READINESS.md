@@ -1,10 +1,11 @@
 # Public Demo Readiness
 
-Status: ready for controlled validation, not public deployment.
+Status: ready for controlled validation/demo only after target-environment smoke checks. Not production-ready.
 
-Branch: `release/public-demo-readiness-14`
+Latest documentation audit base:
 
-Base: `intelligence/intent-classifier-12`
+- Branch audited: `validation/rust-run-control-fix`
+- Commit audited: `9a6c527254fd01f6f07e9f9990b2156c07f34934`
 
 This document is the public-demo readiness checklist for Omni. It does not authorize a release, deployment, tag, or production launch.
 
@@ -58,6 +59,8 @@ Container validation:
 docker compose -f docker-compose.demo.yml config
 docker build -f Dockerfile.demo -t omni-demo:phase14 .
 ```
+
+The latest documentation audit reverified static validators and runtime/security tests, but did not reverify Docker image build or container smoke. Rerun Docker build and runtime smoke in the target environment before sharing a demo URL.
 
 Run locally:
 
@@ -139,19 +142,16 @@ http://localhost:3001/chat
 
 ## Test Evidence Summary
 
-Required Phase 14 validation commands:
+Required controlled-demo validation commands:
 
 - `npm run validate:public-demo`
 - `npm run test:security`
-- `npm test`
 - `npm run test:js-runtime`
 - `npm run test:python:pytest`
-- `npm --prefix frontend run typecheck`
-- `cd backend/rust && cargo test`
-- `python -m py_compile backend/python/brain_service.py backend/python/main.py`
+- `cargo test`
 - `git diff --check`
 
-Docker status is recorded in `docs/audit/PHASE_14_PUBLIC_DEMO_READINESS.md`.
+Docker status is recorded in `docs/audit/KNOWN_LIMITATIONS.md` and `docs/audit/TEST_EVIDENCE.md`. Historical phase files may describe earlier Docker outcomes; the current release decision should use fresh target-environment evidence.
 
 ## Manual Checklist Before Public Demo
 
@@ -173,7 +173,7 @@ This profile is for a controlled public demo only. It is not a production deploy
 - Demo writable state is ephemeral in compose tmpfs paths.
 - Intent classifier is regex by default; embedding/LLM modes are not production classifiers.
 - Node and Python service modes are opt-in and not the public-demo default.
-- Docker build success depends on local Docker daemon availability.
+- Docker build and container smoke must be reverified where the demo will run.
 
 ## Rollback
 

@@ -1,5 +1,25 @@
 # Test Evidence
 
+## Latest Verified Status
+
+Latest documentation audit base:
+
+| Area | Latest verified status |
+| --- | --- |
+| Branch audited | `validation/rust-run-control-fix` |
+| Commit audited | `9a6c527254fd01f6f07e9f9990b2156c07f34934` |
+| `cargo test` | PASS |
+| `npm run test:js-runtime` | PASS |
+| `npm run test:python:pytest` | PASS |
+| `npm run test:security` | PASS |
+| `npm run validate:public-demo` | PASS |
+| `npm run validate:audit-pack` | PASS |
+| `npm run test:integration` | NOT RUN: root script unavailable |
+| `npm run intake:validate` | NOT RUN: root script unavailable |
+| Docker image build/runtime smoke | NOT REVERIFIED in latest audit pass |
+
+The command history below includes phase evidence from earlier remediation passes. Treat older Docker build/smoke entries as historical until rerun in the target environment.
+
 ## Command Matrix
 
 | Command | Purpose | Latest Phase 14/15 status |
@@ -36,7 +56,7 @@
 
 ## Docker Status
 
-Compose config validation passed. Docker image build still needs daemon-backed validation before public demo exposure. The local Phase 14 attempt failed because Docker Desktop Linux engine was not available at the configured named pipe.
+Compose/static validation has passed in the remediation history. The latest documentation audit did not reverify Docker image build or container runtime smoke. Docker build/runtime validation is still required in the target environment before public demo exposure.
 
 ## Security Regression Suite Status
 
@@ -52,7 +72,7 @@ Rust, Python, JS runtime, security, and frontend typecheck commands passed in Ph
 
 ## Known Timeouts Or Flakes
 
-One Phase 14 `cargo test` attempt transiently failed two `run_control` tests with HTTP 500. A serial rerun passed 46 tests, and a normal rerun also passed 46 tests. No Rust code was changed in Phase 14.
+Earlier Phase 14 notes recorded transient Rust `run_control` failures on one machine. The latest documentation audit passed `cargo test`. Keep this history as a watch item, not as a current failure.
 
 ## Non-Blocking Issues
 
@@ -74,7 +94,7 @@ Passed in Phase 15:
 - `docker compose -f docker-compose.demo.yml config`
 - `git diff --check`
 
-Phase 15 non-blocking environment issues:
+Historical Phase 15 non-blocking environment issues:
 
 - `cargo test` repeated the known `run_control` flake once with 44 passed and 2 failed.
 - Serial Rust rerun timed out after local Docker/build operations saturated the shell.
