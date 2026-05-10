@@ -63,6 +63,9 @@ def normalize_node_outcome(
         else None
     )
     actions = execution_request.get("actions") if isinstance(execution_request, dict) else None
+    runtime_truth = node_result_envelope.get("runtime_truth") if isinstance(node_result_envelope, dict) else None
+    if not isinstance(runtime_truth, dict):
+        runtime_truth = {}
     return {
         "transport_status": str(transport_status or TRANSPORT_UNKNOWN),
         "semantic_lane": str(semantic_lane or ""),
@@ -71,6 +74,10 @@ def normalize_node_outcome(
         "provider_actual": _metadata_execution_provider(node_result_envelope),
         "failure_class": _metadata_failure_class(node_result_envelope),
         "provider_failed": _metadata_provider_failed(node_result_envelope),
+        "runtime_truth": dict(runtime_truth),
+        "intent": str(runtime_truth.get("intent") or "").strip(),
+        "intent_source": str(runtime_truth.get("intent_source") or "").strip(),
+        "classifier_version": str(runtime_truth.get("classifier_version") or "").strip(),
         "has_execution_request": isinstance(execution_request, dict),
         "has_actions": isinstance(actions, list) and bool(actions),
         "response_present": _response_present(response_text)
@@ -117,7 +124,7 @@ def _metadata_provider_failed(parsed: dict[str, Any] | None) -> bool:
 
 
 def extract_node_envelope_for_provenance(parsed: dict[str, Any]) -> dict[str, Any]:
-    keys = ("metadata", "memory", "execution_request", "cognitive_runtime_hint", "confidence", "response")
+    keys = ("metadata", "memory", "execution_request", "cognitive_runtime_hint", "confidence", "response", "runtime_truth")
     return {k: parsed[k] for k in keys if k in parsed}
 
 

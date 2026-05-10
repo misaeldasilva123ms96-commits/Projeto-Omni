@@ -53,7 +53,11 @@ def execute_engineering_action(
         return build_governance_blocked_result(tool, governance_decision)
 
     if tool in {"filesystem_read", "read_file"}:
-        target = (workspace_root / str(arguments.get("path", ""))).resolve()
+        target = _resolve_workspace_target(workspace_root, str(arguments.get("path", "")))
+        if target is None:
+            return _error(tool, "path_outside_workspace", "Requested file is outside the allowed workspace.")
+        if _public_demo_mode() and _is_sensitive_public_demo_file(workspace_root, target):
+            return _error(tool, "public_demo_sensitive_read_blocked", "Requested file is not readable in public demo mode.")
         content = target.read_text(encoding="utf-8")
         limit = int(arguments.get("limit", 4000) or 4000)
         return _ok(tool, {"file": {"filePath": str(target), "content": content[:limit]}})
@@ -343,6 +347,40 @@ def _ok(tool: str, payload: dict[str, Any]) -> dict[str, Any]:
         "selected_tool": tool,
         "result_payload": payload,
     }
+
+
+def _resolve_workspace_target(workspace_root: Path, raw_path: str) -> Path | None:
+    try:
+        root = workspace_root.resolve()
+        target = (root / str(raw_path or "")).resolve()
+        target.relative_to(root)
+        return target
+    except (OSError, ValueError):
+        return None
+
+
+def _public_demo_mode() -> bool:
+    return str(os.getenv("OMNI_PUBLIC_DEMO_MODE", "") or "").strip().lower() in {"1", "true", "yes", "on"} or str(
+        os.getenv("OMINI_PUBLIC_DEMO_MODE", "") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_sensitive_public_demo_file(workspace_root: Path, target: Path) -> bool:
+    try:
+        rel = target.resolve().relative_to(workspace_root.resolve())
+    except (OSError, ValueError):
+        return True
+    parts = [part.lower() for part in rel.parts]
+    basename = parts[-1] if parts else ""
+    if basename == ".env" or basename.startswith(".env."):
+        return True
+    if any(part in {".logs", "logs", "runtime_logs", "learning_logs", ".cache", "cache"} for part in parts):
+        return True
+    if any(token in basename for token in ("key", "token", "secret", "credential")):
+        return True
+    if "memory" in parts and any(part in {"private", "local", "storage"} for part in parts):
+        return True
+    return False
 
 
 def _error(tool: str, kind: str, message: str, **extra: Any) -> dict[str, Any]:

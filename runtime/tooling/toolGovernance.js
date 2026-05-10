@@ -27,9 +27,9 @@ const TOOL_TAXONOMY = {
 const POLICY_VERSION = 'tool_governance_v1';
 const READ_SAFE_TOOLS = new Set(['status', 'health', 'list', 'directory_tree', 'git_status', 'git_diff', 'dependency_inspection', 'glob_search', 'grep_search', 'code_search']);
 const READ_SENSITIVE_TOOLS = new Set(['read_file', 'filesystem_read', 'memory_read', 'debug_inspection']);
-const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'filesystem_write', 'filesystem_patch_set', 'generated_file_write']);
-const DESTRUCTIVE_TOOLS = new Set(['delete', 'overwrite', 'git_reset', 'git_clean', 'rm', 'remove_file']);
-const SHELL_TOOLS = new Set(['shell_command', 'run_command', 'test_runner', 'verification_runner', 'package_manager', 'autonomous_debug_loop']);
+const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'filesystem_write', 'filesystem_patch_set', 'generated_file_write', 'file_write', 'patch_file']);
+const DESTRUCTIVE_TOOLS = new Set(['delete', 'delete_file', 'overwrite', 'git_reset', 'git_clean', 'rm', 'remove_file']);
+const SHELL_TOOLS = new Set(['shell', 'shell_command', 'run_command', 'command', 'execute_command', 'test_runner', 'verification_runner', 'package_manager', 'autonomous_debug_loop']);
 const NETWORK_TOOLS = new Set(['curl', 'fetch', 'web_request', 'network_request']);
 const GIT_SENSITIVE_TOOLS = new Set(['git_commit', 'git_push', 'git_branch_mutation']);
 
@@ -52,6 +52,9 @@ function classifyToolCategory(toolName) {
   if (GIT_SENSITIVE_TOOLS.has(tool) || (tool.startsWith('git_') && !['git_status', 'git_diff'].includes(tool))) {
     return 'git_sensitive';
   }
+  if (/(write|patch)/i.test(tool)) return 'write';
+  if (/(delete|remove|overwrite)/i.test(tool)) return 'destructive';
+  if (/(shell|command|exec)/i.test(tool)) return 'shell';
   return 'unknown';
 }
 
@@ -78,6 +81,9 @@ function evaluateToolGovernance(action = {}) {
   }
   if (category === 'read_safe') return decision(true, category, 'read_safe_allowed');
   if (category === 'read_sensitive') {
+    if (isPublicDemoMode() && isPublicDemoSensitiveReadPath(args.path || '')) {
+      return decision(false, category, 'public_demo_sensitive_read_blocked', { publicDemoBlocked: true });
+    }
     return explicitScope
       ? decision(true, category, 'read_sensitive_scope_allowed')
       : decision(false, category, 'missing_explicit_scope', { approvalRequired: true });
@@ -96,6 +102,18 @@ function evaluateToolGovernance(action = {}) {
       : decision(false, category, 'git_sensitive_requires_approval', { approvalRequired: true });
   }
   return decision(false, category, 'unknown_tool_requires_governance', { approvalRequired: true });
+}
+
+function isPublicDemoSensitiveReadPath(value) {
+  const text = String(value || '').replace(/\\/g, '/').trim().toLowerCase();
+  if (!text) return false;
+  const parts = text.split('/').filter(Boolean);
+  const basename = parts[parts.length - 1] || text;
+  if (basename === '.env' || basename.startsWith('.env.')) return true;
+  if (parts.some(part => ['.logs', 'logs', 'runtime_logs', 'learning_logs', '.cache', 'cache'].includes(part))) return true;
+  if (/(key|token|secret|credential)/i.test(basename)) return true;
+  if (parts.includes('memory') && parts.some(part => ['private', 'local', 'storage'].includes(part))) return true;
+  return false;
 }
 
 function decision(allowed, category, reason, { approvalRequired = false, publicDemoBlocked = false } = {}) {

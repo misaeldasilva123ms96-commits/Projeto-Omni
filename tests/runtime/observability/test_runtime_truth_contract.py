@@ -16,6 +16,7 @@ from brain.runtime.observability.runtime_lane_classifier import (  # noqa: E402
     LANE_TRUE_ACTION_EXECUTION,
     TRANSPORT_FALLBACK,
     TRANSPORT_SUCCESS,
+    normalize_node_outcome,
 )
 
 
@@ -99,6 +100,69 @@ def test_provider_unavailable_truth_contract() -> None:
     assert truth["llm_provider_succeeded"] is False
 
 
+def test_provider_truth_uses_explicit_diagnostics_not_provider_name() -> None:
+    row = build_cognitive_runtime_inspection(
+        **_base_kwargs(
+            response="local plan",
+            last_runtime_reason="direct_node_response",
+            swarm_result={
+                "metadata": {
+                    "execution_provenance": {
+                        "provider_actual": "openai",
+                        "provider_failed": False,
+                        "provider_diagnostics": [
+                            {
+                                "provider": "openai",
+                                "selected": True,
+                                "attempted": False,
+                                "succeeded": False,
+                                "failed": False,
+                            }
+                        ],
+                    }
+                }
+            },
+            node_outcome={
+                "semantic_lane": LANE_LOCAL_DIRECT_RESPONSE,
+                "transport_status": TRANSPORT_SUCCESS,
+                "reason_code": "direct_node_response",
+            },
+        )
+    )
+
+    truth = row["runtime_truth"]
+    assert truth["runtime_mode"] == "RULE_BASED_INTENT"
+    assert truth["llm_provider_attempted"] is False
+    assert truth["llm_provider_succeeded"] is False
+
+
+def test_provider_success_requires_explicit_success_metadata() -> None:
+    row = build_cognitive_runtime_inspection(
+        **_base_kwargs(
+            swarm_result={
+                "metadata": {
+                    "execution_provenance": {
+                        "provider_actual": "openai",
+                        "provider_diagnostics": [
+                            {
+                                "provider": "openai",
+                                "selected": True,
+                                "attempted": True,
+                                "succeeded": True,
+                                "failed": False,
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+    )
+
+    truth = row["runtime_truth"]
+    assert truth["llm_provider_attempted"] is True
+    assert truth["llm_provider_succeeded"] is True
+
+
 def test_tool_blocked_and_tool_executed_truth_contract() -> None:
     blocked = build_cognitive_runtime_inspection(
         **_base_kwargs(
@@ -133,6 +197,29 @@ def test_tool_blocked_and_tool_executed_truth_contract() -> None:
     )
     assert executed["runtime_truth"]["runtime_mode"] == "TOOL_EXECUTED"
     assert executed["runtime_truth"]["tool_executed"] is True
+
+
+def test_selected_tool_without_attempt_is_not_invoked() -> None:
+    row = build_cognitive_runtime_inspection(
+        **_base_kwargs(
+            lora_payload={
+                "tool_execution": {
+                    "tool_requested": True,
+                    "tool_selected": "code_search",
+                    "tool_attempted": False,
+                    "tool_succeeded": False,
+                    "tool_denied": False,
+                }
+            }
+        )
+    )
+
+    truth = row["runtime_truth"]
+    assert truth["tool_invoked"] is False
+    assert truth["tool_executed"] is False
+    assert truth["tool_status"] == "not_invoked"
+    assert row["signals"]["tool_requested"] is True
+    assert row["signals"]["tool_selected"] == "code_search"
 
 
 def test_fallback_node_empty_and_simple_payload_are_not_full_runtime() -> None:
@@ -194,3 +281,25 @@ def test_memory_only_and_public_payload_contract() -> None:
     assert public["runtime_truth"]["intent"] == "memory"
     assert _contains_key(public, "execution_request") is False
     assert _contains_key(public, "stderr") is False
+
+
+def test_normalized_node_outcome_preserves_runtime_truth_classifier_metadata() -> None:
+    node_outcome = normalize_node_outcome(
+        transport_status=TRANSPORT_SUCCESS,
+        semantic_lane=LANE_MATCHER_SHORTCUT,
+        reason_code="direct_node_response",
+        node_result_envelope={
+            "response": "Olá!",
+            "runtime_truth": {
+                "intent": "greeting",
+                "intent_source": "rule_based",
+                "classifier_version": "regex_v1",
+            },
+        },
+        response_text="Olá!",
+    )
+
+    assert node_outcome["runtime_truth"]["intent"] == "greeting"
+    assert node_outcome["intent"] == "greeting"
+    assert node_outcome["intent_source"] == "rule_based"
+    assert node_outcome["classifier_version"] == "regex_v1"

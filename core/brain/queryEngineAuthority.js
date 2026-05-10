@@ -65,6 +65,7 @@ const { getCliPlatformManifest } = require('../../platform/cli/manifest');
 const {
   buildGovernanceBlockedResult,
   buildPolicyDecision,
+  classifyToolCategory,
   describeTool,
   evaluateToolGovernance,
 } = require('../../runtime/tooling/toolGovernance');
@@ -577,6 +578,19 @@ function buildActionAudit(workspace, delegation) {
   };
 }
 
+function defaultApprovalStateForTool(toolName) {
+  const category = classifyToolCategory(toolName);
+  return ['write', 'destructive', 'shell', 'network', 'git_sensitive', 'unknown'].includes(category)
+    ? 'pending'
+    : 'approved';
+}
+
+function permissionRequirementForTool(toolName) {
+  return defaultApprovalStateForTool(toolName) === 'pending'
+    ? 'explicit_approval_required'
+    : 'allow_read_only';
+}
+
 function buildProviderDiagnosticContext({
   selectedProviderName = '',
   actualProviderName = '',
@@ -790,7 +804,7 @@ class QueryEngineAuthority {
       step_id: step.step_id,
       policy_decision: buildPolicyDecision({
         toolName: step.selected_tool,
-        approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+        approvalState: defaultApprovalStateForTool(step.selected_tool),
         parallelSafe: Boolean(step.parallel_safe),
         specialist: step.selected_agent,
       }),
@@ -821,7 +835,7 @@ class QueryEngineAuthority {
     const actions = plannerResult.steps.map((step, index) => {
       const policyDecision = buildPolicyDecision({
         toolName: step.selected_tool,
-        approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+        approvalState: defaultApprovalStateForTool(step.selected_tool),
         parallelSafe: Boolean(step.parallel_safe),
         specialist: step.selected_agent,
       });
@@ -833,8 +847,8 @@ class QueryEngineAuthority {
       dependencyStepIds: Array.isArray(step.depends_on) ? step.depends_on : [],
       selectedTool: step.selected_tool,
       selectedAgent: step.selected_agent,
-      permissionRequirement: step.selected_tool === 'write_file' ? 'explicit_approval_required' : 'allow_read_only',
-      approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+      permissionRequirement: permissionRequirementForTool(step.selected_tool),
+      approvalState: defaultApprovalStateForTool(step.selected_tool),
       executionContext: {
         session_id: sessionId,
         task_id: taskId,
