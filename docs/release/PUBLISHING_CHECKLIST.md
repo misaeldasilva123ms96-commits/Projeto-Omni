@@ -99,6 +99,8 @@ If frontend Supabase is enabled:
 
 Any merge to `main` must be a separate, manual decision after review. Phase 15 does not merge main and does not create an automatic release.
 
+Policy: no automatic merge. Promotion to `main` is manual and reserved for the repository owner/user.
+
 ## No Automatic Release
 
 Do not tag, publish a GitHub release, deploy publicly, or start training as part of this checklist.

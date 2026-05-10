@@ -29,12 +29,17 @@ const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit'
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
 const { buildCooperativePlan } = require('../../features/multiagent/cooperativeCoordinator');
 const { buildVerificationPlan } = require('../../features/multiagent/verificationPlanner');
+const {
+  buildSpecialistFallback,
+  logSpecialistFallback,
+} = require('../../features/multiagent/specialists/specialistErrorPolicy');
 function safeSpecialistCall(fn, args) {
   try {
     return fn(args);
   } catch (err) {
-    console.error(`[specialist] ${fn.name || 'unknown'} failed: ${err.message}`);
-    return { invoked: true, degraded: true, specialist_id: fn.name || 'unknown', fallback: true };
+    const specialistId = fn.name || 'unknown';
+    logSpecialistFallback({ specialistId, err });
+    return buildSpecialistFallback({ specialistId, err });
   }
 }
 const { planTask } = require('../../features/multiagent/specialists/advancedPlannerSpecialist');
