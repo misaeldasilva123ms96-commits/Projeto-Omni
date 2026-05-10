@@ -1,6 +1,8 @@
 # Roadmap (detailed)
 
-This document expands the condensed table in the root `ROADMAP.md`. **Phase 40 is the current documented maturity target** for the governed self-improvement layer.
+This document describes the product-maturity track for the governed self-improvement layer. It is not the same track as the public debug/runtime truth work or the security remediation/audit phases summarized in the root `ROADMAP.md`.
+
+**Phase 40 is the current documented product-maturity target** for governed self-improvement. It does not mean the repository is production-ready, and it does not replace the runtime/security readiness gates documented under `docs/audit/`, `docs/release/`, and `docs/training/`.
 
 ## Phases 31–40 (implemented documentation bands)
 

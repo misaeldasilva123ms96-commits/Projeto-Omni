@@ -4,29 +4,25 @@
 
 Branch: `validation/rust-run-control-fix`
 
-Commit: `9da290a995ec81c0806ec6946e32b24fbfd3401f`
+Latest documentation audit commit: `9a6c527254fd01f6f07e9f9990b2156c07f34934`
 
-Roadmap v2.1: completed through audit pack, public-demo validation, Docker build/smoke, and Rust run_control timeout fix.
+This review is a current-state summary plus historical pre-merge evidence. The latest documentation audit reverified local runtime/security suites and static validators. It did not re-run Docker image build or container smoke.
 
-Audit pack: passed `npm run validate:audit-pack`.
+## Latest Verified Status
 
-Security regression: passed `npm run test:security`.
-
-Rust tests: PASS. `cd backend/rust && cargo test` passed with 47 passed, 0 failed.
-
-Python tests: passed `npm run test:python:pytest`.
-
-JS tests: passed `npm test` and `npm run test:js-runtime`.
-
-Frontend typecheck: passed `npm --prefix frontend run typecheck`.
-
-Docker compose: passed `docker compose -f docker-compose.demo.yml config`.
-
-Docker build: passed `docker build -f Dockerfile.demo -t omni-demo:final-validation .`.
+| Area | Latest verified status |
+| --- | --- |
+| Audit pack validator | Passed `npm run validate:audit-pack` |
+| Public demo validator | Passed `npm run validate:public-demo` |
+| Security regression | Passed `npm run test:security` |
+| Rust tests | Passed `cargo test` |
+| Python tests | Passed `npm run test:python:pytest` |
+| JS runtime tests | Passed `npm run test:js-runtime` |
+| Docker compose/image/runtime | Not reverified in latest documentation audit pass |
 
 Secret hygiene: passed. `.env` is ignored, not tracked, not staged, and no secret value was printed or copied into repo artifacts.
 
-READY_FOR_CONTROLLED_DEMO: YES.
+READY_FOR_CONTROLLED_DEMO: YES, after Docker/runtime smoke is confirmed in the target environment.
 
 READY_FOR_PRODUCTION: NO.
 
@@ -47,7 +43,7 @@ Recommended manual action:
 - Open a PR from `validation/rust-run-control-fix`.
 - Review the audit pack and validation docs.
 - Confirm CI reproduces the final validation matrix.
-- Open a PR from `validation/rust-run-control-fix`.
+- Confirm Docker build/runtime smoke in the target environment before sharing a public demo URL.
 - If CI reproduces the final validation matrix, manually merge according to repository policy.
 - Do not create a release tag or public deployment from this step.
 
@@ -106,13 +102,13 @@ Result:
 
 ## Docker Status
 
-Final Docker image build succeeded with tag `omni-demo:final-validation`. Prior smoke evidence validated `/health`, `/chat`, invalid JSON rejection, oversized payload rejection, non-root user, public demo env, disabled shell/debug env, no docker.sock, and no obvious secrets in inspect output.
+Historical notes in this audit pack may mention a successful Docker build/smoke or a blocked Docker build depending on the phase and machine state. The latest documentation audit did not reverify Docker build/runtime smoke. Before any public demo URL is shared, rerun the Docker build and container smoke in the target environment and record the result.
 
 ## Public Demo Readiness Decision
 
-`READY_FOR_CONTROLLED_DEMO: YES`
+`READY_FOR_CONTROLLED_DEMO: YES`, conditional on target-environment Docker/runtime smoke.
 
-Docker build/smoke and full validation are positive for controlled demo scope. Production readiness remains explicitly false.
+Static validators and local runtime/security suites are positive for controlled demo scope. Production readiness remains explicitly false.
 
 ## Explicit No-Merge Statement
 

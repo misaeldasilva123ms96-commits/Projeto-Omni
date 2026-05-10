@@ -1,20 +1,83 @@
-# Operations: testing
+# Operations: Testing
 
-## Python
+This page documents the current local validation matrix for the audited multi-runtime tree.
 
-From the repository root:
+Latest audit base used for this update:
+
+- Branch audited: `validation/rust-run-control-fix`
+- Commit audited: `9a6c527254fd01f6f07e9f9990b2156c07f34934`
+
+## Primary Local Matrix
+
+Run from the repository root unless a command states otherwise.
+
+| Command | Coverage | Current audit result |
+| --- | --- | --- |
+| `cargo test` | Rust/Axum API, request validation, run control, rate limiting, bridge behavior | PASS |
+| `npm run test:js-runtime` | Node QueryEngine runner, runtime truth contracts, specialists, Supabase optional dependency handling | PASS |
+| `npm run test:python:pytest` | Python runtime pytest suite, observability, governance, learning, training gates | PASS |
+| `npm run test:security` | Consolidated security regression suite across hardening phases | PASS |
+| `npm run validate:public-demo` | Static public demo readiness validator | PASS |
+| `npm run validate:audit-pack` | Static audit-pack validator | PASS |
+| `git diff --check` | Whitespace and patch hygiene | Required before commit |
+
+## Focused Runtime/Security Commands
+
+Use these for targeted changes:
 
 ```bash
-python -m unittest discover -s tests/runtime -p "test_*.py"
+python -m pytest -q tests/runtime/observability/test_runtime_truth_contract.py
+python -m pytest -q tests/runtime/test_tool_governance_enforcement.py
+python -m pytest -q tests/training/test_training_readiness_phase13.py
+node tests/runtime/toolGovernanceEnforcement.test.mjs
+node tests/runtime/specialistErrorPolicy.test.mjs
+node tests/runtime/supabaseClientOptional.test.mjs
 ```
 
-Focused areas:
+## Frontend Commands
 
-- `tests/runtime/evolution/` — controlled evolution
-- `tests/runtime/improvement/` — Phase 40 orchestrator
-- `tests/runtime/observability/` — read models
-- `tests/runtime/reasoning/` — reasoning + orchestrator integration
+Frontend validation is useful for UI/debug-surface changes:
 
-## Node / CI
+```bash
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+```
 
-See `.github/workflows/` for the authoritative CI matrix and scripts invoked in pipelines.
+Frontend tests may emit Vite or chart layout warnings. Treat warnings as investigation items when they affect assertions or rendered diagnostics.
+
+## Integration And E2E Notes
+
+- Live HTTP E2E requires `OMINI_E2E_API_URL`. When unset, related tests may skip instead of exercising a live server.
+- `npm run test:integration` is not a current root script in the audited tree.
+- `npm run intake:validate` is not a current root script in the audited tree.
+- Docker commands require a working local Docker daemon and should not be inferred from static validators alone.
+
+## Docker/Public Demo Validation
+
+Static checks:
+
+```bash
+npm run validate:public-demo
+docker compose -f docker-compose.demo.yml config
+```
+
+Runtime checks, when Docker is available:
+
+```bash
+docker build -f Dockerfile.demo -t omni-demo:local-validation .
+docker compose -f docker-compose.demo.yml up --build
+```
+
+The latest documentation audit verified the static validators, not a fresh Docker image build/runtime smoke in that pass.
+
+## Interpreting Success
+
+Test success and transport success are not the same as cognitive success. HTTP 200, valid JSON, `status=success`, and `NODE_EXECUTION_SUCCESS` mean a boundary returned a usable payload. Runtime correctness must be checked through:
+
+- `cognitive_runtime_inspection`
+- `runtime_truth`
+- `fallback_triggered`
+- provider diagnostics
+- tool execution diagnostics
+- governance and safety metadata

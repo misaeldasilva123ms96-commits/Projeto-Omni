@@ -2,6 +2,8 @@
 
 Phase 13 prepares validation and export infrastructure only. It does not start LoRA, RAG, fine-tuning, uploads, or any automatic training workflow.
 
+Runtime success is not the same thing as training readiness. A valid response, HTTP 200, or non-empty answer still must pass the learning safety gates below before it can become a positive training candidate.
+
 ## Positive Candidate Rules
 
 A record may become a positive training candidate only when all are true:
@@ -9,6 +11,7 @@ A record may become a positive training candidate only when all are true:
 - `learning_safety.positive_training_candidate=true`
 - `fallback_triggered=false`
 - `runtime_mode` is not `MATCHER_SHORTCUT`, `SAFE_FALLBACK`, `NODE_FALLBACK`, `PROVIDER_UNAVAILABLE`, or `TOOL_BLOCKED`
+- rule-based/matcher-only responses are not treated as positive cognitive examples
 - provider success is true when provider output is used
 - tool execution succeeded when tool output is used
 - governance status is `allowed` when a tool is involved
@@ -106,6 +109,8 @@ python scripts/export_training_candidates.py --write --positive-output out/posit
 ## Privacy And Redaction
 
 Export and validation reuse runtime learning redaction. Raw emails, phones, CPF, API keys, JWTs, bearer tokens, Supabase URLs, filesystem paths, raw provider payloads, raw tool results, environment dumps, stack traces, stdout/stderr, and execution requests are rejected or redacted before persistence.
+
+Redaction and learning-safety classification must occur before persistence/export. Heavily redacted records may still be useful as safety or routing eval cases, but they are not automatically useful positive examples.
 
 ## Known Limitations
 

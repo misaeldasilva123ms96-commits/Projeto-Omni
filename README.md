@@ -5,7 +5,7 @@
 
 Omni is a multi-runtime cognitive system designed to make AI execution visible, testable, and improvable. Instead of treating each interaction as a text-only response, Omni models a full runtime loop: intent interpretation, strategy selection, action execution, observability, decision evaluation, and controlled learning.
 
-This repository is open for public debugging and contribution. The project is functional in several core paths, but still experimental and actively evolving.
+This repository is open for public debugging and contribution. The project is functional in several core paths and has current runtime/security hardening, but it remains a controlled-demo/research system, not a production system.
 
 ---
 
@@ -83,13 +83,25 @@ Core system layers:
 - Provider Layer - routing, diagnostics, fallback visibility
 - Learning Layer - local records, decision evaluation, improvement signals
 
+Current default execution path:
+
+```txt
+Rust/Axum HTTP API
+  -> Python subprocess BrainOrchestrator
+  -> Node subprocess QueryEngine runner
+  -> Python public payload sanitization
+  -> Rust HTTP response
+```
+
+Python and Node service modes exist behind configuration, but they are opt-in. The default contributor and controlled-demo path remains subprocess based.
+
 Architecture references:
 
-- [ARCHITECTURE.md](ARCHITECTURE.md)
 - [docs/overview.md](docs/overview.md)
 - [docs/architecture/layers.md](docs/architecture/layers.md)
 - [docs/architecture/runtime-flow.md](docs/architecture/runtime-flow.md)
 - [docs/architecture/runtime-modes.md](docs/architecture/runtime-modes.md)
+- [docs/architecture/bridge-response-contract.md](docs/architecture/bridge-response-contract.md)
 - [docs/architecture/bridge-pipeline.md](docs/architecture/bridge-pipeline.md)
 - [docs/architecture/provider-routing.md](docs/architecture/provider-routing.md)
 - [docs/architecture/tool-runtime.md](docs/architecture/tool-runtime.md)
@@ -117,6 +129,19 @@ Omni exposes structured metadata so contributors can verify what actually happen
 - `learning signals`
 
 The goal is simple: no hidden degradation, no fake success, and no pretending that a fallback path was full cognitive execution.
+
+Important runtime modes:
+
+| Mode | Meaning |
+| --- | --- |
+| `FULL_COGNITIVE_RUNTIME` | Explicit evidence shows provider/tool/action execution completed through the full cognitive path. |
+| `PARTIAL_COGNITIVE` / `PARTIAL_COGNITIVE_RUNTIME` | A real non-fallback result exists, but evidence is not strong enough for full runtime. |
+| `MATCHER_SHORTCUT` | A local matcher answered without provider or tool execution. |
+| `RULE_BASED_INTENT` | Intent came from rules/regex classification rather than an LLM classifier. |
+| `COMPATIBILITY_EXECUTION` | The compatibility path completed; supported but not the long-term happy path. |
+| `SAFE_DEGRADED_FALLBACK` / `SAFE_FALLBACK` | The system intentionally returned a controlled degraded/fallback response. |
+
+Transport success is not cognitive success. HTTP 200, valid JSON, `status=success`, or `NODE_EXECUTION_SUCCESS` only prove that a boundary returned a usable payload. Contributors must inspect runtime truth, provider diagnostics, tool execution, and fallback flags before claiming full cognitive execution.
 
 ---
 
@@ -146,6 +171,8 @@ The learning layer can generate advisory improvement signals, such as:
 
 Important safety rule: Omni does not automatically rewrite or mutate itself. Learning signals are observable recommendations, not self-applied code changes.
 
+Runtime success is not automatically a positive training candidate. Positive export requires explicit `learning_safety.positive_training_candidate=true`, redaction, safe runtime mode, no fallback/matcher/provider failure/governance block/tool failure, and user-visible success. See [docs/training/TRAINING_READINESS.md](docs/training/TRAINING_READINESS.md).
+
 ---
 
 ## Project Status
@@ -158,6 +185,7 @@ Stable enough for:
 - frontend/runtime debugging
 - provider and tool diagnostics
 - contribution to tests, docs, observability, and execution reliability
+- controlled demo validation in a locked-down environment
 
 Not yet stable enough for:
 
@@ -165,6 +193,8 @@ Not yet stable enough for:
 - unattended high-impact actions
 - claims of general autonomous reliability
 - uncontrolled self-improvement
+- public production deployment
+- training data collection without the documented safety gates
 
 Public debug references:
 
@@ -267,12 +297,15 @@ http://127.0.0.1:4173
 
 ## Validation
 
-Common validation commands:
+Current local validation matrix:
 
 ```bash
-npm run test:node
-npm run test:python
-npm run test:e2e:chat-contract
+cargo test
+npm run test:js-runtime
+npm run test:python:pytest
+npm run test:security
+npm run validate:public-demo
+npm run validate:audit-pack
 ```
 
 Frontend validation:
@@ -287,11 +320,14 @@ npm run build
 Python runtime validation examples:
 
 ```bash
-python -m pytest -q tests/runtime
-python -m pytest -q tests/contracts
+python -m pytest -q tests/runtime/observability/test_runtime_truth_contract.py
+python -m pytest -q tests/runtime/test_tool_governance_enforcement.py
+python -m pytest -q tests/training/test_training_readiness_phase13.py
 ```
 
-Use only the validations relevant to the files you changed. If a validation cannot be run, document why in the PR.
+Live HTTP E2E depends on `OMINI_E2E_API_URL` and may skip when no local API URL is configured. `npm run test:integration` and `npm run intake:validate` are not current root scripts unless added later. Use only the validations relevant to the files you changed. If a validation cannot be run, document why in the PR.
+
+See [docs/operations/testing.md](docs/operations/testing.md).
 
 ---
 
@@ -305,7 +341,7 @@ The current UI is a cognitive runtime console, not a simple chat window. It expo
 - provider diagnostics
 - tool diagnostics
 - failure class
-- debug mode with raw metadata
+- debug mode with sanitized public metadata
 - responsive panels for chat, tools, and runtime state
 
 Frontend code:
@@ -352,27 +388,15 @@ Contribution rules:
 
 ## Roadmap
 
-High-level roadmap:
-
-- Phase 1 - Organization
-- Phase 2 - Public Debug
-- Phase 3 - Execution Recovery
-- Phase 4 - Runtime Truth
-- Phase 5 - Pipeline Stability
-- Phase 6 - Frontend Debug Surface
-- Phase 7 - Provider Diagnostics
-- Phase 8 - Tool Runtime Reliability
-- Phase 9 - Cognitive Decision Quality
-- Phase 10 - Controlled Learning Loop
+The repository has multiple roadmap tracks: public debug/runtime truth, security remediation/hardening, and longer-term product maturity. Do not treat the project as simply "Phase 9 of 10"; use the current roadmap index and audit docs.
 
 Next focus areas:
 
-- larger decision datasets
-- stronger tool/action routing
-- better provider fallback behavior
-- adaptive routing experiments
-- LoRA/model-improvement research
-- stricter runtime gates
+- keeping documentation synchronized with audited runtime behavior
+- increasing integration confidence across Rust, Python, Node, and frontend surfaces
+- hardening opt-in service modes
+- expanding safe evaluation datasets
+- improving routing without weakening runtime truth or governance gates
 
 See [ROADMAP.md](ROADMAP.md).
 
@@ -398,6 +422,8 @@ See:
 
 - [.env.example](.env.example)
 - [docs/public-debug/PUBLIC_SAFETY_AUDIT.md](docs/public-debug/PUBLIC_SAFETY_AUDIT.md)
+- [docs/audit/KNOWN_LIMITATIONS.md](docs/audit/KNOWN_LIMITATIONS.md)
+- [docs/release/PUBLIC_DEMO_READINESS.md](docs/release/PUBLIC_DEMO_READINESS.md)
 
 ---
 
