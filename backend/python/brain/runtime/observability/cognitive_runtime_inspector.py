@@ -181,9 +181,39 @@ def _truth_tool_status(tool_execution: dict[str, Any] | None) -> str:
         return "failed"
     if bool(tool_execution.get("tool_attempted")):
         return "attempted"
-    if tool_execution.get("tool_selected") or tool_execution.get("tool_requested"):
-        return "invoked"
     return "not_invoked"
+
+
+def _node_runtime_truth(node_outcome: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(node_outcome, dict):
+        return {}
+    raw_truth = node_outcome.get("runtime_truth")
+    return dict(raw_truth) if isinstance(raw_truth, dict) else {}
+
+
+def _explicit_provider_truth(
+    execution_provenance: dict[str, Any],
+    provider_diagnostics: list[dict[str, Any]],
+    node_truth: dict[str, Any],
+) -> tuple[bool, bool]:
+    if provider_diagnostics:
+        attempted = any(bool(item.get("attempted")) for item in provider_diagnostics if isinstance(item, dict))
+        succeeded = any(bool(item.get("succeeded")) for item in provider_diagnostics if isinstance(item, dict))
+        return bool(attempted), bool(succeeded and attempted)
+
+    attempted_value = execution_provenance.get("llm_provider_attempted", execution_provenance.get("provider_attempted"))
+    succeeded_value = execution_provenance.get("llm_provider_succeeded", execution_provenance.get("provider_succeeded"))
+    if attempted_value is not None or succeeded_value is not None:
+        attempted = bool(attempted_value)
+        succeeded = bool(succeeded_value)
+        return attempted, bool(succeeded and attempted)
+
+    if "llm_provider_attempted" in node_truth or "llm_provider_succeeded" in node_truth:
+        attempted = bool(node_truth.get("llm_provider_attempted"))
+        succeeded = bool(node_truth.get("llm_provider_succeeded"))
+        return attempted, bool(succeeded and attempted)
+
+    return False, False
 
 
 def _truth_error_code(runtime_mode: str) -> str:
@@ -585,14 +615,17 @@ def build_cognitive_runtime_inspection(
         and runtime_mode in {RUNTIME_MODE_NODE_OK, RUNTIME_MODE_FULL, RUNTIME_MODE_LOCAL_TOOL_SUCCESS}
     )
 
+    node_truth = _node_runtime_truth(node_outcome)
     tool_status = _truth_tool_status(tool_execution)
-    tool_invoked = tool_status not in {"not_invoked"}
+    tool_invoked = tool_status in {"attempted", "executed", "failed", "blocked"}
     tool_executed = tool_status == "executed"
     tool_blocked = tool_status == "blocked"
     matcher_used = semantic_lane == LANE_MATCHER_SHORTCUT
-    provider_is_llm = bool(provider_actual and provider_actual not in {"local-heuristic", "embedded", "native-heuristic"})
-    llm_provider_attempted = bool(provider_is_llm and not matcher_used)
-    llm_provider_succeeded = bool(llm_provider_attempted and not provider_failed and not failure_class)
+    llm_provider_attempted, llm_provider_succeeded = _explicit_provider_truth(
+        execution_provenance,
+        provider_diagnostics,
+        node_truth,
+    )
     node_invoked = bool(execution_path_used == "node_execution" or isinstance(node_outcome, dict) or node_cognitive_hint)
     node_exit_code = None
     if isinstance(node_outcome, dict):
@@ -608,11 +641,10 @@ def build_cognitive_runtime_inspection(
         intent = str(node_outcome.get("intent") or "").strip()
         intent_source = str(node_outcome.get("intent_source") or intent_source).strip() or "rule_based"
         classifier_version = str(node_outcome.get("classifier_version") or classifier_version).strip() or "regex_v1"
-        raw_truth = node_outcome.get("runtime_truth")
-        if isinstance(raw_truth, dict):
-            intent = str(raw_truth.get("intent") or intent).strip()
-            intent_source = str(raw_truth.get("intent_source") or intent_source).strip() or "rule_based"
-            classifier_version = str(raw_truth.get("classifier_version") or classifier_version).strip() or "regex_v1"
+        if node_truth:
+            intent = str(node_truth.get("intent") or intent).strip()
+            intent_source = str(node_truth.get("intent_source") or intent_source).strip() or "rule_based"
+            classifier_version = str(node_truth.get("classifier_version") or classifier_version).strip() or "regex_v1"
     if isinstance(lora_payload, dict):
         raw_truth = lora_payload.get("runtime_truth")
         if isinstance(raw_truth, dict):

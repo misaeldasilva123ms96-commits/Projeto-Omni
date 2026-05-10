@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -77,6 +78,16 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
 
         self.assert_governance_blocked(result, "TOOL_APPROVAL_REQUIRED")
 
+    def test_write_aliases_without_approval_are_blocked(self) -> None:
+        for tool in ("filesystem_write", "filesystem_patch_set", "file_write", "patch_file"):
+            with self.subTest(tool=tool):
+                result = execute_engineering_action(
+                    project_root=PROJECT_ROOT,
+                    action={"selected_tool": tool, "tool_arguments": {"path": "tmp.txt", "content": "x"}},
+                )
+
+                self.assert_governance_blocked(result, "TOOL_APPROVAL_REQUIRED")
+
     def test_destructive_operation_blocked(self) -> None:
         result = execute_engineering_action(
             project_root=PROJECT_ROOT,
@@ -140,6 +151,53 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
         serialized = str(result).lower()
         for forbidden in ("traceback", "stack", "env", "token", "stdout", "stderr", "rm -rf", "raw_payload"):
             self.assertNotIn(forbidden, serialized)
+
+    def test_read_file_path_traversal_is_denied(self) -> None:
+        result = execute_engineering_action(
+            project_root=PROJECT_ROOT,
+            action={"selected_tool": "read_file", "tool_arguments": {"path": "../.env"}},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_payload"]["kind"], "path_outside_workspace")
+        self.assertNotIn(str(PROJECT_ROOT.parent), str(result))
+
+    def test_read_file_absolute_path_outside_workspace_is_denied(self) -> None:
+        with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+            handle.write("outside")
+            outside_path = handle.name
+        try:
+            result = execute_engineering_action(
+                project_root=PROJECT_ROOT,
+                action={"selected_tool": "read_file", "tool_arguments": {"path": outside_path}},
+            )
+        finally:
+            try:
+                os.unlink(outside_path)
+            except OSError:
+                pass
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_payload"]["kind"], "path_outside_workspace")
+
+    def test_read_file_env_denied_in_public_demo(self) -> None:
+        with patch.dict(os.environ, clean_env(OMNI_PUBLIC_DEMO_MODE="true"), clear=False):
+            result = execute_engineering_action(
+                project_root=PROJECT_ROOT,
+                action={"selected_tool": "read_file", "tool_arguments": {"path": ".env"}},
+            )
+
+        self.assert_governance_blocked(result, "TOOL_BLOCKED_PUBLIC_DEMO")
+        self.assertTrue(result["governance_audit"]["public_demo_blocked"])
+
+    def test_read_file_workspace_file_allowed_with_scope(self) -> None:
+        result = execute_engineering_action(
+            project_root=PROJECT_ROOT,
+            action={"selected_tool": "read_file", "tool_arguments": {"path": "package.json", "limit": 80}},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertIn("content", result["result_payload"]["file"])
 
     def test_runtime_truth_marks_governance_blocked_tool(self) -> None:
         row = build_cognitive_runtime_inspection(

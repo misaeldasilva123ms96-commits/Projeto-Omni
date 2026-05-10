@@ -1965,6 +1965,19 @@ const PYTHON_PARSE_FAILURE_RESPONSE: &str =
 const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text", "answer"];
 
 fn python_debug_logging_enabled() -> bool {
+    let public_demo_enabled = env::var("OMNI_PUBLIC_DEMO_MODE")
+        .ok()
+        .or_else(|| env::var("OMINI_PUBLIC_DEMO_MODE").ok())
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    if public_demo_enabled {
+        return false;
+    }
     env::var("OMINI_LOG_LEVEL")
         .ok()
         .or_else(|| env::var("LOG_LEVEL").ok())
@@ -3330,6 +3343,38 @@ mod tests {
         assert_eq!(canonical.config.max_body_bytes, 654);
         assert!(canonical.config.rate_limit_enabled);
         assert_eq!(canonical.config.rate_limit_per_minute, 9);
+
+        for (key, value) in saved {
+            if let Some(value) = value {
+                env::set_var(key, value);
+            } else {
+                env::remove_var(key);
+            }
+        }
+        drop(lock);
+    }
+
+    #[test]
+    fn python_debug_logging_is_disabled_in_public_demo() {
+        let lock = ENV_TEST_LOCK
+            .get_or_init(|| StdMutex::new(()))
+            .lock()
+            .unwrap();
+        let keys = [
+            "OMINI_LOG_LEVEL",
+            "LOG_LEVEL",
+            "OMNI_PUBLIC_DEMO_MODE",
+            "OMINI_PUBLIC_DEMO_MODE",
+        ];
+        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+
+        env::set_var("LOG_LEVEL", "debug");
+        assert!(python_debug_logging_enabled());
+        env::set_var("OMNI_PUBLIC_DEMO_MODE", "true");
+        assert!(!python_debug_logging_enabled());
 
         for (key, value) in saved {
             if let Some(value) = value {

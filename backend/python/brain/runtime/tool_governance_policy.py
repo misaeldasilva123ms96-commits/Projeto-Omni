@@ -10,9 +10,19 @@ POLICY_VERSION = "tool_governance_v1"
 
 READ_SAFE = {"status", "health", "list", "directory_tree", "git_status", "git_diff", "dependency_inspection", "glob_search", "grep_search", "code_search"}
 READ_SENSITIVE = {"read_file", "filesystem_read", "memory_read", "debug_inspection"}
-WRITE = {"write_file", "edit_file", "filesystem_write", "filesystem_patch_set", "generated_file_write"}
-DESTRUCTIVE = {"delete", "overwrite", "git_reset", "git_clean", "rm", "remove_file"}
-SHELL = {"shell_command", "run_command", "test_runner", "verification_runner", "package_manager", "autonomous_debug_loop"}
+WRITE = {"write_file", "edit_file", "filesystem_write", "filesystem_patch_set", "generated_file_write", "file_write", "patch_file"}
+DESTRUCTIVE = {"delete", "delete_file", "overwrite", "git_reset", "git_clean", "rm", "remove_file"}
+SHELL = {
+    "shell",
+    "shell_command",
+    "run_command",
+    "command",
+    "execute_command",
+    "test_runner",
+    "verification_runner",
+    "package_manager",
+    "autonomous_debug_loop",
+}
 NETWORK = {"curl", "fetch", "web_request", "network_request"}
 GIT_SENSITIVE = {"git_commit", "git_push", "git_branch_mutation"}
 
@@ -46,7 +56,30 @@ def classify_tool_category(tool_name: str) -> str:
         return "git_sensitive"
     if tool.startswith("git_") and tool not in {"git_status", "git_diff"}:
         return "git_sensitive"
+    if any(token in tool for token in ("write", "patch")):
+        return "write"
+    if any(token in tool for token in ("delete", "remove", "overwrite")):
+        return "destructive"
+    if any(token in tool for token in ("shell", "command", "exec")):
+        return "shell"
     return "unknown"
+
+
+def _is_public_demo_sensitive_read_path(path_value: Any) -> bool:
+    path_text = str(path_value or "").replace("\\", "/").strip().lower()
+    if not path_text:
+        return False
+    parts = [part for part in path_text.split("/") if part]
+    basename = parts[-1] if parts else path_text
+    if basename == ".env" or basename.startswith(".env."):
+        return True
+    if any(part in {".logs", "logs", "runtime_logs", "learning_logs", ".cache", "cache"} for part in parts):
+        return True
+    if any(token in basename for token in ("key", "token", "secret", "credential")):
+        return True
+    if "memory" in parts and any(part in {"private", "local", "storage"} for part in parts):
+        return True
+    return False
 
 
 def build_public_governance_audit(
@@ -87,6 +120,8 @@ def evaluate_tool_governance(action: dict[str, Any] | None) -> dict[str, Any]:
     if category == "read_sensitive":
         if not explicit_scope:
             return _decision(False, category, "missing_explicit_scope", approval_required=True)
+        if is_public_demo_mode() and _is_public_demo_sensitive_read_path(arguments.get("path", "")):
+            return _decision(False, category, "public_demo_sensitive_read_blocked", public_demo_blocked=True)
         return _decision(True, category, "read_sensitive_scope_allowed")
     if category == "write":
         if approval_state != "approved":

@@ -34,9 +34,17 @@ function testCategoriesAndBlocks() {
   const write = evaluateToolGovernance({ selected_tool: 'write_file', tool_arguments: { path: 'x' } })
   assert.equal(write.allowed, false)
   assert.equal(write.category, 'write')
+  for (const tool of ['filesystem_write', 'filesystem_patch_set', 'file_write', 'patch_file']) {
+    const aliasWrite = evaluateToolGovernance({ selected_tool: tool, tool_arguments: { path: 'x' } })
+    assert.equal(aliasWrite.allowed, false)
+    assert.equal(aliasWrite.category, 'write')
+    assert.equal(aliasWrite.error_public_code, 'TOOL_APPROVAL_REQUIRED')
+  }
 
   assert.equal(evaluateToolGovernance({ selected_tool: 'git_reset' }).category, 'destructive')
   assert.equal(evaluateToolGovernance({ selected_tool: 'git_reset' }).allowed, false)
+  assert.equal(evaluateToolGovernance({ selected_tool: 'delete_file' }).category, 'destructive')
+  assert.equal(evaluateToolGovernance({ selected_tool: 'delete_file' }).allowed, false)
   assert.equal(evaluateToolGovernance({ selected_tool: 'git_clean' }).allowed, false)
   assert.equal(evaluateToolGovernance({ selected_tool: 'git_commit' }).category, 'git_sensitive')
   assert.equal(evaluateToolGovernance({ selected_tool: 'git_push' }).allowed, false)
@@ -49,6 +57,10 @@ function testPublicDemoPrecedence() {
     assert.equal(decision.allowed, false)
     assert.equal(decision.error_public_code, 'TOOL_BLOCKED_PUBLIC_DEMO')
     assert.equal(decision.governance_audit.public_demo_blocked, true)
+
+    const readSecret = evaluateToolGovernance({ selected_tool: 'read_file', tool_arguments: { path: '.env' } })
+    assert.equal(readSecret.allowed, false)
+    assert.equal(readSecret.error_public_code, 'TOOL_BLOCKED_PUBLIC_DEMO')
   })
 }
 

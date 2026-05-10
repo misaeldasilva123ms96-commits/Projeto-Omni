@@ -96,4 +96,19 @@ const emptySanitized = runnerModule.sanitizeForUser('');
 assert.equal(emptySanitized.error.failure_class, 'NODE_EMPTY_RESPONSE');
 assert.equal(typeof emptySanitized.response, 'string');
 
+const previousLogLevel = process.env.LOG_LEVEL;
+const previousPublicDemo = process.env.OMNI_PUBLIC_DEMO_MODE;
+try {
+  process.env.LOG_LEVEL = 'debug';
+  delete process.env.OMNI_PUBLIC_DEMO_MODE;
+  assert.equal(runnerModule.isDebugLoggingEnabled(), true);
+  process.env.OMNI_PUBLIC_DEMO_MODE = 'true';
+  assert.equal(runnerModule.isDebugLoggingEnabled(), false);
+} finally {
+  if (previousLogLevel === undefined) delete process.env.LOG_LEVEL;
+  else process.env.LOG_LEVEL = previousLogLevel;
+  if (previousPublicDemo === undefined) delete process.env.OMNI_PUBLIC_DEMO_MODE;
+  else process.env.OMNI_PUBLIC_DEMO_MODE = previousPublicDemo;
+}
+
 console.log('queryengine runtime mode tests: ok');

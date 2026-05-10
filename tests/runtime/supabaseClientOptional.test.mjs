@@ -47,6 +47,11 @@ try {
 const completed = spawnSync('node', ['-e', script], {
   cwd: projectRoot,
   encoding: 'utf8',
+  env: {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !/^SUPABASE_/i.test(key) && !/^VITE_SUPABASE_/i.test(key)),
+    ),
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 

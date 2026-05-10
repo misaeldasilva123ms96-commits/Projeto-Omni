@@ -504,8 +504,44 @@ function emitRunnerError(kind, message, details = {}) {
 }
 
 function isDebugLoggingEnabled() {
+  if (isPublicDemoMode()) {
+    return false;
+  }
   const level = String(process.env.OMINI_LOG_LEVEL || process.env.LOG_LEVEL || '').toLowerCase().trim();
   return level === 'debug';
+}
+
+function isPublicDemoMode() {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env.OMNI_PUBLIC_DEMO_MODE || '').trim().toLowerCase())
+    || ['1', 'true', 'yes', 'on'].includes(String(process.env.OMINI_PUBLIC_DEMO_MODE || '').trim().toLowerCase());
+}
+
+function sanitizeDebugPayload(value, depth = 0) {
+  if (depth > 4) {
+    return '[REDACTED_DEPTH]';
+  }
+  if (typeof value === 'string') {
+    return value
+      .replace(/sk-proj-[A-Za-z0-9_-]{12,}/g, '[REDACTED_API_KEY]')
+      .replace(/sk-[A-Za-z0-9_-]{12,}/g, '[REDACTED_API_KEY]')
+      .replace(/Bearer\s+[A-Za-z0-9_.=-]{12,}/gi, 'Bearer [REDACTED_TOKEN]')
+      .slice(0, 500);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map(item => sanitizeDebugPayload(item, depth + 1));
+  }
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (/(token|secret|password|api[_-]?key|authorization|env|stdout|stderr|raw)/i.test(key)) {
+      out[key] = '[REDACTED]';
+    } else {
+      out[key] = sanitizeDebugPayload(item, depth + 1);
+    }
+  }
+  return out;
 }
 
 function debugLogInternal(stage, payload) {
@@ -514,7 +550,7 @@ function debugLogInternal(stage, payload) {
   }
 
   try {
-    process.stderr.write(`${JSON.stringify({ stage, payload })}\n`);
+    process.stderr.write(`${JSON.stringify({ stage, payload: sanitizeDebugPayload(payload) })}\n`);
   } catch {
     // Never break user-visible output because debug logging failed.
   }
@@ -730,6 +766,7 @@ module.exports = {
   getPackagedQueryEngineCandidate,
   getWorkspaceRoot,
   inferFallbackMetadata,
+  isDebugLoggingEnabled,
   loadAgentMemoryContext,
   loadRunnerSchema,
   main,
