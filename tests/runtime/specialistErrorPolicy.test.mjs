@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { reviewDependencyImpact } from '../../features/multiagent/specialists/dependencyImpactSpecialist.js';
 import {
@@ -122,5 +123,13 @@ assert.equal(serialized(sanitizedPrimitive).includes('/tmp/secret'), false);
 assert.equal(serialized(sanitizedPrimitive).includes('abc123'), false);
 
 clearPolicyEnv();
+
+const authoritySource = readFileSync(
+  new URL('../../core/brain/queryEngineAuthority.js', import.meta.url),
+  'utf8',
+);
+assert.equal(authoritySource.includes('console.error(`[specialist]'), false);
+assert.equal(authoritySource.includes('err.message'), false);
+assert.equal(authoritySource.includes('logSpecialistFallback({ specialistId, err })'), true);
 
 console.log('specialist error policy tests: ok');
