@@ -8,6 +8,7 @@ const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
+const { executeRemoteProviderCompletion } = require('../../platform/providers/remoteProviderExecutor');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
 const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
@@ -718,7 +719,7 @@ class QueryEngineAuthority {
     const hintEnv = readPolicyHintEnvelope();
     const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
     const selectedProviderName = provider && provider.name ? provider.name : '';
-    const llmProviderAttempted = Boolean(provider && provider.kind !== 'embedded');
+    const llmProviderAttempted = false;
     const llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
@@ -919,6 +920,83 @@ class QueryEngineAuthority {
         contract: actionsWithPolicy[0] || { version: '1.0.0' },
       });
 
+      const shouldAttemptRemoteProvider = Boolean(
+        provider
+        && provider.kind === 'remote'
+        && !directMemoryResponse
+        && ['conversation', 'analysis', 'engineering'].includes(intent)
+      );
+      const remoteProviderResult = shouldAttemptRemoteProvider
+        ? await executeRemoteProviderCompletion({
+            provider,
+            message,
+            intent,
+            summary,
+          })
+        : null;
+
+      if (remoteProviderResult && remoteProviderResult.ok) {
+        const providerDiagnostics = buildProviderDiagnosticContext({
+          selectedProviderName,
+          actualProviderName: remoteProviderResult.provider,
+          attemptedProviderName: remoteProviderResult.provider,
+          succeededProviderName: remoteProviderResult.provider,
+          latencyMs: remoteProviderResult.latency_ms,
+        });
+        const epRemote = buildExecutionProvenance({
+          provider: {
+            ...provider,
+            name: remoteProviderResult.provider,
+            model: remoteProviderResult.model || provider.model,
+          },
+          ...providerDiagnostics,
+          toolCalls: [],
+          strategyActual: String(intent),
+          executionMode: 'remote_provider_direct',
+          provenanceSource: 'remote_provider_executor',
+          provenanceConfidence: 0.84,
+          latencyBreakdownMs: {
+            authority_ms: Date.now() - authorityStarted,
+            provider_ms: remoteProviderResult.latency_ms,
+          },
+          policyHintEnvelope: hintEnv,
+        });
+        return attachProvenanceMetadata(attachRuntimeTruth({
+          response: remoteProviderResult.text,
+          cognitive_runtime_hint: { lane: 'remote_provider_direct', detail: 'remote_provider_response' },
+          confidence: 0.84,
+          memory: {
+            session: sessionSnapshot,
+            layers: buildMemorySnapshot({
+              layers: memoryLayers,
+              strategy: intent,
+              provider,
+            }),
+            runtime_memory: runtimeMemory,
+            provider: remoteProviderResult.provider,
+            delegates: delegation,
+            strategy: intent,
+            runtime_mode: 'remote-provider-direct',
+          },
+        }, buildRuntimeTruth({
+          runtimeMode: RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE,
+          runtimeReason: 'remote_provider_response',
+          intentInfo,
+          providerAttempted: true,
+          providerSucceeded: true,
+          toolInvoked: false,
+          toolExecuted: false,
+          nodeInvoked: true,
+        })), epRemote);
+      }
+
+      const providerFailureClass = remoteProviderResult && !remoteProviderResult.ok
+        ? String(remoteProviderResult.failure_class || 'provider_unavailable')
+        : '';
+      const providerFailureReason = remoteProviderResult && !remoteProviderResult.ok
+        ? String(remoteProviderResult.failure_reason || 'Remote provider request failed.')
+        : '';
+
       appendExecutionAudit(workspace, {
         ...buildRuntimeTrace({
           thought: { intent, complexity },
@@ -948,12 +1026,18 @@ class QueryEngineAuthority {
         ...buildProviderDiagnosticContext({
           selectedProviderName,
           actualProviderName: '',
-          attemptedProviderName: '',
+          attemptedProviderName: remoteProviderResult ? selectedProviderName : '',
           succeededProviderName: '',
+          failureClass: providerFailureClass,
+          failureReason: providerFailureReason,
+          latencyMs: remoteProviderResult ? remoteProviderResult.latency_ms : null,
         }),
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
         strategyActual: String(intent),
         executionMode: 'no_tool_local',
+        providerFailed: Boolean(providerFailureClass),
+        failureClass: providerFailureClass,
+        failureReason: providerFailureReason,
         provenanceSource: 'no_tool_local',
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
@@ -982,7 +1066,7 @@ class QueryEngineAuthority {
         runtimeMode: noToolMode,
         runtimeReason: directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none',
         intentInfo,
-        providerAttempted: false,
+        providerAttempted: Boolean(remoteProviderResult),
         providerSucceeded: false,
         toolInvoked: false,
         toolExecuted: false,

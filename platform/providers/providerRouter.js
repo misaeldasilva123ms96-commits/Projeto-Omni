@@ -11,7 +11,7 @@ function hasConfig(name) {
  * Comma-separated logical ids from Python (validated keys only). Used for routing order hints.
  */
 function parseOmniAvailableProviders() {
-  const raw = envValue('OMINI_AVAILABLE_PROVIDERS');
+  const raw = envValue('OMNI_AVAILABLE_PROVIDERS') || envValue('OMINI_AVAILABLE_PROVIDERS');
   if (!raw) {
     return null;
   }

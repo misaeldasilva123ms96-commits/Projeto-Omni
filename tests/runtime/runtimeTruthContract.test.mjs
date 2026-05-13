@@ -8,6 +8,62 @@ const {
   buildRuntimeTruth,
   inferIntentWithSource,
 } = require('../../core/brain/queryEngineAuthority.js')
+const { getAvailableProviders } = require('../../platform/providers/providerRouter.js')
+
+const providerEnvKeys = [
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'GROQ_API_KEY',
+  'GROQ_MODEL',
+  'GEMINI_API_KEY',
+  'GEMINI_MODEL',
+  'DEEPSEEK_API_KEY',
+  'OLLAMA_URL',
+  'OMNI_AVAILABLE_PROVIDERS',
+  'OMINI_AVAILABLE_PROVIDERS',
+  'OMINI_SKIP_CONVERSATIONAL_MATCHERS',
+]
+
+async function withEnv(values, fn) {
+  const keys = Array.from(new Set([...providerEnvKeys, ...Object.keys(values)]))
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      if (values[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = values[key]
+      }
+    } else {
+      delete process.env[key]
+    }
+  }
+  try {
+    return await fn()
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = saved[key]
+      }
+    }
+  }
+}
+
+async function withFetchMock(mockFetch, fn) {
+  const savedFetch = globalThis.fetch
+  globalThis.fetch = mockFetch
+  try {
+    return await fn()
+  } finally {
+    if (savedFetch === undefined) {
+      delete globalThis.fetch
+    } else {
+      globalThis.fetch = savedFetch
+    }
+  }
+}
 
 async function testGreetingMatcherTruth() {
   const engine = new QueryEngineAuthority()
@@ -80,7 +136,152 @@ function testTruthHelperModes() {
   assert.notEqual(fallback.runtime_mode, RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME)
 }
 
+async function testGeminiProviderSuccessTruth() {
+  await withEnv({
+    GEMINI_API_KEY: 'test-gemini-key',
+    GEMINI_MODEL: 'gemini-test-model',
+    OMNI_AVAILABLE_PROVIDERS: 'gemini',
+    OMINI_SKIP_CONVERSATIONAL_MATCHERS: '1',
+  }, async () => {
+    await withFetchMock(async () => ({
+      ok: true,
+      async json() {
+        return {
+          candidates: [
+            {
+              content: {
+                parts: [{ text: 'OMNI_PROVIDER_TEST_OK' }],
+              },
+            },
+          ],
+        }
+      },
+    }), async () => {
+      const engine = new QueryEngineAuthority()
+      const result = await engine.submitMessage({
+        message: 'Responda apenas: OMNI_PROVIDER_TEST_OK',
+        memoryContext: {},
+        history: [],
+        summary: '',
+        capabilities: [],
+        session: { session_id: 'truth-contract-gemini-success' },
+        cwd: process.cwd(),
+      })
+
+      assert.equal(result.response, 'OMNI_PROVIDER_TEST_OK')
+      assert.equal(result.runtime_truth.runtime_mode, RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE)
+      assert.equal(result.runtime_truth.runtime_reason, 'remote_provider_response')
+      assert.equal(result.runtime_truth.llm_provider_attempted, true)
+      assert.equal(result.runtime_truth.llm_provider_succeeded, true)
+      assert.equal(result.runtime_truth.tool_invoked, false)
+      assert.equal(result.metadata.execution_provenance.provider_actual, 'gemini')
+      assert.equal(result.metadata.execution_provenance.model_actual, 'gemini-test-model')
+      const gemini = result.metadata.execution_provenance.provider_diagnostics.find(row => row.provider === 'gemini')
+      assert.equal(gemini.selected, true)
+      assert.equal(gemini.attempted, true)
+      assert.equal(gemini.succeeded, true)
+      assert.equal(gemini.failed, false)
+    })
+  })
+}
+
+async function testGeminiProviderFailureFallsBackSafely() {
+  await withEnv({
+    GEMINI_API_KEY: 'test-gemini-key',
+    GEMINI_MODEL: 'gemini-test-model',
+    OMNI_AVAILABLE_PROVIDERS: 'gemini',
+    OMINI_SKIP_CONVERSATIONAL_MATCHERS: '1',
+  }, async () => {
+    await withFetchMock(async () => ({
+      ok: false,
+      status: 500,
+      async json() {
+        return { error: { message: 'raw upstream detail must not appear' } }
+      },
+    }), async () => {
+      const engine = new QueryEngineAuthority()
+      const result = await engine.submitMessage({
+        message: 'Explique de forma curta o que e uma API distribuida',
+        memoryContext: {},
+        history: [],
+        summary: '',
+        capabilities: [],
+        session: { session_id: 'truth-contract-gemini-failure' },
+        cwd: process.cwd(),
+      })
+
+      assert.equal(typeof result.response, 'string')
+      assert.ok(result.response.trim().length > 0)
+      assert.notEqual(result.response, 'raw upstream detail must not appear')
+      assert.equal(result.runtime_truth.llm_provider_attempted, true)
+      assert.equal(result.runtime_truth.llm_provider_succeeded, false)
+      const provenance = result.metadata.execution_provenance
+      assert.equal(provenance.provider_failed, true)
+      assert.equal(provenance.failure_class, 'provider_http_error')
+      const serialized = JSON.stringify(result)
+      assert.equal(serialized.includes('test-gemini-key'), false)
+      assert.equal(serialized.includes('raw upstream detail must not appear'), false)
+      const gemini = provenance.provider_diagnostics.find(row => row.provider === 'gemini')
+      assert.equal(gemini.attempted, true)
+      assert.equal(gemini.succeeded, false)
+      assert.equal(gemini.failed, true)
+    })
+  })
+}
+
+async function testNoProviderKeepsLocalHeuristicBehavior() {
+  await withEnv({
+    OMINI_SKIP_CONVERSATIONAL_MATCHERS: '1',
+  }, async () => {
+    await withFetchMock(async () => {
+      throw new Error('fetch should not be called without a remote provider')
+    }, async () => {
+      const engine = new QueryEngineAuthority()
+      const result = await engine.submitMessage({
+        message: 'Explique brevemente arquitetura hexagonal',
+        memoryContext: {},
+        history: [],
+        summary: '',
+        capabilities: [],
+        session: { session_id: 'truth-contract-local-fallback' },
+        cwd: process.cwd(),
+      })
+
+      assert.equal(typeof result.response, 'string')
+      assert.ok(result.response.trim().length > 0)
+      assert.equal(result.runtime_truth.llm_provider_attempted, false)
+      assert.equal(result.runtime_truth.llm_provider_succeeded, false)
+      assert.equal(result.metadata.execution_provenance.provider_actual, 'local-heuristic')
+    })
+  })
+}
+
+async function testProviderRouterAcceptsOmniAndOminiAliases() {
+  await withEnv({
+    GEMINI_API_KEY: 'test-gemini-key',
+    GROQ_API_KEY: 'test-groq-key',
+    OMNI_AVAILABLE_PROVIDERS: 'gemini',
+    OMINI_AVAILABLE_PROVIDERS: 'groq',
+  }, async () => {
+    const providers = getAvailableProviders()
+    assert.equal(providers[0].name, 'gemini')
+  })
+
+  await withEnv({
+    GEMINI_API_KEY: 'test-gemini-key',
+    GROQ_API_KEY: 'test-groq-key',
+    OMINI_AVAILABLE_PROVIDERS: 'gemini',
+  }, async () => {
+    const providers = getAvailableProviders()
+    assert.equal(providers[0].name, 'gemini')
+  })
+}
+
 await testGreetingMatcherTruth()
 testIntentWrapper()
 testTruthHelperModes()
+await testGeminiProviderSuccessTruth()
+await testGeminiProviderFailureFallsBackSafely()
+await testNoProviderKeepsLocalHeuristicBehavior()
+await testProviderRouterAcceptsOmniAndOminiAliases()
 console.log('runtime truth contract: js checks passed')
