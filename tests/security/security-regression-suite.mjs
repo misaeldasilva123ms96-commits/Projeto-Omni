@@ -34,6 +34,8 @@ const commands = [
       'src/components/status/RuntimeDebugSection.test.tsx',
       'src/components/status/RuntimePanel.test.tsx',
       '--reporter=dot',
+      '--pool=threads',
+      '--maxWorkers=1',
     ],
     cwd: path.join(projectRoot, 'frontend'),
   },

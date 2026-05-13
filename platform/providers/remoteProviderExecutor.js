@@ -45,7 +45,7 @@ function compactContext({ message, intent, summary }) {
 }
 
 async function executeGeminiCompletion({ provider, message, intent, summary, fetchImpl = globalThis.fetch } = {}) {
-  const model = String(provider?.model || envValue('GEMINI_MODEL') || 'gemini-2.0-flash').trim();
+  const model = String(provider?.model || envValue('GEMINI_MODEL') || 'gemini-2.5-flash-lite').trim();
   const startedAt = performance.now();
   const apiKey = envValue('GEMINI_API_KEY');
 

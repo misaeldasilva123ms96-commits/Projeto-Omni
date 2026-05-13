@@ -9,16 +9,21 @@ const {
   inferIntentWithSource,
 } = require('../../core/brain/queryEngineAuthority.js')
 const { getAvailableProviders } = require('../../platform/providers/providerRouter.js')
+const { executeGeminiCompletion } = require('../../platform/providers/remoteProviderExecutor.js')
 
 const providerEnvKeys = [
   'OPENAI_API_KEY',
+  'OPENAI_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_MODEL',
   'GROQ_API_KEY',
   'GROQ_MODEL',
   'GEMINI_API_KEY',
   'GEMINI_MODEL',
   'DEEPSEEK_API_KEY',
+  'DEEPSEEK_MODEL',
   'OLLAMA_URL',
+  'OLLAMA_MODEL',
   'OMNI_AVAILABLE_PROVIDERS',
   'OMINI_AVAILABLE_PROVIDERS',
   'OMINI_SKIP_CONVERSATIONAL_MATCHERS',
@@ -277,6 +282,51 @@ async function testProviderRouterAcceptsOmniAndOminiAliases() {
   })
 }
 
+async function testGeminiDefaultModel() {
+  await withEnv({
+    GEMINI_API_KEY: 'test-gemini-key',
+    OMNI_AVAILABLE_PROVIDERS: 'gemini',
+  }, async () => {
+    const providers = getAvailableProviders()
+    const gemini = providers.find(provider => provider.name === 'gemini')
+    assert.equal(gemini.model, 'gemini-2.5-flash-lite')
+  })
+}
+
+async function testRemoteExecutorDefaultGeminiModel() {
+  await withEnv({
+    GEMINI_API_KEY: 'test-gemini-key',
+  }, async () => {
+    let requestedUrl = ''
+    const result = await executeGeminiCompletion({
+      provider: { name: 'gemini' },
+      message: 'Responda apenas: OK',
+      fetchImpl: async url => {
+        requestedUrl = String(url)
+        return {
+          ok: true,
+          async json() {
+            return {
+              candidates: [
+                {
+                  content: {
+                    parts: [{ text: 'OK' }],
+                  },
+                },
+              ],
+            }
+          },
+        }
+      },
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.model, 'gemini-2.5-flash-lite')
+    assert.equal(requestedUrl.includes('gemini-2.5-flash-lite'), true)
+    assert.equal(requestedUrl.includes('test-gemini-key'), true)
+  })
+}
+
 await testGreetingMatcherTruth()
 testIntentWrapper()
 testTruthHelperModes()
@@ -284,4 +334,6 @@ await testGeminiProviderSuccessTruth()
 await testGeminiProviderFailureFallsBackSafely()
 await testNoProviderKeepsLocalHeuristicBehavior()
 await testProviderRouterAcceptsOmniAndOminiAliases()
+await testGeminiDefaultModel()
+await testRemoteExecutorDefaultGeminiModel()
 console.log('runtime truth contract: js checks passed')

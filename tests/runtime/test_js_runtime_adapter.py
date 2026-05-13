@@ -48,8 +48,10 @@ class JSRuntimeAdapterTest(unittest.TestCase):
 
     def test_python_can_invoke_runtime_layer_successfully_via_selected_runtime(self) -> None:
         script = self.root / "js-runner" / "healthcheck.js"
-        command, selection = self.adapter.build_command(script_path=script)
-        env, _ = self.adapter.build_env()
+        node_bin = shutil.which("node") or "node"
+        with patch.dict(os.environ, {"OMINI_JS_RUNTIME_BIN": node_bin}):
+            command, selection = self.adapter.build_command(script_path=script)
+            env, _ = self.adapter.build_env()
         completed = subprocess.run(
             command,
             cwd=self.root,
@@ -77,8 +79,10 @@ class JSRuntimeAdapterTest(unittest.TestCase):
 
     def test_query_engine_runner_accepts_stdin_payload(self) -> None:
         script = self.root / "js-runner" / "queryEngineRunner.js"
-        command, _ = self.adapter.build_command(script_path=script)
-        env, _ = self.adapter.build_env()
+        node_bin = shutil.which("node") or "node"
+        with patch.dict(os.environ, {"OMINI_JS_RUNTIME_BIN": node_bin}):
+            command, _ = self.adapter.build_command(script_path=script)
+            env, _ = self.adapter.build_env()
         payload = json.dumps(
             {
                 "message": "ola",
@@ -114,6 +118,34 @@ class JSRuntimeAdapterTest(unittest.TestCase):
 
         self.assertEqual(scripts.get("dev"), "vite")
         self.assertEqual(scripts.get("build"), "vite build")
+
+    def test_build_env_forwards_safe_provider_model_config_only(self) -> None:
+        safe_model_env = {
+            "OPENAI_MODEL": "gpt-test-model",
+            "ANTHROPIC_MODEL": "claude-test-model",
+            "GROQ_MODEL": "groq-test-model",
+            "GEMINI_MODEL": "gemini-2.5-flash-lite",
+            "DEEPSEEK_MODEL": "deepseek-test-model",
+            "OLLAMA_MODEL": "ollama-test-model",
+            "ARBITRARY_MODEL": "must-not-copy",
+            "UNRELATED_ENV": "must-not-copy",
+        }
+        with patch.dict(os.environ, safe_model_env, clear=True):
+            with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: "C:/node.exe" if name == "node" else None):
+                env, _ = self.adapter.build_env()
+
+        for key in (
+            "OPENAI_MODEL",
+            "ANTHROPIC_MODEL",
+            "GROQ_MODEL",
+            "GEMINI_MODEL",
+            "DEEPSEEK_MODEL",
+            "OLLAMA_MODEL",
+        ):
+            self.assertEqual(env[key], safe_model_env[key])
+
+        self.assertNotIn("ARBITRARY_MODEL", env)
+        self.assertNotIn("UNRELATED_ENV", env)
 
 
 if __name__ == "__main__":

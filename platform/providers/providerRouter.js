@@ -55,7 +55,7 @@ function getAvailableProviders() {
     remote.push({
       name: 'gemini',
       source: 'project',
-      model: envValue('GEMINI_MODEL') || 'gemini-2.0-flash',
+      model: envValue('GEMINI_MODEL') || 'gemini-2.5-flash-lite',
       priority: 4,
       kind: 'remote',
     });

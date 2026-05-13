@@ -33,6 +33,16 @@ def _mapping() -> dict[str, str]:
     }
 
 
+SAFE_PROVIDER_MODEL_ENV_NAMES: tuple[str, ...] = (
+    "OPENAI_MODEL",
+    "ANTHROPIC_MODEL",
+    "GROQ_MODEL",
+    "GEMINI_MODEL",
+    "DEEPSEEK_MODEL",
+    "OLLAMA_MODEL",
+)
+
+
 def get_secret(name: str) -> str:
     """Return a validated secret value for the logical provider name."""
     logical = str(name or "").strip().lower()
@@ -111,6 +121,10 @@ def build_controlled_os_environ_base() -> dict[str, str]:
             env[key] = str(val)
     for key, val in os.environ.items():
         if key.startswith("OMINI_") and str(val).strip():
+            env[key] = str(val)
+    for key in SAFE_PROVIDER_MODEL_ENV_NAMES:
+        val = os.environ.get(key)
+        if val is not None and str(val).strip():
             env[key] = str(val)
     return env
 
