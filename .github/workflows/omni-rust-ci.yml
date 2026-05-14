@@ -1,0 +1,37 @@
+name: Omni Rust CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/rust/**"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: Rust API boundary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Rust formatting
+        working-directory: backend/rust
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        working-directory: backend/rust
+        run: cargo clippy -- -D warnings
+
+      - name: Run Rust tests
+        working-directory: backend/rust
+        run: cargo test
