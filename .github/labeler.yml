@@ -1,0 +1,66 @@
+rust:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/rust/**"
+
+python:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/python/**"
+
+node:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "core/**"
+          - "js-runner/**"
+          - "scripts/**/*.js"
+          - "**/*.mjs"
+          - "**/*.cjs"
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "frontend/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "README.md"
+          - "ROADMAP.md"
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "security/**"
+          - "tests/security/**"
+          - "scripts/security/**"
+          - ".github/workflows/omni-security-ci.yml"
+
+governance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/governance*/**"
+          - "**/*governance*.*"
+          - "control/**"
+
+runtime:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/python/brain/runtime/**"
+          - "core/brain/**"
+          - "js-runner/**"
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "Dockerfile*"
+          - "docker-compose*.yml"
+          - "Containerfile*"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+          - "**/*.test.*"
+          - "**/*.spec.*"

@@ -1,0 +1,53 @@
+name: Omni Public Demo CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - "deploy/**"
+      - "security/**"
+      - "validation/**"
+      - "ci/**"
+  workflow_dispatch:
+
+jobs:
+  public-demo:
+    name: Public demo and audit packaging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Validate audit pack
+        run: npm run validate:audit-pack
+
+      - name: Validate public demo readiness
+        run: npm run validate:public-demo
+
+      - name: Build demo Docker image if present
+        run: |
+          if [ -f Dockerfile.demo ]; then
+            docker build -f Dockerfile.demo .
+          else
+            echo "Dockerfile.demo not found; skipping demo image build."
+          fi
+
+      - name: Validate demo compose config if present
+        run: |
+          if [ -f docker-compose.demo.yml ]; then
+            docker compose -f docker-compose.demo.yml config
+          else
+            echo "docker-compose.demo.yml not found; skipping compose config validation."
+          fi
