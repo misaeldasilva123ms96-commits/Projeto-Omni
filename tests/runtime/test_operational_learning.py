@@ -139,12 +139,13 @@ class OperationalLearningTest(unittest.TestCase):
     def test_strategy_ranking_reflects_evidence_backed_preference(self) -> None:
         ranker = StrategyRanker()
         policy = LearningPolicy(min_pattern_samples=3)
+        fresh_timestamp = datetime.now(timezone.utc).isoformat()
         preferred = PatternRecord.build(pattern_key="repair:a", category="repair")
         for _ in range(4):
-            preferred.register_outcome(success=True, timestamp="2026-04-11T12:00:00+00:00")
+            preferred.register_outcome(success=True, timestamp=fresh_timestamp)
         weak = PatternRecord.build(pattern_key="repair:b", category="repair")
         for _ in range(4):
-            weak.register_outcome(success=False, timestamp="2026-04-11T12:00:00+00:00")
+            weak.register_outcome(success=False, timestamp=fresh_timestamp)
 
         rankings = ranker.rank(records=[weak, preferred], policy=policy)
 
@@ -229,13 +230,14 @@ class OperationalLearningTest(unittest.TestCase):
         with self.temp_workspace() as workspace_root:
             executor = self.make_executor(workspace_root, min_pattern_samples=1)
             action = {"step_id": "patch", "selected_tool": "filesystem_patch_set", "action_type": "mutate"}
+            now = datetime.now(timezone.utc)
             for index in range(3):
                 executor.ingest_runtime_artifacts(
                     action=action,
                     result={
                         "repair_receipt": {
                             "repair_receipt_id": f"repair-{index}",
-                            "timestamp": f"2026-04-11T12:00:0{index}+00:00",
+                            "timestamp": (now + timedelta(seconds=index)).isoformat(),
                             "promotion_status": "promoted",
                             "attempt_count": 1,
                             "repair_strategy": "normalize_result_payload_shape",
