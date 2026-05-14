@@ -1,0 +1,37 @@
+name: Docker Build CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Dockerfile*"
+      - "docker-compose*"
+      - "deploy/**"
+      - "scripts/**"
+  workflow_dispatch:
+
+jobs:
+  docker:
+    name: Docker demo build validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build demo Docker image if present
+        run: |
+          if [ -f Dockerfile.demo ]; then
+            docker build -f Dockerfile.demo .
+          else
+            echo "Dockerfile.demo not found; skipping demo image build."
+          fi
+
+      - name: Validate demo compose config if present
+        run: |
+          if [ -f docker-compose.demo.yml ]; then
+            docker compose -f docker-compose.demo.yml config
+          else
+            echo "docker-compose.demo.yml not found; skipping compose config validation."
+          fi

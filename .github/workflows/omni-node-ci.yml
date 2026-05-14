@@ -1,0 +1,41 @@
+name: Omni Node CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "core/**"
+      - "js-runner/**"
+      - "platform/**"
+      - "runtime/**"
+      - "storage/**"
+      - "features/**"
+      - "scripts/**/*.js"
+      - "scripts/**/*.mjs"
+      - "tests/**/*.js"
+      - "tests/**/*.mjs"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+jobs:
+  node:
+    name: Node QueryEngine runtime
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Node QueryEngine runtime tests
+        run: npm run test:js-runtime
