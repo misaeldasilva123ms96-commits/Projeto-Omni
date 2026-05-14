@@ -70,6 +70,31 @@ def test_redact_sensitive_text_covers_required_pii_and_secret_patterns() -> None
         assert placeholder in redacted
 
 
+def test_phone_redaction_preserves_uuid_like_and_structured_ids() -> None:
+    raw = (
+        "phones +55 11 99999-9999 (11) 99999-9999 "
+        "11 99999-9999 99999-9999"
+    )
+
+    redacted = redact_sensitive_text(raw)
+
+    assert "+55 11 99999-9999" not in redacted
+    assert "(11) 99999-9999" not in redacted
+    assert "11 99999-9999" not in redacted
+    assert "99999-9999" not in redacted
+    assert redacted.count("[REDACTED_PHONE]") == 4
+
+    structured_ids = {
+        "goal_id": "goal-e9ff4297-3207-4c1f-9bb6-fc19fae49722",
+        "run_id": "run-4297-3207",
+        "trace_id": "trace-4297-3207",
+        "session_id": "session-4297-3207",
+        "artifact_id": "artifact-4297-3207",
+    }
+
+    assert redact_sensitive_payload(structured_ids) == structured_ids
+
+
 def test_redact_sensitive_payload_recurses_and_preserves_safe_metadata() -> None:
     original = {
         "record_id": "clr-1",
