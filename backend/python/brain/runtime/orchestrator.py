@@ -141,6 +141,8 @@ MOCK_RUNTIME_RESPONSE = (
     "Modo mock ativo: esta resposta foi gerada sem acionar o caminho completo do runtime."
 )
 SUBPROCESS_TIMEOUT_SECONDS = 60
+MAX_JSONL_SANITIZE_BYTES = 10 * 1024 * 1024
+MAX_JSONL_ACTIVE_BYTES = 50 * 1024 * 1024
 DEFAULT_SESSION_ID = "python-session"
 CONTROL_LAYER_BLOCK_PREFIX = "Execucao bloqueada pela camada de controle"
 MUTATING_TOOLS = {
@@ -6310,6 +6312,8 @@ class BrainOrchestrator:
         if not path.exists():
             return
         try:
+            if path.stat().st_size > MAX_JSONL_SANITIZE_BYTES:
+                return
             valid_lines: list[str] = []
             changed = False
             for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -6331,8 +6335,24 @@ class BrainOrchestrator:
             return
 
     @staticmethod
+    def _rotate_jsonl_file_if_needed(path: Path) -> None:
+        try:
+            if not path.exists() or path.stat().st_size <= MAX_JSONL_ACTIVE_BYTES:
+                return
+            timestamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+            archive_path = path.with_name(f"{path.name}.{timestamp}.bak")
+            suffix = 1
+            while archive_path.exists():
+                archive_path = path.with_name(f"{path.name}.{timestamp}.{suffix}.bak")
+                suffix += 1
+            path.replace(archive_path)
+        except Exception:
+            return
+
+    @staticmethod
     def _append_jsonl(path: Path, entry: dict[str, Any]) -> None:
         try:
+            BrainOrchestrator._rotate_jsonl_file_if_needed(path)
             BrainOrchestrator._sanitize_jsonl_file(path)
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry, ensure_ascii=False))

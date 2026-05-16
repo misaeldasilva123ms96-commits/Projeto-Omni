@@ -8,6 +8,7 @@ const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
 const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
+const { executeRemoteProvider } = require('../../platform/providers/remoteProviderExecutor');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
 const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
@@ -718,8 +719,8 @@ class QueryEngineAuthority {
     const hintEnv = readPolicyHintEnvelope();
     const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
     const selectedProviderName = provider && provider.name ? provider.name : '';
-    const llmProviderAttempted = Boolean(provider && provider.kind !== 'embedded');
-    const llmProviderSucceeded = false;
+    let llmProviderAttempted = false;
+    let llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });
@@ -893,13 +894,38 @@ class QueryEngineAuthority {
 
     const allActionsAreDirect = actionsWithPolicy.every(action => action.selected_tool === 'none');
     if (allActionsAreDirect) {
+      const remoteProviderPayload = {
+        message,
+        history,
+        systemPrompt: 'You are Omni. Answer the user directly and safely. Do not expose internal runtime state, secrets, logs, or raw tool payloads.',
+      };
+      let remoteProviderResult = provider
+        ? await executeRemoteProvider(provider, remoteProviderPayload)
+        : null;
+      let executionFallbackUsed = false;
+      if (remoteProviderResult?.error === 'unsupported_provider' && selectedProviderName !== 'groq') {
+        const groqFallbackProvider = getAvailableProviders()
+          .find(candidate => candidate.name === 'groq');
+        if (groqFallbackProvider) {
+          remoteProviderResult = await executeRemoteProvider(groqFallbackProvider, remoteProviderPayload);
+          executionFallbackUsed = true;
+        }
+      }
+      llmProviderAttempted = Boolean(remoteProviderResult?.attempted);
+      llmProviderSucceeded = Boolean(remoteProviderResult?.succeeded);
+      const executedProviderName = remoteProviderResult?.succeeded ? remoteProviderResult.providerName : '';
+      const providerForProvenance = executedProviderName
+        ? { ...provider, name: executedProviderName, model: remoteProviderResult.model || provider?.model || '' }
+        : provider;
       const localGuidance = buildStructuredLocalGuidance({
         message,
         intent,
         mergedMemory,
         repositoryAnalysis,
       });
-      const directResponse = synthesizeGroundedResponse({
+      const directResponse = remoteProviderResult?.succeeded
+        ? remoteProviderResult.responseText
+        : synthesizeGroundedResponse({
         intent,
         directMemoryResponse,
         stepResults: actions.map(action => ({
@@ -932,6 +958,9 @@ class QueryEngineAuthority {
         }),
         runtime_mode: 'no-tool-local',
         fallback_mode: null,
+        selected_provider: selectedProviderName,
+        executed_provider: remoteProviderResult?.attempted || remoteProviderResult?.succeeded ? remoteProviderResult.providerName : '',
+        execution_fallback_used: executionFallbackUsed,
         delegated_specialists: delegation.specialists,
         critic_review: criticPlanReview,
         semantic_retrieval: semanticMatches,
@@ -944,26 +973,45 @@ class QueryEngineAuthority {
       });
 
       const epNoTool = buildExecutionProvenance({
-        provider,
+        provider: providerForProvenance,
         ...buildProviderDiagnosticContext({
           selectedProviderName,
-          actualProviderName: '',
-          attemptedProviderName: '',
-          succeededProviderName: '',
+          actualProviderName: executedProviderName,
+          attemptedProviderName: remoteProviderResult?.attempted ? remoteProviderResult.providerName : '',
+          succeededProviderName: executedProviderName,
+          failureClass: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? `provider_${remoteProviderResult.error || 'failed'}` : '',
+          failureReason: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? remoteProviderResult.error : '',
+          latencyMs: remoteProviderResult?.attempted ? remoteProviderResult.durationMs : null,
         }),
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
         strategyActual: String(intent),
-        executionMode: 'no_tool_local',
-        provenanceSource: 'no_tool_local',
+        executionMode: remoteProviderResult?.succeeded ? 'remote_provider_response' : 'no_tool_local',
+        fallbackPath: executionFallbackUsed ? `${selectedProviderName}->groq` : '',
+        providerFailed: Boolean(remoteProviderResult?.attempted && !remoteProviderResult?.succeeded),
+        failureClass: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? `provider_${remoteProviderResult.error || 'failed'}` : '',
+        failureReason: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? remoteProviderResult.error : '',
+        provenanceSource: remoteProviderResult?.succeeded ? 'remote_provider_executor' : 'no_tool_local',
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
       });
-      const noToolMode = directMemoryResponse
+      const noToolMode = remoteProviderResult?.succeeded
+        ? RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE
+        : directMemoryResponse
         ? RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE
         : RUNTIME_TRUTH_MODES.RULE_BASED_INTENT;
+      const noToolReason = remoteProviderResult?.succeeded
+        ? 'remote_provider_response'
+        : directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none';
       return attachProvenanceMetadata(attachRuntimeTruth({
         response: directResponse,
-        cognitive_runtime_hint: { lane: 'no_tool_local', detail: 'all_actions_tool_none' },
+        runtime_reason: noToolReason,
+        selected_provider: selectedProviderName,
+        executed_provider: executedProviderName,
+        execution_fallback_used: executionFallbackUsed,
+        cognitive_runtime_hint: {
+          lane: remoteProviderResult?.succeeded ? 'remote_provider_response' : 'no_tool_local',
+          detail: remoteProviderResult?.succeeded ? 'groq_chat_completion' : 'all_actions_tool_none',
+        },
         confidence: 0.92,
         memory: {
           session: sessionSnapshot,
@@ -980,10 +1028,10 @@ class QueryEngineAuthority {
         },
       }, buildRuntimeTruth({
         runtimeMode: noToolMode,
-        runtimeReason: directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none',
+        runtimeReason: noToolReason,
         intentInfo,
-        providerAttempted: false,
-        providerSucceeded: false,
+        providerAttempted: llmProviderAttempted,
+        providerSucceeded: llmProviderSucceeded,
         toolInvoked: false,
         toolExecuted: false,
         nodeInvoked: true,
