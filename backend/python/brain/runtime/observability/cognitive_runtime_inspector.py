@@ -71,6 +71,7 @@ MEM_UNUSED = "UNUSED"
 VERDICT_TRUE = "TRUE_COGNITIVE_RUNTIME"
 VERDICT_DEGRADED = "DEGRADED_SYSTEM"
 VERDICT_HYBRID = "HYBRID_UNSTABLE"
+VERDICT_PROVIDER_BACKED_COMPATIBILITY = "PROVIDER_BACKED_COMPATIBILITY"
 
 
 def _truthy_env(name: str) -> bool:
@@ -707,6 +708,21 @@ def build_cognitive_runtime_inspection(
         "internal_error_redacted": bool(truth_public_error.get("internal_error_redacted", True)),
         "public_summary": _truth_public_summary(truth_runtime_mode),
     }
+
+    provider_backed_compatibility = bool(
+        verdict == VERDICT_HYBRID
+        and runtime_mode == RUNTIME_MODE_COMPAT
+        and runtime_truth["runtime_reason"] == "remote_provider_response"
+        and runtime_truth["llm_provider_attempted"]
+        and runtime_truth["llm_provider_succeeded"]
+        and not runtime_truth["fallback_triggered"]
+        and not provider_failed
+        and not matcher_used
+    )
+    if provider_backed_compatibility:
+        # Compatibility execution with successful remote provider evidence is a valid resolved state,
+        # not a hybrid instability.
+        verdict = VERDICT_PROVIDER_BACKED_COMPATIBILITY
 
     return {
         "runtime_mode": runtime_mode,
