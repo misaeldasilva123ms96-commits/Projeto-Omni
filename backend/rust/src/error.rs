@@ -47,7 +47,11 @@ impl IntoResponse for AppError {
                 "error": format!("invalid request: {message}"),
                 "code": "invalid_request",
             })),
-            Self::PythonProcess { code, message, stderr } => Json(json!({
+            Self::PythonProcess {
+                code,
+                message,
+                stderr,
+            } => Json(json!({
                 "error": format!("python process failed: {message}"),
                 "code": code,
                 "details": {

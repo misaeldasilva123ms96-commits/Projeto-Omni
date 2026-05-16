@@ -8,7 +8,10 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::{process::Command, time::{interval, timeout, MissedTickBehavior}};
+use tokio::{
+    process::Command,
+    time::{interval, timeout, MissedTickBehavior},
+};
 use tracing::warn;
 
 use crate::AppState;
@@ -42,7 +45,9 @@ pub(crate) async fn traces(
     )
 }
 
-pub(crate) async fn stream(State(state): State<AppState>) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
+pub(crate) async fn stream(
+    State(state): State<AppState>,
+) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
     let output = stream! {
         let mut snapshot_interval = interval(Duration::from_millis(OBSERVABILITY_STREAM_INTERVAL_MS));
         snapshot_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -63,7 +68,11 @@ pub(crate) async fn stream(State(state): State<AppState>) -> Sse<impl futures_co
         }
     };
 
-    Sse::new(output).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("heartbeat"))
+    Sse::new(output).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("heartbeat"),
+    )
 }
 
 async fn call_observability_cli(
@@ -89,10 +98,16 @@ async fn call_observability_cli(
     let output = match timeout(Duration::from_millis(cli_timeout_ms), command.output()).await {
         Ok(Ok(output)) => output,
         Ok(Err(error)) => {
-            return graceful_error(payload_key, format!("failed to spawn observability reader: {error}"));
+            return graceful_error(
+                payload_key,
+                format!("failed to spawn observability reader: {error}"),
+            );
         }
         Err(_) => {
-            return graceful_error(payload_key, format!("observability reader timed out after {cli_timeout_ms} ms"));
+            return graceful_error(
+                payload_key,
+                format!("observability reader timed out after {cli_timeout_ms} ms"),
+            );
         }
     };
 
@@ -101,7 +116,10 @@ async fn call_observability_cli(
         return graceful_error(
             payload_key,
             if stderr.is_empty() {
-                format!("observability reader exited with status {}", output.status.code().unwrap_or(-1))
+                format!(
+                    "observability reader exited with status {}",
+                    output.status.code().unwrap_or(-1)
+                )
             } else {
                 stderr
             },
@@ -114,7 +132,10 @@ async fn call_observability_cli(
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if stdout.is_empty() {
-        return graceful_error(payload_key, "observability reader returned empty stdout".to_string());
+        return graceful_error(
+            payload_key,
+            "observability reader returned empty stdout".to_string(),
+        );
     }
 
     match serde_json::from_str::<Value>(&stdout) {

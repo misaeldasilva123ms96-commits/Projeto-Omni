@@ -799,7 +799,9 @@ impl PythonCircuitBreaker {
             CircuitBreakerState::Open => {
                 let reset_elapsed = self
                     .opened_at
-                    .map(|opened| now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms)
+                    .map(|opened| {
+                        now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms
+                    })
                     .unwrap_or(true);
                 if reset_elapsed {
                     self.state = CircuitBreakerState::HalfOpen;
@@ -2386,7 +2388,10 @@ fn annotate_service_metadata(
         .unwrap_or_else(|| json!({}));
 
     if let Some(obj) = inspection.as_object_mut() {
-        obj.insert("runtime_mode".into(), Value::String("SAFE_FALLBACK".to_string()));
+        obj.insert(
+            "runtime_mode".into(),
+            Value::String("SAFE_FALLBACK".to_string()),
+        );
         obj.insert(
             "runtime_reason".into(),
             Value::String(error_public_code.to_string()),
@@ -2477,10 +2482,13 @@ async fn execute_python_service_with_policy(
 
     for _ in 0..attempts {
         let circuit_state = {
-            let mut guard = state.python_circuit.lock().map_err(|_| PythonServiceFailure {
-                kind: PythonServiceFailureKind::ServiceFailure,
-                circuit_state: CircuitBreakerState::Open,
-            })?;
+            let mut guard = state
+                .python_circuit
+                .lock()
+                .map_err(|_| PythonServiceFailure {
+                    kind: PythonServiceFailureKind::ServiceFailure,
+                    circuit_state: CircuitBreakerState::Open,
+                })?;
             guard.before_call(&state.python_runtime, Instant::now())
         };
         last_state = circuit_state;
@@ -2594,7 +2602,9 @@ async fn call_python_service(
     };
 
     let parsed = extract_chat_from_python_output(&response_body);
-    if parsed.response == PYTHON_FALLBACK_RESPONSE || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE {
+    if parsed.response == PYTHON_FALLBACK_RESPONSE
+        || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE
+    {
         let kind = PythonServiceFailureKind::ServiceFailure;
         let code = service_failure_code(kind);
         let stop_reason = "python_service_error";
@@ -2602,9 +2612,14 @@ async fn call_python_service(
         record_python_service_failure(state, kind, circuit_state);
         let current_state = current_python_circuit_state(state);
         if state.python_runtime.fallback_to_subprocess {
-            let mut fallback =
-                call_python_subprocess(state, message, client_session_id, request_id, client_context)
-                    .await?;
+            let mut fallback = call_python_subprocess(
+                state,
+                message,
+                client_session_id,
+                request_id,
+                client_context,
+            )
+            .await?;
             fallback.source = "python-service-subprocess-fallback".to_string();
             fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
             annotate_service_metadata(&mut fallback, true, true, current_state, code);
@@ -2662,11 +2677,24 @@ async fn call_python(
     }
 
     if state.python_runtime.mode == PythonRuntimeMode::Service {
-        return call_python_service(state, message, client_session_id, request_id, client_context)
-            .await;
+        return call_python_service(
+            state,
+            message,
+            client_session_id,
+            request_id,
+            client_context,
+        )
+        .await;
     }
 
-    call_python_subprocess(state, message, client_session_id, request_id, client_context).await
+    call_python_subprocess(
+        state,
+        message,
+        client_session_id,
+        request_id,
+        client_context,
+    )
+    .await
 }
 
 async fn call_python_subprocess(
@@ -3654,7 +3682,8 @@ mod tests {
 
     #[tokio::test]
     async fn service_failure_optionally_falls_back_to_subprocess() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
         let script = r#"print('{"response":"ok from subprocess","cognitive_runtime_inspection":{"runtime_mode":"FULL_COGNITIVE_RUNTIME"}}')"#;
         let mut state = build_test_state(temp_script(script, "service-fallback"), 15_000);
         state.python_runtime = PythonRuntimeConfig {
@@ -3679,14 +3708,21 @@ mod tests {
         assert_eq!(inspection["fallback_triggered"].as_bool(), Some(true));
         assert_eq!(inspection["service_mode_attempted"].as_bool(), Some(true));
         assert_eq!(inspection["service_fallback_used"].as_bool(), Some(true));
-        assert_ne!(inspection["runtime_mode"].as_str(), Some("FULL_COGNITIVE_RUNTIME"));
+        assert_ne!(
+            inspection["runtime_mode"].as_str(),
+            Some("FULL_COGNITIVE_RUNTIME")
+        );
     }
 
     #[tokio::test]
     async fn service_failure_without_fallback_does_not_invoke_subprocess() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
         let mut state = build_service_state(port, 5_000);
-        state.python_entry = temp_script("print('{\"response\":\"should-not-run\"}')\n", "no-fallback");
+        state.python_entry = temp_script(
+            "print('{\"response\":\"should-not-run\"}')\n",
+            "no-fallback",
+        );
         state.python_runtime.fallback_to_subprocess = false;
 
         let response = call_python(&state, "hello", None, None, None)
@@ -3766,7 +3802,8 @@ mod tests {
 
     #[tokio::test]
     async fn half_open_failure_reopens_circuit() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "probe failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "probe failed"})).await;
         let mut state = build_service_state(port, 5_000);
         state.python_runtime.circuit_failure_threshold = 1;
         state.python_runtime.circuit_reset_ms = 1;

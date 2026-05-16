@@ -1,7 +1,6 @@
 use runtime::{
     glob_search, grep_search, read_file, write_file, GrepSearchInput, PermissionMode,
-    PermissionPolicy, PermissionPromptDecision, PermissionPrompter, PermissionRequest,
-    Session,
+    PermissionPolicy, PermissionPromptDecision, PermissionPrompter, PermissionRequest, Session,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -183,10 +182,7 @@ fn execute_tool(request: &BridgeRequest) -> Result<Value, String> {
                 .get("pattern")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "glob_search requires tool_arguments.pattern".to_string())?;
-            let base_path = request
-                .tool_arguments
-                .get("path")
-                .and_then(Value::as_str);
+            let base_path = request.tool_arguments.get("path").and_then(Value::as_str);
             let output = glob_search(pattern, base_path)
                 .map_err(|error| format!("glob_search failed: {error}"))?;
             serde_json::to_value(output).map_err(|error| error.to_string())
@@ -194,8 +190,8 @@ fn execute_tool(request: &BridgeRequest) -> Result<Value, String> {
         "grep_search" => {
             let input: GrepSearchInput = serde_json::from_value(request.tool_arguments.clone())
                 .map_err(|error| format!("invalid grep_search input: {error}"))?;
-            let output = grep_search(&input)
-                .map_err(|error| format!("grep_search failed: {error}"))?;
+            let output =
+                grep_search(&input).map_err(|error| format!("grep_search failed: {error}"))?;
             serde_json::to_value(output).map_err(|error| error.to_string())
         }
         "write_file" => {
@@ -209,8 +205,8 @@ fn execute_tool(request: &BridgeRequest) -> Result<Value, String> {
                 .get("content")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "write_file requires tool_arguments.content".to_string())?;
-            let output = write_file(path, content)
-                .map_err(|error| format!("write_file failed: {error}"))?;
+            let output =
+                write_file(path, content).map_err(|error| format!("write_file failed: {error}"))?;
             serde_json::to_value(output).map_err(|error| error.to_string())
         }
         other => Err(format!("unsupported tool: {other}")),
