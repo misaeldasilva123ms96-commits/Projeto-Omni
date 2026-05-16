@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -200,6 +201,24 @@ def test_controlled_learning_store_redacts_before_persisting_jsonl() -> None:
         assert loaded["input_preview"] == "[REDACTED_EMAIL] [REDACTED_API_KEY]"
         assert loaded["metadata"]["tool_execution"]["tool_raw_result"] == REDACTED_INTERNAL_PAYLOAD
         assert loaded["metadata"]["memory_content"] == REDACTED_INTERNAL_PAYLOAD
+
+
+def test_controlled_learning_store_reads_recent_records_from_bounded_tail() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        store = ControlledLearningStore(Path(tmp), max_records=10_000)
+        store.records_path.parent.mkdir(parents=True, exist_ok=True)
+        with store.records_path.open("w", encoding="utf-8") as handle:
+            for index in range(600):
+                handle.write(json.dumps({"record_id": f"old-{index}", "padding": "x" * 1024}))
+                handle.write("\n")
+            for index in range(3):
+                handle.write(json.dumps({"record_id": f"recent-{index}"}))
+                handle.write("\n")
+
+        with patch.object(Path, "read_text", side_effect=AssertionError("read_text should not be used")):
+            records = store.read_recent_learning_records(limit=2)
+
+        assert [record["record_id"] for record in records] == ["recent-2", "recent-1"]
 
 
 def test_non_object_and_non_sensitive_values_are_safe() -> None:

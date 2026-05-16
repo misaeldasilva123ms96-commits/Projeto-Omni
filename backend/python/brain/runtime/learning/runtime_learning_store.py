@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
 
 class RuntimeLearningStore:
     """Append-only bounded persistence for Phase 34 turn records (same tree as LearningStore evidence)."""
@@ -29,20 +31,8 @@ class RuntimeLearningStore:
         """Return the most recent Phase 34 runtime learning record, if any."""
         if not self._path.exists():
             return None
-        try:
-            text = self._path.read_text(encoding="utf-8")
-        except OSError:
-            return None
-        for line in reversed(text.splitlines()):
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                return payload
+        for payload in reversed(read_tail_jsonl(self._path, limit=1)):
+            return payload
         return None
 
     def read_recent_for_session(self, session_id: str, *, limit: int = 8) -> list[dict[str, Any]]:
@@ -52,21 +42,9 @@ class RuntimeLearningStore:
             return []
         if not self._path.exists():
             return []
-        try:
-            text = self._path.read_text(encoding="utf-8")
-        except OSError:
-            return []
         out: list[dict[str, Any]] = []
-        for line in reversed(text.splitlines()):
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
+        tail_scan_limit = max(64, int(limit) * 20)
+        for payload in reversed(read_tail_jsonl(self._path, limit=tail_scan_limit)):
             if str(payload.get("session_id", "")).strip() != sid:
                 continue
             out.append(payload)

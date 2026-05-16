@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
 from .models import LearningEvidence, LearningSignal, LearningSignalType, LearningSnapshot, PatternRecord
 from .redaction import redact_sensitive_payload
 
@@ -207,24 +209,7 @@ class ControlledLearningStore:
     def _read_recent_jsonl(self, path: Path, *, limit: int) -> list[dict[str, Any]]:
         if limit <= 0 or not path.exists():
             return []
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            return []
-        out: list[dict[str, Any]] = []
-        for line in reversed(text.splitlines()):
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                out.append(payload)
-            if len(out) >= limit:
-                break
-        return out
+        return list(reversed(read_tail_jsonl(path, limit=max(1, int(limit)))))
 
     def _trim_jsonl(self, path: Path) -> None:
         if not path.exists():
