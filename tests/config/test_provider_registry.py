@@ -13,7 +13,20 @@ from config.provider_registry import (
     PROVIDERS,
     describe_provider_diagnostics,
     get_available_providers,
+    provider_metadata,
     providers_capability,
+)
+
+
+PROVIDER_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GROQ_API_KEY",
+    "GEMINI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OLLAMA_URL",
+    "LMSTUDIO_URL",
 )
 
 
@@ -21,18 +34,26 @@ class ProviderRegistryTest(unittest.TestCase):
     def test_providers_list_is_stable(self) -> None:
         self.assertEqual(
             PROVIDERS,
-            ("openai", "anthropic", "groq", "gemini", "deepseek"),
+            ("groq", "openrouter", "openai", "anthropic", "gemini", "deepseek", "ollama", "lmstudio"),
         )
 
+    def test_provider_metadata_marks_unsupported_and_local_parity(self) -> None:
+        rows = {row["provider"]: row for row in provider_metadata()}
+        self.assertEqual(set(rows), set(PROVIDERS))
+        self.assertTrue(rows["groq"]["registered"])
+        self.assertTrue(rows["groq"]["adapter_implemented"])
+        self.assertEqual(rows["groq"]["execution_status"], "credential_gated")
+        for provider in ("openrouter", "openai", "anthropic", "gemini", "deepseek"):
+            self.assertTrue(rows[provider]["registered"])
+            self.assertFalse(rows[provider]["adapter_implemented"])
+            self.assertEqual(rows[provider]["execution_status"], "unsupported")
+        for provider in ("ollama", "lmstudio"):
+            self.assertTrue(rows[provider]["registered"])
+            self.assertFalse(rows[provider]["adapter_implemented"])
+            self.assertEqual(rows[provider]["execution_status"], "local_config_gated")
+
     def test_get_available_providers_skips_missing_and_placeholders(self) -> None:
-        keys = (
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GROQ_API_KEY",
-            "GEMINI_API_KEY",
-            "DEEPSEEK_API_KEY",
-        )
-        saved = {k: os.environ.pop(k, None) for k in keys}
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
             os.environ["GROQ_API_KEY"] = "groq-registry-test-key"
             os.environ["GEMINI_API_KEY"] = "gemini-registry-test-key"
@@ -58,14 +79,7 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(health.as_dict()["healthy"])
 
     def test_describe_provider_diagnostics_marks_attempt_failure(self) -> None:
-        keys = (
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GROQ_API_KEY",
-            "GEMINI_API_KEY",
-            "DEEPSEEK_API_KEY",
-        )
-        saved = {k: os.environ.pop(k, None) for k in keys}
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
             os.environ["OPENAI_API_KEY"] = "openai-provider-test-key"
             rows = describe_provider_diagnostics(
@@ -80,14 +94,23 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(openai["configured"])
             self.assertTrue(openai["key_present"])
             self.assertTrue(openai["model_configured"])
+            self.assertFalse(openai["adapter_implemented"])
+            self.assertFalse(openai["available"])
+            self.assertEqual(openai["execution_status"], "unsupported")
             self.assertTrue(openai["selected"])
             self.assertTrue(openai["attempted"])
             self.assertTrue(openai["failed"])
             self.assertEqual(openai["failure_class"], "provider_timeout")
+            openrouter = next(item for item in rows if item["provider"] == "openrouter")
+            self.assertTrue(openrouter["registered"])
+            self.assertFalse(openrouter["adapter_implemented"])
+            self.assertEqual(openrouter["execution_status"], "unsupported")
             heuristic = next(item for item in rows if item["provider"] == "local-heuristic")
             self.assertTrue(heuristic["configured"])
             self.assertFalse(heuristic["key_present"])
             self.assertTrue(heuristic["model_configured"])
+            self.assertTrue(heuristic["adapter_implemented"])
+            self.assertTrue(heuristic["available"])
             self.assertFalse(heuristic["selected"])
             serialized = str(rows).lower()
             self.assertNotIn("openai-provider-test-key", serialized)
