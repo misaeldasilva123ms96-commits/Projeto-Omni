@@ -5,8 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
 from .models import LearningEvidence, LearningSignal, LearningSignalType, LearningSnapshot, PatternRecord
 from .redaction import redact_sensitive_payload
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
 
 
 class LearningStore:
@@ -72,18 +77,9 @@ class LearningStore:
     def load_recent_signals(self, *, limit: int = 50, signal_type: str | None = None) -> list[LearningSignal]:
         signals: list[LearningSignal] = []
         files = [self.signals_dir / f"{signal_type}.jsonl"] if signal_type else list(self.signals_dir.glob("*.jsonl"))
+        tail_limit = max(1, int(limit or 50))
         for path in files:
-            if not path.exists():
-                continue
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                except Exception:
-                    continue
-                if not isinstance(payload, dict):
-                    continue
+            for payload in read_tail_jsonl(path, limit=tail_limit, max_bytes=JSONL_TAIL_MAX_BYTES):
                 signals.append(
                     LearningSignal(
                         signal_id=str(payload.get("signal_id", "")),

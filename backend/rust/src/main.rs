@@ -6,6 +6,7 @@ mod run_control;
 use std::{
     collections::{HashMap, VecDeque},
     env, fs,
+    io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
@@ -2880,27 +2881,56 @@ fn read_json_value(path: &Path) -> Option<Value> {
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
 }
 
+const JSONL_TAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
 fn read_recent_jsonl(path: &Path, limit: usize) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|raw| {
-            raw.lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        serde_json::from_str::<Value>(trimmed).ok()
-                    }
-                })
-                .rev()
-                .take(limit)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+    let file_len = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Vec::new(),
+    };
+    if file_len == 0 {
+        return Vec::new();
+    }
+
+    let read_len = file_len.min(JSONL_TAIL_MAX_BYTES);
+    let start = file_len.saturating_sub(read_len);
+    if file.seek(std::io::SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+
+    let mut bytes = Vec::with_capacity(read_len as usize);
+    if std::io::Read::read_to_end(&mut file, &mut bytes).is_err() {
+        return Vec::new();
+    }
+
+    let raw = String::from_utf8_lossy(&bytes);
+    let mut lines = raw.lines();
+    if start > 0 {
+        let _ = lines.next();
+    }
+
+    let mut parsed: Vec<Value> = lines
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                serde_json::from_str::<Value>(trimmed).ok()
+            }
         })
-        .unwrap_or_default()
+        .collect();
+    if parsed.len() > limit {
+        parsed.drain(0..parsed.len() - limit);
+    }
+    parsed
 }
 
 fn read_latest_jsonl(path: &Path) -> Option<Value> {
