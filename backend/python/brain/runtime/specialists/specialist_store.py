@@ -4,7 +4,12 @@ import json
 import threading
 from pathlib import Path
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
 from .models import CoordinationTrace
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
 
 
 class SpecialistStore:
@@ -29,18 +34,4 @@ class SpecialistStore:
 
     def load_recent(self, *, limit: int = 20) -> list[dict]:
         with self._lock:
-            if not self.path.exists():
-                return []
-            try:
-                lines = self.path.read_text(encoding="utf-8").splitlines()
-            except Exception:
-                return []
-        results: list[dict] = []
-        for line in lines[-max(1, limit):]:
-            try:
-                payload = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(payload, dict):
-                results.append(payload)
-        return results
+            return read_tail_jsonl(self.path, limit=max(1, limit), max_bytes=JSONL_TAIL_MAX_BYTES)
