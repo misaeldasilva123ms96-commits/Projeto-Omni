@@ -123,7 +123,7 @@ pub(crate) fn sanitize_uri_for_logs(uri: &axum::http::Uri) -> String {
     let sanitized_query = query
         .split('&')
         .filter(|segment| !segment.is_empty())
-        .map(|segment| sanitize_query_segment(segment))
+        .map(sanitize_query_segment)
         .collect::<Vec<_>>()
         .join("&");
 
@@ -139,11 +139,7 @@ fn sanitize_query_segment(segment: &str) -> String {
     let key = parts.next().unwrap_or_default();
     let value = parts.next().unwrap_or_default();
     if key == "token" {
-        if value.is_empty() {
-            "token=[REDACTED]".to_string()
-        } else {
-            "token=[REDACTED]".to_string()
-        }
+        "token=[REDACTED]".to_string()
     } else if value.is_empty() {
         key.to_string()
     } else {

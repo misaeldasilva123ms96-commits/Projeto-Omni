@@ -892,6 +892,7 @@ impl ChatSecurityState {
         }
     }
 
+    #[cfg(test)]
     fn with_config(config: ChatSecurityConfig) -> Self {
         Self {
             config,
@@ -1659,6 +1660,7 @@ async fn operator_v1_pr_digest(
 }
 
 /// Normalizes optional client session id: trim, drop empty, cap length for safe logging/JSON size.
+#[cfg(test)]
 fn normalize_client_session_id(raw: Option<String>) -> Option<String> {
     const MAX_CHARS: usize = 256;
     let inner = raw?;
@@ -1718,15 +1720,21 @@ fn public_error_response(status: StatusCode, code: &str) -> Response {
     (status, Json(build_public_error_payload(code))).into_response()
 }
 
-fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
+type BoxedResponseResult<T> = Result<T, Box<Response>>;
+
+fn boxed_public_error_response(status: StatusCode, code: &str) -> Box<Response> {
+    Box::new(public_error_response(status, code))
+}
+
+fn validate_content_type(headers: &HeaderMap) -> BoxedResponseResult<()> {
     let Some(value) = headers.get(CONTENT_TYPE) else {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ));
     };
     let Ok(raw) = value.to_str() else {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ));
@@ -1735,7 +1743,7 @@ fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
     if mime.eq_ignore_ascii_case("application/json") {
         Ok(())
     } else {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ))
@@ -1748,22 +1756,22 @@ fn contains_unsafe_control_chars(value: &str) -> bool {
         .any(|ch| ch.is_control() && ch != '\t' && ch != '\n' && ch != '\r')
 }
 
-fn validate_message(message: &str, max_chars: usize) -> Result<String, Response> {
+fn validate_message(message: &str, max_chars: usize) -> BoxedResponseResult<String> {
     let trimmed = message.trim().to_string();
     if trimmed.is_empty() {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
     }
     if trimmed.chars().count() > max_chars {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "PAYLOAD_TOO_LARGE",
         ));
     }
     if contains_unsafe_control_chars(&trimmed) {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1771,7 +1779,7 @@ fn validate_message(message: &str, max_chars: usize) -> Result<String, Response>
     Ok(trimmed)
 }
 
-fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response> {
+fn validate_optional_id(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
     let Some(value) = raw else {
         return Ok(None);
     };
@@ -1780,7 +1788,7 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
         return Ok(None);
     }
     if trimmed.chars().count() > 128 || contains_unsafe_control_chars(&trimmed) {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1789,7 +1797,7 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
     {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1797,9 +1805,9 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
     Ok(Some(trimmed))
 }
 
-fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Response> {
+fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResult<()> {
     if bytes.len() > max_body_bytes {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "PAYLOAD_TOO_LARGE",
         ))
@@ -1808,7 +1816,7 @@ fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Respon
     }
 }
 
-fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
+fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
     let client_key = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
@@ -1822,21 +1830,21 @@ fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(),
     {
         Ok(())
     } else {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
         ))
     }
 }
 
-fn parse_chat_request(bytes: &Bytes) -> Result<ChatRequest, Response> {
+fn parse_chat_request(bytes: &Bytes) -> BoxedResponseResult<ChatRequest> {
     serde_json::from_slice::<ChatRequest>(bytes)
-        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
 }
 
-fn parse_public_chat_request(bytes: &Bytes) -> Result<PublicChatRequestV1, Response> {
+fn parse_public_chat_request(bytes: &Bytes) -> BoxedResponseResult<PublicChatRequestV1> {
     serde_json::from_slice::<PublicChatRequestV1>(bytes)
-        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
 }
 
 async fn chat(
@@ -1845,33 +1853,33 @@ async fn chat(
     body: Bytes,
 ) -> Result<Response, AppError> {
     if let Err(response) = validate_content_type(&headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_chat_rate_limit(&state, &headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     let payload = match parse_chat_request(&body) {
         Ok(payload) => payload,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let message = match validate_message(
         &payload.message,
         state.chat_security.config.max_message_chars,
     ) {
         Ok(message) => message,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     let client_session_id = match validate_optional_id(payload.client_session_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let request_id = match validate_optional_id(payload.request_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     info!(
@@ -1890,33 +1898,33 @@ async fn public_v1_chat(
     body: Bytes,
 ) -> Result<Response, AppError> {
     if let Err(response) = validate_content_type(&headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_chat_rate_limit(&state, &headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     let payload = match parse_public_chat_request(&body) {
         Ok(payload) => payload,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let message = match validate_message(
         &payload.message,
         state.chat_security.config.max_message_chars,
     ) {
         Ok(message) => message,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     let client_session_id = match validate_optional_id(payload.client_session_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let request_id = match validate_optional_id(payload.request_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let client_context_json = payload
         .client_context
@@ -2707,7 +2715,7 @@ async fn call_python_subprocess(
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
         return Ok(build_mock_response(
-            &state,
+            state,
             message,
             "mock-env",
             client_session_id,
@@ -2737,7 +2745,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_spawn_failed",
@@ -2753,7 +2761,7 @@ async fn call_python_subprocess(
             let _ = child.kill().await;
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_stdin_failed",
@@ -2777,7 +2785,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_wait_failed",
@@ -2792,7 +2800,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_timeout",
@@ -2820,7 +2828,7 @@ async fn call_python_subprocess(
         )
         .await;
         return Ok(build_python_fallback_response(
-            &state,
+            state,
             "python-subprocess",
             client_session_id.clone(),
             "python_subprocess_nonzero_exit",
@@ -2844,7 +2852,7 @@ async fn call_python_subprocess(
         warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
         return Ok(build_python_fallback_response(
-            &state,
+            state,
             "python-subprocess",
             client_session_id.clone(),
             "python_empty_stdout",

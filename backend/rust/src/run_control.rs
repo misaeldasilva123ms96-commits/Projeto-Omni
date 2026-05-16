@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::Stdio, time::Duration};
+use std::{path::Path as StdPath, process::Stdio, time::Duration};
 
 use axum::{
     extract::{Path, State},
@@ -16,7 +16,7 @@ pub(crate) async fn pause_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "pause", &[run_id.clone()], "run").await?;
+    let payload = call_control_cli(&state, "pause", std::slice::from_ref(&run_id), "run").await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
@@ -24,7 +24,7 @@ pub(crate) async fn resume_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "resume", &[run_id.clone()], "run").await?;
+    let payload = call_control_cli(&state, "resume", std::slice::from_ref(&run_id), "run").await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
@@ -32,7 +32,7 @@ pub(crate) async fn approve_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "approve", &[run_id.clone()], "run").await?;
+    let payload = call_control_cli(&state, "approve", std::slice::from_ref(&run_id), "run").await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
@@ -86,7 +86,7 @@ pub(crate) async fn get_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "show", &[run_id.clone()], "run").await?;
+    let payload = call_control_cli(&state, "show", std::slice::from_ref(&run_id), "run").await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
@@ -183,7 +183,7 @@ fn graceful_error(payload_key: &str, message: String) -> Value {
     }
 }
 
-fn control_cli_pythonpath(python_root: &PathBuf) -> String {
+fn control_cli_pythonpath(python_root: &StdPath) -> String {
     python_root.display().to_string()
 }
 
@@ -201,6 +201,7 @@ mod tests {
     use serde_json::json;
     use std::{
         fs,
+        path::PathBuf,
         sync::{Arc, OnceLock},
     };
     use tokio::sync::Mutex;
