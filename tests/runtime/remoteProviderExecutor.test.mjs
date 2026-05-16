@@ -37,6 +37,12 @@ try {
   assert.equal(missingKey.succeeded, false);
   assert.equal(missingKey.error, 'missing_api_key');
   assert.equal(missingKey.providerName, 'groq');
+  assert.equal(missingKey.llm_provider_selected, 'groq');
+  assert.equal(missingKey.llm_provider_attempted, false);
+  assert.equal(missingKey.llm_provider_succeeded, false);
+  assert.equal(missingKey.llm_provider_failed, true);
+  assert.equal(missingKey.provider_failed, true);
+  assert.equal(missingKey.llm_public_error, 'missing_api_key');
 
   const success = await executeRemoteProvider(
     { name: 'groq', key: 'test-key-not-secret', model: 'test-model' },
@@ -66,6 +72,15 @@ try {
   assert.equal(success.providerName, 'groq');
   assert.equal(success.model, 'test-model');
   assert.equal(success.responseText, 'Groq mock response');
+  assert.equal(success.llm_provider_selected, 'groq');
+  assert.equal(success.llm_provider_attempted, true);
+  assert.equal(success.llm_provider_succeeded, true);
+  assert.equal(success.llm_provider_failed, false);
+  assert.equal(success.provider_attempted, true);
+  assert.equal(success.provider_succeeded, true);
+  assert.equal(success.provider_failed, false);
+  assert.equal(success.llm_model_used, 'test-model');
+  assert.equal(typeof success.llm_latency_ms, 'number');
 
   const httpFailure = await executeRemoteProvider(
     { name: 'groq', key: 'test-key-not-secret', model: 'test-model' },
@@ -83,6 +98,14 @@ try {
   assert.equal(httpFailure.error, 'http_429');
   assert.equal(httpFailure.status, 429);
   assert.equal(JSON.stringify(httpFailure).includes('sk-should-not-leak'), false);
+  assert.equal(httpFailure.llm_provider_selected, 'groq');
+  assert.equal(httpFailure.llm_provider_attempted, true);
+  assert.equal(httpFailure.llm_provider_succeeded, false);
+  assert.equal(httpFailure.llm_provider_failed, true);
+  assert.equal(httpFailure.provider_attempted, true);
+  assert.equal(httpFailure.provider_succeeded, false);
+  assert.equal(httpFailure.provider_failed, true);
+  assert.equal(httpFailure.llm_public_error, 'http_429');
 
   const unsupported = await executeRemoteProvider(
     { name: 'gemini', model: 'gemini-test' },
@@ -92,6 +115,12 @@ try {
   assert.equal(unsupported.succeeded, false);
   assert.equal(unsupported.providerName, 'gemini');
   assert.equal(unsupported.error, 'unsupported_provider');
+  assert.equal(unsupported.llm_provider_selected, 'gemini');
+  assert.equal(unsupported.llm_provider_attempted, false);
+  assert.equal(unsupported.llm_provider_succeeded, false);
+  assert.equal(unsupported.llm_provider_failed, true);
+  assert.equal(unsupported.provider_failed, true);
+  assert.equal(unsupported.llm_public_error, 'unsupported_provider');
 
   console.log('remoteProviderExecutor tests passed');
 } finally {

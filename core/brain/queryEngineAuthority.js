@@ -911,11 +911,22 @@ class QueryEngineAuthority {
           executionFallbackUsed = true;
         }
       }
-      llmProviderAttempted = Boolean(remoteProviderResult?.attempted);
-      llmProviderSucceeded = Boolean(remoteProviderResult?.succeeded);
-      const executedProviderName = remoteProviderResult?.succeeded ? remoteProviderResult.providerName : '';
+      llmProviderAttempted = Boolean(remoteProviderResult?.llm_provider_attempted ?? remoteProviderResult?.attempted);
+      llmProviderSucceeded = Boolean(remoteProviderResult?.llm_provider_succeeded ?? remoteProviderResult?.succeeded);
+      const remoteProviderFailed = Boolean(remoteProviderResult?.llm_provider_failed ?? (
+        remoteProviderResult?.attempted && !remoteProviderResult?.succeeded
+      ));
+      const remoteProviderName = String(
+        remoteProviderResult?.llm_provider_selected || remoteProviderResult?.providerName || '',
+      ).trim();
+      const remoteProviderError = String(
+        remoteProviderResult?.llm_public_error || remoteProviderResult?.error || '',
+      ).trim();
+      const remoteProviderLatency = remoteProviderResult?.llm_latency_ms ?? remoteProviderResult?.durationMs ?? null;
+      const remoteProviderModel = String(remoteProviderResult?.llm_model_used || remoteProviderResult?.model || '').trim();
+      const executedProviderName = llmProviderSucceeded ? remoteProviderName : '';
       const providerForProvenance = executedProviderName
-        ? { ...provider, name: executedProviderName, model: remoteProviderResult.model || provider?.model || '' }
+        ? { ...provider, name: executedProviderName, model: remoteProviderModel || provider?.model || '' }
         : provider;
       const localGuidance = buildStructuredLocalGuidance({
         message,
@@ -923,7 +934,7 @@ class QueryEngineAuthority {
         mergedMemory,
         repositoryAnalysis,
       });
-      const directResponse = remoteProviderResult?.succeeded
+      const directResponse = llmProviderSucceeded
         ? remoteProviderResult.responseText
         : synthesizeGroundedResponse({
         intent,
@@ -959,7 +970,7 @@ class QueryEngineAuthority {
         runtime_mode: 'no-tool-local',
         fallback_mode: null,
         selected_provider: selectedProviderName,
-        executed_provider: remoteProviderResult?.attempted || remoteProviderResult?.succeeded ? remoteProviderResult.providerName : '',
+        executed_provider: llmProviderAttempted || llmProviderSucceeded ? remoteProviderName : '',
         execution_fallback_used: executionFallbackUsed,
         delegated_specialists: delegation.specialists,
         critic_review: criticPlanReview,
@@ -977,29 +988,29 @@ class QueryEngineAuthority {
         ...buildProviderDiagnosticContext({
           selectedProviderName,
           actualProviderName: executedProviderName,
-          attemptedProviderName: remoteProviderResult?.attempted ? remoteProviderResult.providerName : '',
+          attemptedProviderName: llmProviderAttempted ? remoteProviderName : '',
           succeededProviderName: executedProviderName,
-          failureClass: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? `provider_${remoteProviderResult.error || 'failed'}` : '',
-          failureReason: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? remoteProviderResult.error : '',
-          latencyMs: remoteProviderResult?.attempted ? remoteProviderResult.durationMs : null,
+          failureClass: remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
+          failureReason: remoteProviderFailed ? remoteProviderError : '',
+          latencyMs: llmProviderAttempted ? remoteProviderLatency : null,
         }),
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
         strategyActual: String(intent),
-        executionMode: remoteProviderResult?.succeeded ? 'remote_provider_response' : 'no_tool_local',
+        executionMode: llmProviderSucceeded ? 'remote_provider_response' : 'no_tool_local',
         fallbackPath: executionFallbackUsed ? `${selectedProviderName}->groq` : '',
-        providerFailed: Boolean(remoteProviderResult?.attempted && !remoteProviderResult?.succeeded),
-        failureClass: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? `provider_${remoteProviderResult.error || 'failed'}` : '',
-        failureReason: remoteProviderResult?.attempted && !remoteProviderResult?.succeeded ? remoteProviderResult.error : '',
-        provenanceSource: remoteProviderResult?.succeeded ? 'remote_provider_executor' : 'no_tool_local',
+        providerFailed: remoteProviderFailed,
+        failureClass: remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
+        failureReason: remoteProviderFailed ? remoteProviderError : '',
+        provenanceSource: llmProviderSucceeded ? 'remote_provider_executor' : 'no_tool_local',
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
       });
-      const noToolMode = remoteProviderResult?.succeeded
+      const noToolMode = llmProviderSucceeded
         ? RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE
         : directMemoryResponse
         ? RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE
         : RUNTIME_TRUTH_MODES.RULE_BASED_INTENT;
-      const noToolReason = remoteProviderResult?.succeeded
+      const noToolReason = llmProviderSucceeded
         ? 'remote_provider_response'
         : directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none';
       return attachProvenanceMetadata(attachRuntimeTruth({
@@ -1009,8 +1020,8 @@ class QueryEngineAuthority {
         executed_provider: executedProviderName,
         execution_fallback_used: executionFallbackUsed,
         cognitive_runtime_hint: {
-          lane: remoteProviderResult?.succeeded ? 'remote_provider_response' : 'no_tool_local',
-          detail: remoteProviderResult?.succeeded ? 'groq_chat_completion' : 'all_actions_tool_none',
+          lane: llmProviderSucceeded ? 'remote_provider_response' : 'no_tool_local',
+          detail: llmProviderSucceeded ? 'groq_chat_completion' : 'all_actions_tool_none',
         },
         confidence: 0.92,
         memory: {

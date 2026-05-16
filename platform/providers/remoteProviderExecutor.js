@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildProviderResult, toLegacyAliases } = require('./providerContract');
+
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_SYSTEM_PROMPT =
@@ -67,13 +69,24 @@ function buildFailure({
   status = null,
   statusText = '',
 }) {
+  const canonical = buildProviderResult({
+    providerName: provider,
+    attempted,
+    succeeded: false,
+    failed: true,
+    model,
+    error,
+    durationMs: elapsedSince(startedAt),
+  });
   const result = {
+    ...canonical,
+    ...toLegacyAliases(canonical),
     attempted: Boolean(attempted),
     succeeded: false,
     providerName: provider,
     model,
-    error,
-    durationMs: elapsedSince(startedAt),
+    error: canonical.llm_public_error,
+    durationMs: canonical.llm_latency_ms,
   };
   if (status != null) {
     result.status = Number(status);
@@ -87,12 +100,24 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
   const name = providerName(providerConfig);
 
   if (name !== 'groq') {
+    const canonical = buildProviderResult({
+      providerName: name,
+      attempted: false,
+      succeeded: false,
+      failed: true,
+      model: providerConfig?.model,
+      error: 'unsupported_provider',
+      durationMs: elapsedSince(startedAt),
+    });
     return {
+      ...canonical,
+      ...toLegacyAliases(canonical),
       attempted: false,
       succeeded: false,
       providerName: name,
-      error: 'unsupported_provider',
-      durationMs: elapsedSince(startedAt),
+      model: providerConfig?.model,
+      error: canonical.llm_public_error,
+      durationMs: canonical.llm_latency_ms,
     };
   }
 
@@ -182,13 +207,23 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
       });
     }
 
+    const canonical = buildProviderResult({
+      providerName: 'groq',
+      attempted: true,
+      succeeded: true,
+      failed: false,
+      model,
+      durationMs: elapsedSince(startedAt),
+    });
     return {
+      ...canonical,
+      ...toLegacyAliases(canonical),
       attempted: true,
       succeeded: true,
       providerName: 'groq',
       model,
       responseText,
-      durationMs: elapsedSince(startedAt),
+      durationMs: canonical.llm_latency_ms,
     };
   } catch (err) {
     return buildFailure({
