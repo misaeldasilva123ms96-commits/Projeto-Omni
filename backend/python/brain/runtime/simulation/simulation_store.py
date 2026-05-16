@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
 from .models import SimulationResult
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
 
 
 class SimulationStore:
@@ -22,15 +27,4 @@ class SimulationStore:
             return
 
     def load_recent(self, *, limit: int = 10) -> list[dict[str, object]]:
-        if not self.path.exists():
-            return []
-        lines = self.path.read_text(encoding="utf-8").splitlines()
-        payloads: list[dict[str, object]] = []
-        for line in lines[-max(1, limit):]:
-            if not line.strip():
-                continue
-            try:
-                payloads.append(json.loads(line))
-            except Exception:
-                continue
-        return payloads
+        return read_tail_jsonl(self.path, limit=max(1, limit), max_bytes=JSONL_TAIL_MAX_BYTES)
