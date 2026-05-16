@@ -45,7 +45,13 @@ function withProviderEnv(values, fn) {
   }
 }
 
-withProviderEnv({}, ({ getProviderRegistry, chooseProvider }) => {
+withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegistry, chooseProvider }) => {
+  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, ['groq', 'local-heuristic']);
+  assert.deepEqual(Object.values(FALLBACK_REASONS).sort(), [
+    'no_remote_provider_available',
+    'requested_provider_unavailable',
+    'requested_provider_unsupported',
+  ]);
   const rows = getProviderRegistry();
   assert.deepEqual(rows.map(row => row.name), [
     'groq',

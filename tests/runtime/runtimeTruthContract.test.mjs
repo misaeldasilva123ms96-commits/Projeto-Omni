@@ -9,6 +9,36 @@ const {
   inferIntentWithSource,
 } = require('../../core/brain/queryEngineAuthority.js')
 
+const providerEnvKeys = [
+  'GROQ_API_KEY',
+  'OPENROUTER_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'GEMINI_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'OLLAMA_URL',
+  'LMSTUDIO_URL',
+  'OMINI_AVAILABLE_PROVIDERS',
+]
+
+async function withNoProviderEnv(fn) {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  try {
+    await fn()
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 async function testGreetingMatcherTruth() {
   const engine = new QueryEngineAuthority()
   const result = await engine.submitMessage({
@@ -80,7 +110,38 @@ function testTruthHelperModes() {
   assert.notEqual(fallback.runtime_mode, RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME)
 }
 
+async function testNoRemoteProviderFallbackTruth() {
+  await withNoProviderEnv(async () => {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-no-provider' },
+      cwd: process.cwd(),
+    })
+
+    assert.equal(result.selected_provider, 'local-heuristic')
+    assert.equal(result.executed_provider, '')
+    assert.equal(result.execution_fallback_used, true)
+    assert.equal(result.llm_fallback_triggered, true)
+    assert.equal(result.llm_fallback_reason, 'no_remote_provider_available')
+    assert.equal(result.fallback_triggered, true)
+    assert.equal(result.fallback_reason, 'no_remote_provider_available')
+    assert.equal(result.runtime_truth.llm_provider_attempted, false)
+    assert.equal(result.runtime_truth.llm_provider_succeeded, false)
+    assert.equal(result.runtime_truth.fallback_triggered, true)
+    const diagnostics = result.metadata.execution_provenance.provider_diagnostics
+    const local = diagnostics.find(row => row.provider === 'local-heuristic')
+    assert.equal(local.selected, true)
+    assert.equal(local.attempted, false)
+  })
+}
+
 await testGreetingMatcherTruth()
+await testNoRemoteProviderFallbackTruth()
 testIntentWrapper()
 testTruthHelperModes()
 console.log('runtime truth contract: js checks passed')

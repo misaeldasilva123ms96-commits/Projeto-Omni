@@ -131,6 +131,19 @@ const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
   available: true,
 });
 
+const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'local-heuristic']);
+
+const FALLBACK_REASONS = Object.freeze({
+  REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',
+  REQUESTED_PROVIDER_UNAVAILABLE: 'requested_provider_unavailable',
+  NO_REMOTE_PROVIDER_AVAILABLE: 'no_remote_provider_available',
+});
+
+function normalizeProviderName(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized || null;
+}
+
 function materializeProvider(definition) {
   const configured = hasConfig(definition.envVar);
   const model = envValue(definition.modelEnvVar) || definition.defaultModel;
@@ -175,14 +188,12 @@ function parseOmniAvailableProviders() {
   return raw.split(/[,]+/).map(part => part.trim().toLowerCase()).filter(Boolean);
 }
 
-function getAvailableProviders() {
-  const remote = getProviderRegistry()
-    .filter(provider => provider.executable);
-
+function sortProvidersByPolicy(providers) {
+  const sorted = providers.slice();
   const order = parseOmniAvailableProviders();
   if (order && order.length) {
     const rank = new Map(order.map((name, index) => [name, index]));
-    remote.sort((a, b) => {
+    sorted.sort((a, b) => {
       const ra = rank.has(a.name) ? rank.get(a.name) : 999;
       const rb = rank.has(b.name) ? rank.get(b.name) : 999;
       if (ra !== rb) {
@@ -191,12 +202,151 @@ function getAvailableProviders() {
       return (a.priority || 99) - (b.priority || 99);
     });
   } else {
-    remote.sort((a, b) => (a.priority || 99) - (b.priority || 99));
+    sorted.sort((a, b) => (a.priority || 99) - (b.priority || 99));
   }
+  return sorted;
+}
+
+function getAvailableProviders() {
+  const remote = sortProvidersByPolicy(
+    getProviderRegistry().filter(provider => provider.executable),
+  );
 
   remote.push({ ...LOCAL_HEURISTIC_PROVIDER });
 
   return remote;
+}
+
+function fallbackReasonForRequestedProvider(provider) {
+  if (!provider) {
+    return FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE;
+  }
+  if (!provider.adapter_implemented || provider.execution_status === 'unsupported') {
+    return FALLBACK_REASONS.REQUESTED_PROVIDER_UNSUPPORTED;
+  }
+  return FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE;
+}
+
+function selectFallbackProvider(providersByName) {
+  for (const name of DEFAULT_FALLBACK_CHAIN) {
+    const candidate = providersByName.get(name);
+    if (!candidate || !candidate.executable) {
+      continue;
+    }
+    if (candidate.kind === 'embedded') {
+      return {
+        executionProvider: null,
+        localFallbackProvider: { ...candidate },
+        fallbackProvider: { ...candidate },
+      };
+    }
+    return {
+      executionProvider: { ...candidate },
+      localFallbackProvider: null,
+      fallbackProvider: { ...candidate },
+    };
+  }
+
+  return {
+    executionProvider: null,
+    localFallbackProvider: null,
+    fallbackProvider: null,
+  };
+}
+
+function buildRouteOutcome({
+  requestedProviderName = null,
+  selectedProviderName = null,
+  executionProvider = null,
+  localFallbackProvider = null,
+  fallbackProvider = null,
+  fallbackTriggered = false,
+  fallbackReason = '',
+  noRemoteProviderAvailable = false,
+  noProviderAvailable = false,
+} = {}) {
+  return {
+    requestedProviderName,
+    selectedProviderName,
+    executionProvider,
+    executionProviderName: executionProvider?.name || null,
+    localFallbackProvider,
+    localFallbackProviderName: localFallbackProvider?.name || null,
+    fallbackProvider,
+    fallbackProviderName: fallbackProvider?.name || null,
+    fallbackTriggered: Boolean(fallbackTriggered),
+    fallbackReason: String(fallbackReason || ''),
+    noRemoteProviderAvailable: Boolean(noRemoteProviderAvailable),
+    noProviderAvailable: Boolean(noProviderAvailable),
+  };
+}
+
+function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
+  const registry = getProviderRegistry({ includeEmbeddedLocal: true });
+  const providersByName = new Map(registry.map(provider => [provider.name, provider]));
+  const remoteExecutable = sortProvidersByPolicy(
+    registry.filter(provider => provider.kind !== 'embedded' && provider.executable),
+  );
+  const noRemoteProviderAvailable = remoteExecutable.length === 0;
+  const requestedProviderName = normalizeProviderName(preferred);
+  const requestedProvider = requestedProviderName ? providersByName.get(requestedProviderName) : null;
+
+  if (requestedProvider?.executable) {
+    if (requestedProvider.kind === 'embedded') {
+      return buildRouteOutcome({
+        requestedProviderName,
+        selectedProviderName: requestedProvider.name,
+        localFallbackProvider: { ...requestedProvider },
+        noRemoteProviderAvailable,
+      });
+    }
+    return buildRouteOutcome({
+      requestedProviderName,
+      selectedProviderName: requestedProvider.name,
+      executionProvider: { ...requestedProvider },
+      noRemoteProviderAvailable,
+    });
+  }
+
+  if (requestedProviderName) {
+    const fallback = selectFallbackProvider(providersByName);
+    const selected = fallback.executionProvider || fallback.localFallbackProvider;
+    return buildRouteOutcome({
+      requestedProviderName,
+      selectedProviderName: selected?.name || null,
+      executionProvider: fallback.executionProvider,
+      localFallbackProvider: fallback.localFallbackProvider,
+      fallbackProvider: fallback.fallbackProvider,
+      fallbackTriggered: true,
+      fallbackReason: fallbackReasonForRequestedProvider(requestedProvider),
+      noRemoteProviderAvailable,
+      noProviderAvailable: !selected,
+    });
+  }
+
+  const selectedProvider = complexity === 'complex'
+    ? remoteExecutable[0]
+    : remoteExecutable[0];
+  if (selectedProvider) {
+    return buildRouteOutcome({
+      selectedProviderName: selectedProvider.name,
+      executionProvider: { ...selectedProvider },
+      noRemoteProviderAvailable,
+    });
+  }
+
+  const fallback = selectFallbackProvider(providersByName);
+  const selected = fallback.executionProvider || fallback.localFallbackProvider;
+  return buildRouteOutcome({
+    selectedProviderName: selected?.name || null,
+    executionProvider: fallback.executionProvider,
+    localFallbackProvider: fallback.localFallbackProvider,
+    fallbackProvider: fallback.fallbackProvider,
+    fallbackTriggered: true,
+    fallbackReason: FALLBACK_REASONS.NO_REMOTE_PROVIDER_AVAILABLE,
+    noRemoteProviderAvailable: true,
+    noProviderAvailable: !selected,
+  });
 }
 
 function buildProviderDiagnostics({
@@ -261,8 +411,11 @@ function chooseProvider({ complexity = 'simple', preferred = '' } = {}) {
 }
 
 module.exports = {
+  DEFAULT_FALLBACK_CHAIN,
+  FALLBACK_REASONS,
   buildProviderDiagnostics,
   chooseProvider,
   getAvailableProviders,
   getProviderRegistry,
+  resolveProviderRoute,
 };

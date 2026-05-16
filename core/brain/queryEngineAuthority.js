@@ -7,7 +7,7 @@ const { buildExecutionTree } = require('../planning/executionTree');
 const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
-const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
+const { buildProviderDiagnostics, getAvailableProviders, resolveProviderRoute } = require('../../platform/providers/providerRouter');
 const { executeRemoteProvider } = require('../../platform/providers/remoteProviderExecutor');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
 const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
@@ -717,8 +717,12 @@ class QueryEngineAuthority {
     const intent = intentInfo.intent;
     const complexity = inferComplexity(message);
     const hintEnv = readPolicyHintEnvelope();
-    const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
-    const selectedProviderName = provider && provider.name ? provider.name : '';
+    const providerRoute = resolveProviderRoute({ complexity, preferred: readPolicyPreferredProvider() });
+    const provider = providerRoute.executionProvider
+      || providerRoute.localFallbackProvider
+      || providerRoute.fallbackProvider
+      || { name: 'local-heuristic', model: 'native-heuristic' };
+    const selectedProviderName = providerRoute.selectedProviderName || (provider && provider.name ? provider.name : '');
     let llmProviderAttempted = false;
     let llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
@@ -899,18 +903,14 @@ class QueryEngineAuthority {
         history,
         systemPrompt: 'You are Omni. Answer the user directly and safely. Do not expose internal runtime state, secrets, logs, or raw tool payloads.',
       };
-      let remoteProviderResult = provider
-        ? await executeRemoteProvider(provider, remoteProviderPayload)
+      const remoteProviderResult = providerRoute.executionProvider
+        ? await executeRemoteProvider(providerRoute.executionProvider, remoteProviderPayload)
         : null;
-      let executionFallbackUsed = false;
-      if (remoteProviderResult?.error === 'unsupported_provider' && selectedProviderName !== 'groq') {
-        const groqFallbackProvider = getAvailableProviders()
-          .find(candidate => candidate.name === 'groq');
-        if (groqFallbackProvider) {
-          remoteProviderResult = await executeRemoteProvider(groqFallbackProvider, remoteProviderPayload);
-          executionFallbackUsed = true;
-        }
-      }
+      const executionFallbackUsed = Boolean(providerRoute.fallbackTriggered);
+      const executionFallbackReason = String(providerRoute.fallbackReason || '');
+      const executionFallbackPath = executionFallbackUsed && providerRoute.requestedProviderName
+        ? `${providerRoute.requestedProviderName}->${selectedProviderName}`
+        : (executionFallbackUsed ? executionFallbackReason : '');
       llmProviderAttempted = Boolean(remoteProviderResult?.llm_provider_attempted ?? remoteProviderResult?.attempted);
       llmProviderSucceeded = Boolean(remoteProviderResult?.llm_provider_succeeded ?? remoteProviderResult?.succeeded);
       const remoteProviderFailed = Boolean(remoteProviderResult?.llm_provider_failed ?? (
@@ -972,6 +972,7 @@ class QueryEngineAuthority {
         selected_provider: selectedProviderName,
         executed_provider: llmProviderAttempted || llmProviderSucceeded ? remoteProviderName : '',
         execution_fallback_used: executionFallbackUsed,
+        execution_fallback_reason: executionFallbackReason,
         delegated_specialists: delegation.specialists,
         critic_review: criticPlanReview,
         semantic_retrieval: semanticMatches,
@@ -997,10 +998,10 @@ class QueryEngineAuthority {
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
         strategyActual: String(intent),
         executionMode: llmProviderSucceeded ? 'remote_provider_response' : 'no_tool_local',
-        fallbackPath: executionFallbackUsed ? `${selectedProviderName}->groq` : '',
+        fallbackPath: executionFallbackPath,
         providerFailed: remoteProviderFailed,
         failureClass: remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
-        failureReason: remoteProviderFailed ? remoteProviderError : '',
+        failureReason: remoteProviderFailed ? remoteProviderError : executionFallbackReason,
         provenanceSource: llmProviderSucceeded ? 'remote_provider_executor' : 'no_tool_local',
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
@@ -1019,6 +1020,11 @@ class QueryEngineAuthority {
         selected_provider: selectedProviderName,
         executed_provider: executedProviderName,
         execution_fallback_used: executionFallbackUsed,
+        execution_fallback_reason: executionFallbackReason,
+        llm_fallback_triggered: executionFallbackUsed,
+        llm_fallback_reason: executionFallbackReason,
+        fallback_triggered: executionFallbackUsed,
+        fallback_reason: executionFallbackReason,
         cognitive_runtime_hint: {
           lane: llmProviderSucceeded ? 'remote_provider_response' : 'no_tool_local',
           detail: llmProviderSucceeded ? 'groq_chat_completion' : 'all_actions_tool_none',
@@ -1045,6 +1051,7 @@ class QueryEngineAuthority {
         providerSucceeded: llmProviderSucceeded,
         toolInvoked: false,
         toolExecuted: false,
+        fallbackTriggered: executionFallbackUsed,
         nodeInvoked: true,
       })), epNoTool);
     }
