@@ -22,9 +22,9 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "env_var": "OPENROUTER_API_KEY",
         "model_env_var": "OPENROUTER_MODEL",
         "registered": True,
-        "adapter_implemented": False,
+        "adapter_implemented": True,
         "enabled_by_default": False,
-        "execution_status": "unsupported",
+        "execution_status": "credential_gated",
     },
     {
         "provider": "openai",

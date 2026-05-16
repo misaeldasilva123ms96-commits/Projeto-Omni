@@ -48,6 +48,7 @@ function withProviderEnv(values, fn) {
 withProviderEnv({
   GROQ_API_KEY: 'groq-router-fallback-test-key',
   OPENAI_API_KEY: 'openai-router-fallback-test-key',
+  OPENROUTER_API_KEY: 'openrouter-router-fallback-test-key',
 }, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
   const route = resolveProviderRoute({ complexity: 'complex', preferred: 'openai' });
   assert.equal(route.requestedProviderName, 'openai');
@@ -63,12 +64,49 @@ withProviderEnv({
 });
 
 withProviderEnv({
+  OPENROUTER_API_KEY: 'openrouter-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex' });
+  assert.equal(route.requestedProviderName, null);
+  assert.equal(route.selectedProviderName, 'openrouter');
+  assert.equal(route.executionProviderName, 'openrouter');
+  assert.equal(route.executionProvider.name, 'openrouter');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.noRemoteProviderAvailable, false);
+});
+
+withProviderEnv({
+  OPENROUTER_API_KEY: 'openrouter-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'openrouter' });
+  assert.equal(route.requestedProviderName, 'openrouter');
+  assert.equal(route.selectedProviderName, 'openrouter');
+  assert.equal(route.executionProviderName, 'openrouter');
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, '');
+});
+
+withProviderEnv({
   GROQ_API_KEY: 'groq-router-fallback-test-key',
 }, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
   const route = resolveProviderRoute({ complexity: 'simple', preferred: 'unknown-provider' });
   assert.equal(route.requestedProviderName, 'unknown-provider');
   assert.equal(route.selectedProviderName, 'groq');
   assert.equal(route.executionProviderName, 'groq');
+  assert.equal(route.fallbackTriggered, true);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE);
+});
+
+withProviderEnv({
+  OPENROUTER_API_KEY: 'openrouter-router-fallback-test-key',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'unknown-provider' });
+  assert.equal(route.requestedProviderName, 'unknown-provider');
+  assert.equal(route.selectedProviderName, 'openrouter');
+  assert.equal(route.executionProviderName, 'openrouter');
+  assert.equal(route.fallbackProviderName, 'openrouter');
   assert.equal(route.fallbackTriggered, true);
   assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE);
 });

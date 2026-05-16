@@ -26,13 +26,13 @@ const PROVIDER_DEFINITIONS = Object.freeze([
     source: 'project',
     envVar: 'OPENROUTER_API_KEY',
     modelEnvVar: 'OPENROUTER_MODEL',
-    defaultModel: 'openrouter-default',
+    defaultModel: 'openai/gpt-4o-mini',
     priority: 20,
     kind: 'remote',
     registered: true,
-    adapter_implemented: false,
+    adapter_implemented: true,
     enabled_by_default: false,
-    execution_status: 'unsupported',
+    execution_status: 'credential_gated',
   }),
   Object.freeze({
     name: 'openai',
@@ -131,7 +131,7 @@ const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
   available: true,
 });
 
-const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'local-heuristic']);
+const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'openrouter', 'local-heuristic']);
 
 const FALLBACK_REASONS = Object.freeze({
   REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',
@@ -194,6 +194,9 @@ function sortProvidersByPolicy(providers) {
   if (order && order.length) {
     const rank = new Map(order.map((name, index) => [name, index]));
     sorted.sort((a, b) => {
+      if ((a.priority || 99) !== (b.priority || 99)) {
+        return (a.priority || 99) - (b.priority || 99);
+      }
       const ra = rank.has(a.name) ? rank.get(a.name) : 999;
       const rb = rank.has(b.name) ? rank.get(b.name) : 999;
       if (ra !== rb) {
