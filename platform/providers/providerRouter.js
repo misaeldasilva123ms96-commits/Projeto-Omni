@@ -7,6 +7,163 @@ function hasConfig(name) {
   return Boolean(envValue(name));
 }
 
+const PROVIDER_DEFINITIONS = Object.freeze([
+  Object.freeze({
+    name: 'groq',
+    source: 'project',
+    envVar: 'GROQ_API_KEY',
+    modelEnvVar: 'GROQ_MODEL',
+    defaultModel: 'llama-3.3-70b-versatile',
+    priority: 3,
+    kind: 'remote',
+    registered: true,
+    adapter_implemented: true,
+    enabled_by_default: true,
+    execution_status: 'credential_gated',
+  }),
+  Object.freeze({
+    name: 'openrouter',
+    source: 'project',
+    envVar: 'OPENROUTER_API_KEY',
+    modelEnvVar: 'OPENROUTER_MODEL',
+    defaultModel: 'openrouter-default',
+    priority: 20,
+    kind: 'remote',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'unsupported',
+  }),
+  Object.freeze({
+    name: 'openai',
+    source: 'openclaude-main.zip',
+    envVar: 'OPENAI_API_KEY',
+    modelEnvVar: 'OPENAI_MODEL',
+    defaultModel: 'gpt-4.1-mini',
+    priority: 30,
+    kind: 'remote',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'unsupported',
+  }),
+  Object.freeze({
+    name: 'anthropic',
+    source: 'openclaude-main.zip',
+    envVar: 'ANTHROPIC_API_KEY',
+    modelEnvVar: 'ANTHROPIC_MODEL',
+    defaultModel: 'claude-3-5-sonnet-latest',
+    priority: 40,
+    kind: 'remote',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'unsupported',
+  }),
+  Object.freeze({
+    name: 'gemini',
+    source: 'project',
+    envVar: 'GEMINI_API_KEY',
+    modelEnvVar: 'GEMINI_MODEL',
+    defaultModel: 'gemini-2.0-flash',
+    priority: 50,
+    kind: 'remote',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'unsupported',
+  }),
+  Object.freeze({
+    name: 'deepseek',
+    source: 'project',
+    envVar: 'DEEPSEEK_API_KEY',
+    modelEnvVar: 'DEEPSEEK_MODEL',
+    defaultModel: 'deepseek-chat',
+    priority: 60,
+    kind: 'remote',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'unsupported',
+  }),
+  Object.freeze({
+    name: 'ollama',
+    source: 'openclaude-main.zip',
+    envVar: 'OLLAMA_URL',
+    modelEnvVar: 'OLLAMA_MODEL',
+    defaultModel: 'llama3:8b',
+    priority: 70,
+    kind: 'local',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'local_config_gated',
+  }),
+  Object.freeze({
+    name: 'lmstudio',
+    source: 'project',
+    envVar: 'LMSTUDIO_URL',
+    modelEnvVar: 'LMSTUDIO_MODEL',
+    defaultModel: 'lmstudio-local',
+    priority: 80,
+    kind: 'local',
+    registered: true,
+    adapter_implemented: false,
+    enabled_by_default: false,
+    execution_status: 'local_config_gated',
+  }),
+]);
+
+const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
+  name: 'local-heuristic',
+  source: 'project',
+  model: 'native-heuristic',
+  priority: 99,
+  kind: 'embedded',
+  registered: true,
+  configured: true,
+  key_present: false,
+  model_configured: true,
+  adapter_implemented: true,
+  enabled_by_default: true,
+  execution_status: 'active',
+  executable: true,
+  available: true,
+});
+
+function materializeProvider(definition) {
+  const configured = hasConfig(definition.envVar);
+  const model = envValue(definition.modelEnvVar) || definition.defaultModel;
+  const executable = Boolean(definition.adapter_implemented && configured);
+  const provider = {
+    name: definition.name,
+    source: definition.source,
+    model,
+    priority: definition.priority,
+    kind: definition.kind,
+    registered: Boolean(definition.registered),
+    configured,
+    key_present: definition.kind === 'remote' ? configured : false,
+    model_configured: Boolean(model),
+    adapter_implemented: Boolean(definition.adapter_implemented),
+    enabled_by_default: Boolean(definition.enabled_by_default),
+    execution_status: definition.adapter_implemented
+      ? (configured ? 'active' : 'credential_gated')
+      : definition.execution_status,
+    executable,
+    available: executable,
+  };
+  return provider;
+}
+
+function getProviderRegistry({ includeEmbeddedLocal = false } = {}) {
+  const rows = PROVIDER_DEFINITIONS.map(materializeProvider);
+  if (includeEmbeddedLocal) {
+    rows.push({ ...LOCAL_HEURISTIC_PROVIDER });
+  }
+  return rows;
+}
+
 /**
  * Comma-separated logical ids from Python (validated keys only). Used for routing order hints.
  */
@@ -19,68 +176,8 @@ function parseOmniAvailableProviders() {
 }
 
 function getAvailableProviders() {
-  const remote = [];
-
-  if (hasConfig('OPENAI_API_KEY')) {
-    remote.push({
-      name: 'openai',
-      source: 'openclaude-main.zip',
-      model: envValue('OPENAI_MODEL') || 'gpt-4.1-mini',
-      priority: 1,
-      kind: 'remote',
-    });
-  }
-
-  if (hasConfig('ANTHROPIC_API_KEY')) {
-    remote.push({
-      name: 'anthropic',
-      source: 'openclaude-main.zip',
-      model: envValue('ANTHROPIC_MODEL') || 'claude-3-5-sonnet-latest',
-      priority: 2,
-      kind: 'remote',
-    });
-  }
-
-  if (hasConfig('GROQ_API_KEY')) {
-    remote.push({
-      name: 'groq',
-      source: 'project',
-      model: envValue('GROQ_MODEL') || 'llama-3.3-70b-versatile',
-      priority: 3,
-      kind: 'remote',
-    });
-  }
-
-  if (hasConfig('GEMINI_API_KEY')) {
-    remote.push({
-      name: 'gemini',
-      source: 'project',
-      model: envValue('GEMINI_MODEL') || 'gemini-2.0-flash',
-      priority: 4,
-      kind: 'remote',
-    });
-  }
-
-  if (hasConfig('DEEPSEEK_API_KEY')) {
-    remote.push({
-      name: 'deepseek',
-      source: 'project',
-      model: envValue('DEEPSEEK_MODEL') || 'deepseek-chat',
-      priority: 5,
-      kind: 'remote',
-    });
-  }
-
-  if (hasConfig('OLLAMA_URL')) {
-    remote.push({
-      name: 'ollama',
-      source: 'openclaude-main.zip',
-      model: envValue('OLLAMA_MODEL') || 'llama3:8b',
-      priority: 6,
-      kind: 'local',
-      baseUrl: envValue('OLLAMA_URL'),
-    });
-  }
+  const remote = getProviderRegistry()
+    .filter(provider => provider.executable);
 
   const order = parseOmniAvailableProviders();
   if (order && order.length) {
@@ -97,13 +194,7 @@ function getAvailableProviders() {
     remote.sort((a, b) => (a.priority || 99) - (b.priority || 99));
   }
 
-  remote.push({
-    name: 'local-heuristic',
-    source: 'project',
-    model: 'native-heuristic',
-    priority: 99,
-    kind: 'embedded',
-  });
+  remote.push({ ...LOCAL_HEURISTIC_PROVIDER });
 
   return remote;
 }
@@ -123,19 +214,23 @@ function buildProviderDiagnostics({
   const succeeded = String(succeededProviderName || (failureClass ? '' : actual) || '').trim().toLowerCase();
   const failureKind = String(failureClass || '').trim().toLowerCase();
   const failureDetail = String(failureReason || '').trim();
-  const providers = getAvailableProviders();
+  const providers = getProviderRegistry({ includeEmbeddedLocal: true });
 
   return providers.map(provider => {
     const attemptedHere = provider.name === attempted;
     const succeededHere = provider.name === succeeded && !failureKind;
     const failedHere = attemptedHere && Boolean(failureKind);
-    const configured = provider.kind === 'embedded' ? true : provider.kind === 'local' ? Boolean(provider.baseUrl) : true;
     return {
       provider: provider.name,
-      configured,
-      key_present: provider.kind === 'remote' ? configured : false,
-      model_configured: Boolean(provider.model),
-      available: true,
+      registered: Boolean(provider.registered),
+      configured: Boolean(provider.configured),
+      key_present: Boolean(provider.key_present),
+      model_configured: Boolean(provider.model_configured),
+      adapter_implemented: Boolean(provider.adapter_implemented),
+      enabled_by_default: Boolean(provider.enabled_by_default),
+      execution_status: String(provider.execution_status || 'unsupported'),
+      executable: Boolean(provider.executable),
+      available: Boolean(provider.available),
       selected: provider.name === selected,
       attempted: attemptedHere,
       succeeded: succeededHere,
@@ -169,4 +264,5 @@ module.exports = {
   buildProviderDiagnostics,
   chooseProvider,
   getAvailableProviders,
+  getProviderRegistry,
 };
