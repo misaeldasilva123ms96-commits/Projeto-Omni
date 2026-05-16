@@ -9,6 +9,9 @@ from .models import LearningEvidence, LearningSignal, LearningSignalType, Learni
 from .redaction import redact_sensitive_payload
 
 
+TAIL_BYTES = 2 * 1024 * 1024
+
+
 class LearningStore:
     def __init__(self, root: Path) -> None:
         self.base_dir = root / ".logs" / "fusion-runtime" / "learning"
@@ -70,34 +73,55 @@ class LearningStore:
             handle.write("\n")
 
     def load_recent_signals(self, *, limit: int = 50, signal_type: str | None = None) -> list[LearningSignal]:
+        if limit <= 0:
+            return []
         signals: list[LearningSignal] = []
         files = [self.signals_dir / f"{signal_type}.jsonl"] if signal_type else list(self.signals_dir.glob("*.jsonl"))
         for path in files:
             if not path.exists():
                 continue
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
+            try:
+                file_size = path.stat().st_size
+                with path.open("rb") as handle:
+                    start = max(0, file_size - TAIL_BYTES)
+                    handle.seek(start)
+                    text = handle.read(TAIL_BYTES).decode("utf-8", errors="replace")
+            except OSError:
+                continue
+            lines = text.splitlines()
+            if file_size > TAIL_BYTES and lines:
+                lines = lines[1:]
+            parsed_for_file = 0
+            for line in reversed(lines):
+                raw = line.strip()
+                if not raw:
                     continue
                 try:
-                    payload = json.loads(line)
+                    payload = json.loads(raw)
                 except Exception:
                     continue
                 if not isinstance(payload, dict):
                     continue
-                signals.append(
-                    LearningSignal(
-                        signal_id=str(payload.get("signal_id", "")),
-                        signal_type=LearningSignalType(str(payload.get("signal_type", ""))),
-                        source_pattern_key=str(payload.get("source_pattern_key", "")),
-                        confidence=float(payload.get("confidence", 0.0) or 0.0),
-                        weight=float(payload.get("weight", 0.0) or 0.0),
-                        recommendation=str(payload.get("recommendation", "")),
-                        evidence_summary=dict(payload.get("evidence_summary", {}) or {}),
-                        timestamp=str(payload.get("timestamp", "")),
-                        advisory=bool(payload.get("advisory", True)),
-                        metadata=dict(payload.get("metadata", {}) or {}),
+                try:
+                    signals.append(
+                        LearningSignal(
+                            signal_id=str(payload.get("signal_id", "")),
+                            signal_type=LearningSignalType(str(payload.get("signal_type", ""))),
+                            source_pattern_key=str(payload.get("source_pattern_key", "")),
+                            confidence=float(payload.get("confidence", 0.0) or 0.0),
+                            weight=float(payload.get("weight", 0.0) or 0.0),
+                            recommendation=str(payload.get("recommendation", "")),
+                            evidence_summary=dict(payload.get("evidence_summary", {}) or {}),
+                            timestamp=str(payload.get("timestamp", "")),
+                            advisory=bool(payload.get("advisory", True)),
+                            metadata=dict(payload.get("metadata", {}) or {}),
+                        )
                     )
-                )
+                except Exception:
+                    continue
+                parsed_for_file += 1
+                if parsed_for_file >= limit:
+                    break
         signals.sort(key=lambda item: item.timestamp, reverse=True)
         return signals[:limit]
 
