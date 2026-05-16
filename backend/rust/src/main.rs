@@ -6,6 +6,7 @@ mod run_control;
 use std::{
     collections::{HashMap, VecDeque},
     env, fs,
+    io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
@@ -798,7 +799,9 @@ impl PythonCircuitBreaker {
             CircuitBreakerState::Open => {
                 let reset_elapsed = self
                     .opened_at
-                    .map(|opened| now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms)
+                    .map(|opened| {
+                        now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms
+                    })
                     .unwrap_or(true);
                 if reset_elapsed {
                     self.state = CircuitBreakerState::HalfOpen;
@@ -889,6 +892,7 @@ impl ChatSecurityState {
         }
     }
 
+    #[cfg(test)]
     fn with_config(config: ChatSecurityConfig) -> Self {
         Self {
             config,
@@ -1656,6 +1660,7 @@ async fn operator_v1_pr_digest(
 }
 
 /// Normalizes optional client session id: trim, drop empty, cap length for safe logging/JSON size.
+#[cfg(test)]
 fn normalize_client_session_id(raw: Option<String>) -> Option<String> {
     const MAX_CHARS: usize = 256;
     let inner = raw?;
@@ -1715,15 +1720,21 @@ fn public_error_response(status: StatusCode, code: &str) -> Response {
     (status, Json(build_public_error_payload(code))).into_response()
 }
 
-fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
+type BoxedResponseResult<T> = Result<T, Box<Response>>;
+
+fn boxed_public_error_response(status: StatusCode, code: &str) -> Box<Response> {
+    Box::new(public_error_response(status, code))
+}
+
+fn validate_content_type(headers: &HeaderMap) -> BoxedResponseResult<()> {
     let Some(value) = headers.get(CONTENT_TYPE) else {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ));
     };
     let Ok(raw) = value.to_str() else {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ));
@@ -1732,7 +1743,7 @@ fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
     if mime.eq_ignore_ascii_case("application/json") {
         Ok(())
     } else {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ))
@@ -1745,22 +1756,22 @@ fn contains_unsafe_control_chars(value: &str) -> bool {
         .any(|ch| ch.is_control() && ch != '\t' && ch != '\n' && ch != '\r')
 }
 
-fn validate_message(message: &str, max_chars: usize) -> Result<String, Response> {
+fn validate_message(message: &str, max_chars: usize) -> BoxedResponseResult<String> {
     let trimmed = message.trim().to_string();
     if trimmed.is_empty() {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
     }
     if trimmed.chars().count() > max_chars {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "PAYLOAD_TOO_LARGE",
         ));
     }
     if contains_unsafe_control_chars(&trimmed) {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1768,7 +1779,7 @@ fn validate_message(message: &str, max_chars: usize) -> Result<String, Response>
     Ok(trimmed)
 }
 
-fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response> {
+fn validate_optional_id(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
     let Some(value) = raw else {
         return Ok(None);
     };
@@ -1777,7 +1788,7 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
         return Ok(None);
     }
     if trimmed.chars().count() > 128 || contains_unsafe_control_chars(&trimmed) {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1786,7 +1797,7 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
     {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1794,9 +1805,9 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
     Ok(Some(trimmed))
 }
 
-fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Response> {
+fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResult<()> {
     if bytes.len() > max_body_bytes {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "PAYLOAD_TOO_LARGE",
         ))
@@ -1805,7 +1816,7 @@ fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Respon
     }
 }
 
-fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
+fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
     let client_key = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
@@ -1819,21 +1830,21 @@ fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(),
     {
         Ok(())
     } else {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
         ))
     }
 }
 
-fn parse_chat_request(bytes: &Bytes) -> Result<ChatRequest, Response> {
+fn parse_chat_request(bytes: &Bytes) -> BoxedResponseResult<ChatRequest> {
     serde_json::from_slice::<ChatRequest>(bytes)
-        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
 }
 
-fn parse_public_chat_request(bytes: &Bytes) -> Result<PublicChatRequestV1, Response> {
+fn parse_public_chat_request(bytes: &Bytes) -> BoxedResponseResult<PublicChatRequestV1> {
     serde_json::from_slice::<PublicChatRequestV1>(bytes)
-        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
 }
 
 async fn chat(
@@ -1842,33 +1853,33 @@ async fn chat(
     body: Bytes,
 ) -> Result<Response, AppError> {
     if let Err(response) = validate_content_type(&headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_chat_rate_limit(&state, &headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     let payload = match parse_chat_request(&body) {
         Ok(payload) => payload,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let message = match validate_message(
         &payload.message,
         state.chat_security.config.max_message_chars,
     ) {
         Ok(message) => message,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     let client_session_id = match validate_optional_id(payload.client_session_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let request_id = match validate_optional_id(payload.request_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     info!(
@@ -1887,33 +1898,33 @@ async fn public_v1_chat(
     body: Bytes,
 ) -> Result<Response, AppError> {
     if let Err(response) = validate_content_type(&headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_chat_rate_limit(&state, &headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     let payload = match parse_public_chat_request(&body) {
         Ok(payload) => payload,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let message = match validate_message(
         &payload.message,
         state.chat_security.config.max_message_chars,
     ) {
         Ok(message) => message,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     let client_session_id = match validate_optional_id(payload.client_session_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let request_id = match validate_optional_id(payload.request_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let client_context_json = payload
         .client_context
@@ -2385,7 +2396,10 @@ fn annotate_service_metadata(
         .unwrap_or_else(|| json!({}));
 
     if let Some(obj) = inspection.as_object_mut() {
-        obj.insert("runtime_mode".into(), Value::String("SAFE_FALLBACK".to_string()));
+        obj.insert(
+            "runtime_mode".into(),
+            Value::String("SAFE_FALLBACK".to_string()),
+        );
         obj.insert(
             "runtime_reason".into(),
             Value::String(error_public_code.to_string()),
@@ -2476,10 +2490,13 @@ async fn execute_python_service_with_policy(
 
     for _ in 0..attempts {
         let circuit_state = {
-            let mut guard = state.python_circuit.lock().map_err(|_| PythonServiceFailure {
-                kind: PythonServiceFailureKind::ServiceFailure,
-                circuit_state: CircuitBreakerState::Open,
-            })?;
+            let mut guard = state
+                .python_circuit
+                .lock()
+                .map_err(|_| PythonServiceFailure {
+                    kind: PythonServiceFailureKind::ServiceFailure,
+                    circuit_state: CircuitBreakerState::Open,
+                })?;
             guard.before_call(&state.python_runtime, Instant::now())
         };
         last_state = circuit_state;
@@ -2593,7 +2610,9 @@ async fn call_python_service(
     };
 
     let parsed = extract_chat_from_python_output(&response_body);
-    if parsed.response == PYTHON_FALLBACK_RESPONSE || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE {
+    if parsed.response == PYTHON_FALLBACK_RESPONSE
+        || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE
+    {
         let kind = PythonServiceFailureKind::ServiceFailure;
         let code = service_failure_code(kind);
         let stop_reason = "python_service_error";
@@ -2601,9 +2620,14 @@ async fn call_python_service(
         record_python_service_failure(state, kind, circuit_state);
         let current_state = current_python_circuit_state(state);
         if state.python_runtime.fallback_to_subprocess {
-            let mut fallback =
-                call_python_subprocess(state, message, client_session_id, request_id, client_context)
-                    .await?;
+            let mut fallback = call_python_subprocess(
+                state,
+                message,
+                client_session_id,
+                request_id,
+                client_context,
+            )
+            .await?;
             fallback.source = "python-service-subprocess-fallback".to_string();
             fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
             annotate_service_metadata(&mut fallback, true, true, current_state, code);
@@ -2661,11 +2685,24 @@ async fn call_python(
     }
 
     if state.python_runtime.mode == PythonRuntimeMode::Service {
-        return call_python_service(state, message, client_session_id, request_id, client_context)
-            .await;
+        return call_python_service(
+            state,
+            message,
+            client_session_id,
+            request_id,
+            client_context,
+        )
+        .await;
     }
 
-    call_python_subprocess(state, message, client_session_id, request_id, client_context).await
+    call_python_subprocess(
+        state,
+        message,
+        client_session_id,
+        request_id,
+        client_context,
+    )
+    .await
 }
 
 async fn call_python_subprocess(
@@ -2678,7 +2715,7 @@ async fn call_python_subprocess(
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
         return Ok(build_mock_response(
-            &state,
+            state,
             message,
             "mock-env",
             client_session_id,
@@ -2708,7 +2745,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_spawn_failed",
@@ -2724,7 +2761,7 @@ async fn call_python_subprocess(
             let _ = child.kill().await;
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_stdin_failed",
@@ -2748,7 +2785,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_wait_failed",
@@ -2763,7 +2800,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_timeout",
@@ -2791,7 +2828,7 @@ async fn call_python_subprocess(
         )
         .await;
         return Ok(build_python_fallback_response(
-            &state,
+            state,
             "python-subprocess",
             client_session_id.clone(),
             "python_subprocess_nonzero_exit",
@@ -2815,7 +2852,7 @@ async fn call_python_subprocess(
         warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
         return Ok(build_python_fallback_response(
-            &state,
+            state,
             "python-subprocess",
             client_session_id.clone(),
             "python_empty_stdout",
@@ -2880,27 +2917,56 @@ fn read_json_value(path: &Path) -> Option<Value> {
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
 }
 
+const JSONL_TAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
 fn read_recent_jsonl(path: &Path, limit: usize) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|raw| {
-            raw.lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        serde_json::from_str::<Value>(trimmed).ok()
-                    }
-                })
-                .rev()
-                .take(limit)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+    let file_len = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Vec::new(),
+    };
+    if file_len == 0 {
+        return Vec::new();
+    }
+
+    let read_len = file_len.min(JSONL_TAIL_MAX_BYTES);
+    let start = file_len.saturating_sub(read_len);
+    if file.seek(std::io::SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+
+    let mut bytes = Vec::with_capacity(read_len as usize);
+    if std::io::Read::read_to_end(&mut file, &mut bytes).is_err() {
+        return Vec::new();
+    }
+
+    let raw = String::from_utf8_lossy(&bytes);
+    let mut lines = raw.lines();
+    if start > 0 {
+        let _ = lines.next();
+    }
+
+    let mut parsed: Vec<Value> = lines
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                serde_json::from_str::<Value>(trimmed).ok()
+            }
         })
-        .unwrap_or_default()
+        .collect();
+    if parsed.len() > limit {
+        parsed.drain(0..parsed.len() - limit);
+    }
+    parsed
 }
 
 fn read_latest_jsonl(path: &Path) -> Option<Value> {
@@ -3624,7 +3690,8 @@ mod tests {
 
     #[tokio::test]
     async fn service_failure_optionally_falls_back_to_subprocess() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
         let script = r#"print('{"response":"ok from subprocess","cognitive_runtime_inspection":{"runtime_mode":"FULL_COGNITIVE_RUNTIME"}}')"#;
         let mut state = build_test_state(temp_script(script, "service-fallback"), 15_000);
         state.python_runtime = PythonRuntimeConfig {
@@ -3649,14 +3716,21 @@ mod tests {
         assert_eq!(inspection["fallback_triggered"].as_bool(), Some(true));
         assert_eq!(inspection["service_mode_attempted"].as_bool(), Some(true));
         assert_eq!(inspection["service_fallback_used"].as_bool(), Some(true));
-        assert_ne!(inspection["runtime_mode"].as_str(), Some("FULL_COGNITIVE_RUNTIME"));
+        assert_ne!(
+            inspection["runtime_mode"].as_str(),
+            Some("FULL_COGNITIVE_RUNTIME")
+        );
     }
 
     #[tokio::test]
     async fn service_failure_without_fallback_does_not_invoke_subprocess() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
         let mut state = build_service_state(port, 5_000);
-        state.python_entry = temp_script("print('{\"response\":\"should-not-run\"}')\n", "no-fallback");
+        state.python_entry = temp_script(
+            "print('{\"response\":\"should-not-run\"}')\n",
+            "no-fallback",
+        );
         state.python_runtime.fallback_to_subprocess = false;
 
         let response = call_python(&state, "hello", None, None, None)
@@ -3736,7 +3810,8 @@ mod tests {
 
     #[tokio::test]
     async fn half_open_failure_reopens_circuit() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "probe failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "probe failed"})).await;
         let mut state = build_service_state(port, 5_000);
         state.python_runtime.circuit_failure_threshold = 1;
         state.python_runtime.circuit_reset_ms = 1;
