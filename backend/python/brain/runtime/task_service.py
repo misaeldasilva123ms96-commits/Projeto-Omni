@@ -8,6 +8,42 @@ from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 from brain.runtime.service_contracts import build_task_envelope, build_task_status, validate_start_task_request
 
 
+_RUN_SUMMARY_TAIL_BYTES = 2 * 1024 * 1024
+_RUN_SUMMARY_RECENT_LIMIT = 1000
+
+
+def _iter_recent_jsonl(path: Path, *, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0 or not path.exists():
+        return []
+
+    import json
+
+    size = path.stat().st_size
+    start = max(0, size - _RUN_SUMMARY_TAIL_BYTES)
+    with path.open("rb") as handle:
+        handle.seek(start)
+        raw = handle.read(size - start)
+
+    text = raw.decode("utf-8", errors="replace")
+    if start > 0:
+        _, _, text = text.partition("\n")
+
+    records: list[dict[str, Any]] = []
+    for line in reversed(text.splitlines()):
+        if len(records) >= limit:
+            break
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        try:
+            candidate = json.loads(trimmed)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            records.append(candidate)
+    return records
+
+
 class TaskService:
     def __init__(self, entrypoint: Path) -> None:
         self.orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(entrypoint))
@@ -182,12 +218,7 @@ class TaskService:
         run_summary_path = self.orchestrator.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
         latest_summary = None
         if run_summary_path.exists():
-            import json
-
-            for line in reversed(run_summary_path.read_text(encoding="utf-8").splitlines()):
-                if not line.strip():
-                    continue
-                candidate = json.loads(line)
+            for candidate in _iter_recent_jsonl(run_summary_path, limit=_RUN_SUMMARY_RECENT_LIMIT):
                 if candidate.get("run_id") == run_id:
                     latest_summary = candidate
                     break

@@ -6,6 +6,7 @@ mod run_control;
 use std::{
     collections::{HashMap, VecDeque},
     env, fs,
+    io::{Read, Seek, SeekFrom},
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
@@ -2881,26 +2882,52 @@ fn read_json_value(path: &Path) -> Option<Value> {
 }
 
 fn read_recent_jsonl(path: &Path, limit: usize) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|raw| {
-            raw.lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        serde_json::from_str::<Value>(trimmed).ok()
-                    }
-                })
-                .rev()
-                .take(limit)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
+    const JSONL_TAIL_BYTES: u64 = 2 * 1024 * 1024;
+
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+    let size = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Vec::new(),
+    };
+    let start = size.saturating_sub(JSONL_TAIL_BYTES);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+
+    let mut raw = Vec::new();
+    if file.read_to_end(&mut raw).is_err() {
+        return Vec::new();
+    }
+
+    let text = String::from_utf8_lossy(&raw);
+    let text = if start > 0 {
+        text.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
+    } else {
+        text.as_ref()
+    };
+
+    text.lines()
+        .rev()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                serde_json::from_str::<Value>(trimmed).ok()
+            }
         })
-        .unwrap_or_default()
+        .take(limit)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
 }
 
 fn read_latest_jsonl(path: &Path) -> Option<Value> {
