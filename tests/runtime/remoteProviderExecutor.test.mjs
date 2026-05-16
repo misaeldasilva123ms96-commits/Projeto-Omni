@@ -6,6 +6,8 @@ const { executeRemoteProvider } = require('../../platform/providers/remoteProvid
 
 const originalGroqApiKey = process.env.GROQ_API_KEY;
 const originalGroqModel = process.env.GROQ_MODEL;
+const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+const originalOpenRouterModel = process.env.OPENROUTER_MODEL;
 
 function restoreEnv() {
   if (originalGroqApiKey === undefined) {
@@ -18,11 +20,23 @@ function restoreEnv() {
   } else {
     process.env.GROQ_MODEL = originalGroqModel;
   }
+  if (originalOpenRouterApiKey === undefined) {
+    delete process.env.OPENROUTER_API_KEY;
+  } else {
+    process.env.OPENROUTER_API_KEY = originalOpenRouterApiKey;
+  }
+  if (originalOpenRouterModel === undefined) {
+    delete process.env.OPENROUTER_MODEL;
+  } else {
+    process.env.OPENROUTER_MODEL = originalOpenRouterModel;
+  }
 }
 
 try {
   delete process.env.GROQ_API_KEY;
   delete process.env.GROQ_MODEL;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_MODEL;
 
   const missingKey = await executeRemoteProvider(
     { name: 'groq', model: 'test-model' },
@@ -106,6 +120,129 @@ try {
   assert.equal(httpFailure.provider_succeeded, false);
   assert.equal(httpFailure.provider_failed, true);
   assert.equal(httpFailure.llm_public_error, 'http_429');
+
+  const openRouterMissingKey = await executeRemoteProvider(
+    { name: 'openrouter', model: 'openrouter-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new Error('fetch must not be called without an API key');
+      },
+    },
+  );
+  assert.equal(openRouterMissingKey.attempted, false);
+  assert.equal(openRouterMissingKey.succeeded, false);
+  assert.equal(openRouterMissingKey.providerName, 'openrouter');
+  assert.equal(openRouterMissingKey.error, 'missing_api_key');
+  assert.equal(openRouterMissingKey.llm_provider_selected, 'openrouter');
+  assert.equal(openRouterMissingKey.llm_provider_attempted, false);
+  assert.equal(openRouterMissingKey.llm_provider_succeeded, false);
+  assert.equal(openRouterMissingKey.llm_provider_failed, true);
+
+  const openRouterSuccess = await executeRemoteProvider(
+    { name: 'openrouter', key: 'openrouter-test-key-not-secret', model: 'openrouter-test-model' },
+    {
+      message: 'Say ok',
+      history: [{ role: 'assistant', content: 'Previous safe context' }],
+      fetch: async (url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers.Authorization, 'Bearer openrouter-test-key-not-secret');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.equal(options.headers['HTTP-Referer'], undefined);
+        assert.equal(options.headers['X-OpenRouter-Title'], undefined);
+        assert.equal(body.model, 'openrouter-test-model');
+        assert.equal(body.temperature, 0.2);
+        assert.equal(body.stream, undefined);
+        assert.equal(body.messages.at(-1).role, 'user');
+        assert.equal(body.messages.at(-1).content, 'Say ok');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            choices: [{ message: { content: 'OpenRouter mock response' } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(openRouterSuccess.attempted, true);
+  assert.equal(openRouterSuccess.succeeded, true);
+  assert.equal(openRouterSuccess.providerName, 'openrouter');
+  assert.equal(openRouterSuccess.responseText, 'OpenRouter mock response');
+  assert.equal(openRouterSuccess.llm_provider_selected, 'openrouter');
+  assert.equal(openRouterSuccess.llm_provider_attempted, true);
+  assert.equal(openRouterSuccess.llm_provider_succeeded, true);
+  assert.equal(openRouterSuccess.llm_provider_failed, false);
+  assert.equal(openRouterSuccess.provider_attempted, true);
+  assert.equal(openRouterSuccess.provider_succeeded, true);
+  assert.equal(openRouterSuccess.provider_failed, false);
+
+  const openRouterHttpFailure = await executeRemoteProvider(
+    { name: 'openrouter', key: 'openrouter-test-key-not-secret', model: 'openrouter-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized Bearer unsafe-token-1234567890 sk-should-not-leak',
+      }),
+    },
+  );
+  assert.equal(openRouterHttpFailure.attempted, true);
+  assert.equal(openRouterHttpFailure.succeeded, false);
+  assert.equal(openRouterHttpFailure.error, 'http_401');
+  assert.equal(openRouterHttpFailure.status, 401);
+  assert.equal(JSON.stringify(openRouterHttpFailure).includes('unsafe-token'), false);
+  assert.equal(JSON.stringify(openRouterHttpFailure).includes('sk-should-not-leak'), false);
+
+  const openRouterInvalidJson = await executeRemoteProvider(
+    { name: 'openrouter', key: 'openrouter-test-key-not-secret', model: 'openrouter-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('invalid provider body with openrouter-test-key-not-secret');
+        },
+      }),
+    },
+  );
+  assert.equal(openRouterInvalidJson.error, 'invalid_json');
+  assert.equal(JSON.stringify(openRouterInvalidJson).includes('openrouter-test-key-not-secret'), false);
+
+  const openRouterEmptyResponse = await executeRemoteProvider(
+    { name: 'openrouter', key: 'openrouter-test-key-not-secret', model: 'openrouter-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '   ' } }] }),
+      }),
+    },
+  );
+  assert.equal(openRouterEmptyResponse.error, 'empty_response');
+  assert.equal(openRouterEmptyResponse.llm_public_error, 'empty_response');
+
+  const openRouterNetworkFailure = await executeRemoteProvider(
+    { name: 'openrouter', key: 'openrouter-test-key-not-secret', model: 'openrouter-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new TypeError('network failure with openrouter-test-key-not-secret');
+      },
+    },
+  );
+  const serializedOpenRouterFailure = JSON.stringify(openRouterNetworkFailure);
+  assert.equal(openRouterNetworkFailure.error, 'network_error');
+  assert.equal(serializedOpenRouterFailure.includes('openrouter-test-key-not-secret'), false);
+  assert.equal(serializedOpenRouterFailure.includes('Authorization'), false);
+  assert.equal(serializedOpenRouterFailure.includes('headers'), false);
+  assert.equal(serializedOpenRouterFailure.includes('stack'), false);
 
   const unsupported = await executeRemoteProvider(
     { name: 'gemini', model: 'gemini-test' },

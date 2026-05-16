@@ -46,7 +46,7 @@ function withProviderEnv(values, fn) {
 }
 
 withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegistry, chooseProvider }) => {
-  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, ['groq', 'local-heuristic']);
+  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, ['groq', 'openrouter', 'local-heuristic']);
   assert.deepEqual(Object.values(FALLBACK_REASONS).sort(), [
     'no_remote_provider_available',
     'requested_provider_unavailable',
@@ -63,7 +63,13 @@ withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegi
     'ollama',
     'lmstudio',
   ]);
-  for (const name of ['openrouter', 'openai', 'anthropic', 'gemini', 'deepseek']) {
+  const openrouter = rows.find(item => item.name === 'openrouter');
+  assert.equal(openrouter.registered, true);
+  assert.equal(openrouter.adapter_implemented, true);
+  assert.equal(openrouter.executable, false);
+  assert.equal(openrouter.execution_status, 'credential_gated');
+  assert.equal(openrouter.model, 'openai/gpt-4o-mini');
+  for (const name of ['openai', 'anthropic', 'gemini', 'deepseek']) {
     const row = rows.find(item => item.name === name);
     assert.equal(row.registered, true);
     assert.equal(row.adapter_implemented, false);
@@ -88,7 +94,7 @@ withProviderEnv({
 }, ({ buildProviderDiagnostics, chooseProvider, getAvailableProviders }) => {
   const selected = chooseProvider({ complexity: 'complex' });
   assert.equal(selected.name, 'groq');
-  assert.deepEqual(getAvailableProviders().map(row => row.name), ['groq', 'local-heuristic']);
+  assert.deepEqual(getAvailableProviders().map(row => row.name), ['groq', 'openrouter', 'local-heuristic']);
 
   const rows = buildProviderDiagnostics({
     selectedProviderName: 'openai',
@@ -102,6 +108,13 @@ withProviderEnv({
   assert.equal(openai.adapter_implemented, false);
   assert.equal(openai.available, false);
   assert.equal(openai.execution_status, 'unsupported');
+
+  const openrouter = rows.find(row => row.provider === 'openrouter');
+  assert.equal(openrouter.configured, true);
+  assert.equal(openrouter.key_present, true);
+  assert.equal(openrouter.adapter_implemented, true);
+  assert.equal(openrouter.available, true);
+  assert.equal(openrouter.execution_status, 'active');
 
   const groq = rows.find(row => row.provider === 'groq');
   assert.equal(groq.configured, true);

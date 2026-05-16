@@ -43,7 +43,10 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(rows["groq"]["registered"])
         self.assertTrue(rows["groq"]["adapter_implemented"])
         self.assertEqual(rows["groq"]["execution_status"], "credential_gated")
-        for provider in ("openrouter", "openai", "anthropic", "gemini", "deepseek"):
+        self.assertTrue(rows["openrouter"]["registered"])
+        self.assertTrue(rows["openrouter"]["adapter_implemented"])
+        self.assertEqual(rows["openrouter"]["execution_status"], "credential_gated")
+        for provider in ("openai", "anthropic", "gemini", "deepseek"):
             self.assertTrue(rows[provider]["registered"])
             self.assertFalse(rows[provider]["adapter_implemented"])
             self.assertEqual(rows[provider]["execution_status"], "unsupported")
@@ -103,8 +106,10 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertEqual(openai["failure_class"], "provider_timeout")
             openrouter = next(item for item in rows if item["provider"] == "openrouter")
             self.assertTrue(openrouter["registered"])
-            self.assertFalse(openrouter["adapter_implemented"])
-            self.assertEqual(openrouter["execution_status"], "unsupported")
+            self.assertFalse(openrouter["configured"])
+            self.assertTrue(openrouter["adapter_implemented"])
+            self.assertEqual(openrouter["execution_status"], "credential_gated")
+            self.assertFalse(openrouter["available"])
             heuristic = next(item for item in rows if item["provider"] == "local-heuristic")
             self.assertTrue(heuristic["configured"])
             self.assertFalse(heuristic["key_present"])
@@ -117,6 +122,28 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertNotIn("key_prefix", serialized)
             self.assertNotIn("key_length", serialized)
             self.assertNotIn("key_hash", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_openrouter_diagnostics_becomes_available_when_configured(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            os.environ["OPENROUTER_API_KEY"] = "openrouter-provider-test-key"
+            rows = describe_provider_diagnostics(selected_provider="openrouter", include_embedded_local=True)
+            openrouter = next(item for item in rows if item["provider"] == "openrouter")
+            self.assertTrue(openrouter["registered"])
+            self.assertTrue(openrouter["configured"])
+            self.assertTrue(openrouter["key_present"])
+            self.assertTrue(openrouter["adapter_implemented"])
+            self.assertTrue(openrouter["available"])
+            self.assertEqual(openrouter["execution_status"], "active")
+            self.assertTrue(openrouter["selected"])
+            serialized = str(rows).lower()
+            self.assertNotIn("openrouter-provider-test-key", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:
