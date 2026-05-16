@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
 from .models import OperationalSummary, PlanCheckpoint, TaskPlan
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
+CHECKPOINT_TAIL_SCAN_LIMIT = 64
 
 
 class TaskStateStore:
@@ -66,8 +72,15 @@ class TaskStateStore:
         return checkpoints
 
     def load_latest_checkpoint(self, plan_id: str) -> PlanCheckpoint | None:
-        checkpoints = self.load_checkpoints(plan_id)
-        return checkpoints[-1] if checkpoints else None
+        path = self._checkpoint_path(plan_id)
+        for payload in reversed(
+            read_tail_jsonl(path, limit=CHECKPOINT_TAIL_SCAN_LIMIT, max_bytes=JSONL_TAIL_MAX_BYTES)
+        ):
+            try:
+                return PlanCheckpoint.from_dict(payload)
+            except Exception:
+                continue
+        return None
 
     def list_recent_plans(self, limit: int = 10) -> list[TaskPlan]:
         plans: list[TaskPlan] = []
