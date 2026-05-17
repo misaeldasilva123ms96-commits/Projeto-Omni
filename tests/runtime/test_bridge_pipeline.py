@@ -27,6 +27,66 @@ def _load_python_main_module():
 
 
 class BridgePipelineTest(unittest.TestCase):
+    def test_session_byok_bridge_extracts_private_overlay(self) -> None:
+        from brain.runtime.orchestrator import _extract_session_byok_bridge
+
+        preference, overlay = _extract_session_byok_bridge(
+            {
+                "client_context": {
+                    "provider_preference": " OpenAI ",
+                    "session_provider_credentials": {
+                        "openai": {
+                            "api_key": "test-byok-key",
+                            "model": "gpt-4o-mini",
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(preference, "openai")
+        self.assertEqual(overlay["OPENAI_API_KEY"], "test-byok-key")
+        self.assertEqual(overlay["OPENAI_MODEL"], "gpt-4o-mini")
+
+    def test_session_byok_bridge_rejects_deepseek_and_control_chars(self) -> None:
+        from brain.runtime.orchestrator import _extract_session_byok_bridge
+
+        preference, overlay = _extract_session_byok_bridge(
+            {
+                "provider_preference": "deepseek",
+                "session_provider_credentials": {
+                    "deepseek": {"api_key": "test-deepseek-key"},
+                    "openai": {"api_key": "bad\u0000key"},
+                },
+            }
+        )
+
+        self.assertIsNone(preference)
+        self.assertEqual(overlay, {})
+
+    def test_session_byok_overlay_is_private_node_env_only(self) -> None:
+        from types import SimpleNamespace
+
+        from brain.runtime.orchestrator import BrainOrchestrator
+
+        orchestrator = BrainOrchestrator.__new__(BrainOrchestrator)
+        orchestrator.js_runtime_adapter = SimpleNamespace(
+            build_env=lambda: ({"BASE_DIR": "project"}, SimpleNamespace(runtime_name="node"))
+        )
+        orchestrator._resolve_node_bin = lambda: "node"
+        orchestrator._pending_policy_hint_json = None
+        orchestrator._session_provider_preference = "openai"
+        orchestrator._session_provider_env_overlay = {
+            "OPENAI_API_KEY": "test-byok-key",
+            "OPENAI_MODEL": "gpt-4o-mini",
+        }
+
+        env = orchestrator._build_node_subprocess_env()
+
+        self.assertEqual(env["OPENAI_API_KEY"], "test-byok-key")
+        self.assertEqual(env["OPENAI_MODEL"], "gpt-4o-mini")
+        self.assertIn('"recommended": "openai"', env["OMNI_POLICY_HINT_JSON"])
+
     def test_sanitize_for_user_keeps_structured_error(self) -> None:
         module = _load_python_main_module()
         out = module.sanitize_for_user(

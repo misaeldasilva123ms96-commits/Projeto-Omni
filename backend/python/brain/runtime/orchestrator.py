@@ -181,6 +181,84 @@ TRUSTED_EXECUTION_KNOWN_TOOLS = (
     }
 )
 
+SESSION_BYOK_ALLOWED_PROVIDERS = {
+    "groq",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "lmstudio",
+}
+SESSION_BYOK_ENV_MAP = {
+    "groq": ("GROQ_API_KEY", "GROQ_MODEL"),
+    "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_MODEL"),
+    "openai": ("OPENAI_API_KEY", "OPENAI_MODEL"),
+    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
+    "gemini": ("GEMINI_API_KEY", "GEMINI_MODEL"),
+    "ollama": ("OLLAMA_API_KEY", "OLLAMA_MODEL"),
+    "lmstudio": ("LMSTUDIO_API_KEY", "LMSTUDIO_MODEL"),
+}
+SESSION_BYOK_MAX_API_KEY_CHARS = 4096
+SESSION_BYOK_MAX_MODEL_CHARS = 128
+
+
+def _normalize_session_provider_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if not normalized or normalized not in SESSION_BYOK_ALLOWED_PROVIDERS:
+        return None
+    if any(ord(ch) < 32 for ch in normalized):
+        return None
+    return normalized
+
+
+def _private_bridge_source(bridge: dict[str, Any]) -> dict[str, Any]:
+    client_context = bridge.get("client_context")
+    if isinstance(client_context, dict):
+        return {**bridge, **client_context}
+    return dict(bridge)
+
+
+def _safe_session_secret(value: Any, *, max_chars: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    if not trimmed or len(trimmed) > max_chars:
+        return None
+    if any(ord(ch) < 32 for ch in trimmed):
+        return None
+    return trimmed
+
+
+def _extract_session_byok_bridge(bridge: dict[str, Any]) -> tuple[str | None, dict[str, str]]:
+    source = _private_bridge_source(bridge)
+    provider_preference = _normalize_session_provider_id(source.get("provider_preference"))
+    raw_credentials = source.get("session_provider_credentials")
+    if not isinstance(raw_credentials, dict):
+        return provider_preference, {}
+
+    env_overlay: dict[str, str] = {}
+    for raw_provider, raw_credential in raw_credentials.items():
+        provider_id = _normalize_session_provider_id(raw_provider)
+        if not provider_id or not isinstance(raw_credential, dict):
+            continue
+        key_env, model_env = SESSION_BYOK_ENV_MAP[provider_id]
+        api_key = _safe_session_secret(
+            raw_credential.get("api_key"),
+            max_chars=SESSION_BYOK_MAX_API_KEY_CHARS,
+        )
+        model = _safe_session_secret(
+            raw_credential.get("model"),
+            max_chars=SESSION_BYOK_MAX_MODEL_CHARS,
+        )
+        if api_key:
+            env_overlay[key_env] = api_key
+        if model:
+            env_overlay[model_env] = model
+    return provider_preference, env_overlay
+
 
 @dataclass
 class BrainPaths:
@@ -370,6 +448,8 @@ class BrainOrchestrator:
         self.policy_router = PolicyRouter(paths.root, performance_store=self.performance_store)
         self._pending_policy_hint_json: str | None = None
         self._runtime_bridge: dict[str, Any] = {}
+        self._session_provider_preference: str | None = None
+        self._session_provider_env_overlay: dict[str, str] = {}
         self._last_phase41_policy_hint: dict[str, Any] | None = None
         self._last_strategy_performance_payload: dict[str, Any] | None = None
         self._last_node_result_envelope: dict[str, Any] | None = None
@@ -508,6 +588,9 @@ class BrainOrchestrator:
 
     def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
         self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
+        self._session_provider_preference, self._session_provider_env_overlay = _extract_session_byok_bridge(
+            self._runtime_bridge
+        )
         self._pending_policy_hint_json = None
         self._last_phase41_policy_hint = None
         self._last_node_result_envelope = None
@@ -2066,11 +2149,19 @@ class BrainOrchestrator:
 
     def _build_node_subprocess_env(self) -> dict[str, str]:
         env, selection = self.js_runtime_adapter.build_env()
+        session_overlay = getattr(self, "_session_provider_env_overlay", None)
+        if isinstance(session_overlay, dict) and session_overlay:
+            env.update({str(key): str(value) for key, value in session_overlay.items() if value})
         env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
         env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
         hint_json = getattr(self, "_pending_policy_hint_json", None)
         if isinstance(hint_json, str) and hint_json.strip():
             env["OMNI_POLICY_HINT_JSON"] = hint_json.strip()
+        elif self._session_provider_preference:
+            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
+                {"recommended": self._session_provider_preference},
+                ensure_ascii=False,
+            )
         self._pending_policy_hint_json = None
         return env
 

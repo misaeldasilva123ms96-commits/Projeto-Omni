@@ -4,8 +4,8 @@ mod observability_auth;
 mod run_control;
 
 use std::{
-    collections::{HashMap, VecDeque},
-    env, fs,
+    collections::{BTreeMap, HashMap, VecDeque},
+    env, fmt, fs,
     io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -125,6 +125,10 @@ struct ChatRequest {
     client_session_id: Option<String>,
     #[serde(default)]
     request_id: Option<String>,
+    #[serde(default)]
+    provider_preference: Option<String>,
+    #[serde(default)]
+    session_provider_credentials: Option<BTreeMap<String, SessionProviderCredential>>,
 }
 
 /// `POST /api/v1/chat` JSON body — same execution path as [`ChatRequest`] with an optional nested client context.
@@ -143,6 +147,28 @@ struct PublicChatRequestV1 {
     request_id: Option<String>,
     #[serde(default)]
     client_context: Option<PublicChatClientContextV1>,
+    #[serde(default)]
+    provider_preference: Option<String>,
+    #[serde(default)]
+    session_provider_credentials: Option<BTreeMap<String, SessionProviderCredential>>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SessionProviderCredential {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+}
+
+impl fmt::Debug for SessionProviderCredential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionProviderCredential")
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("model", &self.model)
+            .finish()
+    }
 }
 
 /// Stable v1 envelope: `api_version` plus the same fields as [`ChatResponse`] (flattened for one JSON object).
@@ -1805,6 +1831,130 @@ fn validate_optional_id(raw: Option<String>) -> BoxedResponseResult<Option<Strin
     Ok(Some(trimmed))
 }
 
+const BYOK_ALLOWED_PROVIDERS: &[&str] = &[
+    "groq",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "lmstudio",
+];
+const BYOK_MAX_PROVIDER_COUNT: usize = 4;
+const BYOK_MAX_API_KEY_CHARS: usize = 4096;
+const BYOK_MAX_MODEL_CHARS: usize = 128;
+
+fn normalize_provider_id(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() || contains_unsafe_control_chars(&normalized) {
+        return None;
+    }
+    if BYOK_ALLOWED_PROVIDERS.contains(&normalized.as_str()) {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn validate_provider_preference(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    normalize_provider_id(trimmed).map(Some).ok_or_else(|| {
+        boxed_public_error_response(StatusCode::BAD_REQUEST, "INPUT_VALIDATION_FAILED")
+    })
+}
+
+fn validate_optional_secret_string(
+    raw: Option<String>,
+    max_chars: usize,
+) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > max_chars || contains_unsafe_control_chars(&trimmed) {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(Some(trimmed))
+}
+
+fn validate_session_provider_credentials(
+    raw: Option<BTreeMap<String, SessionProviderCredential>>,
+) -> BoxedResponseResult<Option<BTreeMap<String, SessionProviderCredential>>> {
+    let Some(raw_credentials) = raw else {
+        return Ok(None);
+    };
+    if raw_credentials.is_empty() {
+        return Ok(None);
+    }
+    if raw_credentials.len() > BYOK_MAX_PROVIDER_COUNT {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "PAYLOAD_TOO_LARGE",
+        ));
+    }
+
+    let mut validated = BTreeMap::new();
+    for (provider, credential) in raw_credentials {
+        let Some(provider_id) = normalize_provider_id(&provider) else {
+            return Err(boxed_public_error_response(
+                StatusCode::BAD_REQUEST,
+                "INPUT_VALIDATION_FAILED",
+            ));
+        };
+        let api_key = validate_optional_secret_string(credential.api_key, BYOK_MAX_API_KEY_CHARS)?;
+        let model = validate_optional_secret_string(credential.model, BYOK_MAX_MODEL_CHARS)?;
+        if api_key.is_none() && model.is_none() {
+            continue;
+        }
+        validated.insert(provider_id, SessionProviderCredential { api_key, model });
+    }
+
+    if validated.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(validated))
+    }
+}
+
+fn build_private_bridge_context(
+    client_context: Option<Value>,
+    provider_preference: &Option<String>,
+    credentials: &Option<BTreeMap<String, SessionProviderCredential>>,
+) -> Option<Value> {
+    let mut out = Map::new();
+    if let Some(Value::Object(obj)) = client_context {
+        out.extend(obj);
+    }
+    if let Some(provider) = provider_preference {
+        out.insert(
+            "provider_preference".to_string(),
+            Value::String(provider.clone()),
+        );
+    }
+    if let Some(credentials) = credentials {
+        if let Ok(value) = serde_json::to_value(credentials) {
+            out.insert("session_provider_credentials".to_string(), value);
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(Value::Object(out))
+    }
+}
+
 fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResult<()> {
     if bytes.len() > max_body_bytes {
         Err(boxed_public_error_response(
@@ -1881,6 +2031,17 @@ async fn chat(
         Ok(value) => value,
         Err(response) => return Ok(*response),
     };
+    let provider_preference = match validate_provider_preference(payload.provider_preference) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let session_provider_credentials =
+        match validate_session_provider_credentials(payload.session_provider_credentials) {
+            Ok(value) => value,
+            Err(response) => return Ok(*response),
+        };
+    let private_context =
+        build_private_bridge_context(None, &provider_preference, &session_provider_credentials);
 
     info!(
         client_session_id = ?client_session_id,
@@ -1888,7 +2049,14 @@ async fn chat(
         state.runtime_session_version,
         state.runtime_mode
     );
-    let response = call_python(&state, &message, client_session_id, request_id, None).await?;
+    let response = call_python(
+        &state,
+        &message,
+        client_session_id,
+        request_id,
+        private_context.as_ref(),
+    )
+    .await?;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
@@ -1926,10 +2094,24 @@ async fn public_v1_chat(
         Ok(value) => value,
         Err(response) => return Ok(*response),
     };
+    let provider_preference = match validate_provider_preference(payload.provider_preference) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let session_provider_credentials =
+        match validate_session_provider_credentials(payload.session_provider_credentials) {
+            Ok(value) => value,
+            Err(response) => return Ok(*response),
+        };
     let client_context_json = payload
         .client_context
         .as_ref()
         .and_then(|ctx| serde_json::to_value(ctx).ok());
+    let private_context = build_private_bridge_context(
+        client_context_json,
+        &provider_preference,
+        &session_provider_credentials,
+    );
 
     info!(
         client_session_id = ?client_session_id,
@@ -1943,7 +2125,7 @@ async fn public_v1_chat(
         &message,
         client_session_id,
         request_id,
-        client_context_json.as_ref(),
+        private_context.as_ref(),
     )
     .await?;
 
@@ -3854,6 +4036,31 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
         assert_eq!(response.client_session_id.as_deref(), Some("sess-9"));
     }
 
+    #[tokio::test]
+    async fn chat_route_does_not_echo_session_byok_key() {
+        let script = r#"import json,sys
+d=json.loads(sys.stdin.read())
+ctx=d.get("client_context") or {}
+creds=ctx.get("session_provider_credentials") or {}
+seen=bool((creds.get("openai") or {}).get("api_key"))
+print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
+"#;
+        let state = build_test_state(temp_script(script, "byok-private"), 15_000);
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","provider_preference":"openai","session_provider_credentials":{"openai":{"api_key":"test-byok-key","model":"gpt-4o-mini"}}}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        let body_text = serde_json::to_string(&body).unwrap();
+        assert_eq!(body["response"].as_str(), Some("byok_seen=true"));
+        assert!(!body_text.contains("test-byok-key"));
+        assert!(body.get("session_provider_credentials").is_none());
+    }
+
     #[test]
     fn build_python_stdin_json_includes_optional_client_session() {
         let v = build_python_stdin_json("hi", &Some("c1".into()), &Some("r1".into()), 42, None);
@@ -3935,6 +4142,100 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
         assert_eq!(p.client_session_id.as_deref(), Some("s1"));
         let ctx = p.client_context.expect("context");
         assert_eq!(ctx.source.as_deref(), Some("frontend"));
+    }
+
+    #[test]
+    fn chat_request_deserializes_typed_session_provider_credentials() {
+        let raw = r#"{"message":"hi","provider_preference":"openai","session_provider_credentials":{"openai":{"api_key":"test-byok-key","model":"gpt-4o-mini"}}}"#;
+        let p: ChatRequest = serde_json::from_str(raw).expect("deserialize");
+        assert_eq!(p.provider_preference.as_deref(), Some("openai"));
+        let credentials = p.session_provider_credentials.expect("credentials");
+        assert_eq!(
+            credentials
+                .get("openai")
+                .and_then(|item| item.model.as_deref()),
+            Some("gpt-4o-mini")
+        );
+    }
+
+    #[test]
+    fn session_provider_credentials_reject_unknown_fields() {
+        let raw = r#"{"message":"hi","session_provider_credentials":{"openai":{"api_key":"test-byok-key","extra":"nope"}}}"#;
+        assert!(serde_json::from_str::<ChatRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn session_byok_validation_rejects_unknown_provider_and_deepseek() {
+        let mut unknown = BTreeMap::new();
+        unknown.insert(
+            "notreal".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(unknown)).is_err());
+
+        let mut deepseek = BTreeMap::new();
+        deepseek.insert(
+            "deepseek".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(deepseek)).is_err());
+    }
+
+    #[test]
+    fn session_byok_validation_rejects_oversized_and_control_chars() {
+        let mut too_long = BTreeMap::new();
+        too_long.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("x".repeat(BYOK_MAX_API_KEY_CHARS + 1)),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(too_long)).is_err());
+
+        let mut control = BTreeMap::new();
+        control.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("bad\u{0000}key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(control)).is_err());
+    }
+
+    #[test]
+    fn build_python_stdin_json_forwards_private_byok_bridge_fields() {
+        let mut credentials = BTreeMap::new();
+        credentials.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: Some("gpt-4o-mini".to_string()),
+            },
+        );
+        let context = build_private_bridge_context(
+            Some(json!({"source": "frontend"})),
+            &Some("openai".to_string()),
+            &Some(credentials),
+        )
+        .expect("context");
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+        assert_eq!(
+            parsed["client_context"]["provider_preference"].as_str(),
+            Some("openai")
+        );
+        assert_eq!(
+            parsed["client_context"]["session_provider_credentials"]["openai"]["api_key"].as_str(),
+            Some("test-byok-key")
+        );
     }
 
     #[test]
