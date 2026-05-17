@@ -91,11 +91,11 @@ const PROVIDER_DEFINITIONS = Object.freeze([
     source: 'openclaude-main.zip',
     envVar: 'OLLAMA_URL',
     modelEnvVar: 'OLLAMA_MODEL',
-    defaultModel: 'llama3:8b',
+    defaultModel: 'llama3',
     priority: 70,
     kind: 'local',
     registered: true,
-    adapter_implemented: false,
+    adapter_implemented: true,
     enabled_by_default: false,
     execution_status: 'local_config_gated',
   }),
@@ -104,11 +104,11 @@ const PROVIDER_DEFINITIONS = Object.freeze([
     source: 'project',
     envVar: 'LMSTUDIO_URL',
     modelEnvVar: 'LMSTUDIO_MODEL',
-    defaultModel: 'lmstudio-local',
+    defaultModel: 'local-model',
     priority: 80,
     kind: 'local',
     registered: true,
-    adapter_implemented: false,
+    adapter_implemented: true,
     enabled_by_default: false,
     execution_status: 'local_config_gated',
   }),
@@ -131,7 +131,16 @@ const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
   available: true,
 });
 
-const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'openrouter', 'openai', 'anthropic', 'gemini', 'local-heuristic']);
+const DEFAULT_FALLBACK_CHAIN = Object.freeze([
+  'groq',
+  'openrouter',
+  'openai',
+  'anthropic',
+  'gemini',
+  'ollama',
+  'lmstudio',
+  'local-heuristic',
+]);
 
 const FALLBACK_REASONS = Object.freeze({
   REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',
@@ -160,8 +169,8 @@ function materializeProvider(definition) {
     model_configured: Boolean(model),
     adapter_implemented: Boolean(definition.adapter_implemented),
     enabled_by_default: Boolean(definition.enabled_by_default),
-    execution_status: definition.adapter_implemented
-      ? (configured ? 'active' : 'credential_gated')
+    execution_status: definition.adapter_implemented && configured
+      ? 'active'
       : definition.execution_status,
     executable,
     available: executable,
