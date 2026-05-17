@@ -58,7 +58,7 @@ withProviderEnv({
   assert.equal(route.localFallbackProvider, null);
   assert.equal(route.fallbackProviderName, 'groq');
   assert.equal(route.fallbackTriggered, true);
-  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNSUPPORTED);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE);
   assert.equal(route.noRemoteProviderAvailable, false);
   assert.equal(route.noProviderAvailable, false);
 });
@@ -147,9 +147,34 @@ withProviderEnv({
   assert.equal(route.localFallbackProvider, null);
   assert.equal(route.fallbackProviderName, 'openai');
   assert.equal(route.fallbackTriggered, true);
-  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNSUPPORTED);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE);
   assert.equal(route.noRemoteProviderAvailable, false);
   assert.equal(route.noProviderAvailable, false);
+});
+
+withProviderEnv({
+  ANTHROPIC_API_KEY: 'anthropic-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex' });
+  assert.equal(route.requestedProviderName, null);
+  assert.equal(route.selectedProviderName, 'anthropic');
+  assert.equal(route.executionProviderName, 'anthropic');
+  assert.equal(route.executionProvider.name, 'anthropic');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.noRemoteProviderAvailable, false);
+});
+
+withProviderEnv({
+  ANTHROPIC_API_KEY: 'anthropic-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'anthropic' });
+  assert.equal(route.requestedProviderName, 'anthropic');
+  assert.equal(route.selectedProviderName, 'anthropic');
+  assert.equal(route.executionProviderName, 'anthropic');
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, '');
 });
 
 withProviderEnv({}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {

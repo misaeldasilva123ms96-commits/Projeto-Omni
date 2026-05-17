@@ -49,7 +49,10 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(rows["openai"]["registered"])
         self.assertTrue(rows["openai"]["adapter_implemented"])
         self.assertEqual(rows["openai"]["execution_status"], "credential_gated")
-        for provider in ("anthropic", "gemini", "deepseek"):
+        self.assertTrue(rows["anthropic"]["registered"])
+        self.assertTrue(rows["anthropic"]["adapter_implemented"])
+        self.assertEqual(rows["anthropic"]["execution_status"], "credential_gated")
+        for provider in ("gemini", "deepseek"):
             self.assertTrue(rows[provider]["registered"])
             self.assertFalse(rows[provider]["adapter_implemented"])
             self.assertEqual(rows[provider]["execution_status"], "unsupported")
@@ -169,6 +172,28 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(openai["selected"])
             serialized = str(rows).lower()
             self.assertNotIn("openai-provider-test-key", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_anthropic_diagnostics_becomes_available_when_configured(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            os.environ["ANTHROPIC_API_KEY"] = "anthropic-provider-test-key"
+            rows = describe_provider_diagnostics(selected_provider="anthropic", include_embedded_local=True)
+            anthropic = next(item for item in rows if item["provider"] == "anthropic")
+            self.assertTrue(anthropic["registered"])
+            self.assertTrue(anthropic["configured"])
+            self.assertTrue(anthropic["key_present"])
+            self.assertTrue(anthropic["adapter_implemented"])
+            self.assertTrue(anthropic["available"])
+            self.assertEqual(anthropic["execution_status"], "active")
+            self.assertTrue(anthropic["selected"])
+            serialized = str(rows).lower()
+            self.assertNotIn("anthropic-provider-test-key", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:
