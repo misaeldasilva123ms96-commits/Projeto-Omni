@@ -105,8 +105,22 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(payload["provider_actual"], "openai")
         self.assertTrue(payload["provider_failed"])
         self.assertEqual(payload["failure_class"], "provider_timeout")
-        self.assertEqual(payload["provider_diagnostics"][0]["provider"], "openai")
-        self.assertTrue(payload["provider_diagnostics"][0]["failed"])
+        diagnostics = payload["provider_diagnostics"]
+        snapshot = payload["provider_diagnostics_snapshot"]
+        self.assertIsInstance(diagnostics, list)
+        self.assertIsInstance(snapshot, dict)
+        self.assertEqual(
+            snapshot["fallback_chain"],
+            ["groq", "openrouter", "openai", "anthropic", "gemini", "ollama", "lmstudio", "local-heuristic"],
+        )
+        self.assertEqual(snapshot["active_provider"], "openai")
+        self.assertEqual(diagnostics[0]["provider"], "openai")
+        self.assertTrue(diagnostics[0]["failed"])
+        openai = next(item for item in snapshot["providers"] if item["id"] == "openai")
+        self.assertEqual(openai["provider"], "openai")
+        self.assertTrue(openai["failed"])
+        provider_ids = {item["id"] for item in snapshot["providers"]}
+        self.assertEqual(provider_ids, {"groq", "openrouter", "openai", "anthropic", "gemini", "deepseek", "ollama", "lmstudio"})
 
     def test_main_uses_attempted_provider_separately_from_actual_provider(self) -> None:
         script = (
@@ -152,7 +166,7 @@ class BridgePipelineTest(unittest.TestCase):
             "            'actual': kwargs.get('actual_provider') or '',\n"
             "        }\n"
             "    ]\n"
-            "module.describe_provider_diagnostics = _capture_provider_diag\n"
+            "module.describe_provider_diagnostics_snapshot = _capture_provider_diag\n"
             "module.BrainOrchestrator = _OkOrchestrator\n"
             "module.main()\n"
             "print(json.dumps(captured))\n"
@@ -172,8 +186,8 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(captured["actual_provider"], "groq")
         self.assertEqual(captured["attempted_provider"], "openai")
         self.assertEqual(captured["failure_class"], "provider_timeout")
-        self.assertTrue(captured["include_embedded_local"])
-        self.assertEqual(captured["selected_provider"], "")
+        self.assertTrue(captured["fallback_triggered"])
+        self.assertEqual(captured["selected_provider"], "groq")
 
     def test_python_main_structured_error_on_orchestrator_failure(self) -> None:
         script = (

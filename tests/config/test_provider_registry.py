@@ -10,8 +10,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.providers.models import ProviderHealth, ProviderRequest, ProviderResponse, ProviderType
 from config.provider_registry import (
+    DEFAULT_FALLBACK_CHAIN,
     PROVIDERS,
     describe_provider_diagnostics,
+    describe_provider_diagnostics_snapshot,
     get_available_providers,
     provider_metadata,
     providers_capability,
@@ -162,6 +164,60 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertNotIn("key_prefix", serialized)
             self.assertNotIn("key_length", serialized)
             self.assertNotIn("key_hash", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_provider_diagnostics_snapshot_is_complete_and_public_safe(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            os.environ["GROQ_API_KEY"] = "groq-provider-test-key"
+            os.environ["GROQ_MODEL"] = "groq-model-secret-shape"
+            os.environ["OLLAMA_URL"] = "http://127.0.0.1:11434"
+            os.environ["OLLAMA_MODEL"] = "ollama-model-secret-shape"
+            os.environ["OLLAMA_API_KEY"] = "ollama-provider-test-key"
+
+            snapshot = describe_provider_diagnostics_snapshot(
+                selected_provider="groq",
+                actual_provider="groq",
+                attempted_provider="groq",
+                fallback_triggered=False,
+                fallback_reason="",
+            )
+
+            self.assertEqual(snapshot["fallback_chain"], list(DEFAULT_FALLBACK_CHAIN))
+            self.assertEqual(snapshot["active_provider"], "groq")
+            self.assertFalse(snapshot["fallback_triggered"])
+            self.assertIsNone(snapshot["fallback_reason"])
+            rows = {row["id"]: row for row in snapshot["providers"]}
+            self.assertEqual(set(rows), set(PROVIDERS))
+            for provider in PROVIDERS:
+                row = rows[provider]
+                self.assertIn("registered", row)
+                self.assertIn("configured", row)
+                self.assertIn("adapter_implemented", row)
+                self.assertIn("executable", row)
+                self.assertIn("execution_status", row)
+            self.assertTrue(rows["groq"]["configured"])
+            self.assertTrue(rows["groq"]["executable"])
+            self.assertEqual(rows["groq"]["key_env"], "GROQ_API_KEY")
+            self.assertEqual(rows["groq"]["model_env"], "GROQ_MODEL")
+            self.assertTrue(rows["ollama"]["configured"])
+            self.assertTrue(rows["ollama"]["executable"])
+            self.assertEqual(rows["ollama"]["url_env"], "OLLAMA_URL")
+            self.assertEqual(rows["ollama"]["optional_key_env"], "OLLAMA_API_KEY")
+            self.assertFalse(rows["deepseek"]["adapter_implemented"])
+            self.assertFalse(rows["deepseek"]["executable"])
+            self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
+            serialized = str(snapshot).lower()
+            self.assertNotIn("groq-provider-test-key", serialized)
+            self.assertNotIn("groq-model-secret-shape", serialized)
+            self.assertNotIn("127.0.0.1", serialized)
+            self.assertNotIn("ollama-model-secret-shape", serialized)
+            self.assertNotIn("ollama-provider-test-key", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:

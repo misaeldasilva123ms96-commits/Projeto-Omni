@@ -101,6 +101,16 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
 )
 
 PROVIDERS: tuple[str, ...] = tuple(str(row["provider"]) for row in PROVIDER_METADATA)
+DEFAULT_FALLBACK_CHAIN: tuple[str, ...] = (
+    "groq",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "lmstudio",
+    "local-heuristic",
+)
 _PROVIDER_BY_NAME = {str(row["provider"]): row for row in PROVIDER_METADATA}
 
 
@@ -141,6 +151,24 @@ def _provider_executable(meta: dict[str, Any], configured: bool) -> bool:
     return bool(meta.get("adapter_implemented", False) and configured)
 
 
+def _known_provider_or_none(value: str) -> str | None:
+    provider = str(value or "").strip().lower()
+    if provider in PROVIDERS or provider == "local-heuristic":
+        return provider
+    return None
+
+
+def _public_fallback_reason(value: str) -> str | None:
+    reason = str(value or "").strip().lower()
+    if not reason:
+        return None
+    if len(reason) > 128:
+        return None
+    if not all(ch.isalnum() or ch in ("_", "-") for ch in reason):
+        return None
+    return reason
+
+
 def _diagnostic_row(
     meta: dict[str, Any],
     *,
@@ -163,6 +191,7 @@ def _diagnostic_row(
     model_env = str(meta.get("model_env", "") or meta.get("model_env_var", "") or "")
     optional_key_env = str(meta.get("optional_key_env", "") or "")
     return {
+        "id": provider,
         "provider": provider,
         "registered": bool(meta.get("registered", True)),
         "configured": configured,
@@ -215,6 +244,45 @@ def _local_heuristic_row(
     )
     row["key_present"] = False
     return row
+
+
+def describe_provider_diagnostics_snapshot(
+    *,
+    selected_provider: str = "",
+    actual_provider: str = "",
+    attempted_provider: str = "",
+    succeeded_provider: str = "",
+    failure_class: str = "",
+    failure_reason: str = "",
+    latency_ms: int | None = None,
+    active_provider: str = "",
+    fallback_triggered: bool | None = None,
+    fallback_reason: str = "",
+) -> dict[str, Any]:
+    """Public-safe provider diagnostics snapshot for response payloads."""
+    rows = describe_provider_diagnostics(
+        selected_provider=selected_provider,
+        actual_provider=actual_provider,
+        attempted_provider=attempted_provider,
+        succeeded_provider=succeeded_provider,
+        failure_class=failure_class,
+        failure_reason=failure_reason,
+        latency_ms=latency_ms,
+        include_embedded_local=False,
+    )
+    active = (
+        _known_provider_or_none(active_provider)
+        or _known_provider_or_none(actual_provider)
+        or _known_provider_or_none(selected_provider)
+        or _known_provider_or_none(attempted_provider)
+    )
+    return {
+        "providers": rows,
+        "fallback_chain": list(DEFAULT_FALLBACK_CHAIN),
+        "active_provider": active,
+        "fallback_triggered": bool(fallback_triggered) if fallback_triggered is not None else False,
+        "fallback_reason": _public_fallback_reason(fallback_reason),
+    }
 
 
 def get_available_providers() -> list[str]:
