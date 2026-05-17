@@ -4,10 +4,12 @@ const { buildProviderResult, toLegacyAliases } = require('./providerContract');
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_SYSTEM_PROMPT =
   'You are Omni. Answer clearly and safely. Do not expose secrets, internal logs, raw tool payloads, or private runtime details.';
 const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 
 function elapsedSince(startedAt) {
   return Math.max(0, Date.now() - startedAt);
@@ -36,6 +38,16 @@ function resolveOpenRouterModel(providerConfig = {}) {
     return String(process.env.OPENROUTER_MODEL).trim();
   }
   return DEFAULT_OPENROUTER_MODEL;
+}
+
+function resolveOpenAIModel(providerConfig = {}) {
+  if (providerConfig.model) {
+    return String(providerConfig.model).trim();
+  }
+  if (process.env.OPENAI_MODEL) {
+    return String(process.env.OPENAI_MODEL).trim();
+  }
+  return DEFAULT_OPENAI_MODEL;
 }
 
 function sanitizeStatusText(value) {
@@ -260,7 +272,7 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
   const startedAt = Date.now();
   const name = normalizedProviderName(providerConfig);
 
-  if (name !== 'groq' && name !== 'openrouter') {
+  if (name !== 'groq' && name !== 'openrouter' && name !== 'openai') {
     const canonical = buildProviderResult({
       providerName: name,
       attempted: false,
@@ -284,11 +296,19 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
 
   const model = name === 'openrouter'
     ? resolveOpenRouterModel(providerConfig)
-    : resolveGroqModel(providerConfig);
+    : name === 'openai'
+      ? resolveOpenAIModel(providerConfig)
+      : resolveGroqModel(providerConfig);
   const apiKey = name === 'openrouter'
     ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENROUTER_API_KEY || '').trim()
-    : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
-  const endpoint = name === 'openrouter' ? OPENROUTER_ENDPOINT : GROQ_ENDPOINT;
+    : name === 'openai'
+      ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENAI_API_KEY || '').trim()
+      : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
+  const endpoint = name === 'openrouter'
+    ? OPENROUTER_ENDPOINT
+    : name === 'openai'
+      ? OPENAI_ENDPOINT
+      : GROQ_ENDPOINT;
   const fetchImpl = typeof payload.fetch === 'function' ? payload.fetch : globalThis.fetch;
   return executeOpenAICompatibleProvider({
     providerName: name,

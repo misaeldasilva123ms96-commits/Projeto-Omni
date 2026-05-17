@@ -8,6 +8,8 @@ const originalGroqApiKey = process.env.GROQ_API_KEY;
 const originalGroqModel = process.env.GROQ_MODEL;
 const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
 const originalOpenRouterModel = process.env.OPENROUTER_MODEL;
+const originalOpenAIApiKey = process.env.OPENAI_API_KEY;
+const originalOpenAIModel = process.env.OPENAI_MODEL;
 
 function restoreEnv() {
   if (originalGroqApiKey === undefined) {
@@ -30,6 +32,16 @@ function restoreEnv() {
   } else {
     process.env.OPENROUTER_MODEL = originalOpenRouterModel;
   }
+  if (originalOpenAIApiKey === undefined) {
+    delete process.env.OPENAI_API_KEY;
+  } else {
+    process.env.OPENAI_API_KEY = originalOpenAIApiKey;
+  }
+  if (originalOpenAIModel === undefined) {
+    delete process.env.OPENAI_MODEL;
+  } else {
+    process.env.OPENAI_MODEL = originalOpenAIModel;
+  }
 }
 
 try {
@@ -37,6 +49,8 @@ try {
   delete process.env.GROQ_MODEL;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_MODEL;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_MODEL;
 
   const missingKey = await executeRemoteProvider(
     { name: 'groq', model: 'test-model' },
@@ -243,6 +257,128 @@ try {
   assert.equal(serializedOpenRouterFailure.includes('Authorization'), false);
   assert.equal(serializedOpenRouterFailure.includes('headers'), false);
   assert.equal(serializedOpenRouterFailure.includes('stack'), false);
+
+  const openAIMissingKey = await executeRemoteProvider(
+    { name: 'openai', model: 'openai-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new Error('fetch must not be called without an API key');
+      },
+    },
+  );
+  assert.equal(openAIMissingKey.attempted, false);
+  assert.equal(openAIMissingKey.succeeded, false);
+  assert.equal(openAIMissingKey.providerName, 'openai');
+  assert.equal(openAIMissingKey.error, 'missing_api_key');
+  assert.equal(openAIMissingKey.llm_provider_selected, 'openai');
+  assert.equal(openAIMissingKey.llm_provider_attempted, false);
+  assert.equal(openAIMissingKey.llm_provider_succeeded, false);
+  assert.equal(openAIMissingKey.llm_provider_failed, true);
+
+  const openAISuccess = await executeRemoteProvider(
+    { name: 'openai', key: 'openai-test-key-not-secret', model: 'openai-test-model' },
+    {
+      message: 'Say ok',
+      history: [{ role: 'assistant', content: 'Previous safe context' }],
+      fetch: async (url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(url, 'https://api.openai.com/v1/chat/completions');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers.Authorization, 'Bearer openai-test-key-not-secret');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.equal(body.model, 'openai-test-model');
+        assert.equal(body.temperature, 0.2);
+        assert.equal(body.stream, undefined);
+        assert.equal(body.messages.at(-1).role, 'user');
+        assert.equal(body.messages.at(-1).content, 'Say ok');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            choices: [{ message: { content: 'OpenAI mock response' } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(openAISuccess.attempted, true);
+  assert.equal(openAISuccess.succeeded, true);
+  assert.equal(openAISuccess.providerName, 'openai');
+  assert.equal(openAISuccess.model, 'openai-test-model');
+  assert.equal(openAISuccess.responseText, 'OpenAI mock response');
+  assert.equal(openAISuccess.llm_provider_selected, 'openai');
+  assert.equal(openAISuccess.llm_provider_attempted, true);
+  assert.equal(openAISuccess.llm_provider_succeeded, true);
+  assert.equal(openAISuccess.llm_provider_failed, false);
+  assert.equal(openAISuccess.provider_attempted, true);
+  assert.equal(openAISuccess.provider_succeeded, true);
+  assert.equal(openAISuccess.provider_failed, false);
+
+  const openAIHttpFailure = await executeRemoteProvider(
+    { name: 'openai', key: 'openai-test-key-not-secret', model: 'openai-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden Bearer unsafe-token-1234567890 sk-should-not-leak',
+      }),
+    },
+  );
+  assert.equal(openAIHttpFailure.attempted, true);
+  assert.equal(openAIHttpFailure.succeeded, false);
+  assert.equal(openAIHttpFailure.error, 'http_403');
+  assert.equal(openAIHttpFailure.status, 403);
+  assert.equal(JSON.stringify(openAIHttpFailure).includes('unsafe-token'), false);
+  assert.equal(JSON.stringify(openAIHttpFailure).includes('sk-should-not-leak'), false);
+
+  const openAIInvalidJson = await executeRemoteProvider(
+    { name: 'openai', key: 'openai-test-key-not-secret', model: 'openai-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('invalid provider body with openai-test-key-not-secret');
+        },
+      }),
+    },
+  );
+  assert.equal(openAIInvalidJson.error, 'invalid_json');
+  assert.equal(JSON.stringify(openAIInvalidJson).includes('openai-test-key-not-secret'), false);
+
+  const openAIEmptyResponse = await executeRemoteProvider(
+    { name: 'openai', key: 'openai-test-key-not-secret', model: 'openai-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '' } }] }),
+      }),
+    },
+  );
+  assert.equal(openAIEmptyResponse.error, 'empty_response');
+  assert.equal(openAIEmptyResponse.llm_public_error, 'empty_response');
+
+  const openAINetworkFailure = await executeRemoteProvider(
+    { name: 'openai', key: 'openai-test-key-not-secret', model: 'openai-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new TypeError('network failure with openai-test-key-not-secret');
+      },
+    },
+  );
+  const serializedOpenAIFailure = JSON.stringify(openAINetworkFailure);
+  assert.equal(openAINetworkFailure.error, 'network_error');
+  assert.equal(serializedOpenAIFailure.includes('openai-test-key-not-secret'), false);
+  assert.equal(serializedOpenAIFailure.includes('Authorization'), false);
+  assert.equal(serializedOpenAIFailure.includes('headers'), false);
+  assert.equal(serializedOpenAIFailure.includes('stack'), false);
 
   const unsupported = await executeRemoteProvider(
     { name: 'gemini', model: 'gemini-test' },

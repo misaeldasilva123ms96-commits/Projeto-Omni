@@ -46,7 +46,10 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(rows["openrouter"]["registered"])
         self.assertTrue(rows["openrouter"]["adapter_implemented"])
         self.assertEqual(rows["openrouter"]["execution_status"], "credential_gated")
-        for provider in ("openai", "anthropic", "gemini", "deepseek"):
+        self.assertTrue(rows["openai"]["registered"])
+        self.assertTrue(rows["openai"]["adapter_implemented"])
+        self.assertEqual(rows["openai"]["execution_status"], "credential_gated")
+        for provider in ("anthropic", "gemini", "deepseek"):
             self.assertTrue(rows[provider]["registered"])
             self.assertFalse(rows[provider]["adapter_implemented"])
             self.assertEqual(rows[provider]["execution_status"], "unsupported")
@@ -97,9 +100,9 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(openai["configured"])
             self.assertTrue(openai["key_present"])
             self.assertTrue(openai["model_configured"])
-            self.assertFalse(openai["adapter_implemented"])
-            self.assertFalse(openai["available"])
-            self.assertEqual(openai["execution_status"], "unsupported")
+            self.assertTrue(openai["adapter_implemented"])
+            self.assertTrue(openai["available"])
+            self.assertEqual(openai["execution_status"], "active")
             self.assertTrue(openai["selected"])
             self.assertTrue(openai["attempted"])
             self.assertTrue(openai["failed"])
@@ -144,6 +147,28 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(openrouter["selected"])
             serialized = str(rows).lower()
             self.assertNotIn("openrouter-provider-test-key", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_openai_diagnostics_becomes_available_when_configured(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            os.environ["OPENAI_API_KEY"] = "openai-provider-test-key"
+            rows = describe_provider_diagnostics(selected_provider="openai", include_embedded_local=True)
+            openai = next(item for item in rows if item["provider"] == "openai")
+            self.assertTrue(openai["registered"])
+            self.assertTrue(openai["configured"])
+            self.assertTrue(openai["key_present"])
+            self.assertTrue(openai["adapter_implemented"])
+            self.assertTrue(openai["available"])
+            self.assertEqual(openai["execution_status"], "active")
+            self.assertTrue(openai["selected"])
+            serialized = str(rows).lower()
+            self.assertNotIn("openai-provider-test-key", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:

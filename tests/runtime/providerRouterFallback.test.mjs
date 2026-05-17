@@ -50,8 +50,8 @@ withProviderEnv({
   OPENAI_API_KEY: 'openai-router-fallback-test-key',
   OPENROUTER_API_KEY: 'openrouter-router-fallback-test-key',
 }, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
-  const route = resolveProviderRoute({ complexity: 'complex', preferred: 'openai' });
-  assert.equal(route.requestedProviderName, 'openai');
+  const route = resolveProviderRoute({ complexity: 'complex', preferred: 'anthropic' });
+  assert.equal(route.requestedProviderName, 'anthropic');
   assert.equal(route.selectedProviderName, 'groq');
   assert.equal(route.executionProviderName, 'groq');
   assert.equal(route.executionProvider.name, 'groq');
@@ -113,17 +113,42 @@ withProviderEnv({
 
 withProviderEnv({
   OPENAI_API_KEY: 'openai-router-fallback-test-key',
-}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
-  const route = resolveProviderRoute({ complexity: 'complex', preferred: 'openai' });
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex' });
+  assert.equal(route.requestedProviderName, null);
+  assert.equal(route.selectedProviderName, 'openai');
+  assert.equal(route.executionProviderName, 'openai');
+  assert.equal(route.executionProvider.name, 'openai');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.noRemoteProviderAvailable, false);
+});
+
+withProviderEnv({
+  OPENAI_API_KEY: 'openai-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'openai' });
   assert.equal(route.requestedProviderName, 'openai');
-  assert.equal(route.selectedProviderName, 'local-heuristic');
-  assert.equal(route.executionProvider, null);
-  assert.equal(route.executionProviderName, null);
-  assert.equal(route.localFallbackProviderName, 'local-heuristic');
-  assert.equal(route.fallbackProviderName, 'local-heuristic');
+  assert.equal(route.selectedProviderName, 'openai');
+  assert.equal(route.executionProviderName, 'openai');
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, '');
+});
+
+withProviderEnv({
+  OPENAI_API_KEY: 'openai-router-fallback-test-key',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex', preferred: 'anthropic' });
+  assert.equal(route.requestedProviderName, 'anthropic');
+  assert.equal(route.selectedProviderName, 'openai');
+  assert.equal(route.executionProviderName, 'openai');
+  assert.equal(route.executionProvider.name, 'openai');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackProviderName, 'openai');
   assert.equal(route.fallbackTriggered, true);
   assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNSUPPORTED);
-  assert.equal(route.noRemoteProviderAvailable, true);
+  assert.equal(route.noRemoteProviderAvailable, false);
   assert.equal(route.noProviderAvailable, false);
 });
 
