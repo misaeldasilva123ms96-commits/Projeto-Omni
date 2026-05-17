@@ -5,11 +5,13 @@ const { buildProviderResult, toLegacyAliases } = require('./providerContract');
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_SYSTEM_PROMPT =
   'You are Omni. Answer clearly and safely. Do not expose secrets, internal logs, raw tool payloads, or private runtime details.';
 const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4o-mini';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 
 function elapsedSince(startedAt) {
   return Math.max(0, Date.now() - startedAt);
@@ -50,10 +52,21 @@ function resolveOpenAIModel(providerConfig = {}) {
   return DEFAULT_OPENAI_MODEL;
 }
 
+function resolveAnthropicModel(providerConfig = {}) {
+  if (providerConfig.model) {
+    return String(providerConfig.model).trim();
+  }
+  if (process.env.ANTHROPIC_MODEL) {
+    return String(process.env.ANTHROPIC_MODEL).trim();
+  }
+  return DEFAULT_ANTHROPIC_MODEL;
+}
+
 function sanitizeStatusText(value) {
   return String(value || '')
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
     .replace(/gsk_[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
+    .replace(/x-api-key\s+[A-Za-z0-9._=-]{8,}/gi, 'x-api-key [REDACTED_API_KEY]')
     .replace(/Bearer\s+[A-Za-z0-9._=-]{8,}/gi, 'Bearer [REDACTED_TOKEN]')
     .replace(/[^\w .:/()-]/g, '')
     .slice(0, 96);
@@ -96,6 +109,21 @@ function buildMessages(payload = {}) {
       content: String(payload.message || '').slice(0, 12000),
     },
   ];
+}
+
+function buildAnthropicMessages(payload = {}) {
+  return [
+    ...normalizeHistory(payload.history),
+    {
+      role: 'user',
+      content: String(payload.message || '').slice(0, 12000),
+    },
+  ].filter(item => item.content);
+}
+
+function resolveSystemPrompt(payload = {}) {
+  const system = String(payload.systemPrompt || DEFAULT_SYSTEM_PROMPT).slice(0, 4000).trim();
+  return system || '';
 }
 
 function buildFailure({
@@ -268,11 +296,125 @@ async function executeOpenAICompatibleProvider({
   }
 }
 
+async function executeAnthropicProvider({
+  providerName,
+  apiKey,
+  model,
+  messages,
+  system,
+  timeout,
+  fetchImpl,
+  startedAt = Date.now(),
+}) {
+  const provider = normalizedProviderName(providerName ? { name: providerName } : {});
+  const normalizedKey = String(apiKey || '').trim();
+  if (!normalizedKey) {
+    return buildFailure({
+      attempted: false,
+      provider,
+      model,
+      error: 'missing_api_key',
+      startedAt,
+    });
+  }
+
+  if (typeof fetchImpl !== 'function') {
+    return buildFailure({
+      attempted: false,
+      provider,
+      model,
+      error: 'fetch_unavailable',
+      startedAt,
+    });
+  }
+
+  const timeoutMs = Number.isFinite(Number(timeout))
+    ? Math.max(1, Number(timeout))
+    : DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const requestBody = {
+    model,
+    max_tokens: 1024,
+    messages: Array.isArray(messages) ? messages : [],
+  };
+  const normalizedSystem = String(system || '').trim();
+  if (normalizedSystem) {
+    requestBody.system = normalizedSystem;
+  }
+
+  try {
+    const response = await fetchImpl(ANTHROPIC_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'x-api-key': normalizedKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    if (!response || !response.ok) {
+      return buildFailure({
+        attempted: true,
+        provider,
+        model,
+        error: `http_${Number(response?.status || 0) || 'error'}`,
+        status: response?.status ?? null,
+        statusText: response?.statusText || '',
+        startedAt,
+      });
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (_) {
+      return buildFailure({
+        attempted: true,
+        provider,
+        model,
+        error: 'invalid_json',
+        startedAt,
+      });
+    }
+
+    const responseText = String(data?.content?.[0]?.text || '').trim();
+    if (!responseText) {
+      return buildFailure({
+        attempted: true,
+        provider,
+        model,
+        error: 'empty_response',
+        startedAt,
+      });
+    }
+
+    return buildSuccess({
+      provider,
+      model,
+      responseText,
+      startedAt,
+    });
+  } catch (err) {
+    return buildFailure({
+      attempted: true,
+      provider,
+      model,
+      error: safeErrorCode(err),
+      startedAt,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function executeRemoteProvider(providerConfig, payload = {}) {
   const startedAt = Date.now();
   const name = normalizedProviderName(providerConfig);
 
-  if (name !== 'groq' && name !== 'openrouter' && name !== 'openai') {
+  if (name !== 'groq' && name !== 'openrouter' && name !== 'openai' && name !== 'anthropic') {
     const canonical = buildProviderResult({
       providerName: name,
       attempted: false,
@@ -298,18 +440,36 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
     ? resolveOpenRouterModel(providerConfig)
     : name === 'openai'
       ? resolveOpenAIModel(providerConfig)
-      : resolveGroqModel(providerConfig);
+      : name === 'anthropic'
+        ? resolveAnthropicModel(providerConfig)
+        : resolveGroqModel(providerConfig);
   const apiKey = name === 'openrouter'
     ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENROUTER_API_KEY || '').trim()
     : name === 'openai'
       ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENAI_API_KEY || '').trim()
-      : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
+      : name === 'anthropic'
+        ? String(providerConfig?.apiKey || providerConfig?.key || process.env.ANTHROPIC_API_KEY || '').trim()
+        : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
+  const fetchImpl = typeof payload.fetch === 'function' ? payload.fetch : globalThis.fetch;
+
+  if (name === 'anthropic') {
+    return executeAnthropicProvider({
+      providerName: name,
+      apiKey,
+      model,
+      messages: buildAnthropicMessages(payload),
+      system: resolveSystemPrompt(payload),
+      timeout: providerConfig?.timeoutMs,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
   const endpoint = name === 'openrouter'
     ? OPENROUTER_ENDPOINT
     : name === 'openai'
       ? OPENAI_ENDPOINT
       : GROQ_ENDPOINT;
-  const fetchImpl = typeof payload.fetch === 'function' ? payload.fetch : globalThis.fetch;
   return executeOpenAICompatibleProvider({
     providerName: name,
     apiKey,

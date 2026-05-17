@@ -10,6 +10,8 @@ const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
 const originalOpenRouterModel = process.env.OPENROUTER_MODEL;
 const originalOpenAIApiKey = process.env.OPENAI_API_KEY;
 const originalOpenAIModel = process.env.OPENAI_MODEL;
+const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
+const originalAnthropicModel = process.env.ANTHROPIC_MODEL;
 
 function restoreEnv() {
   if (originalGroqApiKey === undefined) {
@@ -42,6 +44,16 @@ function restoreEnv() {
   } else {
     process.env.OPENAI_MODEL = originalOpenAIModel;
   }
+  if (originalAnthropicApiKey === undefined) {
+    delete process.env.ANTHROPIC_API_KEY;
+  } else {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
+  }
+  if (originalAnthropicModel === undefined) {
+    delete process.env.ANTHROPIC_MODEL;
+  } else {
+    process.env.ANTHROPIC_MODEL = originalAnthropicModel;
+  }
 }
 
 try {
@@ -51,6 +63,8 @@ try {
   delete process.env.OPENROUTER_MODEL;
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_MODEL;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_MODEL;
 
   const missingKey = await executeRemoteProvider(
     { name: 'groq', model: 'test-model' },
@@ -379,6 +393,133 @@ try {
   assert.equal(serializedOpenAIFailure.includes('Authorization'), false);
   assert.equal(serializedOpenAIFailure.includes('headers'), false);
   assert.equal(serializedOpenAIFailure.includes('stack'), false);
+
+  const anthropicMissingKey = await executeRemoteProvider(
+    { name: 'anthropic', model: 'anthropic-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new Error('fetch must not be called without an API key');
+      },
+    },
+  );
+  assert.equal(anthropicMissingKey.attempted, false);
+  assert.equal(anthropicMissingKey.succeeded, false);
+  assert.equal(anthropicMissingKey.providerName, 'anthropic');
+  assert.equal(anthropicMissingKey.error, 'missing_api_key');
+  assert.equal(anthropicMissingKey.llm_provider_selected, 'anthropic');
+  assert.equal(anthropicMissingKey.llm_provider_attempted, false);
+  assert.equal(anthropicMissingKey.llm_provider_succeeded, false);
+  assert.equal(anthropicMissingKey.llm_provider_failed, true);
+
+  const anthropicSuccess = await executeRemoteProvider(
+    { name: 'anthropic', key: 'anthropic-test-key-not-secret', model: 'anthropic-test-model' },
+    {
+      message: 'Say ok',
+      systemPrompt: 'Use safe concise answers.',
+      history: [{ role: 'assistant', content: 'Previous safe context' }],
+      fetch: async (url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(url, 'https://api.anthropic.com/v1/messages');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers['x-api-key'], 'anthropic-test-key-not-secret');
+        assert.equal(options.headers['anthropic-version'], '2023-06-01');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.equal(options.headers.Authorization, undefined);
+        assert.equal(body.model, 'anthropic-test-model');
+        assert.equal(body.max_tokens, 1024);
+        assert.equal(body.temperature, undefined);
+        assert.equal(body.system, 'Use safe concise answers.');
+        assert.equal(body.messages.some(item => item.role === 'system'), false);
+        assert.equal(body.messages.at(-1).role, 'user');
+        assert.equal(body.messages.at(-1).content, 'Say ok');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            content: [{ type: 'text', text: 'Anthropic mock response' }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(anthropicSuccess.attempted, true);
+  assert.equal(anthropicSuccess.succeeded, true);
+  assert.equal(anthropicSuccess.providerName, 'anthropic');
+  assert.equal(anthropicSuccess.model, 'anthropic-test-model');
+  assert.equal(anthropicSuccess.responseText, 'Anthropic mock response');
+  assert.equal(anthropicSuccess.llm_provider_selected, 'anthropic');
+  assert.equal(anthropicSuccess.llm_provider_attempted, true);
+  assert.equal(anthropicSuccess.llm_provider_succeeded, true);
+  assert.equal(anthropicSuccess.llm_provider_failed, false);
+  assert.equal(anthropicSuccess.provider_attempted, true);
+  assert.equal(anthropicSuccess.provider_succeeded, true);
+  assert.equal(anthropicSuccess.provider_failed, false);
+
+  const anthropicHttpFailure = await executeRemoteProvider(
+    { name: 'anthropic', key: 'anthropic-test-key-not-secret', model: 'anthropic-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized x-api-key anthropic-test-key-not-secret Bearer unsafe-token-1234567890',
+      }),
+    },
+  );
+  assert.equal(anthropicHttpFailure.attempted, true);
+  assert.equal(anthropicHttpFailure.succeeded, false);
+  assert.equal(anthropicHttpFailure.error, 'http_401');
+  assert.equal(anthropicHttpFailure.status, 401);
+  assert.equal(JSON.stringify(anthropicHttpFailure).includes('anthropic-test-key-not-secret'), false);
+  assert.equal(JSON.stringify(anthropicHttpFailure).includes('unsafe-token'), false);
+
+  const anthropicInvalidJson = await executeRemoteProvider(
+    { name: 'anthropic', key: 'anthropic-test-key-not-secret', model: 'anthropic-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('invalid provider body with anthropic-test-key-not-secret');
+        },
+      }),
+    },
+  );
+  assert.equal(anthropicInvalidJson.error, 'invalid_json');
+  assert.equal(JSON.stringify(anthropicInvalidJson).includes('anthropic-test-key-not-secret'), false);
+
+  const anthropicEmptyResponse = await executeRemoteProvider(
+    { name: 'anthropic', key: 'anthropic-test-key-not-secret', model: 'anthropic-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ content: [{ type: 'text', text: '   ' }] }),
+      }),
+    },
+  );
+  assert.equal(anthropicEmptyResponse.error, 'empty_response');
+  assert.equal(anthropicEmptyResponse.llm_public_error, 'empty_response');
+
+  const anthropicNetworkFailure = await executeRemoteProvider(
+    { name: 'anthropic', key: 'anthropic-test-key-not-secret', model: 'anthropic-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new TypeError('network failure with anthropic-test-key-not-secret');
+      },
+    },
+  );
+  const serializedAnthropicFailure = JSON.stringify(anthropicNetworkFailure);
+  assert.equal(anthropicNetworkFailure.error, 'network_error');
+  assert.equal(serializedAnthropicFailure.includes('anthropic-test-key-not-secret'), false);
+  assert.equal(serializedAnthropicFailure.includes('x-api-key'), false);
+  assert.equal(serializedAnthropicFailure.includes('headers'), false);
+  assert.equal(serializedAnthropicFailure.includes('stack'), false);
 
   const unsupported = await executeRemoteProvider(
     { name: 'gemini', model: 'gemini-test' },

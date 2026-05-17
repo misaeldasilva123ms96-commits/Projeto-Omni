@@ -52,13 +52,13 @@ const PROVIDER_DEFINITIONS = Object.freeze([
     source: 'openclaude-main.zip',
     envVar: 'ANTHROPIC_API_KEY',
     modelEnvVar: 'ANTHROPIC_MODEL',
-    defaultModel: 'claude-3-5-sonnet-latest',
+    defaultModel: 'claude-haiku-4-5-20251001',
     priority: 40,
     kind: 'remote',
     registered: true,
-    adapter_implemented: false,
+    adapter_implemented: true,
     enabled_by_default: false,
-    execution_status: 'unsupported',
+    execution_status: 'credential_gated',
   }),
   Object.freeze({
     name: 'gemini',
@@ -131,7 +131,7 @@ const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
   available: true,
 });
 
-const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'openrouter', 'openai', 'local-heuristic']);
+const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'openrouter', 'openai', 'anthropic', 'local-heuristic']);
 
 const FALLBACK_REASONS = Object.freeze({
   REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',
