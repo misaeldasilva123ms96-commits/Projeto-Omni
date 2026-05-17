@@ -52,10 +52,12 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(rows["anthropic"]["registered"])
         self.assertTrue(rows["anthropic"]["adapter_implemented"])
         self.assertEqual(rows["anthropic"]["execution_status"], "credential_gated")
-        for provider in ("gemini", "deepseek"):
-            self.assertTrue(rows[provider]["registered"])
-            self.assertFalse(rows[provider]["adapter_implemented"])
-            self.assertEqual(rows[provider]["execution_status"], "unsupported")
+        self.assertTrue(rows["gemini"]["registered"])
+        self.assertTrue(rows["gemini"]["adapter_implemented"])
+        self.assertEqual(rows["gemini"]["execution_status"], "credential_gated")
+        self.assertTrue(rows["deepseek"]["registered"])
+        self.assertFalse(rows["deepseek"]["adapter_implemented"])
+        self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
         for provider in ("ollama", "lmstudio"):
             self.assertTrue(rows[provider]["registered"])
             self.assertFalse(rows[provider]["adapter_implemented"])
@@ -194,6 +196,28 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(anthropic["selected"])
             serialized = str(rows).lower()
             self.assertNotIn("anthropic-provider-test-key", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_gemini_diagnostics_becomes_available_when_configured(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            os.environ["GEMINI_API_KEY"] = "gemini-provider-test-key"
+            rows = describe_provider_diagnostics(selected_provider="gemini", include_embedded_local=True)
+            gemini = next(item for item in rows if item["provider"] == "gemini")
+            self.assertTrue(gemini["registered"])
+            self.assertTrue(gemini["configured"])
+            self.assertTrue(gemini["key_present"])
+            self.assertTrue(gemini["adapter_implemented"])
+            self.assertTrue(gemini["available"])
+            self.assertEqual(gemini["execution_status"], "active")
+            self.assertTrue(gemini["selected"])
+            serialized = str(rows).lower()
+            self.assertNotIn("gemini-provider-test-key", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:
