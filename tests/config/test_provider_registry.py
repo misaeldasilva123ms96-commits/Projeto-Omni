@@ -20,13 +20,23 @@ from config.provider_registry import (
 
 PROVIDER_ENV_KEYS = (
     "OPENAI_API_KEY",
+    "OPENAI_MODEL",
     "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
     "GROQ_API_KEY",
+    "GROQ_MODEL",
     "GEMINI_API_KEY",
+    "GEMINI_MODEL",
     "DEEPSEEK_API_KEY",
+    "DEEPSEEK_MODEL",
     "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
     "OLLAMA_URL",
+    "OLLAMA_MODEL",
+    "OLLAMA_API_KEY",
     "LMSTUDIO_URL",
+    "LMSTUDIO_MODEL",
+    "LMSTUDIO_API_KEY",
 )
 
 
@@ -43,27 +53,45 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(rows["groq"]["registered"])
         self.assertTrue(rows["groq"]["adapter_implemented"])
         self.assertEqual(rows["groq"]["execution_status"], "credential_gated")
+        self.assertEqual(rows["groq"]["key_env"], "GROQ_API_KEY")
+        self.assertEqual(rows["groq"]["model_env"], "GROQ_MODEL")
         self.assertTrue(rows["openrouter"]["registered"])
         self.assertTrue(rows["openrouter"]["adapter_implemented"])
         self.assertEqual(rows["openrouter"]["execution_status"], "credential_gated")
+        self.assertEqual(rows["openrouter"]["key_env"], "OPENROUTER_API_KEY")
+        self.assertEqual(rows["openrouter"]["model_env"], "OPENROUTER_MODEL")
         self.assertTrue(rows["openai"]["registered"])
         self.assertTrue(rows["openai"]["adapter_implemented"])
         self.assertEqual(rows["openai"]["execution_status"], "credential_gated")
+        self.assertEqual(rows["openai"]["key_env"], "OPENAI_API_KEY")
+        self.assertEqual(rows["openai"]["model_env"], "OPENAI_MODEL")
         self.assertTrue(rows["anthropic"]["registered"])
         self.assertTrue(rows["anthropic"]["adapter_implemented"])
         self.assertEqual(rows["anthropic"]["execution_status"], "credential_gated")
+        self.assertEqual(rows["anthropic"]["key_env"], "ANTHROPIC_API_KEY")
+        self.assertEqual(rows["anthropic"]["model_env"], "ANTHROPIC_MODEL")
         self.assertTrue(rows["gemini"]["registered"])
         self.assertTrue(rows["gemini"]["adapter_implemented"])
         self.assertEqual(rows["gemini"]["execution_status"], "credential_gated")
+        self.assertEqual(rows["gemini"]["key_env"], "GEMINI_API_KEY")
+        self.assertEqual(rows["gemini"]["model_env"], "GEMINI_MODEL")
         self.assertTrue(rows["deepseek"]["registered"])
         self.assertFalse(rows["deepseek"]["adapter_implemented"])
         self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
+        self.assertEqual(rows["deepseek"]["key_env"], "DEEPSEEK_API_KEY")
+        self.assertEqual(rows["deepseek"]["model_env"], "DEEPSEEK_MODEL")
         self.assertTrue(rows["ollama"]["registered"])
         self.assertTrue(rows["ollama"]["adapter_implemented"])
         self.assertEqual(rows["ollama"]["execution_status"], "local_config_gated")
+        self.assertEqual(rows["ollama"]["url_env"], "OLLAMA_URL")
+        self.assertEqual(rows["ollama"]["model_env"], "OLLAMA_MODEL")
+        self.assertEqual(rows["ollama"]["optional_key_env"], "OLLAMA_API_KEY")
         self.assertTrue(rows["lmstudio"]["registered"])
         self.assertTrue(rows["lmstudio"]["adapter_implemented"])
         self.assertEqual(rows["lmstudio"]["execution_status"], "local_config_gated")
+        self.assertEqual(rows["lmstudio"]["url_env"], "LMSTUDIO_URL")
+        self.assertEqual(rows["lmstudio"]["model_env"], "LMSTUDIO_MODEL")
+        self.assertEqual(rows["lmstudio"]["optional_key_env"], "LMSTUDIO_API_KEY")
 
     def test_get_available_providers_skips_missing_and_placeholders(self) -> None:
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
@@ -119,6 +147,8 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertFalse(openrouter["configured"])
             self.assertTrue(openrouter["adapter_implemented"])
             self.assertEqual(openrouter["execution_status"], "credential_gated")
+            self.assertEqual(openrouter["key_env"], "OPENROUTER_API_KEY")
+            self.assertEqual(openrouter["model_env"], "OPENROUTER_MODEL")
             self.assertFalse(openrouter["available"])
             heuristic = next(item for item in rows if item["provider"] == "local-heuristic")
             self.assertTrue(heuristic["configured"])
@@ -232,6 +262,8 @@ class ProviderRegistryTest(unittest.TestCase):
         try:
             os.environ["OLLAMA_URL"] = "http://127.0.0.1:11434"
             os.environ["LMSTUDIO_URL"] = "http://127.0.0.1:1234"
+            os.environ["OLLAMA_API_KEY"] = "ollama-provider-test-key"
+            os.environ["LMSTUDIO_API_KEY"] = "lmstudio-provider-test-key"
             rows = describe_provider_diagnostics(selected_provider="ollama", include_embedded_local=True)
             ollama = next(item for item in rows if item["provider"] == "ollama")
             self.assertTrue(ollama["registered"])
@@ -240,6 +272,9 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(ollama["adapter_implemented"])
             self.assertTrue(ollama["available"])
             self.assertEqual(ollama["execution_status"], "active")
+            self.assertEqual(ollama["url_env"], "OLLAMA_URL")
+            self.assertEqual(ollama["model_env"], "OLLAMA_MODEL")
+            self.assertEqual(ollama["optional_key_env"], "OLLAMA_API_KEY")
             self.assertTrue(ollama["selected"])
             lmstudio = next(item for item in rows if item["provider"] == "lmstudio")
             self.assertTrue(lmstudio["registered"])
@@ -248,8 +283,13 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(lmstudio["adapter_implemented"])
             self.assertTrue(lmstudio["available"])
             self.assertEqual(lmstudio["execution_status"], "active")
+            self.assertEqual(lmstudio["url_env"], "LMSTUDIO_URL")
+            self.assertEqual(lmstudio["model_env"], "LMSTUDIO_MODEL")
+            self.assertEqual(lmstudio["optional_key_env"], "LMSTUDIO_API_KEY")
             serialized = str(rows).lower()
             self.assertNotIn("127.0.0.1", serialized)
+            self.assertNotIn("ollama-provider-test-key", serialized)
+            self.assertNotIn("lmstudio-provider-test-key", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:

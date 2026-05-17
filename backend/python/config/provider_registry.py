@@ -12,6 +12,8 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "groq",
         "env_var": "GROQ_API_KEY",
         "model_env_var": "GROQ_MODEL",
+        "key_env": "GROQ_API_KEY",
+        "model_env": "GROQ_MODEL",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": True,
@@ -21,6 +23,8 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "openrouter",
         "env_var": "OPENROUTER_API_KEY",
         "model_env_var": "OPENROUTER_MODEL",
+        "key_env": "OPENROUTER_API_KEY",
+        "model_env": "OPENROUTER_MODEL",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": False,
@@ -30,6 +34,8 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "openai",
         "env_var": "OPENAI_API_KEY",
         "model_env_var": "OPENAI_MODEL",
+        "key_env": "OPENAI_API_KEY",
+        "model_env": "OPENAI_MODEL",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": False,
@@ -39,6 +45,8 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "anthropic",
         "env_var": "ANTHROPIC_API_KEY",
         "model_env_var": "ANTHROPIC_MODEL",
+        "key_env": "ANTHROPIC_API_KEY",
+        "model_env": "ANTHROPIC_MODEL",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": False,
@@ -48,6 +56,8 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "gemini",
         "env_var": "GEMINI_API_KEY",
         "model_env_var": "GEMINI_MODEL",
+        "key_env": "GEMINI_API_KEY",
+        "model_env": "GEMINI_MODEL",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": False,
@@ -57,6 +67,8 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "deepseek",
         "env_var": "DEEPSEEK_API_KEY",
         "model_env_var": "DEEPSEEK_MODEL",
+        "key_env": "DEEPSEEK_API_KEY",
+        "model_env": "DEEPSEEK_MODEL",
         "registered": True,
         "adapter_implemented": False,
         "enabled_by_default": False,
@@ -66,6 +78,9 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "ollama",
         "env_var": "OLLAMA_URL",
         "model_env_var": "OLLAMA_MODEL",
+        "url_env": "OLLAMA_URL",
+        "model_env": "OLLAMA_MODEL",
+        "optional_key_env": "OLLAMA_API_KEY",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": False,
@@ -75,6 +90,9 @@ PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
         "provider": "lmstudio",
         "env_var": "LMSTUDIO_URL",
         "model_env_var": "LMSTUDIO_MODEL",
+        "url_env": "LMSTUDIO_URL",
+        "model_env": "LMSTUDIO_MODEL",
+        "optional_key_env": "LMSTUDIO_API_KEY",
         "registered": True,
         "adapter_implemented": True,
         "enabled_by_default": False,
@@ -116,7 +134,7 @@ def _execution_status(meta: dict[str, Any], configured: bool) -> str:
     base = str(meta.get("execution_status", "unsupported") or "unsupported")
     if not bool(meta.get("adapter_implemented", False)):
         return base
-    return "active" if configured else "credential_gated"
+    return "active" if configured else base
 
 
 def _provider_executable(meta: dict[str, Any], configured: bool) -> bool:
@@ -139,12 +157,21 @@ def _diagnostic_row(
     succeeded_here = provider == succeeded and not failure_kind
     failed_here = attempted_here and bool(failure_kind)
     executable = _provider_executable(meta, configured)
+    env_name = str(meta.get("env_var", "") or "")
+    key_env = str(meta.get("key_env", "") or (env_name if env_name.endswith("_API_KEY") else ""))
+    url_env = str(meta.get("url_env", "") or (env_name if env_name.endswith("_URL") else ""))
+    model_env = str(meta.get("model_env", "") or meta.get("model_env_var", "") or "")
+    optional_key_env = str(meta.get("optional_key_env", "") or "")
     return {
         "provider": provider,
         "registered": bool(meta.get("registered", True)),
         "configured": configured,
         "key_present": configured and str(meta.get("env_var", "") or "").endswith("_API_KEY"),
         "model_configured": True,
+        "key_env": key_env or None,
+        "model_env": model_env or None,
+        "url_env": url_env or None,
+        "optional_key_env": optional_key_env or None,
         "adapter_implemented": bool(meta.get("adapter_implemented", False)),
         "enabled_by_default": bool(meta.get("enabled_by_default", False)),
         "execution_status": _execution_status(meta, configured),
