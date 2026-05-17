@@ -218,6 +218,70 @@ withProviderEnv({
   assert.equal(route.noProviderAvailable, false);
 });
 
+withProviderEnv({
+  OLLAMA_URL: 'http://127.0.0.1:11434',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex' });
+  assert.equal(route.requestedProviderName, null);
+  assert.equal(route.selectedProviderName, 'ollama');
+  assert.equal(route.executionProviderName, 'ollama');
+  assert.equal(route.executionProvider.name, 'ollama');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.noRemoteProviderAvailable, false);
+});
+
+withProviderEnv({
+  OLLAMA_URL: 'http://127.0.0.1:11434',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'ollama' });
+  assert.equal(route.requestedProviderName, 'ollama');
+  assert.equal(route.selectedProviderName, 'ollama');
+  assert.equal(route.executionProviderName, 'ollama');
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, '');
+});
+
+withProviderEnv({
+  LMSTUDIO_URL: 'http://127.0.0.1:1234',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex' });
+  assert.equal(route.requestedProviderName, null);
+  assert.equal(route.selectedProviderName, 'lmstudio');
+  assert.equal(route.executionProviderName, 'lmstudio');
+  assert.equal(route.executionProvider.name, 'lmstudio');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.noRemoteProviderAvailable, false);
+});
+
+withProviderEnv({
+  LMSTUDIO_URL: 'http://127.0.0.1:1234',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'lmstudio' });
+  assert.equal(route.requestedProviderName, 'lmstudio');
+  assert.equal(route.selectedProviderName, 'lmstudio');
+  assert.equal(route.executionProviderName, 'lmstudio');
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, '');
+});
+
+withProviderEnv({
+  LMSTUDIO_URL: 'http://127.0.0.1:1234',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex', preferred: 'ollama' });
+  assert.equal(route.requestedProviderName, 'ollama');
+  assert.equal(route.selectedProviderName, 'lmstudio');
+  assert.equal(route.executionProviderName, 'lmstudio');
+  assert.equal(route.fallbackProviderName, 'lmstudio');
+  assert.equal(route.fallbackTriggered, true);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNAVAILABLE);
+  assert.equal(route.noRemoteProviderAvailable, false);
+  assert.equal(route.noProviderAvailable, false);
+});
+
 withProviderEnv({}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
   const route = resolveProviderRoute({ complexity: 'complex' });
   assert.equal(route.requestedProviderName, null);

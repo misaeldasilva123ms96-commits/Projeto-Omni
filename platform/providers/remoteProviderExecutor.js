@@ -14,6 +14,8 @@ const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4o-mini';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_OLLAMA_MODEL = 'llama3';
+const DEFAULT_LMSTUDIO_MODEL = 'local-model';
 
 function elapsedSince(startedAt) {
   return Math.max(0, Date.now() - startedAt);
@@ -74,8 +76,29 @@ function resolveGeminiModel(providerConfig = {}) {
   return DEFAULT_GEMINI_MODEL;
 }
 
+function resolveOllamaModel(providerConfig = {}) {
+  if (providerConfig.model) {
+    return String(providerConfig.model).trim();
+  }
+  if (process.env.OLLAMA_MODEL) {
+    return String(process.env.OLLAMA_MODEL).trim();
+  }
+  return DEFAULT_OLLAMA_MODEL;
+}
+
+function resolveLmStudioModel(providerConfig = {}) {
+  if (providerConfig.model) {
+    return String(providerConfig.model).trim();
+  }
+  if (process.env.LMSTUDIO_MODEL) {
+    return String(process.env.LMSTUDIO_MODEL).trim();
+  }
+  return DEFAULT_LMSTUDIO_MODEL;
+}
+
 function sanitizeStatusText(value) {
   return String(value || '')
+    .replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]')
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
     .replace(/gsk_[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
     .replace(/([?&]key=)[A-Za-z0-9._=-]{8,}/gi, '$1[REDACTED_API_KEY]')
@@ -152,6 +175,11 @@ function resolveSystemPrompt(payload = {}) {
   return system || '';
 }
 
+function resolveLocalEndpoint(baseUrl) {
+  const normalized = String(baseUrl || '').trim().replace(/\/+$/, '');
+  return normalized ? `${normalized}/v1/chat/completions` : '';
+}
+
 function buildFailure({
   attempted,
   provider = 'groq',
@@ -221,11 +249,12 @@ async function executeOpenAICompatibleProvider({
   messages,
   timeout,
   fetchImpl,
+  authRequired = true,
   startedAt = Date.now(),
 }) {
   const provider = normalizedProviderName(providerName ? { name: providerName } : {});
   const normalizedKey = String(apiKey || '').trim();
-  if (!normalizedKey) {
+  if (authRequired && !normalizedKey) {
     return buildFailure({
       attempted: false,
       provider,
@@ -255,14 +284,17 @@ async function executeOpenAICompatibleProvider({
     messages: Array.isArray(messages) ? messages : [],
     temperature: 0.2,
   };
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (normalizedKey) {
+    headers.Authorization = `Bearer ${normalizedKey}`;
+  }
 
   try {
     const response = await fetchImpl(endpoint, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${normalizedKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -553,7 +585,15 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
   const startedAt = Date.now();
   const name = normalizedProviderName(providerConfig);
 
-  if (name !== 'groq' && name !== 'openrouter' && name !== 'openai' && name !== 'anthropic' && name !== 'gemini') {
+  if (
+    name !== 'groq'
+    && name !== 'openrouter'
+    && name !== 'openai'
+    && name !== 'anthropic'
+    && name !== 'gemini'
+    && name !== 'ollama'
+    && name !== 'lmstudio'
+  ) {
     const canonical = buildProviderResult({
       providerName: name,
       attempted: false,
@@ -583,7 +623,11 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
         ? resolveAnthropicModel(providerConfig)
         : name === 'gemini'
           ? resolveGeminiModel(providerConfig)
-          : resolveGroqModel(providerConfig);
+          : name === 'ollama'
+            ? resolveOllamaModel(providerConfig)
+            : name === 'lmstudio'
+              ? resolveLmStudioModel(providerConfig)
+              : resolveGroqModel(providerConfig);
   const apiKey = name === 'openrouter'
     ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENROUTER_API_KEY || '').trim()
     : name === 'openai'
@@ -592,7 +636,11 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
         ? String(providerConfig?.apiKey || providerConfig?.key || process.env.ANTHROPIC_API_KEY || '').trim()
         : name === 'gemini'
           ? String(providerConfig?.apiKey || providerConfig?.key || process.env.GEMINI_API_KEY || '').trim()
-          : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
+          : name === 'ollama'
+            ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OLLAMA_API_KEY || '').trim()
+            : name === 'lmstudio'
+              ? String(providerConfig?.apiKey || providerConfig?.key || process.env.LMSTUDIO_API_KEY || '').trim()
+              : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
   const fetchImpl = typeof payload.fetch === 'function' ? payload.fetch : globalThis.fetch;
 
   if (name === 'anthropic') {
@@ -621,6 +669,33 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
     });
   }
 
+  if (name === 'ollama' || name === 'lmstudio') {
+    const baseUrl = name === 'ollama'
+      ? String(providerConfig?.baseUrl || providerConfig?.url || process.env.OLLAMA_URL || '').trim()
+      : String(providerConfig?.baseUrl || providerConfig?.url || process.env.LMSTUDIO_URL || '').trim();
+    const endpoint = resolveLocalEndpoint(baseUrl);
+    if (!endpoint) {
+      return buildFailure({
+        attempted: false,
+        provider: name,
+        model,
+        error: 'local_config_missing',
+        startedAt,
+      });
+    }
+    return executeOpenAICompatibleProvider({
+      providerName: name,
+      apiKey,
+      model,
+      endpoint,
+      messages: buildMessages(payload),
+      timeout: providerConfig?.timeoutMs,
+      fetchImpl,
+      authRequired: false,
+      startedAt,
+    });
+  }
+
   const endpoint = name === 'openrouter'
     ? OPENROUTER_ENDPOINT
     : name === 'openai'
@@ -634,6 +709,7 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
     messages: buildMessages(payload),
     timeout: providerConfig?.timeoutMs,
     fetchImpl,
+    authRequired: true,
     startedAt,
   });
 }

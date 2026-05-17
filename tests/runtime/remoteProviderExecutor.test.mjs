@@ -14,6 +14,12 @@ const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const originalAnthropicModel = process.env.ANTHROPIC_MODEL;
 const originalGeminiApiKey = process.env.GEMINI_API_KEY;
 const originalGeminiModel = process.env.GEMINI_MODEL;
+const originalOllamaUrl = process.env.OLLAMA_URL;
+const originalOllamaModel = process.env.OLLAMA_MODEL;
+const originalOllamaApiKey = process.env.OLLAMA_API_KEY;
+const originalLmStudioUrl = process.env.LMSTUDIO_URL;
+const originalLmStudioModel = process.env.LMSTUDIO_MODEL;
+const originalLmStudioApiKey = process.env.LMSTUDIO_API_KEY;
 
 function restoreEnv() {
   if (originalGroqApiKey === undefined) {
@@ -66,6 +72,36 @@ function restoreEnv() {
   } else {
     process.env.GEMINI_MODEL = originalGeminiModel;
   }
+  if (originalOllamaUrl === undefined) {
+    delete process.env.OLLAMA_URL;
+  } else {
+    process.env.OLLAMA_URL = originalOllamaUrl;
+  }
+  if (originalOllamaModel === undefined) {
+    delete process.env.OLLAMA_MODEL;
+  } else {
+    process.env.OLLAMA_MODEL = originalOllamaModel;
+  }
+  if (originalOllamaApiKey === undefined) {
+    delete process.env.OLLAMA_API_KEY;
+  } else {
+    process.env.OLLAMA_API_KEY = originalOllamaApiKey;
+  }
+  if (originalLmStudioUrl === undefined) {
+    delete process.env.LMSTUDIO_URL;
+  } else {
+    process.env.LMSTUDIO_URL = originalLmStudioUrl;
+  }
+  if (originalLmStudioModel === undefined) {
+    delete process.env.LMSTUDIO_MODEL;
+  } else {
+    process.env.LMSTUDIO_MODEL = originalLmStudioModel;
+  }
+  if (originalLmStudioApiKey === undefined) {
+    delete process.env.LMSTUDIO_API_KEY;
+  } else {
+    process.env.LMSTUDIO_API_KEY = originalLmStudioApiKey;
+  }
 }
 
 try {
@@ -79,6 +115,12 @@ try {
   delete process.env.ANTHROPIC_MODEL;
   delete process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_MODEL;
+  delete process.env.OLLAMA_URL;
+  delete process.env.OLLAMA_MODEL;
+  delete process.env.OLLAMA_API_KEY;
+  delete process.env.LMSTUDIO_URL;
+  delete process.env.LMSTUDIO_MODEL;
+  delete process.env.LMSTUDIO_API_KEY;
 
   const missingKey = await executeRemoteProvider(
     { name: 'groq', model: 'test-model' },
@@ -662,6 +704,197 @@ try {
   assert.equal(serializedGeminiFailure.includes('Authorization'), false);
   assert.equal(serializedGeminiFailure.includes('headers'), false);
   assert.equal(serializedGeminiFailure.includes('stack'), false);
+
+  const ollamaMissingUrl = await executeRemoteProvider(
+    { name: 'ollama', model: 'ollama-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new Error('fetch must not be called without OLLAMA_URL');
+      },
+    },
+  );
+  assert.equal(ollamaMissingUrl.attempted, false);
+  assert.equal(ollamaMissingUrl.succeeded, false);
+  assert.equal(ollamaMissingUrl.providerName, 'ollama');
+  assert.equal(ollamaMissingUrl.error, 'local_config_missing');
+  assert.equal(ollamaMissingUrl.llm_provider_selected, 'ollama');
+  assert.equal(ollamaMissingUrl.llm_provider_attempted, false);
+  assert.equal(ollamaMissingUrl.llm_provider_failed, true);
+
+  const ollamaSuccessWithoutKey = await executeRemoteProvider(
+    { name: 'ollama', url: 'http://127.0.0.1:11434', model: 'ollama-test-model' },
+    {
+      message: 'Say ok',
+      history: [{ role: 'assistant', content: 'Previous safe context' }],
+      fetch: async (url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(url, 'http://127.0.0.1:11434/v1/chat/completions');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers.Authorization, undefined);
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.equal(body.model, 'ollama-test-model');
+        assert.equal(body.temperature, 0.2);
+        assert.equal(body.messages.at(-1).content, 'Say ok');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            choices: [{ message: { content: 'Ollama mock response' } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(ollamaSuccessWithoutKey.attempted, true);
+  assert.equal(ollamaSuccessWithoutKey.succeeded, true);
+  assert.equal(ollamaSuccessWithoutKey.providerName, 'ollama');
+  assert.equal(ollamaSuccessWithoutKey.model, 'ollama-test-model');
+  assert.equal(ollamaSuccessWithoutKey.responseText, 'Ollama mock response');
+  assert.equal(ollamaSuccessWithoutKey.provider_attempted, true);
+  assert.equal(ollamaSuccessWithoutKey.provider_succeeded, true);
+  assert.equal(ollamaSuccessWithoutKey.provider_failed, false);
+
+  const ollamaSuccessWithKey = await executeRemoteProvider(
+    {
+      name: 'ollama',
+      url: 'http://127.0.0.1:11434',
+      key: 'ollama-local-key-not-secret',
+      model: 'ollama-test-model',
+    },
+    {
+      message: 'Say ok',
+      fetch: async (_url, options) => {
+        assert.equal(options.headers.Authorization, 'Bearer ollama-local-key-not-secret');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            choices: [{ message: { content: 'Ollama keyed mock response' } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(ollamaSuccessWithKey.responseText, 'Ollama keyed mock response');
+  assert.equal(JSON.stringify(ollamaSuccessWithKey).includes('ollama-local-key-not-secret'), false);
+
+  const ollamaHttpFailure = await executeRemoteProvider(
+    {
+      name: 'ollama',
+      url: 'http://127.0.0.1:11434',
+      key: 'ollama-local-key-not-secret',
+      model: 'ollama-test-model',
+    },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: false,
+        status: 500,
+        statusText: 'Local failure http://127.0.0.1:11434/v1/chat/completions Bearer ollama-local-key-not-secret',
+      }),
+    },
+  );
+  assert.equal(ollamaHttpFailure.error, 'http_500');
+  assert.equal(JSON.stringify(ollamaHttpFailure).includes('127.0.0.1'), false);
+  assert.equal(JSON.stringify(ollamaHttpFailure).includes('ollama-local-key-not-secret'), false);
+  assert.equal(JSON.stringify(ollamaHttpFailure).includes('headers'), false);
+
+  const lmStudioMissingUrl = await executeRemoteProvider(
+    { name: 'lmstudio', model: 'lmstudio-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new Error('fetch must not be called without LMSTUDIO_URL');
+      },
+    },
+  );
+  assert.equal(lmStudioMissingUrl.attempted, false);
+  assert.equal(lmStudioMissingUrl.succeeded, false);
+  assert.equal(lmStudioMissingUrl.providerName, 'lmstudio');
+  assert.equal(lmStudioMissingUrl.error, 'local_config_missing');
+  assert.equal(lmStudioMissingUrl.llm_provider_selected, 'lmstudio');
+  assert.equal(lmStudioMissingUrl.llm_provider_attempted, false);
+  assert.equal(lmStudioMissingUrl.llm_provider_failed, true);
+
+  const lmStudioSuccessWithoutKey = await executeRemoteProvider(
+    { name: 'lmstudio', url: 'http://127.0.0.1:1234', model: 'lmstudio-test-model' },
+    {
+      message: 'Say ok',
+      fetch: async (url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(url, 'http://127.0.0.1:1234/v1/chat/completions');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers.Authorization, undefined);
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.equal(body.model, 'lmstudio-test-model');
+        assert.equal(body.temperature, 0.2);
+        assert.equal(body.messages.at(-1).content, 'Say ok');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            choices: [{ message: { content: 'LM Studio mock response' } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(lmStudioSuccessWithoutKey.attempted, true);
+  assert.equal(lmStudioSuccessWithoutKey.succeeded, true);
+  assert.equal(lmStudioSuccessWithoutKey.providerName, 'lmstudio');
+  assert.equal(lmStudioSuccessWithoutKey.model, 'lmstudio-test-model');
+  assert.equal(lmStudioSuccessWithoutKey.responseText, 'LM Studio mock response');
+
+  const lmStudioSuccessWithKey = await executeRemoteProvider(
+    {
+      name: 'lmstudio',
+      url: 'http://127.0.0.1:1234',
+      key: 'lmstudio-local-key-not-secret',
+      model: 'lmstudio-test-model',
+    },
+    {
+      message: 'Say ok',
+      fetch: async (_url, options) => {
+        assert.equal(options.headers.Authorization, 'Bearer lmstudio-local-key-not-secret');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            choices: [{ message: { content: 'LM Studio keyed mock response' } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(lmStudioSuccessWithKey.responseText, 'LM Studio keyed mock response');
+  assert.equal(JSON.stringify(lmStudioSuccessWithKey).includes('lmstudio-local-key-not-secret'), false);
+
+  const lmStudioHttpFailure = await executeRemoteProvider(
+    {
+      name: 'lmstudio',
+      url: 'http://127.0.0.1:1234',
+      key: 'lmstudio-local-key-not-secret',
+      model: 'lmstudio-test-model',
+    },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: false,
+        status: 502,
+        statusText:
+          'Local failure http://127.0.0.1:1234/v1/chat/completions Bearer lmstudio-local-key-not-secret',
+      }),
+    },
+  );
+  assert.equal(lmStudioHttpFailure.error, 'http_502');
+  assert.equal(JSON.stringify(lmStudioHttpFailure).includes('127.0.0.1'), false);
+  assert.equal(JSON.stringify(lmStudioHttpFailure).includes('lmstudio-local-key-not-secret'), false);
+  assert.equal(JSON.stringify(lmStudioHttpFailure).includes('headers'), false);
 
   const unsupported = await executeRemoteProvider(
     { name: 'deepseek', model: 'deepseek-test' },

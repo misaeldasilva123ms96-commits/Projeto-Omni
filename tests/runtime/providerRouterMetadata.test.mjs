@@ -46,7 +46,16 @@ function withProviderEnv(values, fn) {
 }
 
 withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegistry, chooseProvider }) => {
-  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, ['groq', 'openrouter', 'openai', 'anthropic', 'gemini', 'local-heuristic']);
+  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, [
+    'groq',
+    'openrouter',
+    'openai',
+    'anthropic',
+    'gemini',
+    'ollama',
+    'lmstudio',
+    'local-heuristic',
+  ]);
   assert.deepEqual(Object.values(FALLBACK_REASONS).sort(), [
     'no_remote_provider_available',
     'requested_provider_unavailable',
@@ -92,13 +101,18 @@ withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegi
   assert.equal(deepseek.adapter_implemented, false);
   assert.equal(deepseek.executable, false);
   assert.equal(deepseek.execution_status, 'unsupported');
-  for (const name of ['ollama', 'lmstudio']) {
-    const row = rows.find(item => item.name === name);
-    assert.equal(row.registered, true);
-    assert.equal(row.adapter_implemented, false);
-    assert.equal(row.executable, false);
-    assert.equal(row.execution_status, 'local_config_gated');
-  }
+  const ollama = rows.find(item => item.name === 'ollama');
+  assert.equal(ollama.registered, true);
+  assert.equal(ollama.adapter_implemented, true);
+  assert.equal(ollama.executable, false);
+  assert.equal(ollama.execution_status, 'local_config_gated');
+  assert.equal(ollama.model, 'llama3');
+  const lmstudio = rows.find(item => item.name === 'lmstudio');
+  assert.equal(lmstudio.registered, true);
+  assert.equal(lmstudio.adapter_implemented, true);
+  assert.equal(lmstudio.executable, false);
+  assert.equal(lmstudio.execution_status, 'local_config_gated');
+  assert.equal(lmstudio.model, 'local-model');
   assert.equal(chooseProvider({ complexity: 'complex' }).name, 'local-heuristic');
 });
 
@@ -108,6 +122,8 @@ withProviderEnv({
   ANTHROPIC_API_KEY: 'anthropic-provider-router-test-key',
   GEMINI_API_KEY: 'gemini-provider-router-test-key',
   GROQ_API_KEY: 'groq-provider-router-test-key',
+  OLLAMA_URL: 'http://127.0.0.1:11434',
+  LMSTUDIO_URL: 'http://127.0.0.1:1234',
   OMINI_AVAILABLE_PROVIDERS: 'openai,openrouter,groq',
 }, ({ buildProviderDiagnostics, chooseProvider, getAvailableProviders }) => {
   const selected = chooseProvider({ complexity: 'complex' });
@@ -118,6 +134,8 @@ withProviderEnv({
     'openai',
     'anthropic',
     'gemini',
+    'ollama',
+    'lmstudio',
     'local-heuristic',
   ]);
 
@@ -161,12 +179,27 @@ withProviderEnv({
   assert.equal(groq.available, true);
   assert.equal(groq.execution_status, 'active');
 
+  const ollama = rows.find(row => row.provider === 'ollama');
+  assert.equal(ollama.configured, true);
+  assert.equal(ollama.key_present, false);
+  assert.equal(ollama.adapter_implemented, true);
+  assert.equal(ollama.available, true);
+  assert.equal(ollama.execution_status, 'active');
+
+  const lmstudio = rows.find(row => row.provider === 'lmstudio');
+  assert.equal(lmstudio.configured, true);
+  assert.equal(lmstudio.key_present, false);
+  assert.equal(lmstudio.adapter_implemented, true);
+  assert.equal(lmstudio.available, true);
+  assert.equal(lmstudio.execution_status, 'active');
+
   const serialized = JSON.stringify(rows).toLowerCase();
   assert.equal(serialized.includes('openai-provider-router-test-key'), false);
   assert.equal(serialized.includes('openrouter-provider-router-test-key'), false);
   assert.equal(serialized.includes('anthropic-provider-router-test-key'), false);
   assert.equal(serialized.includes('gemini-provider-router-test-key'), false);
   assert.equal(serialized.includes('groq-provider-router-test-key'), false);
+  assert.equal(serialized.includes('127.0.0.1'), false);
   assert.equal(serialized.includes('raw_config'), false);
 });
 

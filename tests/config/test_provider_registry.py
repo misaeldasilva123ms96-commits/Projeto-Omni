@@ -58,10 +58,12 @@ class ProviderRegistryTest(unittest.TestCase):
         self.assertTrue(rows["deepseek"]["registered"])
         self.assertFalse(rows["deepseek"]["adapter_implemented"])
         self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
-        for provider in ("ollama", "lmstudio"):
-            self.assertTrue(rows[provider]["registered"])
-            self.assertFalse(rows[provider]["adapter_implemented"])
-            self.assertEqual(rows[provider]["execution_status"], "local_config_gated")
+        self.assertTrue(rows["ollama"]["registered"])
+        self.assertTrue(rows["ollama"]["adapter_implemented"])
+        self.assertEqual(rows["ollama"]["execution_status"], "local_config_gated")
+        self.assertTrue(rows["lmstudio"]["registered"])
+        self.assertTrue(rows["lmstudio"]["adapter_implemented"])
+        self.assertEqual(rows["lmstudio"]["execution_status"], "local_config_gated")
 
     def test_get_available_providers_skips_missing_and_placeholders(self) -> None:
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
@@ -218,6 +220,36 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertTrue(gemini["selected"])
             serialized = str(rows).lower()
             self.assertNotIn("gemini-provider-test-key", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_local_provider_diagnostics_become_available_when_url_configured(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            os.environ["OLLAMA_URL"] = "http://127.0.0.1:11434"
+            os.environ["LMSTUDIO_URL"] = "http://127.0.0.1:1234"
+            rows = describe_provider_diagnostics(selected_provider="ollama", include_embedded_local=True)
+            ollama = next(item for item in rows if item["provider"] == "ollama")
+            self.assertTrue(ollama["registered"])
+            self.assertTrue(ollama["configured"])
+            self.assertFalse(ollama["key_present"])
+            self.assertTrue(ollama["adapter_implemented"])
+            self.assertTrue(ollama["available"])
+            self.assertEqual(ollama["execution_status"], "active")
+            self.assertTrue(ollama["selected"])
+            lmstudio = next(item for item in rows if item["provider"] == "lmstudio")
+            self.assertTrue(lmstudio["registered"])
+            self.assertTrue(lmstudio["configured"])
+            self.assertFalse(lmstudio["key_present"])
+            self.assertTrue(lmstudio["adapter_implemented"])
+            self.assertTrue(lmstudio["available"])
+            self.assertEqual(lmstudio["execution_status"], "active")
+            serialized = str(rows).lower()
+            self.assertNotIn("127.0.0.1", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:
