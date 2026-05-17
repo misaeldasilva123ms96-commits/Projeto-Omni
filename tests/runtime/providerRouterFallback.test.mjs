@@ -177,6 +177,47 @@ withProviderEnv({
   assert.equal(route.fallbackReason, '');
 });
 
+withProviderEnv({
+  GEMINI_API_KEY: 'gemini-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex' });
+  assert.equal(route.requestedProviderName, null);
+  assert.equal(route.selectedProviderName, 'gemini');
+  assert.equal(route.executionProviderName, 'gemini');
+  assert.equal(route.executionProvider.name, 'gemini');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.noRemoteProviderAvailable, false);
+});
+
+withProviderEnv({
+  GEMINI_API_KEY: 'gemini-router-fallback-test-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'gemini' });
+  assert.equal(route.requestedProviderName, 'gemini');
+  assert.equal(route.selectedProviderName, 'gemini');
+  assert.equal(route.executionProviderName, 'gemini');
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, '');
+});
+
+withProviderEnv({
+  GEMINI_API_KEY: 'gemini-router-fallback-test-key',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'complex', preferred: 'deepseek' });
+  assert.equal(route.requestedProviderName, 'deepseek');
+  assert.equal(route.selectedProviderName, 'gemini');
+  assert.equal(route.executionProviderName, 'gemini');
+  assert.equal(route.executionProvider.name, 'gemini');
+  assert.equal(route.localFallbackProvider, null);
+  assert.equal(route.fallbackProviderName, 'gemini');
+  assert.equal(route.fallbackTriggered, true);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.REQUESTED_PROVIDER_UNSUPPORTED);
+  assert.equal(route.noRemoteProviderAvailable, false);
+  assert.equal(route.noProviderAvailable, false);
+});
+
 withProviderEnv({}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
   const route = resolveProviderRoute({ complexity: 'complex' });
   assert.equal(route.requestedProviderName, null);

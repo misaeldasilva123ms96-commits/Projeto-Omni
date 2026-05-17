@@ -6,12 +6,14 @@ const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+const GEMINI_ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_SYSTEM_PROMPT =
   'You are Omni. Answer clearly and safely. Do not expose secrets, internal logs, raw tool payloads, or private runtime details.';
 const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4o-mini';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 function elapsedSince(startedAt) {
   return Math.max(0, Date.now() - startedAt);
@@ -62,10 +64,21 @@ function resolveAnthropicModel(providerConfig = {}) {
   return DEFAULT_ANTHROPIC_MODEL;
 }
 
+function resolveGeminiModel(providerConfig = {}) {
+  if (providerConfig.model) {
+    return String(providerConfig.model).trim();
+  }
+  if (process.env.GEMINI_MODEL) {
+    return String(process.env.GEMINI_MODEL).trim();
+  }
+  return DEFAULT_GEMINI_MODEL;
+}
+
 function sanitizeStatusText(value) {
   return String(value || '')
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
     .replace(/gsk_[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
+    .replace(/([?&]key=)[A-Za-z0-9._=-]{8,}/gi, '$1[REDACTED_API_KEY]')
     .replace(/x-api-key\s+[A-Za-z0-9._=-]{8,}/gi, 'x-api-key [REDACTED_API_KEY]')
     .replace(/Bearer\s+[A-Za-z0-9._=-]{8,}/gi, 'Bearer [REDACTED_TOKEN]')
     .replace(/[^\w .:/()-]/g, '')
@@ -119,6 +132,19 @@ function buildAnthropicMessages(payload = {}) {
       content: String(payload.message || '').slice(0, 12000),
     },
   ].filter(item => item.content);
+}
+
+function buildGeminiContents(payload = {}) {
+  return [
+    ...normalizeHistory(payload.history).map(item => ({
+      role: item.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: item.content }],
+    })),
+    {
+      role: 'user',
+      parts: [{ text: String(payload.message || '').slice(0, 12000) }],
+    },
+  ].filter(item => item.parts[0].text);
 }
 
 function resolveSystemPrompt(payload = {}) {
@@ -410,11 +436,124 @@ async function executeAnthropicProvider({
   }
 }
 
+async function executeGeminiProvider({
+  providerName,
+  apiKey,
+  model,
+  messages,
+  system,
+  timeout,
+  fetchImpl,
+  startedAt = Date.now(),
+}) {
+  const provider = normalizedProviderName(providerName ? { name: providerName } : {});
+  const normalizedKey = String(apiKey || '').trim();
+  if (!normalizedKey) {
+    return buildFailure({
+      attempted: false,
+      provider,
+      model,
+      error: 'missing_api_key',
+      startedAt,
+    });
+  }
+
+  if (typeof fetchImpl !== 'function') {
+    return buildFailure({
+      attempted: false,
+      provider,
+      model,
+      error: 'fetch_unavailable',
+      startedAt,
+    });
+  }
+
+  const timeoutMs = Number.isFinite(Number(timeout))
+    ? Math.max(1, Number(timeout))
+    : DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const endpoint = `${GEMINI_ENDPOINT_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(normalizedKey)}`;
+  const requestBody = {
+    contents: Array.isArray(messages) ? messages : [],
+  };
+  const normalizedSystem = String(system || '').trim();
+  if (normalizedSystem) {
+    requestBody.system_instruction = {
+      parts: [{ text: normalizedSystem }],
+    };
+  }
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    if (!response || !response.ok) {
+      return buildFailure({
+        attempted: true,
+        provider,
+        model,
+        error: `http_${Number(response?.status || 0) || 'error'}`,
+        status: response?.status ?? null,
+        statusText: response?.statusText || '',
+        startedAt,
+      });
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (_) {
+      return buildFailure({
+        attempted: true,
+        provider,
+        model,
+        error: 'invalid_json',
+        startedAt,
+      });
+    }
+
+    const responseText = String(data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    if (!responseText) {
+      return buildFailure({
+        attempted: true,
+        provider,
+        model,
+        error: 'empty_response',
+        startedAt,
+      });
+    }
+
+    return buildSuccess({
+      provider,
+      model,
+      responseText,
+      startedAt,
+    });
+  } catch (err) {
+    return buildFailure({
+      attempted: true,
+      provider,
+      model,
+      error: safeErrorCode(err),
+      startedAt,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function executeRemoteProvider(providerConfig, payload = {}) {
   const startedAt = Date.now();
   const name = normalizedProviderName(providerConfig);
 
-  if (name !== 'groq' && name !== 'openrouter' && name !== 'openai' && name !== 'anthropic') {
+  if (name !== 'groq' && name !== 'openrouter' && name !== 'openai' && name !== 'anthropic' && name !== 'gemini') {
     const canonical = buildProviderResult({
       providerName: name,
       attempted: false,
@@ -442,14 +581,18 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
       ? resolveOpenAIModel(providerConfig)
       : name === 'anthropic'
         ? resolveAnthropicModel(providerConfig)
-        : resolveGroqModel(providerConfig);
+        : name === 'gemini'
+          ? resolveGeminiModel(providerConfig)
+          : resolveGroqModel(providerConfig);
   const apiKey = name === 'openrouter'
     ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENROUTER_API_KEY || '').trim()
     : name === 'openai'
       ? String(providerConfig?.apiKey || providerConfig?.key || process.env.OPENAI_API_KEY || '').trim()
       : name === 'anthropic'
         ? String(providerConfig?.apiKey || providerConfig?.key || process.env.ANTHROPIC_API_KEY || '').trim()
-        : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
+        : name === 'gemini'
+          ? String(providerConfig?.apiKey || providerConfig?.key || process.env.GEMINI_API_KEY || '').trim()
+          : String(providerConfig?.apiKey || providerConfig?.key || process.env.GROQ_API_KEY || '').trim();
   const fetchImpl = typeof payload.fetch === 'function' ? payload.fetch : globalThis.fetch;
 
   if (name === 'anthropic') {
@@ -458,6 +601,19 @@ async function executeRemoteProvider(providerConfig, payload = {}) {
       apiKey,
       model,
       messages: buildAnthropicMessages(payload),
+      system: resolveSystemPrompt(payload),
+      timeout: providerConfig?.timeoutMs,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
+  if (name === 'gemini') {
+    return executeGeminiProvider({
+      providerName: name,
+      apiKey,
+      model,
+      messages: buildGeminiContents(payload),
       system: resolveSystemPrompt(payload),
       timeout: providerConfig?.timeoutMs,
       fetchImpl,

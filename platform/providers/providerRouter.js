@@ -65,13 +65,13 @@ const PROVIDER_DEFINITIONS = Object.freeze([
     source: 'project',
     envVar: 'GEMINI_API_KEY',
     modelEnvVar: 'GEMINI_MODEL',
-    defaultModel: 'gemini-2.0-flash',
+    defaultModel: 'gemini-2.5-flash',
     priority: 50,
     kind: 'remote',
     registered: true,
-    adapter_implemented: false,
+    adapter_implemented: true,
     enabled_by_default: false,
-    execution_status: 'unsupported',
+    execution_status: 'credential_gated',
   }),
   Object.freeze({
     name: 'deepseek',
@@ -131,7 +131,7 @@ const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
   available: true,
 });
 
-const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'openrouter', 'openai', 'anthropic', 'local-heuristic']);
+const DEFAULT_FALLBACK_CHAIN = Object.freeze(['groq', 'openrouter', 'openai', 'anthropic', 'gemini', 'local-heuristic']);
 
 const FALLBACK_REASONS = Object.freeze({
   REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',

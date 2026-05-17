@@ -46,7 +46,7 @@ function withProviderEnv(values, fn) {
 }
 
 withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegistry, chooseProvider }) => {
-  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, ['groq', 'openrouter', 'openai', 'anthropic', 'local-heuristic']);
+  assert.deepEqual(DEFAULT_FALLBACK_CHAIN, ['groq', 'openrouter', 'openai', 'anthropic', 'gemini', 'local-heuristic']);
   assert.deepEqual(Object.values(FALLBACK_REASONS).sort(), [
     'no_remote_provider_available',
     'requested_provider_unavailable',
@@ -81,13 +81,17 @@ withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegi
   assert.equal(anthropic.executable, false);
   assert.equal(anthropic.execution_status, 'credential_gated');
   assert.equal(anthropic.model, 'claude-haiku-4-5-20251001');
-  for (const name of ['gemini', 'deepseek']) {
-    const row = rows.find(item => item.name === name);
-    assert.equal(row.registered, true);
-    assert.equal(row.adapter_implemented, false);
-    assert.equal(row.executable, false);
-    assert.equal(row.execution_status, 'unsupported');
-  }
+  const gemini = rows.find(item => item.name === 'gemini');
+  assert.equal(gemini.registered, true);
+  assert.equal(gemini.adapter_implemented, true);
+  assert.equal(gemini.executable, false);
+  assert.equal(gemini.execution_status, 'credential_gated');
+  assert.equal(gemini.model, 'gemini-2.5-flash');
+  const deepseek = rows.find(item => item.name === 'deepseek');
+  assert.equal(deepseek.registered, true);
+  assert.equal(deepseek.adapter_implemented, false);
+  assert.equal(deepseek.executable, false);
+  assert.equal(deepseek.execution_status, 'unsupported');
   for (const name of ['ollama', 'lmstudio']) {
     const row = rows.find(item => item.name === name);
     assert.equal(row.registered, true);
@@ -102,12 +106,20 @@ withProviderEnv({
   OPENAI_API_KEY: 'openai-provider-router-test-key',
   OPENROUTER_API_KEY: 'openrouter-provider-router-test-key',
   ANTHROPIC_API_KEY: 'anthropic-provider-router-test-key',
+  GEMINI_API_KEY: 'gemini-provider-router-test-key',
   GROQ_API_KEY: 'groq-provider-router-test-key',
   OMINI_AVAILABLE_PROVIDERS: 'openai,openrouter,groq',
 }, ({ buildProviderDiagnostics, chooseProvider, getAvailableProviders }) => {
   const selected = chooseProvider({ complexity: 'complex' });
   assert.equal(selected.name, 'groq');
-  assert.deepEqual(getAvailableProviders().map(row => row.name), ['groq', 'openrouter', 'openai', 'anthropic', 'local-heuristic']);
+  assert.deepEqual(getAvailableProviders().map(row => row.name), [
+    'groq',
+    'openrouter',
+    'openai',
+    'anthropic',
+    'gemini',
+    'local-heuristic',
+  ]);
 
   const rows = buildProviderDiagnostics({
     selectedProviderName: 'openai',
@@ -136,6 +148,13 @@ withProviderEnv({
   assert.equal(anthropic.available, true);
   assert.equal(anthropic.execution_status, 'active');
 
+  const gemini = rows.find(row => row.provider === 'gemini');
+  assert.equal(gemini.configured, true);
+  assert.equal(gemini.key_present, true);
+  assert.equal(gemini.adapter_implemented, true);
+  assert.equal(gemini.available, true);
+  assert.equal(gemini.execution_status, 'active');
+
   const groq = rows.find(row => row.provider === 'groq');
   assert.equal(groq.configured, true);
   assert.equal(groq.adapter_implemented, true);
@@ -146,6 +165,7 @@ withProviderEnv({
   assert.equal(serialized.includes('openai-provider-router-test-key'), false);
   assert.equal(serialized.includes('openrouter-provider-router-test-key'), false);
   assert.equal(serialized.includes('anthropic-provider-router-test-key'), false);
+  assert.equal(serialized.includes('gemini-provider-router-test-key'), false);
   assert.equal(serialized.includes('groq-provider-router-test-key'), false);
   assert.equal(serialized.includes('raw_config'), false);
 });

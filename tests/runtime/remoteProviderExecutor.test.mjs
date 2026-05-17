@@ -12,6 +12,8 @@ const originalOpenAIApiKey = process.env.OPENAI_API_KEY;
 const originalOpenAIModel = process.env.OPENAI_MODEL;
 const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const originalAnthropicModel = process.env.ANTHROPIC_MODEL;
+const originalGeminiApiKey = process.env.GEMINI_API_KEY;
+const originalGeminiModel = process.env.GEMINI_MODEL;
 
 function restoreEnv() {
   if (originalGroqApiKey === undefined) {
@@ -54,6 +56,16 @@ function restoreEnv() {
   } else {
     process.env.ANTHROPIC_MODEL = originalAnthropicModel;
   }
+  if (originalGeminiApiKey === undefined) {
+    delete process.env.GEMINI_API_KEY;
+  } else {
+    process.env.GEMINI_API_KEY = originalGeminiApiKey;
+  }
+  if (originalGeminiModel === undefined) {
+    delete process.env.GEMINI_MODEL;
+  } else {
+    process.env.GEMINI_MODEL = originalGeminiModel;
+  }
 }
 
 try {
@@ -65,6 +77,8 @@ try {
   delete process.env.OPENAI_MODEL;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_MODEL;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_MODEL;
 
   const missingKey = await executeRemoteProvider(
     { name: 'groq', model: 'test-model' },
@@ -521,15 +535,143 @@ try {
   assert.equal(serializedAnthropicFailure.includes('headers'), false);
   assert.equal(serializedAnthropicFailure.includes('stack'), false);
 
+  const geminiMissingKey = await executeRemoteProvider(
+    { name: 'gemini', model: 'gemini-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new Error('fetch must not be called without an API key');
+      },
+    },
+  );
+  assert.equal(geminiMissingKey.attempted, false);
+  assert.equal(geminiMissingKey.succeeded, false);
+  assert.equal(geminiMissingKey.providerName, 'gemini');
+  assert.equal(geminiMissingKey.error, 'missing_api_key');
+  assert.equal(geminiMissingKey.llm_provider_selected, 'gemini');
+  assert.equal(geminiMissingKey.llm_provider_attempted, false);
+  assert.equal(geminiMissingKey.llm_provider_succeeded, false);
+  assert.equal(geminiMissingKey.llm_provider_failed, true);
+
+  const geminiSuccess = await executeRemoteProvider(
+    { name: 'gemini', key: 'gemini-test-key-not-secret', model: 'gemini-test-model' },
+    {
+      message: 'Say ok',
+      systemPrompt: 'Use safe concise answers.',
+      history: [{ role: 'assistant', content: 'Previous safe context' }],
+      fetch: async (url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(
+          url,
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent?key=gemini-test-key-not-secret',
+        );
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.equal(options.headers.Authorization, undefined);
+        assert.equal(options.headers['x-api-key'], undefined);
+        assert.equal(body.system_instruction.parts[0].text, 'Use safe concise answers.');
+        assert.equal(body.contents.some(item => item.role === 'system'), false);
+        assert.equal(body.contents.some(item => item.role === 'model'), true);
+        assert.equal(body.contents.at(-1).role, 'user');
+        assert.equal(body.contents.at(-1).parts[0].text, 'Say ok');
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: 'Gemini mock response' }] } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(geminiSuccess.attempted, true);
+  assert.equal(geminiSuccess.succeeded, true);
+  assert.equal(geminiSuccess.providerName, 'gemini');
+  assert.equal(geminiSuccess.model, 'gemini-test-model');
+  assert.equal(geminiSuccess.responseText, 'Gemini mock response');
+  assert.equal(geminiSuccess.llm_provider_selected, 'gemini');
+  assert.equal(geminiSuccess.llm_provider_attempted, true);
+  assert.equal(geminiSuccess.llm_provider_succeeded, true);
+  assert.equal(geminiSuccess.llm_provider_failed, false);
+  assert.equal(geminiSuccess.provider_attempted, true);
+  assert.equal(geminiSuccess.provider_succeeded, true);
+  assert.equal(geminiSuccess.provider_failed, false);
+
+  const geminiHttpFailure = await executeRemoteProvider(
+    { name: 'gemini', key: 'gemini-test-key-not-secret', model: 'gemini-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: false,
+        status: 400,
+        statusText:
+          'Bad Request https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent?key=gemini-test-key-not-secret Bearer unsafe-token-1234567890',
+      }),
+    },
+  );
+  assert.equal(geminiHttpFailure.attempted, true);
+  assert.equal(geminiHttpFailure.succeeded, false);
+  assert.equal(geminiHttpFailure.error, 'http_400');
+  assert.equal(geminiHttpFailure.status, 400);
+  assert.equal(JSON.stringify(geminiHttpFailure).includes('gemini-test-key-not-secret'), false);
+  assert.equal(JSON.stringify(geminiHttpFailure).includes('unsafe-token'), false);
+
+  const geminiInvalidJson = await executeRemoteProvider(
+    { name: 'gemini', key: 'gemini-test-key-not-secret', model: 'gemini-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('invalid provider body with gemini-test-key-not-secret');
+        },
+      }),
+    },
+  );
+  assert.equal(geminiInvalidJson.error, 'invalid_json');
+  assert.equal(JSON.stringify(geminiInvalidJson).includes('gemini-test-key-not-secret'), false);
+
+  const geminiEmptyResponse = await executeRemoteProvider(
+    { name: 'gemini', key: 'gemini-test-key-not-secret', model: 'gemini-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '   ' }] } }] }),
+      }),
+    },
+  );
+  assert.equal(geminiEmptyResponse.error, 'empty_response');
+  assert.equal(geminiEmptyResponse.llm_public_error, 'empty_response');
+
+  const geminiNetworkFailure = await executeRemoteProvider(
+    { name: 'gemini', key: 'gemini-test-key-not-secret', model: 'gemini-test-model' },
+    {
+      message: 'hello',
+      fetch: async () => {
+        throw new TypeError('network failure with gemini-test-key-not-secret');
+      },
+    },
+  );
+  const serializedGeminiFailure = JSON.stringify(geminiNetworkFailure);
+  assert.equal(geminiNetworkFailure.error, 'network_error');
+  assert.equal(serializedGeminiFailure.includes('gemini-test-key-not-secret'), false);
+  assert.equal(serializedGeminiFailure.includes('Authorization'), false);
+  assert.equal(serializedGeminiFailure.includes('headers'), false);
+  assert.equal(serializedGeminiFailure.includes('stack'), false);
+
   const unsupported = await executeRemoteProvider(
-    { name: 'gemini', model: 'gemini-test' },
+    { name: 'deepseek', model: 'deepseek-test' },
     { message: 'hello' },
   );
   assert.equal(unsupported.attempted, false);
   assert.equal(unsupported.succeeded, false);
-  assert.equal(unsupported.providerName, 'gemini');
+  assert.equal(unsupported.providerName, 'deepseek');
   assert.equal(unsupported.error, 'unsupported_provider');
-  assert.equal(unsupported.llm_provider_selected, 'gemini');
+  assert.equal(unsupported.llm_provider_selected, 'deepseek');
   assert.equal(unsupported.llm_provider_attempted, false);
   assert.equal(unsupported.llm_provider_succeeded, false);
   assert.equal(unsupported.llm_provider_failed, true);
