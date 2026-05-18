@@ -48,6 +48,12 @@ function withProviderEnv(values, fn) {
   }
 }
 
+function assertRoute(route, expected) {
+  for (const [key, value] of Object.entries(expected)) {
+    assert.equal(route[key], value, `${key} mismatch`);
+  }
+}
+
 withProviderEnv({
   GROQ_API_KEY: 'groq-router-fallback-test-key',
   OPENAI_API_KEY: 'openai-router-fallback-test-key',
@@ -343,6 +349,234 @@ withProviderEnv({
   assert.equal(route.fallbackTriggered, false);
   assert.equal(route.fallbackReason, FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE);
   assert.equal(route.noProviderAvailable, true);
+});
+
+[
+  {
+    label: 'no remote or local provider selects local heuristic',
+    env: {},
+    input: { complexity: 'complex' },
+    expected: {
+      selectedProviderName: 'local-heuristic',
+      executionProviderName: null,
+      localFallbackProviderName: 'local-heuristic',
+      fallbackTriggered: true,
+      fallbackReason: 'no_remote_provider_available',
+      noRemoteProviderAvailable: true,
+      noProviderAvailable: false,
+    },
+  },
+  {
+    label: 'only groq configured selects groq',
+    env: { GROQ_API_KEY: 'groq-router-matrix-key' },
+    input: { complexity: 'complex' },
+    expected: {
+      selectedProviderName: 'groq',
+      executionProviderName: 'groq',
+      fallbackTriggered: false,
+      fallbackReason: '',
+      noRemoteProviderAvailable: false,
+      noProviderAvailable: false,
+    },
+  },
+  {
+    label: 'groq preferred with openrouter also configured stays on groq',
+    env: {
+      GROQ_API_KEY: 'groq-router-matrix-key',
+      OPENROUTER_API_KEY: 'openrouter-router-matrix-key',
+    },
+    input: { complexity: 'complex', preferred: 'groq' },
+    expected: {
+      requestedProviderName: 'groq',
+      selectedProviderName: 'groq',
+      executionProviderName: 'groq',
+      fallbackTriggered: false,
+      fallbackReason: '',
+    },
+  },
+  {
+    label: 'groq unavailable falls through to openrouter',
+    env: { OPENROUTER_API_KEY: 'openrouter-router-matrix-key' },
+    input: { complexity: 'complex', preferred: 'groq' },
+    expected: {
+      requestedProviderName: 'groq',
+      selectedProviderName: 'openrouter',
+      executionProviderName: 'openrouter',
+      fallbackProviderName: 'openrouter',
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+    },
+  },
+  {
+    label: 'openrouter unavailable falls through to openai',
+    env: { OPENAI_API_KEY: 'openai-router-matrix-key' },
+    input: { complexity: 'complex', preferred: 'openrouter' },
+    expected: {
+      requestedProviderName: 'openrouter',
+      selectedProviderName: 'openai',
+      executionProviderName: 'openai',
+      fallbackProviderName: 'openai',
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+    },
+  },
+  {
+    label: 'all remotes unavailable selects local heuristic',
+    env: {},
+    input: { complexity: 'complex', preferred: 'openai' },
+    expected: {
+      requestedProviderName: 'openai',
+      selectedProviderName: 'local-heuristic',
+      executionProviderName: null,
+      localFallbackProviderName: 'local-heuristic',
+      fallbackProviderName: 'local-heuristic',
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+      noRemoteProviderAvailable: true,
+      noProviderAvailable: false,
+    },
+  },
+  {
+    label: 'deepseek unsupported falls through to first executable provider',
+    env: {
+      OPENAI_API_KEY: 'openai-router-matrix-key',
+      DEEPSEEK_API_KEY: 'deepseek-router-matrix-key',
+    },
+    input: { complexity: 'complex', preferred: 'deepseek' },
+    expected: {
+      requestedProviderName: 'deepseek',
+      selectedProviderName: 'openai',
+      executionProviderName: 'openai',
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unsupported',
+    },
+  },
+  {
+    label: 'unrecognized provider falls through to first executable provider',
+    env: { ANTHROPIC_API_KEY: 'anthropic-router-matrix-key' },
+    input: { complexity: 'complex', preferred: 'not-a-provider' },
+    expected: {
+      requestedProviderName: 'not-a-provider',
+      selectedProviderName: 'anthropic',
+      executionProviderName: 'anthropic',
+      fallbackProviderName: 'anthropic',
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+    },
+  },
+  {
+    label: 'ollama url makes ollama selectable',
+    env: { OLLAMA_URL: 'http://127.0.0.1:11434' },
+    input: { complexity: 'complex' },
+    expected: {
+      selectedProviderName: 'ollama',
+      executionProviderName: 'ollama',
+      fallbackTriggered: false,
+      noRemoteProviderAvailable: false,
+    },
+  },
+  {
+    label: 'lmstudio url makes lmstudio selectable',
+    env: { LMSTUDIO_URL: 'http://127.0.0.1:1234' },
+    input: { complexity: 'complex' },
+    expected: {
+      selectedProviderName: 'lmstudio',
+      executionProviderName: 'lmstudio',
+      fallbackTriggered: false,
+      noRemoteProviderAvailable: false,
+    },
+  },
+  {
+    label: 'ollama without url is skipped',
+    env: { LMSTUDIO_URL: 'http://127.0.0.1:1234' },
+    input: { complexity: 'complex', preferred: 'ollama' },
+    expected: {
+      requestedProviderName: 'ollama',
+      selectedProviderName: 'lmstudio',
+      executionProviderName: 'lmstudio',
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+    },
+  },
+  {
+    label: 'lmstudio without url is skipped',
+    env: {},
+    input: { complexity: 'complex', preferred: 'lmstudio' },
+    expected: {
+      requestedProviderName: 'lmstudio',
+      selectedProviderName: 'local-heuristic',
+      executionProviderName: null,
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+      noRemoteProviderAvailable: true,
+    },
+  },
+  {
+    label: 'byok inactive preserves normal fallback',
+    env: {
+      GROQ_API_KEY: 'groq-router-matrix-key',
+      OMNI_BYOK_SESSION_MODE: 'false',
+      OMNI_BYOK_PROVIDER: 'openai',
+      OMNI_BYOK_FAIL_CLOSED: 'true',
+    },
+    input: { complexity: 'complex', preferred: 'openai' },
+    expected: {
+      requestedProviderName: 'openai',
+      selectedProviderName: 'groq',
+      executionProviderName: 'groq',
+      byokSessionMode: false,
+      fallbackTriggered: true,
+      fallbackReason: 'requested_provider_unavailable',
+    },
+  },
+  {
+    label: 'byok active unknown provider fails closed',
+    env: {
+      OMNI_BYOK_SESSION_MODE: 'true',
+      OMNI_BYOK_PROVIDER: 'unknown-provider',
+      OMNI_BYOK_FAIL_CLOSED: 'true',
+      GROQ_API_KEY: 'system-groq-router-matrix-key',
+    },
+    input: { complexity: 'complex', preferred: 'groq' },
+    expected: {
+      requestedProviderName: 'unknown-provider',
+      selectedProviderName: 'unknown-provider',
+      executionProviderName: null,
+      fallbackProviderName: null,
+      fallbackTriggered: false,
+      fallbackReason: 'byok_credentials_incomplete',
+      byokSessionMode: true,
+      byokFailClosed: true,
+      noProviderAvailable: true,
+    },
+  },
+  {
+    label: 'byok active deepseek fails closed',
+    env: {
+      OMNI_BYOK_SESSION_MODE: 'true',
+      OMNI_BYOK_PROVIDER: 'deepseek',
+      OMNI_BYOK_FAIL_CLOSED: 'true',
+      DEEPSEEK_API_KEY: 'deepseek-router-matrix-key',
+      GROQ_API_KEY: 'system-groq-router-matrix-key',
+    },
+    input: { complexity: 'complex', preferred: 'groq' },
+    expected: {
+      requestedProviderName: 'deepseek',
+      selectedProviderName: 'deepseek',
+      executionProviderName: null,
+      fallbackProviderName: null,
+      fallbackTriggered: false,
+      fallbackReason: 'byok_credentials_incomplete',
+      byokSessionMode: true,
+      byokFailClosed: true,
+      noProviderAvailable: true,
+    },
+  },
+].forEach((testCase) => {
+  withProviderEnv(testCase.env, ({ resolveProviderRoute }) => {
+    const route = resolveProviderRoute(testCase.input);
+    assertRoute(route, testCase.expected);
+  });
 });
 
 console.log('providerRouterFallback tests passed');

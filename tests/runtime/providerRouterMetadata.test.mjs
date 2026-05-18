@@ -57,6 +57,7 @@ withProviderEnv({}, ({ DEFAULT_FALLBACK_CHAIN, FALLBACK_REASONS, getProviderRegi
     'local-heuristic',
   ]);
   assert.deepEqual(Object.values(FALLBACK_REASONS).sort(), [
+    'byok_credentials_incomplete',
     'no_remote_provider_available',
     'requested_provider_unavailable',
     'requested_provider_unsupported',

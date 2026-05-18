@@ -388,12 +388,126 @@ async function testByokUnsupportedProviderHintFailsClosedPublicly() {
   }
 }
 
+async function testNormalRemoteFallbackPreservesCanonicalAndLegacyAliases() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  const savedFetch = globalThis.fetch
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OPENROUTER_API_KEY = 'sk-test-openrouter-normal-fallback'
+  process.env.OMNI_POLICY_HINT_JSON = JSON.stringify({ recommended_provider: 'groq', shadow_only: false })
+  let fetchCalls = 0
+  globalThis.fetch = async (url, options = {}) => {
+    fetchCalls += 1
+    assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions')
+    assert.equal(options.headers.Authorization, 'Bearer sk-test-openrouter-normal-fallback')
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ choices: [{ message: { content: 'OpenRouter fallback response' } }] }),
+    }
+  }
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-normal-fallback' },
+      cwd: process.cwd(),
+    })
+    const serialized = JSON.stringify(result)
+
+    assert.equal(fetchCalls, 1)
+    assert.equal(result.selected_provider, 'openrouter')
+    assert.equal(result.executed_provider, 'openrouter')
+    assert.equal(result.runtime_truth.llm_provider_attempted, true)
+    assert.equal(result.runtime_truth.llm_provider_succeeded, true)
+    assert.equal(result.llm_fallback_triggered, true)
+    assert.equal(result.llm_fallback_reason, 'requested_provider_unavailable')
+    assert.equal(result.fallback_triggered, result.llm_fallback_triggered)
+    assert.equal(result.fallback_reason, result.llm_fallback_reason)
+    assert.equal(serialized.includes('sk-test-openrouter-normal-fallback'), false)
+    assert.equal(serialized.includes('Authorization'), false)
+    assert.equal(serialized.includes('raw request'), false)
+    assert.equal(serialized.includes('raw response'), false)
+    assert.equal(serialized.includes('stack'), false)
+  } finally {
+    globalThis.fetch = savedFetch
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+async function testByokUnknownProviderHintFailsClosedPublicly() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  const savedFetch = globalThis.fetch
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OMNI_BYOK_SESSION_MODE = 'true'
+  process.env.OMNI_BYOK_PROVIDER = 'unknown-provider'
+  process.env.OMNI_BYOK_FAIL_CLOSED = 'true'
+  process.env.GROQ_API_KEY = 'sk-test-system-groq'
+  let fetchCalls = 0
+  globalThis.fetch = async () => {
+    fetchCalls += 1
+    throw new Error('fetch must not be called for unknown BYOK provider')
+  }
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-byok-unknown-provider' },
+      cwd: process.cwd(),
+    })
+    const serialized = JSON.stringify(result)
+
+    assert.equal(fetchCalls, 0)
+    assert.equal(result.selected_provider, 'unknown-provider')
+    assert.equal(result.executed_provider, '')
+    assert.equal(result.provider_failed, true)
+    assert.equal(result.failure_class, 'byok_execution_failed')
+    assert.equal(result.failure_reason, 'byok_credentials_incomplete')
+    assert.equal(result.response.includes('byok_session'), true)
+    assert.equal(result.runtime_truth.llm_provider_attempted, false)
+    assert.equal(serialized.includes('sk-test-system-groq'), false)
+    assert.equal(serialized.includes('Authorization'), false)
+    assert.equal(serialized.includes('raw request'), false)
+    assert.equal(serialized.includes('raw response'), false)
+    assert.equal(serialized.includes('stack'), false)
+  } finally {
+    globalThis.fetch = savedFetch
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 await testGreetingMatcherTruth()
 await testNoRemoteProviderFallbackTruth()
 await testByokFailClosedDoesNotFallbackToSystemProvider()
 await testByokHappyPathUsesSessionProviderOnly()
 await testByokProviderFailureDoesNotFallbackToSystemProvider()
 await testByokUnsupportedProviderHintFailsClosedPublicly()
+await testNormalRemoteFallbackPreservesCanonicalAndLegacyAliases()
+await testByokUnknownProviderHintFailsClosedPublicly()
 testIntentWrapper()
 testTruthHelperModes()
 console.log('runtime truth contract: js checks passed')
