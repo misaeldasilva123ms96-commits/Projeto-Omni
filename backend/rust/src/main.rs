@@ -4268,12 +4268,9 @@ print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
                 model: Some("byok-test-model".to_string()),
             },
         );
-        let context = build_private_bridge_context(
-            None,
-            &Some("openai".to_string()),
-            &Some(credentials),
-        )
-        .expect("context");
+        let context =
+            build_private_bridge_context(None, &Some("openai".to_string()), &Some(credentials))
+                .expect("context");
         let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
         let parsed: Value = serde_json::from_slice(&v).unwrap();
 
