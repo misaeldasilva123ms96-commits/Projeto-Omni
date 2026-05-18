@@ -201,6 +201,10 @@ SESSION_BYOK_ENV_MAP = {
 }
 SESSION_BYOK_MAX_API_KEY_CHARS = 4096
 SESSION_BYOK_MAX_MODEL_CHARS = 128
+SESSION_BYOK_CLOUD_PROVIDERS = {"groq", "openrouter", "openai", "anthropic", "gemini"}
+SESSION_BYOK_PUBLIC_RESPONSE = (
+    "[degraded:byok_session] Session BYOK credentials could not be used safely for this request."
+)
 
 
 def _normalize_session_provider_id(value: Any) -> str | None:
@@ -232,32 +236,90 @@ def _safe_session_secret(value: Any, *, max_chars: int) -> str | None:
     return trimmed
 
 
-def _extract_session_byok_bridge(bridge: dict[str, Any]) -> tuple[str | None, dict[str, str]]:
+def _extract_session_byok_bridge(bridge: dict[str, Any]) -> dict[str, Any]:
     source = _private_bridge_source(bridge)
-    provider_preference = _normalize_session_provider_id(source.get("provider_preference"))
     raw_credentials = source.get("session_provider_credentials")
+    provider_preference_raw = source.get("provider_preference")
+    provider_preference = _normalize_session_provider_id(provider_preference_raw)
     if not isinstance(raw_credentials, dict):
-        return provider_preference, {}
+        return {
+            "active": False,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": None,
+        }
+    if not raw_credentials:
+        return {
+            "active": False,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": None,
+        }
+    if isinstance(provider_preference_raw, str) and provider_preference_raw.strip() and not provider_preference:
+        return {
+            "active": True,
+            "provider": None,
+            "env_overlay": {},
+            "error_reason": "byok_provider_not_allowed",
+        }
+    if not provider_preference:
+        return {
+            "active": True,
+            "provider": None,
+            "env_overlay": {},
+            "error_reason": "byok_provider_preference_required",
+        }
+    if provider_preference not in raw_credentials:
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_missing_for_provider",
+        }
 
     env_overlay: dict[str, str] = {}
-    for raw_provider, raw_credential in raw_credentials.items():
-        provider_id = _normalize_session_provider_id(raw_provider)
-        if not provider_id or not isinstance(raw_credential, dict):
-            continue
-        key_env, model_env = SESSION_BYOK_ENV_MAP[provider_id]
-        api_key = _safe_session_secret(
-            raw_credential.get("api_key"),
-            max_chars=SESSION_BYOK_MAX_API_KEY_CHARS,
-        )
-        model = _safe_session_secret(
-            raw_credential.get("model"),
-            max_chars=SESSION_BYOK_MAX_MODEL_CHARS,
-        )
-        if api_key:
-            env_overlay[key_env] = api_key
-        if model:
-            env_overlay[model_env] = model
-    return provider_preference, env_overlay
+    raw_credential = raw_credentials.get(provider_preference)
+    if not isinstance(raw_credential, dict):
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_incomplete",
+        }
+
+    key_env, model_env = SESSION_BYOK_ENV_MAP[provider_preference]
+    api_key = _safe_session_secret(
+        raw_credential.get("api_key"),
+        max_chars=SESSION_BYOK_MAX_API_KEY_CHARS,
+    )
+    model = _safe_session_secret(
+        raw_credential.get("model"),
+        max_chars=SESSION_BYOK_MAX_MODEL_CHARS,
+    )
+    if provider_preference in SESSION_BYOK_CLOUD_PROVIDERS and not api_key:
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_incomplete",
+        }
+    if provider_preference not in SESSION_BYOK_CLOUD_PROVIDERS and not api_key and not model:
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_incomplete",
+        }
+    if api_key:
+        env_overlay[key_env] = api_key
+    if model:
+        env_overlay[model_env] = model
+    return {
+        "active": True,
+        "provider": provider_preference,
+        "env_overlay": env_overlay,
+        "error_reason": None,
+    }
 
 
 @dataclass
@@ -450,6 +512,8 @@ class BrainOrchestrator:
         self._runtime_bridge: dict[str, Any] = {}
         self._session_provider_preference: str | None = None
         self._session_provider_env_overlay: dict[str, str] = {}
+        self._session_byok_active: bool = False
+        self._session_byok_error_reason: str | None = None
         self._last_phase41_policy_hint: dict[str, Any] | None = None
         self._last_strategy_performance_payload: dict[str, Any] | None = None
         self._last_node_result_envelope: dict[str, Any] | None = None
@@ -588,8 +652,14 @@ class BrainOrchestrator:
 
     def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
         self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
-        self._session_provider_preference, self._session_provider_env_overlay = _extract_session_byok_bridge(
-            self._runtime_bridge
+        byok_state = _extract_session_byok_bridge(self._runtime_bridge)
+        self._session_byok_active = bool(byok_state.get("active"))
+        self._session_provider_preference = byok_state.get("provider") if isinstance(byok_state.get("provider"), str) else None
+        self._session_provider_env_overlay = (
+            dict(byok_state.get("env_overlay")) if isinstance(byok_state.get("env_overlay"), dict) else {}
+        )
+        self._session_byok_error_reason = (
+            str(byok_state.get("error_reason")) if byok_state.get("error_reason") else None
         )
         self._pending_policy_hint_json = None
         self._last_phase41_policy_hint = None
@@ -604,6 +674,20 @@ class BrainOrchestrator:
         self.last_decision_ranking = None
         self.last_runtime_mode = self._selected_runtime_mode()
         self.last_runtime_reason = "configured_mode"
+        if self._session_byok_error_reason:
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = self._session_byok_error_reason
+            return {
+                "response": SESSION_BYOK_PUBLIC_RESPONSE,
+                "stop_reason": self._session_byok_error_reason,
+                "error": {
+                    "failure_class": "BYOK_SESSION_INVALID",
+                    "message": "Session BYOK credentials are invalid or incomplete.",
+                    "reason": self._session_byok_error_reason,
+                },
+                "provider_failed": True,
+                "failure_class": "BYOK_SESSION_INVALID",
+            }
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
         session_id = self._session_id()
@@ -2152,14 +2236,23 @@ class BrainOrchestrator:
         session_overlay = getattr(self, "_session_provider_env_overlay", None)
         if isinstance(session_overlay, dict) and session_overlay:
             env.update({str(key): str(value) for key, value in session_overlay.items() if value})
+        if self._session_byok_active and self._session_provider_preference:
+            env["OMNI_BYOK_SESSION_MODE"] = "true"
+            env["OMNI_BYOK_PROVIDER"] = self._session_provider_preference
+            env["OMNI_BYOK_FAIL_CLOSED"] = "true"
         env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
         env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
         hint_json = getattr(self, "_pending_policy_hint_json", None)
-        if isinstance(hint_json, str) and hint_json.strip():
+        if self._session_byok_active and self._session_provider_preference:
+            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
+                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
+                ensure_ascii=False,
+            )
+        elif isinstance(hint_json, str) and hint_json.strip():
             env["OMNI_POLICY_HINT_JSON"] = hint_json.strip()
         elif self._session_provider_preference:
             env["OMNI_POLICY_HINT_JSON"] = json.dumps(
-                {"recommended": self._session_provider_preference},
+                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
                 ensure_ascii=False,
             )
         self._pending_policy_hint_json = None

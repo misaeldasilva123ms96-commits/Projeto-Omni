@@ -146,11 +146,27 @@ const FALLBACK_REASONS = Object.freeze({
   REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',
   REQUESTED_PROVIDER_UNAVAILABLE: 'requested_provider_unavailable',
   NO_REMOTE_PROVIDER_AVAILABLE: 'no_remote_provider_available',
+  BYOK_PROVIDER_UNAVAILABLE: 'byok_credentials_incomplete',
 });
 
 function normalizeProviderName(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return normalized || null;
+}
+
+function isTruthyEnv(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
+function readByokSessionPolicy() {
+  const active = isTruthyEnv(process.env.OMNI_BYOK_SESSION_MODE);
+  const provider = normalizeProviderName(process.env.OMNI_BYOK_PROVIDER);
+  const failClosed = isTruthyEnv(process.env.OMNI_BYOK_FAIL_CLOSED);
+  return {
+    active,
+    providerName: active ? provider : null,
+    failClosed: active && failClosed,
+  };
 }
 
 function materializeProvider(definition) {
@@ -276,6 +292,9 @@ function buildRouteOutcome({
   fallbackReason = '',
   noRemoteProviderAvailable = false,
   noProviderAvailable = false,
+  byokSessionMode = false,
+  byokProviderName = null,
+  byokFailClosed = false,
 } = {}) {
   return {
     requestedProviderName,
@@ -290,18 +309,49 @@ function buildRouteOutcome({
     fallbackReason: String(fallbackReason || ''),
     noRemoteProviderAvailable: Boolean(noRemoteProviderAvailable),
     noProviderAvailable: Boolean(noProviderAvailable),
+    byokSessionMode: Boolean(byokSessionMode),
+    byokProviderName,
+    byokFailClosed: Boolean(byokFailClosed),
   };
 }
 
 function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
+  const byokPolicy = readByokSessionPolicy();
   const registry = getProviderRegistry({ includeEmbeddedLocal: true });
   const providersByName = new Map(registry.map(provider => [provider.name, provider]));
   const remoteExecutable = sortProvidersByPolicy(
     registry.filter(provider => provider.kind !== 'embedded' && provider.executable),
   );
   const noRemoteProviderAvailable = remoteExecutable.length === 0;
-  const requestedProviderName = normalizeProviderName(preferred);
+  const requestedProviderName = byokPolicy.active
+    ? byokPolicy.providerName
+    : normalizeProviderName(preferred);
   const requestedProvider = requestedProviderName ? providersByName.get(requestedProviderName) : null;
+
+  if (byokPolicy.active) {
+    if (requestedProvider?.executable && requestedProvider.kind !== 'embedded') {
+      return buildRouteOutcome({
+        requestedProviderName,
+        selectedProviderName: requestedProvider.name,
+        executionProvider: { ...requestedProvider },
+        noRemoteProviderAvailable,
+        byokSessionMode: true,
+        byokProviderName: requestedProvider.name,
+        byokFailClosed: byokPolicy.failClosed,
+      });
+    }
+    return buildRouteOutcome({
+      requestedProviderName,
+      selectedProviderName: requestedProviderName,
+      fallbackTriggered: false,
+      fallbackReason: FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE,
+      noRemoteProviderAvailable,
+      noProviderAvailable: true,
+      byokSessionMode: true,
+      byokProviderName: requestedProviderName,
+      byokFailClosed: byokPolicy.failClosed,
+    });
+  }
 
   if (requestedProvider?.executable) {
     if (requestedProvider.kind === 'embedded') {
