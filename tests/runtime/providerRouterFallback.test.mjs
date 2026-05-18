@@ -22,6 +22,9 @@ const providerEnvKeys = [
   'LMSTUDIO_URL',
   'LMSTUDIO_MODEL',
   'OMINI_AVAILABLE_PROVIDERS',
+  'OMNI_BYOK_SESSION_MODE',
+  'OMNI_BYOK_PROVIDER',
+  'OMNI_BYOK_FAIL_CLOSED',
 ];
 
 function withProviderEnv(values, fn) {
@@ -305,6 +308,41 @@ withProviderEnv({
   assert.equal(route.fallbackProvider, null);
   assert.equal(route.fallbackTriggered, false);
   assert.equal(route.fallbackReason, '');
+});
+
+withProviderEnv({
+  OMNI_BYOK_SESSION_MODE: 'true',
+  OMNI_BYOK_PROVIDER: 'openai',
+  OMNI_BYOK_FAIL_CLOSED: 'true',
+  GROQ_API_KEY: 'system-groq-key',
+  OPENAI_API_KEY: 'session-openai-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'groq' });
+  assert.equal(route.byokSessionMode, true);
+  assert.equal(route.byokFailClosed, true);
+  assert.equal(route.requestedProviderName, 'openai');
+  assert.equal(route.selectedProviderName, 'openai');
+  assert.equal(route.executionProviderName, 'openai');
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackProvider, null);
+});
+
+withProviderEnv({
+  OMNI_BYOK_SESSION_MODE: 'true',
+  OMNI_BYOK_PROVIDER: 'openai',
+  OMNI_BYOK_FAIL_CLOSED: 'true',
+  GROQ_API_KEY: 'system-groq-key',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ complexity: 'simple', preferred: 'groq' });
+  assert.equal(route.byokSessionMode, true);
+  assert.equal(route.requestedProviderName, 'openai');
+  assert.equal(route.selectedProviderName, 'openai');
+  assert.equal(route.executionProvider, null);
+  assert.equal(route.executionProviderName, null);
+  assert.equal(route.fallbackProvider, null);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE);
+  assert.equal(route.noProviderAvailable, true);
 });
 
 console.log('providerRouterFallback tests passed');

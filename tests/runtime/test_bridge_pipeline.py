@@ -30,7 +30,7 @@ class BridgePipelineTest(unittest.TestCase):
     def test_session_byok_bridge_extracts_private_overlay(self) -> None:
         from brain.runtime.orchestrator import _extract_session_byok_bridge
 
-        preference, overlay = _extract_session_byok_bridge(
+        state = _extract_session_byok_bridge(
             {
                 "client_context": {
                     "provider_preference": " OpenAI ",
@@ -43,15 +43,19 @@ class BridgePipelineTest(unittest.TestCase):
                 }
             }
         )
+        preference = state["provider"]
+        overlay = state["env_overlay"]
 
         self.assertEqual(preference, "openai")
         self.assertEqual(overlay["OPENAI_API_KEY"], "test-byok-key")
         self.assertEqual(overlay["OPENAI_MODEL"], "gpt-4o-mini")
+        self.assertTrue(state["active"])
+        self.assertIsNone(state["error_reason"])
 
     def test_session_byok_bridge_rejects_deepseek_and_control_chars(self) -> None:
         from brain.runtime.orchestrator import _extract_session_byok_bridge
 
-        preference, overlay = _extract_session_byok_bridge(
+        state = _extract_session_byok_bridge(
             {
                 "provider_preference": "deepseek",
                 "session_provider_credentials": {
@@ -61,8 +65,37 @@ class BridgePipelineTest(unittest.TestCase):
             }
         )
 
-        self.assertIsNone(preference)
-        self.assertEqual(overlay, {})
+        self.assertIsNone(state["provider"])
+        self.assertEqual(state["env_overlay"], {})
+        self.assertEqual(state["error_reason"], "byok_provider_not_allowed")
+
+    def test_session_byok_requires_matching_provider_preference(self) -> None:
+        from brain.runtime.orchestrator import _extract_session_byok_bridge
+
+        missing_preference = _extract_session_byok_bridge(
+            {"session_provider_credentials": {"openai": {"api_key": "test-byok-key"}}}
+        )
+        self.assertEqual(missing_preference["error_reason"], "byok_provider_preference_required")
+
+        mismatch = _extract_session_byok_bridge(
+            {
+                "provider_preference": "openai",
+                "session_provider_credentials": {"groq": {"api_key": "test-groq-key"}},
+            }
+        )
+        self.assertEqual(mismatch["error_reason"], "byok_credentials_missing_for_provider")
+
+    def test_session_byok_requires_cloud_api_key(self) -> None:
+        from brain.runtime.orchestrator import _extract_session_byok_bridge
+
+        state = _extract_session_byok_bridge(
+            {
+                "provider_preference": "openai",
+                "session_provider_credentials": {"openai": {"model": "gpt-4o-mini"}},
+            }
+        )
+
+        self.assertEqual(state["error_reason"], "byok_credentials_incomplete")
 
     def test_session_byok_overlay_is_private_node_env_only(self) -> None:
         from types import SimpleNamespace
@@ -75,6 +108,7 @@ class BridgePipelineTest(unittest.TestCase):
         )
         orchestrator._resolve_node_bin = lambda: "node"
         orchestrator._pending_policy_hint_json = None
+        orchestrator._session_byok_active = True
         orchestrator._session_provider_preference = "openai"
         orchestrator._session_provider_env_overlay = {
             "OPENAI_API_KEY": "test-byok-key",
@@ -85,7 +119,37 @@ class BridgePipelineTest(unittest.TestCase):
 
         self.assertEqual(env["OPENAI_API_KEY"], "test-byok-key")
         self.assertEqual(env["OPENAI_MODEL"], "gpt-4o-mini")
-        self.assertIn('"recommended": "openai"', env["OMNI_POLICY_HINT_JSON"])
+        self.assertEqual(env["OMNI_BYOK_SESSION_MODE"], "true")
+        self.assertEqual(env["OMNI_BYOK_PROVIDER"], "openai")
+        self.assertEqual(env["OMNI_BYOK_FAIL_CLOSED"], "true")
+        self.assertIn('"recommended_provider": "openai"', env["OMNI_POLICY_HINT_JSON"])
+
+    def test_session_byok_overlay_does_not_leak_across_requests(self) -> None:
+        from types import SimpleNamespace
+
+        from brain.runtime.orchestrator import BrainOrchestrator
+
+        orchestrator = BrainOrchestrator.__new__(BrainOrchestrator)
+        orchestrator.js_runtime_adapter = SimpleNamespace(
+            build_env=lambda: ({"BASE_DIR": "project", "OPENAI_API_KEY": "system-key"}, SimpleNamespace(runtime_name="node"))
+        )
+        orchestrator._resolve_node_bin = lambda: "node"
+        orchestrator._pending_policy_hint_json = None
+
+        orchestrator._session_byok_active = True
+        orchestrator._session_provider_preference = "openai"
+        orchestrator._session_provider_env_overlay = {"OPENAI_API_KEY": "test-byok-key-a"}
+        env_a = orchestrator._build_node_subprocess_env()
+
+        orchestrator._session_byok_active = False
+        orchestrator._session_provider_preference = None
+        orchestrator._session_provider_env_overlay = {}
+        orchestrator._pending_policy_hint_json = None
+        env_b = orchestrator._build_node_subprocess_env()
+
+        self.assertEqual(env_a["OPENAI_API_KEY"], "test-byok-key-a")
+        self.assertEqual(env_b["OPENAI_API_KEY"], "system-key")
+        self.assertNotIn("OMNI_BYOK_SESSION_MODE", env_b)
 
     def test_sanitize_for_user_keeps_structured_error(self) -> None:
         module = _load_python_main_module()

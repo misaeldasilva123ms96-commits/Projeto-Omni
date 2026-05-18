@@ -19,6 +19,10 @@ const providerEnvKeys = [
   'OLLAMA_URL',
   'LMSTUDIO_URL',
   'OMINI_AVAILABLE_PROVIDERS',
+  'OMNI_BYOK_SESSION_MODE',
+  'OMNI_BYOK_PROVIDER',
+  'OMNI_BYOK_FAIL_CLOSED',
+  'OMNI_POLICY_HINT_JSON',
 ]
 
 async function withNoProviderEnv(fn) {
@@ -140,8 +144,51 @@ async function testNoRemoteProviderFallbackTruth() {
   })
 }
 
+async function testByokFailClosedDoesNotFallbackToSystemProvider() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OMNI_BYOK_SESSION_MODE = 'true'
+  process.env.OMNI_BYOK_PROVIDER = 'openai'
+  process.env.OMNI_BYOK_FAIL_CLOSED = 'true'
+  process.env.GROQ_API_KEY = 'system-groq-key'
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-byok-fail-closed' },
+      cwd: process.cwd(),
+    })
+
+    assert.equal(result.selected_provider, 'openai')
+    assert.equal(result.executed_provider, '')
+    assert.equal(result.provider_failed, true)
+    assert.equal(result.failure_class, 'byok_execution_failed')
+    assert.equal(result.runtime_truth.runtime_mode, RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE)
+    assert.equal(result.runtime_truth.llm_provider_attempted, false)
+    assert.equal(result.response.includes('byok_session'), true)
+    const diagnostics = result.metadata.execution_provenance.provider_diagnostics
+    const groq = diagnostics.find(row => row.provider === 'groq')
+    assert.equal(groq.attempted, false)
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 await testGreetingMatcherTruth()
 await testNoRemoteProviderFallbackTruth()
+await testByokFailClosedDoesNotFallbackToSystemProvider()
 testIntentWrapper()
 testTruthHelperModes()
 console.log('runtime truth contract: js checks passed')
