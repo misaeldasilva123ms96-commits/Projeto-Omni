@@ -151,6 +151,68 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(env_b["OPENAI_API_KEY"], "system-key")
         self.assertNotIn("OMNI_BYOK_SESSION_MODE", env_b)
 
+    def test_session_byok_overlay_only_selected_provider_and_does_not_mutate_environ(self) -> None:
+        from types import SimpleNamespace
+
+        from brain.runtime.orchestrator import BrainOrchestrator
+
+        original_openai = os.environ.get("OPENAI_API_KEY")
+        original_groq = os.environ.get("GROQ_API_KEY")
+        orchestrator = BrainOrchestrator.__new__(BrainOrchestrator)
+        orchestrator.js_runtime_adapter = SimpleNamespace(
+            build_env=lambda: (
+                {
+                    "BASE_DIR": "project",
+                    "GROQ_API_KEY": "test-system-groq-key",
+                    "OPENROUTER_API_KEY": "test-system-openrouter-key",
+                    "OPENAI_API_KEY": "test-system-openai-key",
+                },
+                SimpleNamespace(runtime_name="node"),
+            )
+        )
+        orchestrator._resolve_node_bin = lambda: "node"
+        orchestrator._pending_policy_hint_json = None
+        orchestrator._session_byok_active = True
+        orchestrator._session_provider_preference = "openai"
+        orchestrator._session_provider_env_overlay = {
+            "OPENAI_API_KEY": "sk-test-byok-session-openai",
+            "OPENAI_MODEL": "byok-test-model",
+        }
+
+        env = orchestrator._build_node_subprocess_env()
+        serialized = json.dumps(env, sort_keys=True)
+
+        self.assertEqual(env["OPENAI_API_KEY"], "sk-test-byok-session-openai")
+        self.assertEqual(env["OPENAI_MODEL"], "byok-test-model")
+        self.assertEqual(env["GROQ_API_KEY"], "test-system-groq-key")
+        self.assertEqual(env["OPENROUTER_API_KEY"], "test-system-openrouter-key")
+        self.assertNotIn("sk-test-system-openai", serialized)
+        self.assertEqual(os.environ.get("OPENAI_API_KEY"), original_openai)
+        self.assertEqual(os.environ.get("GROQ_API_KEY"), original_groq)
+
+    def test_session_byok_invalid_bridge_returns_public_safe_reason(self) -> None:
+        from brain.runtime.orchestrator import _extract_session_byok_bridge
+
+        state = _extract_session_byok_bridge(
+            {
+                "provider_preference": "openai",
+                "session_provider_credentials": {
+                    "groq": {
+                        "api_key": "sk-test-byok-session-openai",
+                        "model": "byok-test-model",
+                    }
+                },
+            }
+        )
+        serialized = json.dumps(state, sort_keys=True)
+
+        self.assertTrue(state["active"])
+        self.assertEqual(state["provider"], "openai")
+        self.assertEqual(state["env_overlay"], {})
+        self.assertEqual(state["error_reason"], "byok_credentials_missing_for_provider")
+        self.assertNotIn("sk-test-byok-session-openai", serialized)
+        self.assertNotIn("byok-test-model", serialized)
+
     def test_sanitize_for_user_keeps_structured_error(self) -> None:
         module = _load_python_main_module()
         out = module.sanitize_for_user(

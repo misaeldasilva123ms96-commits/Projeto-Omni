@@ -4058,6 +4058,26 @@ print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
         let body_text = serde_json::to_string(&body).unwrap();
         assert_eq!(body["response"].as_str(), Some("byok_seen=true"));
         assert!(!body_text.contains("test-byok-key"));
+        assert!(!body_text.contains("gpt-4o-mini"));
+        assert!(body.get("session_provider_credentials").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_invalid_session_byok_without_echoing_secret_material() {
+        let state = build_test_state(temp_script("print('{}')", "byok-invalid"), 15_000);
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","provider_preference":"openai","session_provider_credentials":{"deepseek":{"api_key":"sk-test-byok-session-openai","model":"byok-test-model"}}}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        let body_text = serde_json::to_string(&body).unwrap();
+        assert!(!body_text.contains("sk-test-byok-session-openai"));
+        assert!(!body_text.contains("byok-test-model"));
+        assert!(body.is_object());
         assert!(body.get("session_provider_credentials").is_none());
     }
 
@@ -4236,6 +4256,55 @@ print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
             parsed["client_context"]["session_provider_credentials"]["openai"]["api_key"].as_str(),
             Some("test-byok-key")
         );
+    }
+
+    #[test]
+    fn build_python_stdin_json_forwards_byok_model_without_public_response_echo() {
+        let mut credentials = BTreeMap::new();
+        credentials.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("sk-test-byok-session-openai".to_string()),
+                model: Some("byok-test-model".to_string()),
+            },
+        );
+        let context = build_private_bridge_context(
+            None,
+            &Some("openai".to_string()),
+            &Some(credentials),
+        )
+        .expect("context");
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+
+        assert_eq!(
+            parsed["client_context"]["provider_preference"].as_str(),
+            Some("openai")
+        );
+        assert_eq!(
+            parsed["client_context"]["session_provider_credentials"]["openai"]["model"].as_str(),
+            Some("byok-test-model")
+        );
+
+        let public = ChatResponse {
+            response: "ok".to_string(),
+            session_id: "python-session".to_string(),
+            source: "python-subprocess".to_string(),
+            runtime_session_version: 1,
+            client_session_id: None,
+            matched_commands: vec![],
+            matched_tools: vec![],
+            stop_reason: Some("completed".to_string()),
+            usage: None,
+            conversation_id: None,
+            cognitive_runtime_inspection: None,
+            providers: None,
+            error: None,
+        };
+        let public_text = serde_json::to_string(&public).unwrap();
+        assert!(!public_text.contains("sk-test-byok-session-openai"));
+        assert!(!public_text.contains("byok-test-model"));
+        assert!(!public_text.contains("session_provider_credentials"));
     }
 
     #[test]
