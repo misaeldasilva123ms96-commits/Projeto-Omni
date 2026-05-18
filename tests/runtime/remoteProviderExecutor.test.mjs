@@ -104,6 +104,78 @@ function restoreEnv() {
   }
 }
 
+const publicForbiddenFragments = [
+  'Authorization',
+  'x-api-key',
+  'Bearer ',
+  'bearer token',
+  'raw request',
+  'raw response',
+  'headers',
+  'stack trace',
+  'traceback',
+];
+
+function assertPublicResultOmits(result, fragments, label) {
+  const serialized = JSON.stringify(result);
+  for (const fragment of [...publicForbiddenFragments, ...fragments].filter(Boolean)) {
+    assert.equal(serialized.includes(fragment), false, `${label} leaked public fragment: ${fragment}`);
+  }
+}
+
+async function assertProviderFailureRedactionMatrixCase({ provider, key, model, url, status, statusText }) {
+  const result = await executeRemoteProvider(
+    { name: provider, key, model, url },
+    {
+      message: 'redaction matrix prompt',
+      fetch: async () => ({
+        ok: false,
+        status,
+        statusText,
+        json: async () => ({
+          error: {
+            message: `raw response ${key} Authorization Bearer ${key} x-api-key ${key} stack trace`,
+          },
+        }),
+      }),
+    },
+  );
+  assert.equal(result.attempted, true);
+  assert.equal(result.succeeded, false);
+  assertPublicResultOmits(result, [key, statusText, url ?? '', `Bearer ${key}`, `x-api-key ${key}`], provider);
+}
+
+async function assertRawSurfaceRedactionMatrixCase({ provider, key, model, url }) {
+  const invalidJson = await executeRemoteProvider(
+    { name: provider, key, model, url },
+    {
+      message: 'redaction matrix prompt',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => {
+          throw new Error(`raw response body ${key} Authorization headers stack trace`);
+        },
+      }),
+    },
+  );
+  assert.equal(invalidJson.error, 'invalid_json');
+  assertPublicResultOmits(invalidJson, [key, url ?? '', 'raw response body'], `${provider} invalid json`);
+
+  const networkFailure = await executeRemoteProvider(
+    { name: provider, key, model, url },
+    {
+      message: 'redaction matrix prompt',
+      fetch: async () => {
+        throw new Error(`network stack trace raw request Authorization Bearer ${key} ${url ?? ''}`);
+      },
+    },
+  );
+  assert.equal(networkFailure.error, 'provider_request_failed');
+  assertPublicResultOmits(networkFailure, [key, url ?? '', 'network stack trace'], `${provider} network failure`);
+}
+
 try {
   delete process.env.GROQ_API_KEY;
   delete process.env.GROQ_MODEL;
@@ -895,6 +967,99 @@ try {
   assert.equal(JSON.stringify(lmStudioHttpFailure).includes('127.0.0.1'), false);
   assert.equal(JSON.stringify(lmStudioHttpFailure).includes('lmstudio-local-key-not-secret'), false);
   assert.equal(JSON.stringify(lmStudioHttpFailure).includes('headers'), false);
+
+  const redactionMatrixCases = [
+    {
+      provider: 'groq',
+      key: 'matrix-groq-api-key-sentinel',
+      model: 'llama-3.1-8b-instant',
+      status: 429,
+      statusText: 'Too Many Requests Authorization Bearer matrix-groq-api-key-sentinel raw response stack trace',
+    },
+    {
+      provider: 'openrouter',
+      key: 'matrix-openrouter-api-key-sentinel',
+      model: 'openai/gpt-4o-mini',
+      status: 401,
+      statusText: 'Unauthorized Authorization Bearer matrix-openrouter-api-key-sentinel raw request',
+    },
+    {
+      provider: 'openai',
+      key: 'matrix-openai-api-key-sentinel',
+      model: 'gpt-4o-mini',
+      status: 403,
+      statusText: 'Forbidden Authorization Bearer matrix-openai-api-key-sentinel headers',
+    },
+    {
+      provider: 'anthropic',
+      key: 'matrix-anthropic-api-key-sentinel',
+      model: 'claude-haiku-4-5-20251001',
+      status: 401,
+      statusText: 'Unauthorized x-api-key matrix-anthropic-api-key-sentinel raw response',
+    },
+    {
+      provider: 'gemini',
+      key: 'matrix-gemini-api-key-sentinel',
+      model: 'gemini-2.5-flash',
+      status: 400,
+      statusText:
+        'Bad Request https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=matrix-gemini-api-key-sentinel raw response',
+    },
+    {
+      provider: 'ollama',
+      key: 'matrix-ollama-api-key-sentinel',
+      model: 'llama3',
+      url: 'http://redaction-ollama.invalid',
+      status: 500,
+      statusText:
+        'Local failure http://redaction-ollama.invalid/v1/chat/completions Authorization Bearer matrix-ollama-api-key-sentinel',
+    },
+    {
+      provider: 'lmstudio',
+      key: 'matrix-lmstudio-api-key-sentinel',
+      model: 'local-model',
+      url: 'http://redaction-lmstudio.invalid',
+      status: 502,
+      statusText:
+        'Local failure http://redaction-lmstudio.invalid/v1/chat/completions Authorization Bearer matrix-lmstudio-api-key-sentinel',
+    },
+  ];
+  for (const testCase of redactionMatrixCases) {
+    await assertProviderFailureRedactionMatrixCase(testCase);
+  }
+
+  const geminiKeyInUrlFailure = await executeRemoteProvider(
+    { name: 'gemini', key: 'matrix-gemini-url-key-sentinel', model: 'gemini-2.5-flash' },
+    {
+      message: 'redaction matrix prompt',
+      fetch: async (url) => {
+        assert.equal(url.includes('?key=matrix-gemini-url-key-sentinel'), true);
+        return {
+          ok: false,
+          status: 503,
+          statusText: `Unavailable ${url}`,
+        };
+      },
+    },
+  );
+  assert.equal(geminiKeyInUrlFailure.error, 'http_503');
+  assertPublicResultOmits(
+    geminiKeyInUrlFailure,
+    [
+      'matrix-gemini-url-key-sentinel',
+      '?key=matrix-gemini-url-key-sentinel',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=',
+    ],
+    'gemini key-in-url failure',
+  );
+
+  for (const testCase of [
+    { provider: 'openai', key: 'matrix-openai-raw-surface-key', model: 'gpt-4o-mini' },
+    { provider: 'anthropic', key: 'matrix-anthropic-raw-surface-key', model: 'claude-haiku-4-5-20251001' },
+    { provider: 'gemini', key: 'matrix-gemini-raw-surface-key', model: 'gemini-2.5-flash' },
+  ]) {
+    await assertRawSurfaceRedactionMatrixCase(testCase);
+  }
 
   const unsupported = await executeRemoteProvider(
     { name: 'deepseek', model: 'deepseek-test' },

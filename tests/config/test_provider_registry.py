@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -218,6 +219,77 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertNotIn("127.0.0.1", serialized)
             self.assertNotIn("ollama-model-secret-shape", serialized)
             self.assertNotIn("ollama-provider-test-key", serialized)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_provider_diagnostics_snapshot_redacts_env_values_for_all_providers(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        fake_env = {
+            "GROQ_API_KEY": "matrix-groq-key-sentinel",
+            "GROQ_MODEL": "matrix-groq-model-sentinel",
+            "OPENROUTER_API_KEY": "matrix-openrouter-key-sentinel",
+            "OPENROUTER_MODEL": "matrix-openrouter-model-sentinel",
+            "OPENAI_API_KEY": "matrix-openai-key-sentinel",
+            "OPENAI_MODEL": "matrix-openai-model-sentinel",
+            "ANTHROPIC_API_KEY": "matrix-anthropic-key-sentinel",
+            "ANTHROPIC_MODEL": "matrix-anthropic-model-sentinel",
+            "GEMINI_API_KEY": "matrix-gemini-key-sentinel",
+            "GEMINI_MODEL": "matrix-gemini-model-sentinel",
+            "DEEPSEEK_API_KEY": "matrix-deepseek-key-sentinel",
+            "DEEPSEEK_MODEL": "matrix-deepseek-model-sentinel",
+            "OLLAMA_URL": "http://matrix-ollama.local.invalid",
+            "OLLAMA_MODEL": "matrix-ollama-model-sentinel",
+            "OLLAMA_API_KEY": "matrix-ollama-key-sentinel",
+            "LMSTUDIO_URL": "http://matrix-lmstudio.local.invalid",
+            "LMSTUDIO_MODEL": "matrix-lmstudio-model-sentinel",
+            "LMSTUDIO_API_KEY": "matrix-lmstudio-key-sentinel",
+        }
+        try:
+            os.environ.update(fake_env)
+            snapshot = describe_provider_diagnostics_snapshot(
+                selected_provider="gemini",
+                actual_provider="gemini",
+                attempted_provider="gemini",
+                fallback_triggered=False,
+                fallback_reason=None,
+            )
+
+            serialized = json.dumps(snapshot, sort_keys=True)
+            rows = {row["id"]: row for row in snapshot["providers"]}
+            self.assertEqual(set(rows), set(PROVIDERS))
+            self.assertEqual(snapshot["fallback_chain"], list(DEFAULT_FALLBACK_CHAIN))
+            for provider in PROVIDERS:
+                row = rows[provider]
+                self.assertIn("registered", row)
+                self.assertIn("configured", row)
+                self.assertIn("adapter_implemented", row)
+                self.assertIn("executable", row)
+                self.assertIn("execution_status", row)
+            self.assertFalse(rows["deepseek"]["adapter_implemented"])
+            self.assertFalse(rows["deepseek"]["executable"])
+            self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
+            self.assertEqual(rows["groq"]["key_env"], "GROQ_API_KEY")
+            self.assertEqual(rows["openrouter"]["key_env"], "OPENROUTER_API_KEY")
+            self.assertEqual(rows["openai"]["key_env"], "OPENAI_API_KEY")
+            self.assertEqual(rows["anthropic"]["key_env"], "ANTHROPIC_API_KEY")
+            self.assertEqual(rows["gemini"]["key_env"], "GEMINI_API_KEY")
+            self.assertEqual(rows["ollama"]["url_env"], "OLLAMA_URL")
+            self.assertEqual(rows["ollama"]["optional_key_env"], "OLLAMA_API_KEY")
+            self.assertEqual(rows["lmstudio"]["url_env"], "LMSTUDIO_URL")
+            self.assertEqual(rows["lmstudio"]["optional_key_env"], "LMSTUDIO_API_KEY")
+            for value in fake_env.values():
+                self.assertNotIn(value, serialized)
+            self.assertNotIn("matrix-ollama.local.invalid", serialized)
+            self.assertNotIn("matrix-lmstudio.local.invalid", serialized)
+            self.assertNotIn("Authorization", serialized)
+            self.assertNotIn("x-api-key", serialized)
+            self.assertNotIn("raw request", serialized)
+            self.assertNotIn("raw response", serialized)
+            self.assertNotIn("stack trace", serialized)
         finally:
             for k, v in saved.items():
                 if v is None:

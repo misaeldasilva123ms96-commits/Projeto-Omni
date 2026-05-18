@@ -44,6 +44,50 @@ async function withNoProviderEnv(fn) {
   }
 }
 
+const forbiddenPublicFragments = [
+  'Authorization',
+  'x-api-key',
+  'Bearer ',
+  'bearer token',
+  'session_provider_credentials',
+  'raw request',
+  'raw response',
+  'stack trace',
+  'traceback',
+]
+
+function assertNoForbiddenPublicFragments(payload, fragments, label) {
+  const serialized = JSON.stringify(payload)
+  for (const fragment of [...forbiddenPublicFragments, ...fragments].filter(Boolean)) {
+    assert.equal(serialized.includes(fragment), false, `${label} leaked public fragment: ${fragment}`)
+  }
+}
+
+function collectStringPaths(value, target, prefix = '') {
+  if (typeof value === 'string') {
+    return value.includes(target) ? [prefix] : []
+  }
+  if (!value || typeof value !== 'object') {
+    return []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectStringPaths(item, target, `${prefix}[${index}]`))
+  }
+  return Object.entries(value).flatMap(([key, item]) => {
+    const path = prefix ? `${prefix}.${key}` : key
+    return collectStringPaths(item, target, path)
+  })
+}
+
+function assertModelOnlyInApprovedFields(payload, model) {
+  const paths = collectStringPaths(payload, model)
+  const forbiddenPaths = paths.filter(path => {
+    const lastSegment = path.split(/[.[\]]/).filter(Boolean).at(-1) ?? ''
+    return !lastSegment.includes('model') && lastSegment !== 'llm_model_used'
+  })
+  assert.deepEqual(forbiddenPaths, [], `model appeared outside approved model metadata fields: ${forbiddenPaths.join(', ')}`)
+}
+
 async function testGreetingMatcherTruth() {
   const engine = new QueryEngineAuthority()
   const result = await engine.submitMessage({
@@ -235,16 +279,13 @@ async function testByokHappyPathUsesSessionProviderOnly() {
     assert.equal(result.response, 'BYOK OpenAI mock response')
     assert.equal(result.metadata.execution_provenance.model_actual, 'byok-test-model')
     assert.equal(result.metadata.model, 'byok-test-model')
-    assert.equal(serialized.includes('sk-test-byok-session-openai'), false)
-    assert.equal(serialized.includes('sk-test-system-groq'), false)
-    assert.equal(serialized.includes('sk-test-system-openai'), false)
-    assert.equal(serialized.includes('Authorization'), false)
-    assert.equal(serialized.includes('x-api-key'), false)
-    assert.equal(serialized.includes('bearer token'), false)
-    assert.equal(serialized.includes('session_provider_credentials'), false)
-    assert.equal(serialized.includes('raw request'), false)
-    assert.equal(serialized.includes('raw response'), false)
-    assert.equal(serialized.includes('stack'), false)
+    assert.equal(serialized.includes('byok-test-model'), true)
+    assertModelOnlyInApprovedFields(result, 'byok-test-model')
+    assertNoForbiddenPublicFragments(
+      result,
+      ['sk-test-byok-session-openai', 'sk-test-system-groq', 'sk-test-system-openai', 'stack'],
+      'BYOK happy path',
+    )
     const diagnostics = result.metadata.execution_provenance.provider_diagnostics
     assert.equal(JSON.stringify(diagnostics).includes('byok-test-model'), false)
     assert.equal(JSON.stringify(result.provider_diagnostics ?? []).includes('byok-test-model'), false)
@@ -313,18 +354,18 @@ async function testByokProviderFailureDoesNotFallbackToSystemProvider() {
     assert.equal(result.failure_reason, 'http_401')
     assert.equal(result.response.includes('byok_session'), true)
     assert.equal(result.runtime_truth.runtime_mode, RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE)
-    assert.equal(serialized.includes('sk-test-byok-session-openai'), false)
-    assert.equal(serialized.includes('sk-test-system-groq'), false)
-    assert.equal(serialized.includes('sk-test-system-openrouter'), false)
-    assert.equal(serialized.includes('Authorization'), false)
-    assert.equal(serialized.includes('x-api-key'), false)
-    assert.equal(serialized.includes('Bearer'), false)
-    assert.equal(serialized.includes('bearer token'), false)
-    assert.equal(serialized.includes('session_provider_credentials'), false)
-    assert.equal(serialized.includes('raw request'), false)
-    assert.equal(serialized.includes('raw response'), false)
-    assert.equal(serialized.includes('stack'), false)
-    assert.equal(serialized.includes('should not be exposed'), false)
+    assertNoForbiddenPublicFragments(
+      result,
+      [
+        'sk-test-byok-session-openai',
+        'sk-test-system-groq',
+        'sk-test-system-openrouter',
+        'Bearer',
+        'should not be exposed',
+        'stack',
+      ],
+      'BYOK fail-closed',
+    )
     const diagnostics = result.metadata.execution_provenance.provider_diagnostics
     assert.equal(diagnostics.find(row => row.provider === 'groq').attempted, false)
     assert.equal(diagnostics.find(row => row.provider === 'openrouter').attempted, false)
@@ -430,11 +471,7 @@ async function testNormalRemoteFallbackPreservesCanonicalAndLegacyAliases() {
     assert.equal(result.llm_fallback_reason, 'requested_provider_unavailable')
     assert.equal(result.fallback_triggered, result.llm_fallback_triggered)
     assert.equal(result.fallback_reason, result.llm_fallback_reason)
-    assert.equal(serialized.includes('sk-test-openrouter-normal-fallback'), false)
-    assert.equal(serialized.includes('Authorization'), false)
-    assert.equal(serialized.includes('raw request'), false)
-    assert.equal(serialized.includes('raw response'), false)
-    assert.equal(serialized.includes('stack'), false)
+    assertNoForbiddenPublicFragments(result, ['sk-test-openrouter-normal-fallback', 'stack'], 'normal fallback')
   } finally {
     globalThis.fetch = savedFetch
     for (const [key, value] of Object.entries(saved)) {
@@ -483,11 +520,7 @@ async function testByokUnknownProviderHintFailsClosedPublicly() {
     assert.equal(result.failure_reason, 'byok_credentials_incomplete')
     assert.equal(result.response.includes('byok_session'), true)
     assert.equal(result.runtime_truth.llm_provider_attempted, false)
-    assert.equal(serialized.includes('sk-test-system-groq'), false)
-    assert.equal(serialized.includes('Authorization'), false)
-    assert.equal(serialized.includes('raw request'), false)
-    assert.equal(serialized.includes('raw response'), false)
-    assert.equal(serialized.includes('stack'), false)
+    assertNoForbiddenPublicFragments(result, ['sk-test-system-groq', 'stack'], 'BYOK unknown provider')
   } finally {
     globalThis.fetch = savedFetch
     for (const [key, value] of Object.entries(saved)) {
