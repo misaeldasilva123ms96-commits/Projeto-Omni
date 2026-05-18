@@ -13,6 +13,7 @@ const providerEnvKeys = [
   'GROQ_API_KEY',
   'OPENROUTER_API_KEY',
   'OPENAI_API_KEY',
+  'OPENAI_MODEL',
   'ANTHROPIC_API_KEY',
   'GEMINI_API_KEY',
   'DEEPSEEK_API_KEY',
@@ -186,9 +187,213 @@ async function testByokFailClosedDoesNotFallbackToSystemProvider() {
   }
 }
 
+async function testByokHappyPathUsesSessionProviderOnly() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  const savedFetch = globalThis.fetch
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OMNI_BYOK_SESSION_MODE = 'true'
+  process.env.OMNI_BYOK_PROVIDER = 'openai'
+  process.env.OMNI_BYOK_FAIL_CLOSED = 'true'
+  process.env.GROQ_API_KEY = 'sk-test-system-groq'
+  process.env.OPENAI_API_KEY = 'sk-test-byok-session-openai'
+  process.env.OPENAI_MODEL = 'byok-test-model'
+  let fetchCalls = 0
+  globalThis.fetch = async (url, options = {}) => {
+    fetchCalls += 1
+    assert.equal(url, 'https://api.openai.com/v1/chat/completions')
+    assert.equal(options.headers.Authorization, 'Bearer sk-test-byok-session-openai')
+    assert.equal(String(options.headers.Authorization).includes('sk-test-system-groq'), false)
+    assert.equal(JSON.parse(options.body).model, 'byok-test-model')
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ choices: [{ message: { content: 'BYOK OpenAI mock response' } }] }),
+    }
+  }
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-byok-happy-path' },
+      cwd: process.cwd(),
+    })
+    const serialized = JSON.stringify(result)
+
+    assert.equal(fetchCalls, 1)
+    assert.equal(result.selected_provider, 'openai')
+    assert.equal(result.executed_provider, 'openai')
+    assert.equal(result.runtime_truth.llm_provider_attempted, true)
+    assert.equal(result.runtime_truth.llm_provider_succeeded, true)
+    assert.notEqual(result.provider_failed, true)
+    assert.equal(result.response, 'BYOK OpenAI mock response')
+    assert.equal(result.metadata.execution_provenance.model_actual, 'byok-test-model')
+    assert.equal(result.metadata.model, 'byok-test-model')
+    assert.equal(serialized.includes('sk-test-byok-session-openai'), false)
+    assert.equal(serialized.includes('sk-test-system-groq'), false)
+    assert.equal(serialized.includes('sk-test-system-openai'), false)
+    assert.equal(serialized.includes('Authorization'), false)
+    assert.equal(serialized.includes('x-api-key'), false)
+    assert.equal(serialized.includes('bearer token'), false)
+    assert.equal(serialized.includes('session_provider_credentials'), false)
+    assert.equal(serialized.includes('raw request'), false)
+    assert.equal(serialized.includes('raw response'), false)
+    assert.equal(serialized.includes('stack'), false)
+    const diagnostics = result.metadata.execution_provenance.provider_diagnostics
+    assert.equal(JSON.stringify(diagnostics).includes('byok-test-model'), false)
+    assert.equal(JSON.stringify(result.provider_diagnostics ?? []).includes('byok-test-model'), false)
+    assert.equal(JSON.stringify(result.provider_diagnostics_snapshot ?? {}).includes('byok-test-model'), false)
+    assert.equal(JSON.stringify(result.error ?? {}).includes('byok-test-model'), false)
+    assert.equal(JSON.stringify(result.runtime_truth ?? {}).includes('byok-test-model'), false)
+    assert.equal(JSON.stringify(result.cognitive_runtime_inspection ?? {}).includes('byok-test-model'), false)
+    const groq = diagnostics.find(row => row.provider === 'groq')
+    assert.equal(groq.attempted, false)
+  } finally {
+    globalThis.fetch = savedFetch
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+async function testByokProviderFailureDoesNotFallbackToSystemProvider() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  const savedFetch = globalThis.fetch
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OMNI_BYOK_SESSION_MODE = 'true'
+  process.env.OMNI_BYOK_PROVIDER = 'openai'
+  process.env.OMNI_BYOK_FAIL_CLOSED = 'true'
+  process.env.GROQ_API_KEY = 'sk-test-system-groq'
+  process.env.OPENROUTER_API_KEY = 'sk-test-system-openrouter'
+  process.env.OPENAI_API_KEY = 'sk-test-byok-session-openai'
+  let fetchCalls = 0
+  globalThis.fetch = async (url, options = {}) => {
+    fetchCalls += 1
+    assert.equal(url, 'https://api.openai.com/v1/chat/completions')
+    assert.equal(options.headers.Authorization, 'Bearer sk-test-byok-session-openai')
+    return {
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized Bearer sk-test-byok-session-openai',
+      json: async () => ({ error: { message: 'should not be exposed' } }),
+    }
+  }
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-byok-provider-failure' },
+      cwd: process.cwd(),
+    })
+    const serialized = JSON.stringify(result)
+
+    assert.equal(fetchCalls, 1)
+    assert.equal(result.selected_provider, 'openai')
+    assert.equal(result.executed_provider, '')
+    assert.equal(result.runtime_truth.llm_provider_attempted, true)
+    assert.equal(result.runtime_truth.llm_provider_succeeded, false)
+    assert.equal(result.provider_failed, true)
+    assert.equal(result.failure_class, 'byok_execution_failed')
+    assert.equal(result.failure_reason, 'http_401')
+    assert.equal(result.response.includes('byok_session'), true)
+    assert.equal(result.runtime_truth.runtime_mode, RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE)
+    assert.equal(serialized.includes('sk-test-byok-session-openai'), false)
+    assert.equal(serialized.includes('sk-test-system-groq'), false)
+    assert.equal(serialized.includes('sk-test-system-openrouter'), false)
+    assert.equal(serialized.includes('Authorization'), false)
+    assert.equal(serialized.includes('x-api-key'), false)
+    assert.equal(serialized.includes('Bearer'), false)
+    assert.equal(serialized.includes('bearer token'), false)
+    assert.equal(serialized.includes('session_provider_credentials'), false)
+    assert.equal(serialized.includes('raw request'), false)
+    assert.equal(serialized.includes('raw response'), false)
+    assert.equal(serialized.includes('stack'), false)
+    assert.equal(serialized.includes('should not be exposed'), false)
+    const diagnostics = result.metadata.execution_provenance.provider_diagnostics
+    assert.equal(diagnostics.find(row => row.provider === 'groq').attempted, false)
+    assert.equal(diagnostics.find(row => row.provider === 'openrouter').attempted, false)
+  } finally {
+    globalThis.fetch = savedFetch
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+async function testByokUnsupportedProviderHintFailsClosedPublicly() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  const savedFetch = globalThis.fetch
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OMNI_BYOK_SESSION_MODE = 'true'
+  process.env.OMNI_BYOK_PROVIDER = 'deepseek'
+  process.env.OMNI_BYOK_FAIL_CLOSED = 'true'
+  process.env.DEEPSEEK_API_KEY = 'sk-test-byok-deepseek'
+  let fetchCalls = 0
+  globalThis.fetch = async () => {
+    fetchCalls += 1
+    throw new Error('fetch must not be called for unsupported BYOK provider')
+  }
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-byok-unsupported-provider' },
+      cwd: process.cwd(),
+    })
+    const serialized = JSON.stringify(result)
+
+    assert.equal(fetchCalls, 0)
+    assert.equal(result.selected_provider, 'deepseek')
+    assert.equal(result.executed_provider, '')
+    assert.equal(result.provider_failed, true)
+    assert.equal(result.failure_class, 'byok_execution_failed')
+    assert.equal(result.failure_reason, 'byok_credentials_incomplete')
+    assert.equal(result.response.includes('byok_session'), true)
+    assert.equal(serialized.includes('sk-test-byok-deepseek'), false)
+  } finally {
+    globalThis.fetch = savedFetch
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 await testGreetingMatcherTruth()
 await testNoRemoteProviderFallbackTruth()
 await testByokFailClosedDoesNotFallbackToSystemProvider()
+await testByokHappyPathUsesSessionProviderOnly()
+await testByokProviderFailureDoesNotFallbackToSystemProvider()
+await testByokUnsupportedProviderHintFailsClosedPublicly()
 testIntentWrapper()
 testTruthHelperModes()
 console.log('runtime truth contract: js checks passed')
