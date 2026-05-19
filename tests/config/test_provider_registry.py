@@ -297,6 +297,33 @@ class ProviderRegistryTest(unittest.TestCase):
                 else:
                     os.environ[k] = v
 
+    def test_provider_diagnostics_snapshot_unconfigured_local_provider_statuses(self) -> None:
+        saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
+        try:
+            snapshot = describe_provider_diagnostics_snapshot()
+            rows = {row["id"]: row for row in snapshot["providers"]}
+            self.assertEqual(set(rows), set(PROVIDERS))
+            self.assertEqual(snapshot["fallback_chain"], list(DEFAULT_FALLBACK_CHAIN))
+            self.assertFalse(rows["ollama"]["configured"])
+            self.assertFalse(rows["ollama"]["executable"])
+            self.assertEqual(rows["ollama"]["execution_status"], "local_config_gated")
+            self.assertEqual(rows["ollama"]["url_env"], "OLLAMA_URL")
+            self.assertEqual(rows["ollama"]["optional_key_env"], "OLLAMA_API_KEY")
+            self.assertFalse(rows["lmstudio"]["configured"])
+            self.assertFalse(rows["lmstudio"]["executable"])
+            self.assertEqual(rows["lmstudio"]["execution_status"], "local_config_gated")
+            self.assertEqual(rows["lmstudio"]["url_env"], "LMSTUDIO_URL")
+            self.assertEqual(rows["lmstudio"]["optional_key_env"], "LMSTUDIO_API_KEY")
+            self.assertFalse(rows["deepseek"]["adapter_implemented"])
+            self.assertFalse(rows["deepseek"]["executable"])
+            self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     def test_openrouter_diagnostics_becomes_available_when_configured(self) -> None:
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
