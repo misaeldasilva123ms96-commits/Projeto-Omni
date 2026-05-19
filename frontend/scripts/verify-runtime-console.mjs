@@ -39,7 +39,8 @@ assert.match(sidebar, /selectSidebarItem\(item\.id\)/, 'sidebar clicks must upda
 assert.match(chatPanel, /selectBottomTab\(tab\.id\)/, 'bottom tabs must update central state')
 assert.match(chatPanel, /disabled=\{!canSend \|\| loading\}/, 'send button must expose disabled state while empty or sending')
 assert.match(chatPanel, /setUiNotice/, 'safe placeholders must provide visible feedback')
-assert.match(chatPanel, /Entrada por voz ainda não está implementada/, 'voice button must fail safely')
+assert.match(chatPanel, /aria-label="Entrada por voz"/, 'voice button must remain discoverable')
+assert.match(chatPanel, /Microfone ainda não está conectado a um runtime de voz nesta branch/, 'voice button must fail safely')
 assert.match(chatPanel, /Este módulo ainda não possui backend dedicado/, 'unsupported modules must be explicit')
 
 assert.match(runtimePanel, /selectTopAction\(item\.id\)/, 'runtime panel action chips must be clickable')
