@@ -24,10 +24,11 @@ assert.match(chatPage, /isLoading: true/, 'assistant loading state must render w
 assert.match(chatPage, /setConsoleRuntimeMetadata\(metadata\)/, 'runtime metadata must be stored after success')
 assert.match(chatPage, /streamAssistantMessage/, 'chat response must be stream-ready via simulated token rendering')
 assert.match(chatPage, /handleSidebarItemSelected/, 'sidebar selections must be handled by ChatPage')
-assert.match(chatPage, /handleTopActionSelect/, 'top actions must update runtime mode')
 
 assert.match(store, /selectSidebarItem/, 'runtime console store must expose sidebar selection')
 assert.match(store, /selectTopAction/, 'runtime console store must expose top action selection')
+assert.match(store, /activeAction === 'pesquisa'\s*\?\s*'pesquisa'/, 'top pesquisa action must update runtime mode')
+assert.match(store, /activeAction === 'executar'\s*\?\s*'agente'/, 'top executar action must update runtime mode')
 assert.match(store, /selectBottomTab/, 'runtime console store must expose bottom tab selection')
 assert.match(store, /resetConversation/, 'runtime console store must expose resetConversation')
 assert.match(store, /setRuntimeMetadata/, 'runtime console store must expose runtime metadata setter')
@@ -35,7 +36,6 @@ assert.match(store, /setRuntimeMetadata/, 'runtime console store must expose run
 assert.match(sidebar, /onSidebarItemSelected/, 'sidebar clicks must notify page-level wiring')
 assert.match(sidebar, /selectSidebarItem\(item\.id\)/, 'sidebar clicks must update central state')
 
-assert.match(chatPanel, /onTopActionSelect/, 'top action clicks must notify page-level mode wiring')
 assert.match(chatPanel, /selectBottomTab\(tab\.id\)/, 'bottom tabs must update central state')
 assert.match(chatPanel, /disabled=\{!canSend \|\| loading\}/, 'send button must expose disabled state while empty or sending')
 assert.match(chatPanel, /setUiNotice/, 'safe placeholders must provide visible feedback')
