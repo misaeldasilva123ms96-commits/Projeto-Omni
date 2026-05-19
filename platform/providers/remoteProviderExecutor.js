@@ -97,15 +97,37 @@ function resolveLmStudioModel(providerConfig = {}) {
 }
 
 function sanitizeStatusText(value) {
-  return String(value || '')
+  const sanitized = String(value || '')
     .replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]')
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
     .replace(/gsk_[A-Za-z0-9_-]{8,}/g, '[REDACTED_API_KEY]')
-    .replace(/([?&]key=)[A-Za-z0-9._=-]{8,}/gi, '$1[REDACTED_API_KEY]')
-    .replace(/x-api-key\s+[A-Za-z0-9._=-]{8,}/gi, 'x-api-key [REDACTED_API_KEY]')
-    .replace(/Bearer\s+[A-Za-z0-9._=-]{8,}/gi, 'Bearer [REDACTED_TOKEN]')
+    .replace(/[?&]key=[A-Za-z0-9._=-]{1,}/gi, '[redacted]')
+    .replace(/\bAuthorization\b\s*:\s*[A-Za-z0-9._=-]+/gi, '[redacted]')
+    .replace(/\bAuthorization\b\s+[A-Za-z0-9._=-]+/gi, '[redacted]')
+    .replace(/\bx-api-key\b\s*:\s*[A-Za-z0-9._=-]+/gi, '[redacted]')
+    .replace(/\bx-api-key\b\s+[A-Za-z0-9._=-]+/gi, '[redacted]')
+    .replace(/\bapi[_-]?key\b\s*[:=]\s*[A-Za-z0-9._=-]+/gi, '[redacted]')
+    .replace(/\bapikey\b\s*[:=]\s*[A-Za-z0-9._=-]+/gi, '[redacted]')
+    .replace(/\bAuthorization\b/gi, '[redacted]')
+    .replace(/\bx-api-key\b/gi, '[redacted]')
+    .replace(/\bapi[_-]?key\b/gi, '[redacted]')
+    .replace(/\bapikey\b/gi, '[redacted]')
+    .replace(/\bBearer\b\s+[A-Za-z0-9._=-]*/gi, '[redacted]')
+    .replace(/\bBearer\b/gi, '[redacted]')
+    .replace(/\bheaders?\b/gi, '[redacted]')
+    .replace(/\braw response\b/gi, '[redacted]')
+    .replace(/\braw request\b/gi, '[redacted]')
+    .replace(/\bstack trace\b/gi, '[redacted]')
+    .replace(/\btraceback\b/gi, '[redacted]')
     .replace(/[^\w .:/()-]/g, '')
-    .slice(0, 96);
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+    .trim();
+  if (!sanitized || sanitized === '[redacted]' || !/[A-Za-z0-9]/.test(sanitized.replace(/\[redacted\]/gi, ''))) {
+    return 'provider_http_error';
+  }
+  return sanitized;
 }
 
 function safeErrorCode(err) {
