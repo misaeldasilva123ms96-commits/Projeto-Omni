@@ -53,26 +53,27 @@ function testPolicyMismatch() {
 }
 
 function testAttachMetadata() {
+  const providerDiagnostics = [
+    {
+      provider: 'groq',
+      configured: true,
+      available: true,
+      selected: true,
+      attempted: true,
+      succeeded: false,
+      failed: true,
+      failure_class: 'provider_timeout',
+      failure_reason: 'request timed out',
+      latency_ms: 123,
+    },
+  ];
   const prov = buildExecutionProvenance({
     provider: { name: 'groq', model: 'llama' },
     toolCalls: [],
     providerFailed: true,
     failureClass: 'provider_timeout',
     failureReason: 'request timed out',
-    providerDiagnostics: [
-      {
-        provider: 'groq',
-        configured: true,
-        available: true,
-        selected: true,
-        attempted: true,
-        succeeded: false,
-        failed: true,
-        failure_class: 'provider_timeout',
-        failure_reason: 'request timed out',
-        latency_ms: 123,
-      },
-    ],
+    providerDiagnostics,
     providerFallbackOccurred: false,
     noProviderAvailable: false,
   });
@@ -84,6 +85,10 @@ function testAttachMetadata() {
   assert.equal(out.metadata.execution_provenance.failure_reason, 'request timed out');
   assert.equal(out.metadata.execution_provenance.provider_diagnostics[0].provider, 'groq');
   assert.equal(out.metadata.execution_provenance.provider_diagnostics[0].failed, true);
+  assert.ok(Array.isArray(out.metadata.execution_provenance.provider_diagnostics));
+  assert.equal(out.metadata.execution_provenance.provider_diagnostics.length, 1);
+  assert.deepEqual(out.metadata.execution_provenance.provider_diagnostics.find(row => row.provider === 'groq'), providerDiagnostics[0]);
+  assert.equal('provider_diagnostics_snapshot' in out.metadata.execution_provenance, false);
 }
 
 testMatcherProvenance();

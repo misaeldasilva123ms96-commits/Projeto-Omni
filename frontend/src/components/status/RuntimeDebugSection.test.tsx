@@ -5,7 +5,7 @@ import { RuntimeDebugSection } from './RuntimeDebugSection'
 
 describe('RuntimeDebugSection', () => {
   it('renders public runtime diagnostics without raw debug payloads', () => {
-    const metadata: RuntimeMetadata = {
+    const metadata: RuntimeMetadata & { provider_diagnostics_snapshot?: unknown } = {
       matchedCommands: [],
       matchedTools: [],
       runtimeMode: 'SAFE_FALLBACK',
@@ -51,6 +51,10 @@ describe('RuntimeDebugSection', () => {
         internal_error_redacted: true,
         details: { env: { SECRET: 'hidden' } },
       },
+      provider_diagnostics_snapshot: {
+        providers: [{ id: 'deepseek', execution_status: 'unsupported' }],
+        fallback_chain: ['groq', 'local-heuristic'],
+      },
     }
 
     render(<RuntimeDebugSection metadata={metadata} />)
@@ -60,6 +64,7 @@ describe('RuntimeDebugSection', () => {
     expect(screen.getAllByText('openai').length).toBeGreaterThan(0)
     expect(screen.getByText('SPECIALIST_FAILED')).toBeInTheDocument()
     expect(screen.getByText('degraded')).toBeInTheDocument()
+    expect(screen.getByText('Provider diagnostics rows')).toBeInTheDocument()
 
     const html = document.body.textContent ?? ''
     expect(html).not.toContain('/home/render')
@@ -77,5 +82,6 @@ describe('RuntimeDebugSection', () => {
     expect(html).not.toContain('+55 11 99999-9999')
     expect(html).not.toContain('C:\\Windows')
     expect(html).not.toContain('SECRET')
+    expect(html).not.toContain('provider_diagnostics_snapshot')
   })
 })

@@ -295,18 +295,52 @@ class BridgePipelineTest(unittest.TestCase):
         snapshot = payload["provider_diagnostics_snapshot"]
         self.assertIsInstance(diagnostics, list)
         self.assertIsInstance(snapshot, dict)
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual([item["provider"] for item in diagnostics], ["openai"])
+        self.assertIsInstance(snapshot["providers"], list)
         self.assertEqual(
             snapshot["fallback_chain"],
             ["groq", "openrouter", "openai", "anthropic", "gemini", "ollama", "lmstudio", "local-heuristic"],
         )
         self.assertEqual(snapshot["active_provider"], "openai")
+        self.assertIsInstance(snapshot["active_provider"], str)
+        self.assertIsInstance(snapshot["fallback_triggered"], bool)
+        self.assertIsNone(snapshot["fallback_reason"])
         self.assertEqual(diagnostics[0]["provider"], "openai")
+        self.assertIn("configured", diagnostics[0])
+        self.assertIn("available", diagnostics[0])
+        self.assertIn("selected", diagnostics[0])
+        self.assertIn("attempted", diagnostics[0])
+        self.assertIn("succeeded", diagnostics[0])
+        self.assertIn("failed", diagnostics[0])
         self.assertTrue(diagnostics[0]["failed"])
         openai = next(item for item in snapshot["providers"] if item["id"] == "openai")
         self.assertEqual(openai["provider"], "openai")
         self.assertTrue(openai["failed"])
         provider_ids = {item["id"] for item in snapshot["providers"]}
         self.assertEqual(provider_ids, {"groq", "openrouter", "openai", "anthropic", "gemini", "deepseek", "ollama", "lmstudio"})
+        rows = {item["id"]: item for item in snapshot["providers"]}
+        self.assertTrue(rows["deepseek"]["registered"])
+        self.assertFalse(rows["deepseek"]["adapter_implemented"])
+        self.assertFalse(rows["deepseek"]["executable"])
+        self.assertEqual(rows["deepseek"]["execution_status"], "unsupported")
+        self.assertIn(rows["ollama"]["execution_status"], {"local_config_gated", "active"})
+        self.assertIn(rows["lmstudio"]["execution_status"], {"local_config_gated", "active"})
+        serialized_diagnostics = json.dumps(diagnostics, sort_keys=True)
+        serialized_snapshot = json.dumps(snapshot, sort_keys=True)
+        for forbidden in (
+            "sk-test",
+            "matrix-key",
+            "Authorization",
+            "x-api-key",
+            "raw request",
+            "raw response",
+            "stack trace",
+            "traceback",
+            "http://127.0.0.1",
+        ):
+            self.assertNotIn(forbidden, serialized_diagnostics)
+            self.assertNotIn(forbidden, serialized_snapshot)
 
     def test_main_uses_attempted_provider_separately_from_actual_provider(self) -> None:
         script = (
