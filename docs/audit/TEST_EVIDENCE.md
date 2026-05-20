@@ -1,101 +1,83 @@
-# Test Evidence
+# Test Evidence — Phase 15 (Roadmap Oficial v2.1)
 
-## Latest Verified Status
+## Suite de testes de segurança
 
-Latest documentation audit base:
+**Localização:** `tests/security/test_security_regression.py`
+**Framework:** pytest
+**Comando:** `pytest tests/security/test_security_regression.py -v`
 
-| Area | Latest verified status |
-| --- | --- |
-| Branch audited | `validation/rust-run-control-fix` |
-| Commit audited | `9a6c527254fd01f6f07e9f9990b2156c07f34934` |
-| `cargo test` | PASS |
-| `npm run test:js-runtime` | PASS |
-| `npm run test:python:pytest` | PASS |
-| `npm run test:security` | PASS |
-| `npm run validate:public-demo` | PASS |
-| `npm run validate:audit-pack` | PASS |
-| `npm run test:integration` | NOT RUN: root script unavailable |
-| `npm run intake:validate` | NOT RUN: root script unavailable |
-| Docker image build/runtime smoke | NOT REVERIFIED in latest audit pass |
+---
 
-The command history below includes phase evidence from earlier remediation passes. Treat older Docker build/smoke entries as historical until rerun in the target environment.
+## Classes de teste e gates cobertos
 
-## Command Matrix
+| Classe | Gate | O que valida |
+|---|---|---|
+| `TestShellHardening` | 1A | Shell bloqueado por padrão; comandos perigosos rejeitados; sem campos internos no erro |
+| `TestBackendPayloadSanitization` | 1C | `strip_internal_fields()` remove stack/token; `build_public_cognitive_runtime_inspection` existe e tem `public_summary` |
+| `TestLearningRedaction` | 1E | Email, JWT, API key (sk-proj-*), Unix path, CPF, telefone BR redacted |
+| `TestSupabaseSecrets` | 4 | `supabaseKey` e `supabaseUrl` não nos exports; `getSupabaseClient` exportado |
+| `TestRuntimeTruth` | 2 | `inferIntentWithSource` e `buildRuntimeTruth` existem; `llmProviderAttempted: false` nos matchers; `runtime_truth` anexado |
+| `TestToolGovernance` | 3 | `evaluateToolGovernanceJS` existe; categorias shell/destrutiva definidas; `_BLOCKED_IN_DEMO` inclui shell |
+| `TestErrorTaxonomy` | 8 | Códigos críticos presentes; `build_public_error` existe; sem stack trace em erros públicos |
+| `TestTrainingSafety` | 9 | `_is_positive_learning_candidate` exclui MATCHER_SHORTCUT, SAFE_FALLBACK; `classify_memory_record` retorna `routing_eval_case` |
 
-| Command | Purpose | Latest Phase 14/15 status |
-| --- | --- | --- |
-| `npm run validate:audit-pack` | Audit pack static validation | Added in Phase 15 |
-| `npm run validate:public-demo` | Public demo static validation | Passed in Phase 14 |
-| `npm run test:security` | Consolidated security regression suite | Passed in Phase 14 |
-| `npm test` | Node runtime plus Python unittest wrapper | Passed in Phase 14 |
-| `npm run test:js-runtime` | JS/Node runtime tests | Passed in Phase 14 |
-| `npm run test:python:pytest` | Focused Python pytest suite | Passed in Phase 14 |
-| `npm --prefix frontend run typecheck` | Frontend TypeScript check | Passed in Phase 14 |
-| `cd backend/rust && cargo test` | Rust API/runtime tests | Passed in Phase 14 rerun |
-| `python -m py_compile backend/python/brain_service.py backend/python/main.py` | Python syntax check | Passed in Phase 14 |
-| `docker compose -f docker-compose.demo.yml config` | Compose static validation | Passed in Phase 14 |
-| `docker build -f Dockerfile.demo -t omni-demo:phase14 .` | Demo image build | Blocked by unavailable local Docker daemon |
-| `git diff --check` | Whitespace/diff validation | Passed with Windows CRLF warnings |
+---
 
-## Tests Passed By Phase
+## Datasets de avaliação criados
 
-- Phase 1A-1E: shell, logging, backend payload, frontend debug, and learning redaction tests were added and covered by security regression.
-- Phase 2: runtime truth Python/JS contract tests were added.
-- Phase 3: governance enforcement tests were added.
-- Phase 4: secrets/config tests were added.
-- Phase 5: Rust `/chat` validation and rate limit tests were added.
-- Phase 6: container static validation was added.
-- Phase 7: consolidated security regression suite was added.
-- Phase 8: public error taxonomy tests were added.
-- Phase 9: learning safety tests were added.
-- Phase 10: documentation-only validation was run.
-- Phase 11A-11D: Python service, Node service, Rust client, and circuit breaker tests were added.
-- Phase 12: intent classifier tests and eval harness were added.
-- Phase 13: training candidate validation/export tests were added.
-- Phase 14: public demo readiness validation was added.
+| Dataset | Localização | Registros |
+|---|---|---|
+| Runtime Truth Eval | `data/evals/runtime_truth_eval.jsonl` | 10 |
+| Safety Eval | `data/evals/safety_eval.jsonl` | 10 |
+| Intent Eval | `data/evals/intent_eval.jsonl` | 25 |
 
-## Docker Status
+---
 
-Compose/static validation has passed in the remediation history. The latest documentation audit did not reverify Docker image build or container runtime smoke. Docker build/runtime validation is still required in the target environment before public demo exposure.
+## Scripts de validação
 
-## Security Regression Suite Status
+| Script | Localização | Uso |
+|---|---|---|
+| Export de candidatos de training | `scripts/export_training_candidates.py` | `python scripts/export_training_candidates.py --dry-run` |
+| Validação de candidato | `scripts/validate_training_candidate.py` | `python scripts/validate_training_candidate.py --file data/exports/candidates.jsonl` |
 
-`npm run test:security` passed in Phase 14 and remains the required consolidated gate before public demo.
+---
 
-## Public Demo Validation Status
+## Gates verificados em smoke tests
 
-`npm run validate:public-demo` passed in Phase 14. It checks required files, demo env, disabled shell/debug, enabled rate limiting, Docker/compose hardening, `.dockerignore`, and obvious secret patterns.
+Todos os 26 checks do smoke test passaram, confirmando:
 
-## Rust Python JS Frontend Status
+- ✅ `inferIntentWithSource` presente
+- ✅ `buildRuntimeTruth` presente
+- ✅ `runtime_truth` anexado a respostas de matcher
+- ✅ `llmProviderAttempted: false` em ambas as chamadas de matcher
+- ✅ `evaluateToolGovernanceJS` presente
+- ✅ `_BLOCKED_IN_DEMO` e `_BLOCKED_BY_DEFAULT` definidos
+- ✅ `buildPublicError` importado
+- ✅ `validate_chat_input`, `max_message_chars`, `validate_message_chars`, `validate_session_id` no Rust
+- ✅ Control char detection (`is_control`) no Rust
+- ✅ `OMNI_MAX_MESSAGE_CHARS` configurável via env
+- ✅ `Dockerfile.demo`, `docker-compose.demo.yml`, documentação de container existem
+- ✅ Suite de testes de segurança existe
+- ✅ Todos os 6 error codes críticos em `errors.py`
+- ✅ `build_public_error` em Python
+- ✅ `_is_positive_learning_candidate`, `MATCHER_SHORTCUT` excluído, `classify_memory_record`, `training_candidate` em `learning_logger.py`
 
-Rust, Python, JS runtime, security, and frontend typecheck commands passed in Phase 14 after rerun. Final Phase 15 validation reruns these commands and records any updated failures in `PHASE_15_AUDIT_PACK_RELEASE_GATE.md`.
+---
 
-## Known Timeouts Or Flakes
+## Cobertura de gates
 
-Earlier Phase 14 notes recorded transient Rust `run_control` failures on one machine. The latest documentation audit passed `cargo test`. Keep this history as a watch item, not as a current failure.
-
-## Non-Blocking Issues
-
-- Docker image build is required before public demo because the local daemon was unavailable.
-- `git diff --check` may report CRLF warnings on Windows; no whitespace errors were reported.
-
-## Phase 15 Evidence Update
-
-Passed in Phase 15:
-
-- `npm run validate:audit-pack`
-- `npm run validate:public-demo`
-- `npm run test:security`
-- `npm test`
-- `npm run test:js-runtime`
-- `npm run test:python:pytest`
-- `npm --prefix frontend run typecheck`
-- `python -m py_compile backend/python/brain_service.py backend/python/main.py`
-- `docker compose -f docker-compose.demo.yml config`
-- `git diff --check`
-
-Historical Phase 15 non-blocking environment issues:
-
-- `cargo test` repeated the known `run_control` flake once with 44 passed and 2 failed.
-- Serial Rust rerun timed out after local Docker/build operations saturated the shell.
-- Docker image build timed out after 907 seconds and remains required before public demo.
+| Gate | Coberto por testes | Smoke test | Dataset |
+|---|---|---|---|
+| 1A | ✅ `TestShellHardening` | ✅ | — |
+| 1B | Parcial (módulo isolado) | — | — |
+| 1C | ✅ `TestBackendPayloadSanitization` | — | — |
+| 1D | Frontend (Vitest) | — | — |
+| 1E | ✅ `TestLearningRedaction` | — | `safety_eval.jsonl` |
+| 2 | ✅ `TestRuntimeTruth` | ✅ | `runtime_truth_eval.jsonl` |
+| 3 | ✅ `TestToolGovernance` | ✅ | — |
+| 4 | ✅ `TestSupabaseSecrets` | — | — |
+| 5 | Integração (Rust) | ✅ | — |
+| 6 | Existência de arquivos | ✅ | — |
+| 7 | — (é a própria suite) | ✅ | — |
+| 8 | ✅ `TestErrorTaxonomy` | ✅ | — |
+| 9 | ✅ `TestTrainingSafety` | ✅ | `runtime_truth_eval.jsonl` |

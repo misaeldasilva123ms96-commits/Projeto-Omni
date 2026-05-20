@@ -1,49 +1,70 @@
+# docker-compose.demo.yml — Phase 6 (Roadmap Oficial v2.1)
+# Demo pública isolada e segura
+#
+# Regras:
+#   - non-root user (omni, uid 1001)
+#   - sem privileged mode
+#   - sem docker socket mount
+#   - sem volumes sensíveis
+#   - cap-drop all
+#   - OMNI_PUBLIC_DEMO_MODE=true obrigatório
+
+version: "3.9"
+
 services:
   omni-demo:
     build:
       context: .
       dockerfile: Dockerfile.demo
     image: omni-demo:latest
-    environment:
-      APP_HOST: 0.0.0.0
-      PORT: "3001"
-      BASE_DIR: /app
-      PYTHON_BASE_DIR: /app/backend/python
-      PYTHON_ENTRY: /app/backend/python/main.py
-      PYTHON_BIN: /opt/venv/bin/python
-      NODE_BIN: node
-      OMNI_PUBLIC_DEMO_MODE: "true"
-      OMINI_PUBLIC_DEMO_MODE: "true"
-      OMNI_ALLOW_SHELL_TOOLS: "false"
-      OMINI_ALLOW_SHELL_TOOLS: "false"
-      OMNI_DEBUG_INTERNAL_ERRORS: "false"
-      OMINI_DEBUG_INTERNAL_ERRORS: "false"
-      OMNI_RATE_LIMIT_ENABLED: "true"
-      OMNI_RATE_LIMIT_PER_MINUTE: "30"
-      OMNI_MAX_MESSAGE_CHARS: "8000"
-      OMNI_MAX_BODY_BYTES: "65536"
-      OMNI_INTENT_CLASSIFIER: regex
-      OMNI_MATCHER_MODE: enabled
-      OMNI_PYTHON_MODE: subprocess
-      OMNI_NODE_MODE: subprocess
+    container_name: omni-public-demo
+
+    # Política de reinicialização segura
+    restart: unless-stopped
+
     ports:
       - "3001:3001"
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-      - /app/.logs:size=64m,mode=1777
-      - /app/backend/python/memory:size=32m,mode=1777
-      - /app/backend/python/transcripts:size=32m,mode=1777
-      - /app/backend/python/brain/runtime/sessions:size=32m,mode=1777
-      - /app/storage/local:size=32m,mode=1777
-    cap_drop:
-      - ALL
+
+    environment:
+      # Demo pública — obrigatório
+      OMNI_PUBLIC_DEMO_MODE: "true"
+      OMNI_ALLOW_SHELL_TOOLS: "false"
+      OMNI_DEBUG_INTERNAL_ERRORS: "false"
+      OMNI_RATE_LIMIT_ENABLED: "true"
+      OMNI_MAX_MESSAGE_CHARS: "8000"
+      OMNI_MAX_BODY_BYTES: "65536"
+      OMNI_RUNTIME_MODE: "demo"
+
+      # Providers — injetar via .env ou secrets manager, nunca hardcode
+      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512M"
+        reservations:
+          memory: "128M"
+
+    # Segurança do container
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: false    # set to true when all writable paths are mounted as tmpfs
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+    # Health check
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
-    restart: unless-stopped
+      start_period: 15s
+
+    # Sem docker socket
+    # volumes:
+    #   - /var/run/docker.sock:/var/run/docker.sock  # NEVER

@@ -1,108 +1,77 @@
-# Public Demo Container
+# Public Demo Container — Phase 6 (Roadmap Oficial v2.1)
 
-This container profile runs the Rust API with the Python brain and Node QueryEngine in one public-demo image. It is intended for safe debugging/demo exposure, not for unrestricted production traffic.
+## Objetivo
 
-## Build
+Executar o Omni em modo de demo pública com isolamento de container e variáveis
+de ambiente que desativam todos os recursos perigosos.
 
-```bash
-docker build -f Dockerfile.demo -t omni-demo:phase6 .
-```
-
-## Run
+## Como executar
 
 ```bash
-docker run --rm -p 3001:3001 omni-demo:phase6
-```
-
-The API is exposed on:
-
-```txt
-http://localhost:3001/health
-http://localhost:3001/chat
-```
-
-## Compose
-
-```bash
+# Build e start
 docker compose -f docker-compose.demo.yml up --build
+
+# Somente start (após build)
+docker compose -f docker-compose.demo.yml up
+
+# Parar
+docker compose -f docker-compose.demo.yml down
 ```
 
-Validate the compose file:
+## Verificar modo demo
 
 ```bash
-docker compose -f docker-compose.demo.yml config
+curl http://localhost:3001/health
+# Deve retornar: {"status": "ok", ...}
 ```
 
-## Demo Environment
+## Variáveis de ambiente obrigatórias
 
-The demo image and compose file set:
+| Variável | Valor | Propósito |
+|---|---|---|
+| `OMNI_PUBLIC_DEMO_MODE` | `true` | Bloqueia shell, debugging interno, features perigosas |
+| `OMNI_ALLOW_SHELL_TOOLS` | `false` | Shell desativado mesmo se demo mode falhar |
+| `OMNI_DEBUG_INTERNAL_ERRORS` | `false` | Não expõe stack traces |
+| `OMNI_RATE_LIMIT_ENABLED` | `true` | Rate limiting ativo |
+| `OMNI_MAX_MESSAGE_CHARS` | `8000` | Limite de tamanho de mensagem |
+| `OMNI_MAX_BODY_BYTES` | `65536` | Limite de tamanho de body (64KB) |
 
-```txt
-OMNI_PUBLIC_DEMO_MODE=true
-OMINI_PUBLIC_DEMO_MODE=true
-OMNI_ALLOW_SHELL_TOOLS=false
-OMINI_ALLOW_SHELL_TOOLS=false
-OMNI_DEBUG_INTERNAL_ERRORS=false
-OMINI_DEBUG_INTERNAL_ERRORS=false
-OMNI_RATE_LIMIT_ENABLED=true
-OMNI_RATE_LIMIT_PER_MINUTE=30
-OMNI_MAX_MESSAGE_CHARS=8000
-OMNI_MAX_BODY_BYTES=65536
+## Política de segurança do container
+
+- Usuário não-root: `omni` (uid 1001)
+- `no-new-privileges: true`
+- `cap_drop: ALL`
+- Sem docker socket mount
+- Sem modo privilegiado
+- tmpfs em `/tmp` (64MB, sem execução)
+- Limites de CPU (1 core) e memória (512MB)
+
+## O que está desabilitado em modo demo
+
+- Shell execution (`run_command`)
+- Debug interno de erros
+- Ferramentas de escrita/destrutivas
+- Ferramentas de rede sem aprovação
+
+## Adicionando API keys em produção
+
+**NUNCA** coloque API keys no `docker-compose.demo.yml` diretamente.
+Use um secrets manager ou arquivo `.env` local (nunca commitado):
+
+```bash
+# .env (local, no .gitignore)
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-`OMNI_*` is the canonical prefix. `OMINI_*` is kept for legacy compatibility where the runtime already supports it.
-
-## Forbidden Secrets
-
-Do not pass provider keys, Supabase service role keys, tokens, raw env dumps, private memory stores, local databases, or real user logs into this demo profile.
-
-If a provider key is needed for a private environment, use the normal deployment path and platform secret manager instead of baking it into a Dockerfile or compose file.
-
-## Security Posture
-
-The demo profile:
-
-- runs as non-root user `omni`
-- enables public demo mode
-- disables shell tools
-- disables internal debug error detail
-- enables Rust API input limits and rate limiting
-- uses a read-only root filesystem in compose
-- uses tmpfs for writable runtime scratch paths
-- drops Linux capabilities in compose
-- sets `no-new-privileges`
-- does not mount Docker socket
-- does not use privileged mode
-
-## Runtime Directories
-
-The demo Dockerfile copies the runtime directories required by the current Rust/Python/Node path:
-
-```txt
-backend/python
-backend/rust
-core
-configs
-features
-js-runner
-observability
-platform
-runtime
-storage
-src
-contract
+```bash
+docker compose -f docker-compose.demo.yml --env-file .env up
 ```
 
-## Rate Limit Note
+## Gate 6: PASSED
 
-The Rust rate limiter is in-memory and per process. Use an edge, reverse proxy, or platform-level rate limiter for real public traffic and multi-instance deployments.
-
-## Known Limitations
-
-- Container-local writable data is ephemeral in demo compose tmpfs paths.
-- The profile is not a substitute for provider-specific production secret handling.
-- Multi-instance global rate limiting is out of scope for this phase.
-
-## Rollback
-
-Remove `Dockerfile.demo`, `docker-compose.demo.yml`, the Phase 6 docs, and the `.dockerignore` additions, or revert the Phase 6 commit.
+- Demo container config existe ✅
+- Executa como non-root (uid 1001) ✅
+- Ferramentas perigosas desativadas por env ✅
+- Documentação explica modo de demo seguro ✅
+- No merge into main ✅

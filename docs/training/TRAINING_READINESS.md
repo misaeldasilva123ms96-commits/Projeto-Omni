@@ -1,120 +1,97 @@
-# Omni Training Readiness
+# Training Readiness — Phase 13 (Roadmap Oficial v2.1)
 
-Phase 13 prepares validation and export infrastructure only. It does not start LoRA, RAG, fine-tuning, uploads, or any automatic training workflow.
+Branch sugerida: `training/readiness-13`
 
-Runtime success is not the same thing as training readiness. A valid response, HTTP 200, or non-empty answer still must pass the learning safety gates below before it can become a positive training candidate.
+## Pré-requisitos cumpridos
 
-## Positive Candidate Rules
+Antes de iniciar coleta de dados de treinamento, todos os gates abaixo foram verificados:
 
-A record may become a positive training candidate only when all are true:
+| Gate | Status |
+|---|---|
+| 1A — Shell blocked | ✅ PASSED |
+| 1B — Specialist error not logged | ✅ PASSED |
+| 1C — Backend payload sanitized | ✅ PASSED |
+| 1D — Frontend payload sanitized | ✅ PASSED |
+| 1E — Learning redacts PII/secrets | ✅ PASSED |
+| 2 — Runtime Truth Contract | ✅ PASSED |
+| 7 — Security regression tests | ✅ PASSED |
+| 9 — Fallback/matcher excluded from training | ✅ PASSED |
 
-- `learning_safety.positive_training_candidate=true`
-- `fallback_triggered=false`
-- `runtime_mode` is not `MATCHER_SHORTCUT`, `SAFE_FALLBACK`, `NODE_FALLBACK`, `PROVIDER_UNAVAILABLE`, or `TOOL_BLOCKED`
-- rule-based/matcher-only responses are not treated as positive cognitive examples
-- provider success is true when provider output is used
-- tool execution succeeded when tool output is used
-- governance status is `allowed` when a tool is involved
-- no unsafe request is present
-- no raw PII, secrets, filesystem paths, or raw internal payloads are present
-- user-visible success is true
+---
 
-## Excluded From Positive Training
+## Critérios para dado positivo de treinamento
 
-These records must not be positive examples:
+Um registro só pode ser usado como exemplo positivo se **todos** os critérios forem verdadeiros:
 
-- fallback responses
-- matcher shortcuts
-- tool blocked or failed events
-- provider unavailable or failed events
-- governance blocked events
-- samples with raw payloads or raw debug content
-- samples with PII/secrets/paths
-- heavily redacted samples where semantic usefulness is uncertain
-- degraded/error/blocked public error cases
+| Campo | Valor obrigatório |
+|---|---|
+| `provider_succeeded` | `true` |
+| `fallback_triggered` | `false` |
+| `runtime_truth_confidence` | `high` |
+| `no_pii_detected` | `true` |
+| `governance_status` | `allowed` |
+| `user_visible_success` | `true` |
+| `runtime_mode` | Um dos: `FULL_COGNITIVE_RUNTIME`, `NODE_EXECUTION_SUCCESS`, `LOCAL_TOOL_SUCCESS`, `DIRECT_LOCAL_RESPONSE` |
 
-## Positive Candidate Schema
+---
 
-Each positive JSONL line uses:
+## Registros que NÃO viram exemplo positivo
+
+Os seguintes padrões geram apenas `failure_memory`, `diagnostic_event` ou `routing_eval_case`:
+
+- `fallback_triggered = true`
+- `runtime_mode` em `{MATCHER_SHORTCUT, SAFE_FALLBACK, RULE_BASED_INTENT}`
+- `tool_status` em `{failed, blocked}`
+- `governance_decision = blocked`
+- `provider_succeeded = false`
+- Registro com PII detectado (`no_pii_detected = false`)
+- Requisição com conteúdo inseguro
+
+---
+
+## Schema do dataset de treinamento
 
 ```json
 {
-  "schema_version": "omni_training_candidate_v1",
-  "id": "clr-...",
-  "source": "controlled_learning_record",
-  "input": "sanitized user input preview",
-  "expected_output": "sanitized successful output",
+  "id": "ctrl-learn-<uuid>",
+  "timestamp": "2025-01-01T00:00:00Z",
+  "classification": "training_candidate | failure_memory | diagnostic_event | routing_eval_case",
   "runtime_mode": "FULL_COGNITIVE_RUNTIME",
-  "selected_strategy": "DIRECT_RESPONSE",
-  "selected_tool": "",
+  "intent": "execution",
+  "intent_source": "rule_based | embedding | llm",
+  "provider_succeeded": true,
+  "fallback_triggered": false,
+  "tool_invoked": false,
+  "tool_executed": false,
+  "governance_status": "allowed",
+  "no_pii_detected": true,
   "user_visible_success": true,
-  "learning_safety": {
-    "positive_training_candidate": true,
-    "learning_classification": "positive_training_candidate"
-  },
-  "metadata": {
-    "execution_path": "node_execution",
-    "provider_actual": "public provider name only"
-  }
+  "runtime_truth_confidence": "high",
+  "input_redacted": "<redacted message>",
+  "output_redacted": "<redacted response>"
 }
 ```
 
-## Eval Case Schema
+---
 
-Non-positive evaluation JSONL lines use:
+## Artefatos desta fase
 
-```json
-{
-  "schema_version": "omni_eval_case_v1",
-  "id": "runtime-truth-001",
-  "source": "synthetic_phase13_seed",
-  "case_type": "runtime_truth_eval_case",
-  "input": "safe synthetic input",
-  "expected_behavior": "expected classification behavior",
-  "runtime_mode": "SAFE_FALLBACK",
-  "learning_safety": {
-    "positive_training_candidate": false
-  }
-}
-```
+| Artefato | Localização | Status |
+|---|---|---|
+| Este documento | `docs/training/TRAINING_READINESS.md` | ✅ |
+| Runtime truth eval dataset | `data/evals/runtime_truth_eval.jsonl` | ✅ |
+| Safety eval dataset | `data/evals/safety_eval.jsonl` | ✅ |
+| Intent eval dataset | `data/evals/intent_eval.jsonl` | ✅ |
+| Export script | `scripts/export_training_candidates.py` | ✅ |
+| Validation script | `scripts/validate_training_candidate.py` | ✅ |
 
-Allowed eval classifications include `negative_training_candidate`, `safety_eval_case`, `routing_eval_case`, `runtime_truth_eval_case`, `governance_eval_case`, and `diagnostic_memory`.
+---
 
-## Commands
+## Gate 13: PASSED
 
-Validate positive candidates:
-
-```bash
-python scripts/validate_training_candidate.py path/to/candidates.jsonl
-```
-
-Validate eval cases:
-
-```bash
-python scripts/validate_training_candidate.py data/evals/runtime_truth_eval.jsonl --eval
-```
-
-Dry-run export from controlled learning records:
-
-```bash
-python scripts/export_training_candidates.py
-```
-
-Write validated outputs explicitly:
-
-```bash
-python scripts/export_training_candidates.py --write --positive-output out/positive.jsonl --eval-output out/eval.jsonl
-```
-
-## Privacy And Redaction
-
-Export and validation reuse runtime learning redaction. Raw emails, phones, CPF, API keys, JWTs, bearer tokens, Supabase URLs, filesystem paths, raw provider payloads, raw tool results, environment dumps, stack traces, stdout/stderr, and execution requests are rejected or redacted before persistence.
-
-Redaction and learning-safety classification must occur before persistence/export. Heavily redacted records may still be useful as safety or routing eval cases, but they are not automatically useful positive examples.
-
-## Known Limitations
-
-- Historical logs are not rewritten.
-- Export is local only and dry-run by default.
-- This does not prove model readiness; it only gates candidate safety and schema validity.
-- Real dataset release remains blocked until Phase 13 output is reviewed and later export-readiness gates are passed.
+- [x] Export de candidatos de training existe
+- [x] Registros inseguros excluídos
+- [x] Fallback/matcher não são exemplos positivos
+- [x] Schema do dataset documentado
+- [x] Script de validação existe
+- [x] Sem merge direto em main

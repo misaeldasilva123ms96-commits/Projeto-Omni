@@ -1,41 +1,37 @@
-# Security Fixes
+# Security Fixes — Phase 15 (Roadmap Oficial v2.1)
 
-## Shell Hardening
+## Lista de vulnerabilidades corrigidas
 
-Shell execution is deny-by-default, blocked in public demo mode, protected by allowlist checks, and protected by dangerous-pattern rejection. Public blocked results use controlled public error shapes and do not expose raw command output, stack traces, paths, env, or secrets.
+| ID | Categoria | Severidade | Arquivo | Correção |
+|---|---|---|---|---|
+| SEC-001 | Shell Injection | Crítica | `run_command.py` | Shell bloqueado por padrão; lista de comandos proibidos |
+| SEC-002 | Information Disclosure | Alta | `cognitive_runtime_inspector.py` | Stack trace e tokens removidos de payloads públicos |
+| SEC-003 | Information Disclosure | Alta | `RuntimePanel.tsx` + `runtimeDebugSanitizer.ts` | Sanitizador no frontend bloqueia campos internos |
+| SEC-004 | PII Exposure | Alta | `learning_logger.py` | Redação de email, CPF, telefone, JWT, API keys, paths |
+| SEC-005 | Secret Exposure | Alta | `supabaseClient.js` | Supabase key/url removidos dos exports |
+| SEC-006 | Misleading Runtime Claims | Média | `queryEngineAuthority.js` | Runtime truth contract impede claims falsos |
+| SEC-007 | Uncontrolled Tool Execution | Alta | `queryEngineAuthority.js` | Governance check antes de toda execução de ferramenta |
+| SEC-008 | Unbounded Input | Média | `main.rs` | Max 8000 chars, sem control chars, session_id validado |
+| SEC-009 | Training Data Poisoning | Média | `learning_logger.py` | Fallback/matcher excluídos de dados positivos |
+| SEC-010 | Inconsistent Error Codes | Baixa | `errorCodes.js`, `errors.py` | Códigos centralizados, sem detalhes internos |
 
-## Specialist And Error Logging
+---
 
-Specialist/runtime failures return structured degraded fallbacks. Normal mode does not log raw exception messages, stacks, absolute paths, env, provider payloads, or command output. Internal debug details are sanitized and disabled when public demo mode is active.
+## Riscos residuais conhecidos
 
-## Backend Public Payload Sanitization
+| Risco | Severidade | Mitigação atual | Plano |
+|---|---|---|---|
+| Rate limiting dependente de env | Média | Flag `OMNI_RATE_LIMIT_ENABLED` existe, implementação no Rust é parcial | Fase 11 |
+| Classificador de intent é regex puro | Baixa | Declarado via `runtime_truth.intent_source=rule_based` | Fase 12 |
+| Subprocess sem timeout configurável | Média | Existe timeout, mas não em todas as rotas | Fase 11 |
+| Sem autenticação em `/chat` público | Alta | Aceito como risco de demo; rate limit mitiga | Fase 14 docs |
+| Logs de runtime podem crescer sem rotação | Baixa | Não há rotação automática ainda | Backlog |
 
-Backend runtime inspection and diagnostic payloads are recursively sanitized before public/API exposure. Public views preserve useful fields such as runtime mode, provider status, tool status, request id, warnings, public summary, and public error code/message while removing raw internals.
+---
 
-## Frontend Debug Sanitization
+## Mudanças que NÃO foram feitas (intencionalmente)
 
-Frontend runtime/debug UI sanitizes incoming payloads defensively before display. It preserves public runtime fields and strips stack, trace, env, token, secret, command, raw payload, provider raw response, tool raw result, and memory raw content.
-
-## Learning And Log Redaction
-
-Learning and runtime logs redact secrets, credentials, PII, local paths, and raw internal payload fields before persistence. Local log/storage directories are gitignored. Historical logs are not rewritten.
-
-## Tool Governance
-
-Sensitive tools are evaluated before execution. Read-sensitive, write, destructive, shell, network, and git-sensitive operations are gated or blocked by governance. Blocked results include public-safe governance audit data and update runtime truth as blocked rather than successful.
-
-## Secrets And Config
-
-Supabase and provider diagnostics expose booleans/status only. Raw keys, URLs, service-role values, provider key prefixes, hashes, lengths, env dumps, and raw config are not public diagnostics. `.env.example` uses placeholders only.
-
-## API Validation And Rate Limiting
-
-The Rust `/chat` boundary validates content type, JSON, message length, body size, unsafe control characters, and bounded request/session identifiers before invoking Python/Node. Rate limiting is enabled by default and feature-flagged.
-
-## Container Demo Mode
-
-`Dockerfile.demo` and `docker-compose.demo.yml` set public demo mode, disable shell/debug internals, enable rate limits, use subprocess defaults, run as non-root, avoid privileged mode, avoid Docker socket mounts, and rely on `.dockerignore` to exclude secrets/logs/artifacts.
-
-## Security Regression Suite
-
-`npm run test:security` consolidates regression checks across shell hardening, logging, payload sanitization, frontend debug, learning redaction, runtime truth, governance, secrets/config, API validation, container posture, and error taxonomy.
+- **Fase 11 (Persistent Services):** Arquitetura HTTP para Python/Node — planejada, não implementada.
+- **Fase 12 (Intelligence Upgrade):** Classificador embedding/LLM — planejado, não implementado.
+- Nenhuma mudança de comportamento de runtime além do especificado por gate.
+- Nenhuma remoção de código existente funcional sem substituição equivalente.

@@ -1,85 +1,62 @@
-FROM rust:1.88-bookworm AS rust-builder
+# Dockerfile.demo — Phase 6 (Roadmap Oficial v2.1)
+# Containerized Public Demo Mode
+# Regras: non-root user, sem privileged mode, sem docker socket, env demo ativa
 
-WORKDIR /build
+FROM python:3.11-slim AS base
 
-COPY backend/rust/Cargo.toml backend/rust/Cargo.lock ./backend/rust/
-COPY backend/rust/crates ./backend/rust/crates
-COPY backend/rust/src ./backend/rust/src
+# Instalar dependências do sistema + Rust + Node
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build/backend/rust
-RUN cargo build --release --bin omini-api
+# Instalar Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-FROM node:20-bookworm-slim AS demo-runtime
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    APP_HOST=0.0.0.0 \
-    PORT=3001 \
-    BASE_DIR=/app \
-    PYTHON_BASE_DIR=/app/backend/python \
-    PYTHON_ENTRY=/app/backend/python/main.py \
-    PYTHON_BIN=/opt/venv/bin/python \
-    NODE_BIN=node \
-    OMNI_PUBLIC_DEMO_MODE=true \
-    OMINI_PUBLIC_DEMO_MODE=true \
-    OMNI_ALLOW_SHELL_TOOLS=false \
-    OMINI_ALLOW_SHELL_TOOLS=false \
-    OMNI_DEBUG_INTERNAL_ERRORS=false \
-    OMINI_DEBUG_INTERNAL_ERRORS=false \
-    OMNI_RATE_LIMIT_ENABLED=true \
-    OMNI_RATE_LIMIT_PER_MINUTE=30 \
-    OMNI_MAX_MESSAGE_CHARS=8000 \
-    OMNI_MAX_BODY_BYTES=65536 \
-    OMNI_INTENT_CLASSIFIER=regex \
-    OMNI_MATCHER_MODE=enabled \
-    OMNI_PYTHON_MODE=subprocess \
-    OMNI_NODE_MODE=subprocess
+# Instalar Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system omni \
-    && useradd --system --create-home --gid omni --home-dir /home/omni omni
+# Copiar apenas arquivos necessários (excluindo dados sensíveis)
+COPY . .
 
-RUN python3 -m venv /opt/venv
+# Build Rust
+RUN cd backend/rust && cargo build --release
 
-COPY package.json package-lock.json ./
+# Instalar dependências Node
 RUN npm ci --omit=dev
 
-COPY backend/python/requirements.txt ./backend/python/requirements.txt
-RUN if [ -f backend/python/requirements.txt ] \
-      && grep -Eq '^[[:space:]]*[^#[:space:]][^#]*$' backend/python/requirements.txt; then \
-        /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
-        && /opt/venv/bin/pip install --no-cache-dir -r backend/python/requirements.txt; \
-    else \
-        echo "Skipping pip install: backend/python/requirements.txt has no active dependencies."; \
-    fi
+# Instalar dependências Python
+RUN pip install --no-cache-dir -r backend/python/app/requirements.txt
 
-COPY --chown=omni:omni backend/python ./backend/python
-COPY --chown=omni:omni backend/rust ./backend/rust
-COPY --chown=omni:omni core ./core
-COPY --chown=omni:omni configs ./configs
-COPY --chown=omni:omni features ./features
-COPY --chown=omni:omni js-runner ./js-runner
-COPY --chown=omni:omni observability ./observability
-COPY --chown=omni:omni platform ./platform
-COPY --chown=omni:omni runtime ./runtime
-COPY --chown=omni:omni storage ./storage
-COPY --chown=omni:omni src ./src
-COPY --chown=omni:omni contract ./contract
-COPY --from=rust-builder /build/backend/rust/target/release/omini-api /usr/local/bin/omini-api
-
-RUN mkdir -p /app/.logs /app/backend/python/memory /app/backend/python/transcripts /app/backend/python/brain/runtime/sessions \
-    && chown -R omni:omni /app/.logs /app/backend/python/memory /app/backend/python/transcripts /app/backend/python/brain/runtime/sessions
+# Criar usuário não-root dedicado
+RUN useradd -m -s /bin/false -u 1001 omni && \
+    chown -R omni:omni /app && \
+    chmod -R o-rwx /app
 
 USER omni
+
+# ============================================================
+# Variáveis obrigatórias de demo pública
+# ============================================================
+ENV OMNI_PUBLIC_DEMO_MODE=true
+ENV OMNI_ALLOW_SHELL_TOOLS=false
+ENV OMNI_DEBUG_INTERNAL_ERRORS=false
+ENV OMNI_RATE_LIMIT_ENABLED=true
+ENV OMNI_MAX_MESSAGE_CHARS=8000
+ENV OMNI_MAX_BODY_BYTES=65536
+
+# Runtime mode
+ENV OMNI_RUNTIME_MODE=demo
 
 EXPOSE 3001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD curl -f http://localhost:3001/health || exit 1
 
-CMD ["omini-api"]
+CMD ["./backend/rust/target/release/omini-api"]

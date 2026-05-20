@@ -21,32 +21,28 @@ class SecretError(Exception):
 
 def _mapping() -> dict[str, str]:
     return {
-        "groq": "GROQ_API_KEY",
-        "groq_model": "GROQ_MODEL",
-        "openrouter": "OPENROUTER_API_KEY",
-        "openrouter_model": "OPENROUTER_MODEL",
         "openai": "OPENAI_API_KEY",
-        "openai_model": "OPENAI_MODEL",
         "anthropic": "ANTHROPIC_API_KEY",
-        "anthropic_model": "ANTHROPIC_MODEL",
+        "groq": "GROQ_API_KEY",
         "gemini": "GEMINI_API_KEY",
-        "gemini_model": "GEMINI_MODEL",
         "deepseek": "DEEPSEEK_API_KEY",
-        "deepseek_model": "DEEPSEEK_MODEL",
-        "ollama": "OLLAMA_URL",
-        "ollama_model": "OLLAMA_MODEL",
-        "ollama_api_key": "OLLAMA_API_KEY",
-        "lmstudio": "LMSTUDIO_URL",
-        "lmstudio_model": "LMSTUDIO_MODEL",
-        "lmstudio_api_key": "LMSTUDIO_API_KEY",
         "codex": "CODEX_API_KEY",
         "supabase_url": "SUPABASE_URL",
         "supabase_anon": "SUPABASE_ANON_KEY",
+        "ollama": "OLLAMA_URL",
     }
 
 
+_REPLIT_AI_FALLBACKS: dict[str, str] = {
+    "OPENAI_API_KEY": "AI_INTEGRATIONS_OPENAI_API_KEY",
+}
+
+
 def get_secret(name: str) -> str:
-    """Return a validated secret value for the logical provider name."""
+    """Return a validated secret value for the logical provider name.
+
+    Falls back to Replit AI Integration env vars when the primary key is absent.
+    """
     logical = str(name or "").strip().lower()
     env_name = _mapping().get(logical)
     if not env_name:
@@ -54,6 +50,13 @@ def get_secret(name: str) -> str:
 
     raw = os.environ.get(env_name)
     value = str(raw).strip() if raw is not None else ""
+
+    # Fallback: try Replit AI Integration alias if primary key is missing
+    if not value and env_name in _REPLIT_AI_FALLBACKS:
+        fallback_env = _REPLIT_AI_FALLBACKS[env_name]
+        raw2 = os.environ.get(fallback_env)
+        value = str(raw2).strip() if raw2 is not None else ""
+
     if not value:
         raise SecretError(f"Missing or invalid secret: {env_name}")
 
@@ -67,14 +70,11 @@ def get_secret(name: str) -> str:
 def describe_configuration() -> dict[str, str]:
     """Safe status map for debug/health — never returns secret values."""
     mapping = {
-        "groq": "GROQ_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
+        "groq": "GROQ_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
-        "ollama": "OLLAMA_URL",
-        "lmstudio": "LMSTUDIO_URL",
         "codex": "CODEX_API_KEY",
         "supabase": "SUPABASE_ANON_KEY",
     }
@@ -100,6 +100,8 @@ def build_controlled_os_environ_base() -> dict[str, str]:
     Minimal inherited process environment for Node subprocesses.
 
     Does not copy the full parent environ (reduces accidental leak surface).
+    Includes OPENAI_BASE_URL (and Replit AI Integration alias) so the Node.js
+    runner can reach the correct LLM endpoint.
     """
     env: dict[str, str] = {}
     path_val = os.environ.get("PATH") or os.environ.get("Path")
@@ -120,6 +122,8 @@ def build_controlled_os_environ_base() -> dict[str, str]:
         "PYTHONPATH",
         "NODE_PATH",
         "NODE_OPTIONS",
+        "OPENAI_BASE_URL",
+        "AI_INTEGRATIONS_OPENAI_BASE_URL",
     ):
         val = os.environ.get(key)
         if val is not None and str(val).strip():
@@ -133,27 +137,15 @@ def build_controlled_os_environ_base() -> dict[str, str]:
 def merge_provider_credentials(env: dict[str, str]) -> dict[str, str]:
     """Merge validated provider keys into env; skips missing/invalid without raising."""
     for logical in (
-        "groq",
-        "groq_model",
-        "openrouter",
-        "openrouter_model",
         "openai",
-        "openai_model",
         "anthropic",
-        "anthropic_model",
+        "groq",
         "gemini",
-        "gemini_model",
         "deepseek",
-        "deepseek_model",
-        "ollama",
-        "ollama_model",
-        "ollama_api_key",
-        "lmstudio",
-        "lmstudio_model",
-        "lmstudio_api_key",
         "codex",
         "supabase_url",
         "supabase_anon",
+        "ollama",
     ):
         try:
             val = get_secret(logical)

@@ -1,5 +1,6 @@
 # Environment and secrets
 .env
+*.env
 .env.*
 .env.local
 .env.production
@@ -23,15 +24,11 @@ frontend/.env
 .logs/
 .logs/
 logs/
-runtime_logs/
-learning_logs/
 .phase9-temp/
 .tmp-tests/
 tmp/
 temp/
 *.tmp
-*.trace.json
-*.debug.json
 swarm_log.json
 backend/python/brain/runtime/swarm_log.json
 backend/python/brain/runtime/sessions/
@@ -103,7 +100,6 @@ memories/
 private-memory/
 local-memory/
 runtime-memory/
-storage/local/
 
 # Private datasets
 datasets/private/
@@ -117,4 +113,18 @@ credentials/
 
 # Local archives and handoff bundles
 SESSION_HANDOFF*.zip
-.aider*
+
+# ============================================================
+# Phase 1E — Learning/log redaction (Roadmap Oficial v2.1)
+# ============================================================
+.logs/
+logs/
+runtime_logs/
+learning_logs/
+storage/local/
+*.trace.json
+*.debug.json
+# Env files — keep only the example
+.env
+.env.*
+!.env.example

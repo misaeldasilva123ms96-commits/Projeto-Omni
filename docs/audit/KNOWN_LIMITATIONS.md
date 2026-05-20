@@ -1,48 +1,58 @@
-# Known Limitations
+# Known Limitations — Phase 15 (Roadmap Oficial v2.1)
 
-## Latest Verified Status
+## O que ainda não está pronto para produção
 
-Latest documentation audit base:
+| Limitação | Categoria | Severidade | Fase que resolve |
+|---|---|---|---|
+| Serviços Python e Node via subprocess (não HTTP persistente) | Arquitetura | Média | Fase 11 |
+| Circuit breaker não implementado | Resiliência | Média | Fase 11 |
+| Classificador de intent é 100% regex | Qualidade | Baixa | Fase 12 |
+| Sem dataset de avaliação com 550+ exemplos por classe | Training | Média | Fase 12 |
+| Rate limiting declarado em env mas implementação parcial no Rust | Segurança | Média | Fase 11 |
+| Rotação de logs de runtime não configurada | Operacional | Baixa | Backlog |
+| Sem autenticação na rota `/chat` público | Segurança | Alta | Backlog |
+| Supabase não configurado em ambiente de demo | Persistência | Baixa | Configuração externa |
 
-| Item | Latest verified status |
-| --- | --- |
-| Branch audited | `validation/rust-run-control-fix` |
-| Commit audited | `9a6c527254fd01f6f07e9f9990b2156c07f34934` |
-| Static audit validator | Passed in latest audit pass |
-| Static public-demo validator | Passed in latest audit pass |
-| Rust/Python/JS/security suites | Passed in latest audit pass |
-| Docker image build/runtime smoke | Not reverified in latest audit pass |
+---
 
-Older audit notes may record a previous Docker build or smoke result. Treat those entries as historical unless the Docker build and runtime smoke are rerun in the target environment.
+## O que ainda não está pronto para treinamento
 
-## Docker Validation
+| Limitação | Motivo |
+|---|---|
+| Dataset de intent eval tem apenas 25 exemplos | Mínimo recomendado é 550 (Fase 12) |
+| Dataset de runtime truth eval tem 10 exemplos | Expandir com logs reais de produção |
+| Export de candidatos de training requer logs reais | Sem logs de produção não há candidatos |
+| Classificador regex rotula tudo como `rule_based` — sem ground truth de LLM | Requer Fase 12 |
 
-Docker image build still needs daemon-backed validation in the environment that will host any controlled demo URL. Docker runtime smoke also needs target-environment validation. Static validators and `docker compose config` are useful gates, but they do not prove the image starts, serves `/health`, accepts `/chat`, or enforces runtime policies inside the container.
+---
 
-## Public Traffic
+## O que está bloqueado em demo pública
 
-Public traffic needs edge/platform rate limiting. The Rust limiter is in-memory and per process, so it is not enough for multi-instance or hostile public traffic.
+| Funcionalidade | Motivo do bloqueio |
+|---|---|
+| Shell / bash | `OMNI_ALLOW_SHELL_TOOLS=false` + governança JS |
+| Ferramentas destrutivas | `_BLOCKED_IN_DEMO` + `_BLOCKED_BY_DEFAULT` |
+| Ferramentas de escrita de arquivo | `_BLOCKED_IN_DEMO` |
+| Operações de rede sem aprovação | `_BLOCKED_IN_DEMO` |
+| Git actions | `_BLOCKED_IN_DEMO` |
+| Debug interno de erros | `OMNI_DEBUG_INTERNAL_ERRORS=false` |
 
-## Runtime Scope
+---
 
-Subprocess remains default. Python and Node service modes are opt-in. In-memory circuit breaker state is process-local. Service lifecycle, cross-process health, and multi-instance coordination are not production-complete.
+## Rollback disponível
 
-## Training
+| Situação | Rollback |
+|---|---|
+| Rust input validation causa falsos positivos | `OMNI_MAX_MESSAGE_CHARS=0` desativa limite (env) |
+| Demo mode bloqueia algo necessário | `OMNI_PUBLIC_DEMO_MODE=false` restaura comportamento anterior |
+| Supabase key removal quebra alguma feature | Restaurar exports em `supabaseClient.js` (reversível) |
+| Qualquer fase aplicada causa regressão | Reverter ao commit anterior ao da branch de remediation |
 
-No training started. No real dataset export was produced. Training readiness defines schemas, validation, and dry-run export only. Fallback, matcher, tool-blocked, provider-failure, governance-blocked, unsafe, or heavily redacted records are not positive examples.
+---
 
-## Historical Data
+## Fases pendentes (Roadmap Oficial v2.1)
 
-Historical logs are not rewritten. Redaction applies to new learning/runtime persistence paths after the hardening phases.
-
-## Docker And Local Environment
-
-The demo container profile is not a production deployment profile. It uses ephemeral local storage paths and process-local controls. Provider quota management, WAF/edge controls, monitoring, retention, and platform secrets remain deployment responsibilities.
-
-## Test Suite Limitations
-
-Some broad wrappers can be slow or environment-sensitive. The latest audit pass verified the local Rust/Python/JS/security suites, but live HTTP E2E still depends on `OMINI_E2E_API_URL`, and Docker runtime validation depends on a working Docker daemon.
-
-## Release Status
-
-No production release yet. No GitHub release, public deployment, tag, automatic merge, or training run is authorized by this audit pack.
+| Fase | Nome | Prioridade |
+|---|---|---|
+| 11 | Persistent Runtime Services | Alta, posterior |
+| 12 | Intelligence Upgrade | Alta, posterior |

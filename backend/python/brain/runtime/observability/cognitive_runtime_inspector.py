@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.observability.runtime_lane_classifier import (
     LANE_BRIDGE_EXECUTION_REQUEST,
     LANE_COMPATIBILITY_EXECUTION,
@@ -44,17 +43,6 @@ RUNTIME_MODE_ACTION = RUNTIME_MODE_NODE_EXECUTION_SUCCESS
 RUNTIME_MODE_BRIDGE = RUNTIME_MODE_PARTIAL_COGNITIVE_RUNTIME
 RUNTIME_MODE_ERROR_DEGRADED = RUNTIME_MODE_SAFE_FALLBACK
 
-TRUTH_MODE_FULL_COGNITIVE_RUNTIME = "FULL_COGNITIVE_RUNTIME"
-TRUTH_MODE_PARTIAL_COGNITIVE = "PARTIAL_COGNITIVE"
-TRUTH_MODE_MATCHER_SHORTCUT = "MATCHER_SHORTCUT"
-TRUTH_MODE_RULE_BASED_INTENT = "RULE_BASED_INTENT"
-TRUTH_MODE_SAFE_FALLBACK = "SAFE_FALLBACK"
-TRUTH_MODE_NODE_FALLBACK = "NODE_FALLBACK"
-TRUTH_MODE_PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
-TRUTH_MODE_TOOL_BLOCKED = "TOOL_BLOCKED"
-TRUTH_MODE_TOOL_EXECUTED = "TOOL_EXECUTED"
-TRUTH_MODE_MEMORY_ONLY_RESPONSE = "MEMORY_ONLY_RESPONSE"
-
 CHAIN_COMPLETE = "COMPLETE"
 CHAIN_PARTIAL = "PARTIAL"
 CHAIN_BROKEN = "BROKEN"
@@ -71,7 +59,6 @@ MEM_UNUSED = "UNUSED"
 VERDICT_TRUE = "TRUE_COGNITIVE_RUNTIME"
 VERDICT_DEGRADED = "DEGRADED_SYSTEM"
 VERDICT_HYBRID = "HYBRID_UNSTABLE"
-VERDICT_PROVIDER_BACKED_COMPATIBILITY = "PROVIDER_BACKED_COMPATIBILITY"
 
 
 def _truthy_env(name: str) -> bool:
@@ -149,82 +136,6 @@ def _evolution_applied_summary(
             out["proposal_count"] = 0
         out["simulation_ran"] = out["simulation_ran"] or bool(controlled_evolution.get("opportunities"))
     return out
-
-
-def _truth_public_summary(runtime_mode: str) -> str:
-    if runtime_mode == TRUTH_MODE_MATCHER_SHORTCUT:
-        return "Responded using a local pattern matcher. No AI provider was used."
-    if runtime_mode == TRUTH_MODE_SAFE_FALLBACK:
-        return "System operated in safe fallback mode due to runtime constraints."
-    if runtime_mode == TRUTH_MODE_FULL_COGNITIVE_RUNTIME:
-        return "Full cognitive execution with provider and tool verification."
-    if runtime_mode == TRUTH_MODE_TOOL_EXECUTED:
-        return "A real tool/action executed successfully."
-    if runtime_mode == TRUTH_MODE_TOOL_BLOCKED:
-        return "A requested tool/action was blocked by policy."
-    if runtime_mode == TRUTH_MODE_PROVIDER_UNAVAILABLE:
-        return "No usable LLM provider completed this turn."
-    if runtime_mode == TRUTH_MODE_NODE_FALLBACK:
-        return "Node runtime did not produce a usable execution result."
-    if runtime_mode == TRUTH_MODE_MEMORY_ONLY_RESPONSE:
-        return "Responded from memory/context without provider execution."
-    return f"Execution completed in {runtime_mode or 'unknown'} mode."
-
-
-def _truth_tool_status(tool_execution: dict[str, Any] | None) -> str:
-    if not isinstance(tool_execution, dict):
-        return "not_invoked"
-    if bool(tool_execution.get("tool_denied")):
-        return "blocked"
-    if bool(tool_execution.get("tool_succeeded")):
-        return "executed"
-    if bool(tool_execution.get("tool_failed")):
-        return "failed"
-    if bool(tool_execution.get("tool_attempted")):
-        return "attempted"
-    return "not_invoked"
-
-
-def _node_runtime_truth(node_outcome: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(node_outcome, dict):
-        return {}
-    raw_truth = node_outcome.get("runtime_truth")
-    return dict(raw_truth) if isinstance(raw_truth, dict) else {}
-
-
-def _explicit_provider_truth(
-    execution_provenance: dict[str, Any],
-    provider_diagnostics: list[dict[str, Any]],
-    node_truth: dict[str, Any],
-) -> tuple[bool, bool]:
-    if provider_diagnostics:
-        attempted = any(bool(item.get("attempted")) for item in provider_diagnostics if isinstance(item, dict))
-        succeeded = any(bool(item.get("succeeded")) for item in provider_diagnostics if isinstance(item, dict))
-        return bool(attempted), bool(succeeded and attempted)
-
-    attempted_value = execution_provenance.get("llm_provider_attempted", execution_provenance.get("provider_attempted"))
-    succeeded_value = execution_provenance.get("llm_provider_succeeded", execution_provenance.get("provider_succeeded"))
-    if attempted_value is not None or succeeded_value is not None:
-        attempted = bool(attempted_value)
-        succeeded = bool(succeeded_value)
-        return attempted, bool(succeeded and attempted)
-
-    if "llm_provider_attempted" in node_truth or "llm_provider_succeeded" in node_truth:
-        attempted = bool(node_truth.get("llm_provider_attempted"))
-        succeeded = bool(node_truth.get("llm_provider_succeeded"))
-        return attempted, bool(succeeded and attempted)
-
-    return False, False
-
-
-def _truth_error_code(runtime_mode: str) -> str:
-    return {
-        TRUTH_MODE_MATCHER_SHORTCUT: OmniErrorCode.MATCHER_SHORTCUT_USED.value,
-        TRUTH_MODE_RULE_BASED_INTENT: OmniErrorCode.RULE_BASED_INTENT_USED.value,
-        TRUTH_MODE_PROVIDER_UNAVAILABLE: OmniErrorCode.PROVIDER_UNAVAILABLE.value,
-        TRUTH_MODE_NODE_FALLBACK: OmniErrorCode.NODE_EMPTY_RESPONSE.value,
-        TRUTH_MODE_TOOL_BLOCKED: OmniErrorCode.TOOL_BLOCKED_BY_GOVERNANCE.value,
-    }.get(runtime_mode, "")
 
 
 def _extract_execution_provenance(
@@ -616,118 +527,9 @@ def build_cognitive_runtime_inspection(
         and runtime_mode in {RUNTIME_MODE_NODE_OK, RUNTIME_MODE_FULL, RUNTIME_MODE_LOCAL_TOOL_SUCCESS}
     )
 
-    node_truth = _node_runtime_truth(node_outcome)
-    tool_status = _truth_tool_status(tool_execution)
-    tool_invoked = tool_status in {"attempted", "executed", "failed", "blocked"}
-    tool_executed = tool_status == "executed"
-    tool_blocked = tool_status == "blocked"
-    matcher_used = semantic_lane == LANE_MATCHER_SHORTCUT
-    llm_provider_attempted, llm_provider_succeeded = _explicit_provider_truth(
-        execution_provenance,
-        provider_diagnostics,
-        node_truth,
-    )
-    node_invoked = bool(execution_path_used == "node_execution" or isinstance(node_outcome, dict) or node_cognitive_hint)
-    node_exit_code = None
-    if isinstance(node_outcome, dict):
-        raw_exit_code = node_outcome.get("exit_code", node_outcome.get("returncode"))
-        try:
-            node_exit_code = int(raw_exit_code) if raw_exit_code is not None else None
-        except (TypeError, ValueError):
-            node_exit_code = None
-    intent = ""
-    intent_source = "rule_based"
-    classifier_version = "regex_v1"
-    if isinstance(node_outcome, dict):
-        intent = str(node_outcome.get("intent") or "").strip()
-        intent_source = str(node_outcome.get("intent_source") or intent_source).strip() or "rule_based"
-        classifier_version = str(node_outcome.get("classifier_version") or classifier_version).strip() or "regex_v1"
-        if node_truth:
-            intent = str(node_truth.get("intent") or intent).strip()
-            intent_source = str(node_truth.get("intent_source") or intent_source).strip() or "rule_based"
-            classifier_version = str(node_truth.get("classifier_version") or classifier_version).strip() or "regex_v1"
-    if isinstance(lora_payload, dict):
-        raw_truth = lora_payload.get("runtime_truth")
-        if isinstance(raw_truth, dict):
-            intent = str(raw_truth.get("intent") or intent).strip()
-            intent_source = str(raw_truth.get("intent_source") or intent_source).strip() or "rule_based"
-            classifier_version = str(raw_truth.get("classifier_version") or classifier_version).strip() or "regex_v1"
-
-    if node_failure:
-        truth_runtime_mode = TRUTH_MODE_NODE_FALLBACK
-    elif fallback_triggered:
-        truth_runtime_mode = TRUTH_MODE_SAFE_FALLBACK
-    elif provider_failed or no_provider_available:
-        truth_runtime_mode = TRUTH_MODE_PROVIDER_UNAVAILABLE
-        llm_provider_succeeded = False
-    elif tool_blocked:
-        truth_runtime_mode = TRUTH_MODE_TOOL_BLOCKED
-    elif tool_executed:
-        truth_runtime_mode = TRUTH_MODE_TOOL_EXECUTED
-    elif matcher_used:
-        truth_runtime_mode = TRUTH_MODE_MATCHER_SHORTCUT
-        llm_provider_attempted = False
-        llm_provider_succeeded = False
-        tool_invoked = False
-    elif direct_memory_hit:
-        truth_runtime_mode = TRUTH_MODE_MEMORY_ONLY_RESPONSE
-        llm_provider_succeeded = False
-    elif semantic_lane == LANE_LOCAL_DIRECT_RESPONSE:
-        truth_runtime_mode = TRUTH_MODE_RULE_BASED_INTENT
-    elif runtime_mode == RUNTIME_MODE_FULL:
-        truth_runtime_mode = TRUTH_MODE_FULL_COGNITIVE_RUNTIME
-    elif semantic_lane == LANE_BRIDGE_EXECUTION_REQUEST:
-        truth_runtime_mode = TRUTH_MODE_PARTIAL_COGNITIVE
-    else:
-        truth_runtime_mode = TRUTH_MODE_PARTIAL_COGNITIVE
-
-    if fallback_triggered and truth_runtime_mode == TRUTH_MODE_FULL_COGNITIVE_RUNTIME:
-        truth_runtime_mode = TRUTH_MODE_SAFE_FALLBACK
-
-    truth_error_code = _truth_error_code(truth_runtime_mode)
-    truth_public_error = build_public_error(truth_error_code) if truth_error_code else {}
-    runtime_truth = {
-        "runtime_mode": truth_runtime_mode,
-        "runtime_reason": runtime_reason,
-        "intent": intent,
-        "intent_source": intent_source,
-        "classifier_version": classifier_version,
-        "matcher_used": matcher_used,
-        "llm_provider_attempted": llm_provider_attempted,
-        "llm_provider_succeeded": llm_provider_succeeded,
-        "tool_invoked": tool_invoked,
-        "tool_executed": tool_executed,
-        "tool_status": tool_status,
-        "fallback_triggered": fallback_triggered,
-        "node_invoked": node_invoked,
-        "node_exit_code": node_exit_code,
-        "error_public_code": truth_public_error.get("error_public_code", ""),
-        "error_public_message": truth_public_error.get("error_public_message", ""),
-        "severity": truth_public_error.get("severity", "info"),
-        "retryable": bool(truth_public_error.get("retryable", False)),
-        "internal_error_redacted": bool(truth_public_error.get("internal_error_redacted", True)),
-        "public_summary": _truth_public_summary(truth_runtime_mode),
-    }
-
-    provider_backed_compatibility = bool(
-        verdict == VERDICT_HYBRID
-        and runtime_mode == RUNTIME_MODE_COMPAT
-        and runtime_truth["runtime_reason"] == "remote_provider_response"
-        and runtime_truth["llm_provider_attempted"]
-        and runtime_truth["llm_provider_succeeded"]
-        and not runtime_truth["fallback_triggered"]
-        and not provider_failed
-        and not matcher_used
-    )
-    if provider_backed_compatibility:
-        # Compatibility execution with successful remote provider evidence is a valid resolved state,
-        # not a hybrid instability.
-        verdict = VERDICT_PROVIDER_BACKED_COMPATIBILITY
-
     return {
         "runtime_mode": runtime_mode,
         "runtime_reason": runtime_reason,
-        "runtime_truth": runtime_truth,
         "cognitive_chain": cognitive_chain,
         "cognitive_chain_steps": chain_parts,
         "source_of_truth": source,
@@ -739,19 +541,6 @@ def build_cognitive_runtime_inspection(
         "final_verdict": verdict,
         "signals": {
             "runtime_reason": runtime_reason,
-            "runtime_truth": runtime_truth,
-            "intent": intent,
-            "intent_source": intent_source,
-            "classifier_version": classifier_version,
-            "matcher_used": matcher_used,
-            "llm_provider_attempted": llm_provider_attempted,
-            "llm_provider_succeeded": llm_provider_succeeded,
-            "tool_invoked": tool_invoked,
-            "tool_executed": tool_executed,
-            "tool_status": tool_status,
-            "node_invoked": node_invoked,
-            "node_exit_code": node_exit_code,
-            "public_summary": runtime_truth["public_summary"],
             "last_runtime_mode": str(last_runtime_mode or ""),
             "last_runtime_reason": str(last_runtime_reason or ""),
             "semantic_runtime_lane": semantic_lane or LANE_COMPATIBILITY_EXECUTION,
@@ -813,3 +602,137 @@ def build_cognitive_runtime_inspection(
             **lora_signals,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 1C — Public payload sanitization
+# ---------------------------------------------------------------------------
+
+_INTERNAL_FIELDS_BLACKLIST: frozenset[str] = frozenset({
+    "stack",
+    "traceback",
+    "exception_type",
+    "exception_value",
+    "raw_error",
+    "stderr",
+    "stdout",
+    "command",
+    "env",
+    "api_key",
+    "token",
+    "jwt",
+    "provider_raw_payload",
+    "memory_raw_content",
+    "execution_request_raw",
+    "tool_raw_result",
+    "raw",
+    "absolute_path",
+    "secret",
+    "password",
+})
+
+
+def _build_public_summary(inspection: dict) -> str:
+    """Return a human-readable public summary of the runtime mode."""
+    mode = inspection.get("runtime_mode", "unknown")
+    if mode == RUNTIME_MODE_MATCHER_SHORTCUT:
+        return "Responded using a local pattern matcher. No AI provider was used."
+    if mode == RUNTIME_MODE_SAFE_FALLBACK:
+        return "System operated in safe fallback mode due to runtime constraints."
+    if mode == RUNTIME_MODE_FULL_COGNITIVE_RUNTIME:
+        return "Full cognitive execution with provider and tool verification."
+    if mode == RUNTIME_MODE_DIRECT_LOCAL_RESPONSE:
+        return "Responded from local knowledge. No provider call was made."
+    if mode == RUNTIME_MODE_NODE_EXECUTION_SUCCESS:
+        return "Execution completed successfully via the Node runtime."
+    if mode == RUNTIME_MODE_PARTIAL_COGNITIVE_RUNTIME:
+        return "Partial cognitive execution — some components were degraded."
+    return f"Execution completed in {mode} mode."
+
+
+def build_public_cognitive_runtime_inspection(full_inspection: dict) -> dict:
+    """
+    Return only public-safe inspection fields. Strips all internal debug data.
+
+    Rules:
+    - Only whitelisted top-level keys are exposed.
+    - No stack traces, no raw errors, no absolute paths, no env vars, no secrets.
+    - Signals object is filtered to public-safe keys only.
+    """
+    if not isinstance(full_inspection, dict):
+        return {
+            "runtime_mode": "unknown",
+            "public_summary": "Execution status unavailable.",
+        }
+
+    signals = full_inspection.get("signals") if isinstance(full_inspection.get("signals"), dict) else {}
+
+    public_signals: dict = {}
+    _SAFE_SIGNAL_KEYS = {
+        "fallback_triggered",
+        "provider_actual",
+        "provider_failed",
+        "tool_status",
+        "tool_selected",
+        "duration_ms",
+        "decision_confidence",
+        "execution_path_used",
+        "runtime_mode",
+        "ranked_strategy",
+    }
+    for key in _SAFE_SIGNAL_KEYS:
+        if key in signals:
+            public_signals[key] = signals[key]
+
+    return {
+        "runtime_mode": full_inspection.get("runtime_mode"),
+        "runtime_reason": full_inspection.get("runtime_reason"),
+        "cognitive_chain": full_inspection.get("cognitive_chain"),
+        "source_of_truth": full_inspection.get("source_of_truth"),
+        "memory_usage": full_inspection.get("memory_usage"),
+        "final_verdict": full_inspection.get("final_verdict"),
+        "fallback_triggered": public_signals.get("fallback_triggered"),
+        "provider_actual": public_signals.get("provider_actual"),
+        "provider_failed": public_signals.get("provider_failed"),
+        "tool_status": public_signals.get("tool_status"),
+        "tool_public_name": public_signals.get("tool_selected"),
+        "latency_ms": public_signals.get("duration_ms"),
+        "signals": public_signals,
+        "public_summary": _build_public_summary(full_inspection),
+    }
+
+
+def sanitize_specialist_error(error_payload: dict) -> dict:
+    """
+    Phase 1B — Sanitize a specialist error before logging or returning publicly.
+    Strips all internal fields and returns only safe public information.
+    """
+    if not isinstance(error_payload, dict):
+        return {
+            "ok": False,
+            "error_public_code": "SPECIALIST_FAILED",
+            "error_public_message": "Specialist execution failed. Using fallback.",
+            "internal_error_redacted": True,
+        }
+    stripped = strip_internal_fields(error_payload)
+    # Ensure required public fields are always present
+    stripped.setdefault("ok", False)
+    stripped.setdefault("error_public_code", "SPECIALIST_FAILED")
+    stripped.setdefault("error_public_message", "Specialist execution failed. Using fallback.")
+    stripped["internal_error_redacted"] = True
+    return stripped
+
+
+def strip_internal_fields(payload: dict) -> dict:
+    """Recursively remove blacklisted internal fields from any dict."""
+    if not isinstance(payload, dict):
+        return payload
+    result = {}
+    for key, value in payload.items():
+        if key.lower() in _INTERNAL_FIELDS_BLACKLIST:
+            continue
+        if isinstance(value, dict):
+            result[key] = strip_internal_fields(value)
+        else:
+            result[key] = value
+    return result

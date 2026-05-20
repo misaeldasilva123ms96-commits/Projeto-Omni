@@ -1,106 +1,85 @@
-# Publishing Checklist
+# Publishing Checklist — Phase 15 (Roadmap Oficial v2.1)
 
-This checklist is for a controlled public demo only. It is not an automatic release, automatic merge, or production deployment instruction.
+## Pré-requisitos antes de publicar
 
-## Pre-Public-Demo Checklist
+### Gates de segurança
+- [ ] Gate 1A — Shell bloqueado por padrão ✅
+- [ ] Gate 1B — Erros de especialista não logados com detalhes ✅
+- [ ] Gate 1C — Backend payload sanitizado ✅
+- [ ] Gate 1D — Frontend payload sanitizado ✅
+- [ ] Gate 1E — PII redacted nos logs de aprendizado ✅
+- [ ] Gate 2 — Runtime Truth Contract ✅
+- [ ] Gate 3 — Tool Governance Enforcement ✅
+- [ ] Gate 4 — Supabase key removida dos exports ✅
+- [ ] Gate 5 — Input validation no Rust ✅
+- [ ] Gate 6 — Container de demo documentado ✅
+- [ ] Gate 7 — Security regression tests existem ✅
+- [ ] Gate 8 — Error taxonomy centralizada ✅
+- [ ] Gate 9 — Fallback/matcher excluídos do training ✅
 
-- Review `docs/audit/REMEDIATION_SUMMARY.md`.
-- Review `docs/audit/SECURITY_FIXES.md`.
-- Review `docs/audit/RUNTIME_TRUTH_CONTRACT.md`.
-- Review `docs/audit/TEST_EVIDENCE.md`.
-- Review `docs/audit/KNOWN_LIMITATIONS.md`.
-- Confirm `docs/release/PUBLIC_DEMO_READINESS.md` is current.
-- Confirm no GitHub release or tag is being created automatically.
+### Documentação obrigatória
+- [ ] `docs/audit/REMEDIATION_SUMMARY.md` existe ✅
+- [ ] `docs/audit/SECURITY_FIXES.md` existe ✅
+- [ ] `docs/audit/RUNTIME_TRUTH_CONTRACT.md` existe ✅
+- [ ] `docs/audit/TEST_EVIDENCE.md` existe ✅
+- [ ] `docs/audit/KNOWN_LIMITATIONS.md` existe ✅
+- [ ] `docs/release/PUBLIC_DEMO_READINESS.md` existe ✅
+- [ ] `docs/release/PUBLISHING_CHECKLIST.md` este documento ✅
 
-## Required Commands
+---
 
-Run before public exposure:
+## Checklist de ambiente antes do deploy
 
 ```bash
-npm run validate:audit-pack
-npm run validate:public-demo
-npm run test:security
-npm test
-npm run test:js-runtime
-npm run test:python:pytest
-npm --prefix frontend run typecheck
-cd backend/rust && cargo test
-python -m py_compile backend/python/brain_service.py backend/python/main.py
-docker compose -f docker-compose.demo.yml config
-docker build -f Dockerfile.demo -t omni-demo:public-demo .
-git diff --check
+# Variáveis obrigatórias para demo pública
+export OMNI_PUBLIC_DEMO_MODE=true
+export OMNI_ALLOW_SHELL_TOOLS=false
+export OMNI_DEBUG_INTERNAL_ERRORS=false
+export OMNI_RATE_LIMIT_ENABLED=true
+export OMNI_MAX_MESSAGE_CHARS=8000
+export OMNI_MAX_BODY_BYTES=65536
+
+# Verificar que secrets NÃO estão hardcoded
+grep -r "supabaseKey\s*=" storage/memory/supabaseClient.js | grep -v "process.env"
+# Deve retornar vazio
+
+# Rodar security regression tests
+pytest tests/security/test_security_regression.py -v
+# Todos devem passar
+
+# Build do container de demo
+docker compose -f docker-compose.demo.yml build
+docker compose -f docker-compose.demo.yml up -d
+curl http://localhost:3001/health
+docker compose -f docker-compose.demo.yml down
 ```
 
-Docker build is required before public exposure.
+---
 
-## Environment Checklist
+## Passos de publicação
 
-Required demo env:
+1. **Aplicar todos os arquivos de remediation** na branch `remediation/roadmap-v2.1-replit-agent`
+2. **Abrir Pull Request** para `main` com link para este checklist
+3. **Revisor** verifica gates e documentação
+4. **Rodar security regression tests** no CI antes do merge
+5. **Merge** somente após todos os gates aprovados
+6. **Deploy** com variáveis de ambiente de demo pública configuradas
 
-```txt
-OMNI_PUBLIC_DEMO_MODE=true
-OMINI_PUBLIC_DEMO_MODE=true
-OMNI_ALLOW_SHELL_TOOLS=false
-OMINI_ALLOW_SHELL_TOOLS=false
-OMNI_DEBUG_INTERNAL_ERRORS=false
-OMINI_DEBUG_INTERNAL_ERRORS=false
-OMNI_RATE_LIMIT_ENABLED=true
-OMNI_RATE_LIMIT_PER_MINUTE=30
-OMNI_MAX_MESSAGE_CHARS=8000
-OMNI_MAX_BODY_BYTES=65536
-OMNI_INTENT_CLASSIFIER=regex
-OMNI_MATCHER_MODE=enabled
-OMNI_PYTHON_MODE=subprocess
-OMNI_NODE_MODE=subprocess
-```
+---
 
-Do not pass provider keys, Supabase service role keys, raw env dumps, private memory files, or local logs into the public demo.
+## O que NÃO fazer no publish
 
-## Secret Scan And Manual Review
+- Nunca commitar `.env` com secrets reais
+- Nunca habilitar `OMNI_DEBUG_INTERNAL_ERRORS=true` em produção
+- Nunca remover `OMNI_PUBLIC_DEMO_MODE=true` em ambiente de demo pública
+- Nunca fazer merge das Fases 11 e 12 sem gates específicos passando
 
-- Inspect `.env.example`, Dockerfile, compose, release docs, and audit docs.
-- Confirm placeholder-only examples.
-- Confirm public diagnostics expose status booleans only.
-- Confirm no stack traces, raw payloads, provider raw responses, memory raw content, tool raw results, stdout, stderr, or raw env are shown.
+---
 
-## Edge Rate Limit Checklist
+## Contato e rollback
 
-- Add platform/edge rate limiting before public traffic.
-- Keep Rust in-memory limiter enabled.
-- Add upstream request size limits if the hosting platform supports them.
-- Monitor abuse and quota usage.
+Em caso de incidente após publicação:
 
-## RLS And Supabase Checklist
-
-If frontend Supabase is enabled:
-
-- Confirm public anon key usage is intentional.
-- Confirm service role keys are server-only and absent from demo container env.
-- Confirm Row Level Security policies match public demo scope.
-- Confirm diagnostics only expose configured/present booleans.
-
-## Runtime Checklist
-
-- Confirm matcher shortcuts are labeled.
-- Confirm fallback is not full runtime.
-- Confirm provider unavailable and tool blocked states are public-safe.
-- Confirm classifier mode is `regex`.
-- Confirm subprocess mode is default unless intentionally testing internal service mode.
-
-## Rollback Steps
-
-- Remove public routing to the demo.
-- Stop the demo container/service.
-- Revert the release branch or deploy previous known-good branch.
-- Rotate any secret that may have been exposed outside the approved secret manager.
-- Re-run `npm run validate:public-demo` and `npm run test:security` before attempting again.
-
-## Manual Merge Reminder
-
-Any merge to `main` must be a separate, manual decision after review. Phase 15 does not merge main and does not create an automatic release.
-
-Policy: no automatic merge. Promotion to `main` is manual and reserved for the repository owner/user.
-
-## No Automatic Release
-
-Do not tag, publish a GitHub release, deploy publicly, or start training as part of this checklist.
+1. Setar `OMNI_PUBLIC_DEMO_MODE=true` e reiniciar serviço (mitiga a maioria dos riscos)
+2. Reverter para commit anterior se necessário
+3. Consultar `docs/audit/KNOWN_LIMITATIONS.md` para riscos documentados

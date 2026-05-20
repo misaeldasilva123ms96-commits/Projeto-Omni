@@ -26,6 +26,7 @@ const {
 const { findLearningMatches, suggestRankedStrategies } = require('../../storage/memory/executionLearningMemory');
 const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit');
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
+const { buildPublicError } = require('./errorCodes');
 const { buildCooperativePlan } = require('../../features/multiagent/cooperativeCoordinator');
 const { buildVerificationPlan } = require('../../features/multiagent/verificationPlanner');
 /**
@@ -43,6 +44,62 @@ function sanitizeErrorForInternalDebug(err) {
     code: String(err.code || '').slice(0, 50),
     // Explicitly excluded: stack, cause, path, env, syscall, raw payloads
   };
+}
+
+/**
+ * Phase 3 — Tool Governance Enforcement.
+ * Evaluate whether a tool is allowed to execute given current policy.
+ */
+function _isPublicDemoMode() {
+  return (
+    String(process.env.OMNI_PUBLIC_DEMO_MODE || process.env.OMINI_PUBLIC_DEMO_MODE || '').trim() === 'true'
+  );
+}
+
+const _TOOL_CATEGORIES = {
+  // read_safe: allowed always
+  health: 'read_safe', status: 'read_safe', list: 'read_safe',
+  // read_sensitive: requires scope
+  read_file: 'read_sensitive', memory_read: 'read_sensitive',
+  // write: requires approval
+  write_file: 'write', edit_file: 'write',
+  // destructive: blocked or strong approval
+  delete_file: 'destructive', overwrite_file: 'destructive',
+  // shell: blocked by default
+  run_command: 'shell', shell: 'shell', bash: 'shell',
+  // git: gated
+  git_commit: 'git', git_push: 'git', git_reset: 'git',
+  // network: gated
+  fetch: 'network', curl: 'network',
+};
+
+const _BLOCKED_IN_DEMO = new Set(['shell', 'write', 'destructive', 'git', 'network']);
+const _BLOCKED_BY_DEFAULT = new Set(['shell', 'destructive']);
+
+/**
+ * Check tool governance before execution.
+ * Returns { allowed: bool, error_public_code?: string, error_public_message?: string }
+ */
+function evaluateToolGovernanceJS(toolName) {
+  if (!toolName || toolName === 'none') return { allowed: true };
+  const category = _TOOL_CATEGORIES[toolName] || 'unknown';
+  const publicDemo = _isPublicDemoMode();
+
+  if (publicDemo && _BLOCKED_IN_DEMO.has(category)) {
+    return {
+      allowed: false,
+      error_public_code: 'TOOL_BLOCKED_PUBLIC_DEMO',
+      error_public_message: 'This tool is not available in public demo mode.',
+    };
+  }
+  if (_BLOCKED_BY_DEFAULT.has(category)) {
+    return {
+      allowed: false,
+      error_public_code: 'TOOL_BLOCKED_BY_GOVERNANCE',
+      error_public_message: 'Tool execution was blocked by governance policy.',
+    };
+  }
+  return { allowed: true };
 }
 
 function _isDebugInternalErrors() {
@@ -217,6 +274,64 @@ function inferIntent(message) {
   if (text.includes('analise') || text.includes('resuma')) return 'analysis';
   if (/(repositorio|repositório|codigo|código|teste|testes|debug|refator|implemente|corrija|fix)/.test(text)) return 'engineering';
   return 'conversation';
+}
+
+/**
+ * Phase 2 — Runtime Truth Contract.
+ * Wraps inferIntent() to label its source honestly.
+ * NEVER call inferIntentWithSource() in place of inferIntent() in paths
+ * that cannot tolerate the extra fields — use the result's .intent property.
+ */
+function inferIntentWithSource(message) {
+  const intent = inferIntent(message);
+  return {
+    intent,
+    intent_source: 'rule_based',
+    classifier_version: 'regex_v1',
+    confidence: 0.7,
+  };
+}
+
+/**
+ * Phase 2 — Build a runtime_truth object to attach to every response.
+ * This is the canonical observable contract: it never lies about what happened.
+ */
+function buildRuntimeTruth({
+  runtimeMode,
+  intentResult,
+  matcherUsed,
+  llmProviderAttempted,
+  llmProviderSucceeded,
+  toolInvoked,
+  toolExecuted,
+  fallbackTriggered,
+  nodeInvoked,
+  nodeExitCode,
+  publicSummary,
+}) {
+  return {
+    runtime_mode: runtimeMode || 'UNKNOWN',
+    intent: intentResult?.intent || 'unknown',
+    intent_source: intentResult?.intent_source || 'unknown',
+    classifier_version: intentResult?.classifier_version || 'unknown',
+    matcher_used: Boolean(matcherUsed),
+    llm_provider_attempted: Boolean(llmProviderAttempted),
+    llm_provider_succeeded: Boolean(llmProviderSucceeded),
+    tool_invoked: Boolean(toolInvoked),
+    tool_executed: Boolean(toolExecuted),
+    fallback_triggered: Boolean(fallbackTriggered),
+    node_invoked: Boolean(nodeInvoked),
+    node_exit_code: typeof nodeExitCode === 'number' ? nodeExitCode : null,
+    public_summary: publicSummary || _buildRuntimeSummary(runtimeMode, matcherUsed, fallbackTriggered),
+  };
+}
+
+function _buildRuntimeSummary(runtimeMode, matcherUsed, fallbackTriggered) {
+  if (matcherUsed) return 'Responded using a local matcher. No provider or tool execution occurred.';
+  if (fallbackTriggered) return 'System operated in safe fallback mode due to runtime constraints.';
+  if (runtimeMode === 'FULL_COGNITIVE_RUNTIME') return 'Full cognitive execution with provider and tool verification.';
+  if (runtimeMode === 'MATCHER_SHORTCUT') return 'Responded using a local pattern matcher. No AI provider was used.';
+  return `Execution completed in ${runtimeMode || 'unknown'} mode.`;
 }
 
 function inferComplexity(message) {
@@ -446,14 +561,27 @@ class QueryEngineAuthority {
         provenanceConfidence: 0.55,
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
       });
+      const intentGreet = inferIntentWithSource(message);
       return attachProvenanceMetadata({
         response: tinyGreeting,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'regex_greeting' },
         confidence: 0.55,
+        runtime_truth: buildRuntimeTruth({
+          runtimeMode: 'MATCHER_SHORTCUT',
+          intentResult: intentGreet,
+          matcherUsed: true,
+          llmProviderAttempted: false,
+          llmProviderSucceeded: false,
+          toolInvoked: false,
+          toolExecuted: false,
+          fallbackTriggered: false,
+          nodeInvoked: false,
+          nodeExitCode: null,
+        }),
         memory: {
           session: { session_id: sessionId },
           strategy: 'greeting',
-          runtime_mode: 'matcher_shortcut',
+          runtime_mode: 'MATCHER_SHORTCUT',
           provider: 'local-heuristic',
         },
       }, epGreet);
@@ -476,14 +604,27 @@ class QueryEngineAuthority {
         provenanceConfidence: 0.52,
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
       });
+      const intentConv = inferIntentWithSource(message);
       return attachProvenanceMetadata({
         response: directConversationResponse,
         cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
         confidence: 0.52,
+        runtime_truth: buildRuntimeTruth({
+          runtimeMode: 'MATCHER_SHORTCUT',
+          intentResult: intentConv,
+          matcherUsed: true,
+          llmProviderAttempted: false,
+          llmProviderSucceeded: false,
+          toolInvoked: false,
+          toolExecuted: false,
+          fallbackTriggered: false,
+          nodeInvoked: false,
+          nodeExitCode: null,
+        }),
         memory: {
           session: { session_id: sessionId },
           strategy: 'conversational_matcher',
-          runtime_mode: 'matcher_shortcut',
+          runtime_mode: 'MATCHER_SHORTCUT',
           provider: 'local-heuristic',
         },
       }, ep);

@@ -1,163 +1,129 @@
+"""
+export_training_candidates.py — Phase 13 (Roadmap Oficial v2.1)
+
+Exports records from the learning store that qualify as positive training candidates.
+All records pass through the Phase 9 safety filter before export.
+
+Usage:
+    python scripts/export_training_candidates.py --output data/exports/candidates.jsonl
+    python scripts/export_training_candidates.py --dry-run
+"""
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PYTHON_ROOT = PROJECT_ROOT / "backend" / "python"
-if str(PYTHON_ROOT) not in sys.path:
-    sys.path.insert(0, str(PYTHON_ROOT))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "backend" / "python"))
 
-from brain.runtime.learning.learning_safety import build_learning_safety_metadata  # noqa: E402
-from brain.runtime.learning.redaction import redact_sensitive_payload  # noqa: E402
+_ALLOWED_RUNTIME_MODES = {
+    "FULL_COGNITIVE_RUNTIME",
+    "NODE_EXECUTION_SUCCESS",
+    "LOCAL_TOOL_SUCCESS",
+    "DIRECT_LOCAL_RESPONSE",
+}
 
-from validate_training_candidate import (  # noqa: E402
-    EVAL_SCHEMA_VERSION,
-    POSITIVE_SCHEMA_VERSION,
-    ValidationError,
-    validate_training_candidate,
-)
-
-
-def default_source_path(root: Path) -> Path:
-    return root / ".logs" / "fusion-runtime" / "learning" / "controlled" / "learning_records.jsonl"
+_EXCLUDED_RUNTIME_MODES = {
+    "MATCHER_SHORTCUT",
+    "SAFE_FALLBACK",
+    "RULE_BASED_INTENT",
+}
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    records: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            records.append(payload)
-    return records
+def _is_positive_candidate(record: dict) -> bool:
+    """Phase 9 safety filter — returns True only if record is safe for training."""
+    if record.get("fallback_triggered"):
+        return False
+    if record.get("runtime_mode") in _EXCLUDED_RUNTIME_MODES:
+        return False
+    if record.get("provider_succeeded") is False:
+        return False
+    if record.get("tool_status") in {"failed", "blocked"}:
+        return False
+    if record.get("governance_status") == "blocked":
+        return False
+    if not record.get("no_pii_detected", True):
+        return False
+    if record.get("runtime_mode") not in _ALLOWED_RUNTIME_MODES:
+        return False
+    return True
 
 
-def build_positive_candidate(record: dict[str, Any]) -> dict[str, Any] | None:
-    sanitized = redact_sensitive_payload(record)
-    safety = dict(sanitized.get("learning_safety") or build_learning_safety_metadata(sanitized))
-    sanitized["learning_safety"] = safety
-    if not bool(safety.get("positive_training_candidate")):
-        return None
-
-    candidate = {
-        "schema_version": POSITIVE_SCHEMA_VERSION,
-        "id": str(sanitized.get("record_id", "") or ""),
-        "source": "controlled_learning_record",
-        "input": str(sanitized.get("input_preview", "") or ""),
-        "expected_output": str(sanitized.get("notes", "") or ""),
-        "runtime_mode": str(sanitized.get("runtime_mode", "") or ""),
-        "selected_strategy": str(sanitized.get("selected_strategy", "") or ""),
-        "selected_tool": str(sanitized.get("selected_tool", "") or ""),
-        "user_visible_success": bool(sanitized.get("success", False)),
-        "learning_safety": safety,
-        "metadata": {
-            "execution_path": str(sanitized.get("execution_path", "") or ""),
-            "provider_actual": str(sanitized.get("provider_actual", "") or ""),
-        },
-    }
-    validate_training_candidate(candidate, positive=True)
-    return candidate
+def _strip_sensitive_fields(record: dict) -> dict:
+    """Remove any fields that must not appear in exported training data."""
+    blocked = {"raw_input", "raw_output", "user_id", "session_id", "ip", "token", "key"}
+    return {k: v for k, v in record.items() if k not in blocked}
 
 
-def build_eval_case(record: dict[str, Any]) -> dict[str, Any] | None:
-    sanitized = redact_sensitive_payload(record)
-    safety = dict(sanitized.get("learning_safety") or build_learning_safety_metadata(sanitized))
-    classification = str(safety.get("learning_classification", "") or "")
-    if classification == "positive_training_candidate":
-        return None
+def export_candidates(
+    source_path: Path,
+    output_path: Path | None,
+    dry_run: bool = False,
+) -> int:
+    """Read source JSONL, filter, and write candidates. Returns count exported."""
+    if not source_path.exists():
+        print(f"[ERROR] Source file not found: {source_path}", file=sys.stderr)
+        return 0
 
-    case_type = {
-        "failure_memory": "runtime_truth_eval_case",
-        "routing_eval_case": "routing_eval_case",
-        "tool_failure_case": "safety_eval_case",
-        "governance_block_case": "governance_eval_case",
-    }.get(classification, "diagnostic_memory")
-    case = {
-        "schema_version": EVAL_SCHEMA_VERSION,
-        "id": str(sanitized.get("record_id", "") or ""),
-        "source": "controlled_learning_record",
-        "case_type": case_type,
-        "input": str(sanitized.get("input_preview", "") or ""),
-        "expected_behavior": str(safety.get("learning_safety_reason", "preserve diagnostic classification") or ""),
-        "runtime_mode": str(sanitized.get("runtime_mode", "") or ""),
-        "learning_safety": safety,
-    }
-    validate_training_candidate(case, positive=False)
-    return case
+    candidates = []
+    skipped = 0
 
-
-def export_candidates(source: Path, *, positive_output: Path | None = None, eval_output: Path | None = None, write: bool = False) -> dict[str, Any]:
-    records = read_jsonl(source)
-    positives: list[dict[str, Any]] = []
-    eval_cases: list[dict[str, Any]] = []
-    rejected = 0
-
-    for record in records:
-        try:
-            positive = build_positive_candidate(record)
-            if positive:
-                positives.append(positive)
+    with open(source_path) as f:
+        for line_no, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
                 continue
-            eval_case = build_eval_case(record)
-            if eval_case:
-                eval_cases.append(eval_case)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as e:
+                print(f"[WARN] Line {line_no}: JSON parse error — {e}", file=sys.stderr)
+                skipped += 1
+                continue
+
+            if _is_positive_candidate(record):
+                candidates.append(_strip_sensitive_fields(record))
             else:
-                rejected += 1
-        except ValidationError:
-            rejected += 1
+                skipped += 1
 
-    if write:
-        if positive_output:
-            _write_jsonl(positive_output, positives)
-        if eval_output:
-            _write_jsonl(eval_output, eval_cases)
+    print(f"[INFO] Total records read: {line_no}")
+    print(f"[INFO] Candidates (positive): {len(candidates)}")
+    print(f"[INFO] Skipped (unsafe/excluded): {skipped}")
 
-    return {
-        "ok": True,
-        "dry_run": not write,
-        "source": str(source),
-        "records_read": len(records),
-        "positive_candidates": len(positives),
-        "eval_cases": len(eval_cases),
-        "rejected": rejected,
-        "positive_output": str(positive_output) if positive_output else "",
-        "eval_output": str(eval_output) if eval_output else "",
-    }
+    if dry_run:
+        print("[DRY-RUN] No file written.")
+        return len(candidates)
 
+    if output_path is None:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        output_path = ROOT / "data" / "exports" / f"training_candidates_{ts}.jsonl"
 
-def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records), encoding="utf-8")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        for record in candidates:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"[INFO] Exported to: {output_path}")
+    return len(candidates)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Dry-run safe Omni training candidate export.")
-    parser.add_argument("--source", type=Path, default=default_source_path(PROJECT_ROOT))
-    parser.add_argument("--positive-output", type=Path)
-    parser.add_argument("--eval-output", type=Path)
-    parser.add_argument("--write", action="store_true", help="Write validated JSONL outputs. Default is dry-run.")
-    args = parser.parse_args(argv)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Export positive training candidates")
+    parser.add_argument("--source", default="data/learning/records.jsonl",
+                        help="Source JSONL file with learning records")
+    parser.add_argument("--output", default=None,
+                        help="Output JSONL file (default: auto-timestamped in data/exports/)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Count candidates without writing output file")
+    args = parser.parse_args()
 
-    summary = export_candidates(
-        args.source,
-        positive_output=args.positive_output,
-        eval_output=args.eval_output,
-        write=args.write,
-    )
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0
+    source = ROOT / args.source
+    output = Path(args.output) if args.output else None
+    count = export_candidates(source, output, dry_run=args.dry_run)
+    sys.exit(0 if count >= 0 else 1)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

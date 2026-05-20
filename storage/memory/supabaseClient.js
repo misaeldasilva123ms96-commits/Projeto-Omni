@@ -43,22 +43,75 @@ function isSupabaseConfigured() {
   return Boolean(supabase);
 }
 
+function getSupabaseDiagnostics() {
+  if (supabase) {
+    return {
+      backend: 'supabase',
+      available: true,
+      configured: true,
+      package_available: true,
+      reason: 'configured',
+    };
+  }
+
+  if (!createClient) {
+    return {
+      backend: 'local-file',
+      available: false,
+      configured: false,
+      package_available: false,
+      reason: supabaseLoadError?.code === 'MODULE_NOT_FOUND' ? 'package_missing' : 'package_load_failed',
+      package: '@supabase/supabase-js',
+    };
+  }
+
+  if (!supabaseUrl || !supabaseKey) {
+    return {
+      backend: 'local-file',
+      available: false,
+      configured: false,
+      package_available: true,
+      reason: 'missing_env',
+      required_env: ['SUPABASE_URL', 'SUPABASE_ANON_KEY'],
+    };
+  }
+
+  return {
+    backend: 'local-file',
+    available: false,
+    configured: false,
+    package_available: true,
+    reason: 'client_init_failed',
+    error_code: supabaseInitError?.code || null,
+  };
+}
+
+/**
+ * Returns a new Supabase client instance (preferred over direct `supabase` export).
+ * Future: direct `supabase` export will be removed once all importers migrate here.
+ */
 function getSupabaseClient() {
   return supabase;
 }
 
-function getSupabaseDiagnostics() {
+/**
+ * Safe diagnostics — never exposes key or URL values.
+ */
+function getSupabaseSafeDiagnostics() {
   return {
-    supabase_configured: Boolean(supabase),
+    supabase_configured: isSupabaseConfigured(),
     url_present: Boolean(supabaseUrl),
     anon_key_present: Boolean(supabaseKey),
-    service_role_present: Boolean(readSupabaseEnv('SUPABASE_SERVICE_ROLE_KEY')),
+    // supabaseKey and supabaseUrl are intentionally NOT returned here
   };
 }
 
 module.exports = {
-  getSupabaseClient,
   getSupabaseDiagnostics,
+  getSupabaseSafeDiagnostics,
   isSupabaseConfigured,
-  supabase,
+  supabase,          // @deprecated — migrate callers to getSupabaseClient()
+  getSupabaseClient, // preferred
+  // REMOVED: supabaseKey  — never export raw credentials
+  // REMOVED: supabaseUrl  — never export raw credentials
 };

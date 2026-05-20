@@ -1,67 +1,77 @@
-# Runtime Truth Contract
+# Runtime Truth Contract — Phase 15 (Roadmap Oficial v2.1)
 
-## Runtime Modes
+## Princípio
 
-Public runtime truth may report:
+O sistema Omni nunca mente sobre o que aconteceu durante uma execução.
+Toda resposta pública contém um objeto `runtime_truth` que declara
+exatamente o que foi usado, tentado e executado.
 
-- `FULL_COGNITIVE_RUNTIME`
-- `PARTIAL_COGNITIVE`
-- `MATCHER_SHORTCUT`
-- `RULE_BASED_INTENT`
-- `SAFE_FALLBACK`
-- `NODE_FALLBACK`
-- `PROVIDER_UNAVAILABLE`
-- `TOOL_BLOCKED`
-- `TOOL_EXECUTED`
-- `MEMORY_ONLY_RESPONSE`
+---
 
-## Matcher Labeling
+## Estrutura do objeto `runtime_truth`
 
-Local matchers are labeled as `MATCHER_SHORTCUT`. Matcher responses must set provider attempt/success and tool invocation/execution to false. Matchers may be enabled, labeled-only, or disabled by feature flag, but the default public-demo mode is enabled and labeled.
+```json
+{
+  "runtime_mode": "MATCHER_SHORTCUT",
+  "intent": "greeting",
+  "intent_source": "rule_based",
+  "classifier_version": "regex_v1",
+  "matcher_used": true,
+  "llm_provider_attempted": false,
+  "llm_provider_succeeded": false,
+  "tool_invoked": false,
+  "tool_executed": false,
+  "fallback_triggered": false,
+  "node_invoked": false,
+  "node_exit_code": null,
+  "public_summary": "Responded using a local matcher. No provider or tool execution occurred."
+}
+```
 
-## Fallback Labeling
+---
 
-Any fallback or degraded path must set `fallback_triggered=true` where a fallback response is used and must not claim full cognitive runtime success. Node empty responses and service failures use degraded public modes and public error taxonomy.
+## Campos e contratos
 
-## Provider Tracking
+| Campo | Tipo | Contrato |
+|---|---|---|
+| `runtime_mode` | string | Nunca `FULL_COGNITIVE_RUNTIME` quando um matcher foi usado |
+| `intent` | string | Sempre declara o intent inferido, mesmo que seja `unknown` |
+| `intent_source` | string | `rule_based` \| `embedding` \| `llm` — nunca omitido |
+| `classifier_version` | string | Identifica o classificador usado (`regex_v1`, `embedding_v1`, etc) |
+| `matcher_used` | bool | `true` se e somente se um matcher local respondeu |
+| `llm_provider_attempted` | bool | `false` quando `matcher_used=true` — nunca contradiz |
+| `llm_provider_succeeded` | bool | `false` quando `llm_provider_attempted=false` |
+| `tool_invoked` | bool | `true` quando uma ferramenta foi solicitada |
+| `tool_executed` | bool | `true` somente se a ferramenta completou com sucesso |
+| `fallback_triggered` | bool | `true` quando qualquer fallback de segurança foi ativado |
+| `node_exit_code` | int \| null | `null` quando nenhum processo Node foi invocado |
+| `public_summary` | string | Resumo em linguagem natural, sem detalhes internos |
 
-Runtime truth tracks provider attempt and success separately. Provider unavailable or failed execution must report provider success as false and must not be promoted to `FULL_COGNITIVE_RUNTIME`.
+---
 
-## Tool Tracking
+## Invariantes garantidas
 
-Runtime truth tracks tool invocation and execution separately. Governance blocks and shell policy blocks must report `tool_invoked=true` when a tool was requested, `tool_executed=false`, and `tool_status=blocked`.
+1. `matcher_used=true` → `llm_provider_attempted=false`
+2. `fallback_triggered=true` → `tool_executed=false`
+3. `tool_executed=true` → `tool_invoked=true`
+4. `llm_provider_succeeded=true` → `llm_provider_attempted=true`
+5. `runtime_mode=MATCHER_SHORTCUT` → `public_summary` declara explicitamente que não houve provider
 
-## Classifier Source And Mode
+---
 
-Phase 12 adds safe classifier observability:
+## Implementação
 
-- `intent_source`
-- `classifier_version`
-- `classifier_mode`
-- `classifier_provider_attempted`
-- `classifier_provider_succeeded`
+- JS: `buildRuntimeTruth()` e `inferIntentWithSource()` em `core/brain/queryEngineAuthority.js`
+- Python: `classify_memory_record()` e `_is_positive_learning_candidate()` em `learning_logger.py`
+- Rust: campos de runtime truth propagados via `call_python()` response
 
-Regex remains the default classifier. Embedding, LLM, and hybrid modes are feature-flagged and do not execute tools from classifier output.
+---
 
-## Service And Circuit Breaker Behavior
+## O que o Runtime Truth NÃO contém
 
-Subprocess mode remains default. Python/Node service modes are opt-in. Rust Python service failures use timeout/error taxonomy, circuit breaker state, optional fallback metadata, and degraded runtime truth. Service fallback to subprocess is explicit and cannot claim full runtime success.
-
-## Public-Safe Fields
-
-Allowed public diagnostic fields include runtime mode/reason, intent/source, classifier mode/version, fallback status, provider/tool status, latency, request id, public warnings, public error code/message, internal redaction flag, and public summary.
-
-## Never Full Runtime
-
-The following must never be labeled `FULL_COGNITIVE_RUNTIME`:
-
-- matcher shortcut responses
-- safe fallback responses
-- node fallback or empty response
-- provider unavailable or failed response
-- tool blocked response
-- governance blocked response
-- memory-only answer without provider success
-- service failure with fallback
-- low-confidence classifier result
-- payload without usable execution result
+- Stack traces
+- Tokens ou API keys
+- Paths de sistema de arquivos
+- Mensagem original do usuário
+- Erros internos com detalhes técnicos
+- Session IDs completos
