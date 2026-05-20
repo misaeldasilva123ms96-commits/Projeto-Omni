@@ -213,6 +213,80 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertNotIn("sk-test-byok-session-openai", serialized)
         self.assertNotIn("byok-test-model", serialized)
 
+    def test_runner_smoke_diagnostic_exposes_only_safe_fields(self) -> None:
+        from types import SimpleNamespace
+
+        import brain.runtime.orchestrator as orchestrator_module
+        from brain.runtime.orchestrator import BrainOrchestrator
+
+        captured_env = {}
+
+        def fake_transport(*, diagnostics, payload, timeout_seconds):
+            captured_env.update(diagnostics["subprocess_env"])
+            return {
+                "ok": True,
+                "stage": "completed",
+                "reason_code": "success",
+                "returncode": 0,
+                "stdout": "sk-test-secret Authorization raw response stack trace",
+                "stderr": "traceback",
+                "parsed": {
+                    "response": "OK",
+                    "metadata": {"engine_mode": "fusion_authority"},
+                },
+            }
+
+        orchestrator = BrainOrchestrator.__new__(BrainOrchestrator)
+        orchestrator.paths = SimpleNamespace(root=PROJECT_ROOT)
+        orchestrator._resolve_node_command_context = lambda payload: {
+            "js_runtime": {"runtime_name": "node"},
+            "cwd": str(PROJECT_ROOT),
+            "runner_exists": True,
+            "adapter_exists": True,
+            "fusion_brain_exists": True,
+            "subprocess_env": {
+                "BASE_DIR": str(PROJECT_ROOT),
+                "OPENAI_API_KEY": "sk-test-secret",
+                "GEMINI_API_KEY": "gemini-secret",
+                "OLLAMA_URL": "http://local.invalid",
+            },
+        }
+
+        with patch.object(orchestrator_module, "run_node_subprocess", side_effect=fake_transport):
+            payload = orchestrator.build_runner_smoke_diagnostic(timeout_seconds=3)
+
+        self.assertEqual(
+            set(payload),
+            {
+                "status",
+                "selected_runtime",
+                "cwd_label",
+                "runner_exists",
+                "adapter_exists",
+                "fusion_brain_exists",
+                "contract_exists",
+                "runner_exit_code",
+                "stdout_json_valid",
+                "result_degraded",
+                "public_failure_class",
+                "public_summary",
+            },
+        )
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["selected_runtime"], "node")
+        self.assertTrue(payload["stdout_json_valid"])
+        self.assertFalse(payload["result_degraded"])
+        self.assertNotIn("OPENAI_API_KEY", captured_env)
+        self.assertNotIn("GEMINI_API_KEY", captured_env)
+        self.assertNotIn("OLLAMA_URL", captured_env)
+
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("sk-test-secret", serialized)
+        self.assertNotIn("gemini-secret", serialized)
+        self.assertNotIn("Authorization", serialized)
+        self.assertNotIn("raw response", serialized)
+        self.assertNotIn("traceback", serialized)
+
     def test_sanitize_for_user_keeps_structured_error(self) -> None:
         module = _load_python_main_module()
         out = module.sanitize_for_user(
