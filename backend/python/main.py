@@ -8,7 +8,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
+from brain.runtime.bridge_stdin import apply_bridge_env, read_bridge_stdin_dict, resolve_entry_message
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
 from brain.runtime.observability.public_runtime_payload import (
     build_public_cognitive_runtime_inspection,
@@ -377,8 +377,23 @@ def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None
     return public_payload
 
 
+def build_public_runner_smoke_payload() -> dict[str, Any]:
+    python_root = Path(__file__).resolve().parent
+    project_root = python_root.parents[1]
+    os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
+    os.environ.setdefault("BASE_DIR", str(project_root))
+    orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
+    return orchestrator.build_runner_smoke_diagnostic()
+
+
 def main() -> int:
-    message, bridge = resolve_entry_message()
+    bridge = read_bridge_stdin_dict()
+    if bridge.get("diagnostic") == "runner_smoke":
+        return emit_public_json(build_public_runner_smoke_payload())
+    try:
+        message, bridge = resolve_entry_message(bridge)
+    except TypeError:
+        message, bridge = resolve_entry_message()
     return emit_public_json(build_public_chat_payload(message, bridge))
 
 

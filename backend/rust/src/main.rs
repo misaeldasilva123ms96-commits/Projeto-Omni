@@ -263,6 +263,23 @@ struct PublicStatusResponseV1 {
 }
 
 #[derive(Debug, Serialize)]
+struct PublicRunnerSmokeResponseV1 {
+    api_version: &'static str,
+    status: String,
+    selected_runtime: String,
+    cwd_label: String,
+    runner_exists: bool,
+    adapter_exists: bool,
+    fusion_brain_exists: bool,
+    contract_exists: bool,
+    runner_exit_code: Option<i64>,
+    stdout_json_valid: bool,
+    result_degraded: bool,
+    public_failure_class: Option<String>,
+    public_summary: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct RuntimeSignalsResponse {
     status: &'static str,
     recent_signals: Vec<Value>,
@@ -508,6 +525,10 @@ async fn main() -> Result<(), AppError> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/status", get(public_v1_status))
+        .route(
+            "/api/v1/runtime/runner-smoke",
+            get(public_v1_runtime_runner_smoke),
+        )
         .route(
             "/api/v1/runtime/signals/summary",
             get(public_v1_runtime_signals_summary),
@@ -1023,6 +1044,171 @@ async fn public_v1_status(
             timestamp_ms: h.timestamp_ms,
         }),
     )
+}
+
+fn safe_runner_smoke_string(value: &Value, key: &str, allowed: &[&str], fallback: &str) -> String {
+    let candidate = value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+        .trim()
+        .to_ascii_lowercase();
+    if allowed
+        .iter()
+        .any(|allowed_value| *allowed_value == candidate)
+    {
+        candidate
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn safe_runner_smoke_optional_string(value: &Value, key: &str) -> Option<String> {
+    let candidate = value.get(key)?.as_str()?.trim();
+    if candidate.is_empty() || candidate.len() > 120 {
+        return None;
+    }
+    if !candidate
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    {
+        return None;
+    }
+    Some(candidate.to_string())
+}
+
+fn bool_from_json(value: &Value, key: &str) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn build_runner_smoke_fallback(status: &str, failure_class: &str) -> PublicRunnerSmokeResponseV1 {
+    PublicRunnerSmokeResponseV1 {
+        api_version: "1",
+        status: status.to_string(),
+        selected_runtime: "unknown".to_string(),
+        cwd_label: "unknown".to_string(),
+        runner_exists: false,
+        adapter_exists: false,
+        fusion_brain_exists: false,
+        contract_exists: false,
+        runner_exit_code: None,
+        stdout_json_valid: false,
+        result_degraded: true,
+        public_failure_class: Some(failure_class.to_string()),
+        public_summary: Some(format!("runner_smoke_{failure_class}")),
+    }
+}
+
+fn parse_runner_smoke_response(value: &Value) -> PublicRunnerSmokeResponseV1 {
+    PublicRunnerSmokeResponseV1 {
+        api_version: "1",
+        status: safe_runner_smoke_string(value, "status", &["ok", "degraded", "error"], "error"),
+        selected_runtime: safe_runner_smoke_string(
+            value,
+            "selected_runtime",
+            &["node", "bun", "unknown"],
+            "unknown",
+        ),
+        cwd_label: safe_runner_smoke_string(
+            value,
+            "cwd_label",
+            &["app", "repo", "unknown"],
+            "unknown",
+        ),
+        runner_exists: bool_from_json(value, "runner_exists"),
+        adapter_exists: bool_from_json(value, "adapter_exists"),
+        fusion_brain_exists: bool_from_json(value, "fusion_brain_exists"),
+        contract_exists: bool_from_json(value, "contract_exists"),
+        runner_exit_code: value.get("runner_exit_code").and_then(Value::as_i64),
+        stdout_json_valid: bool_from_json(value, "stdout_json_valid"),
+        result_degraded: bool_from_json(value, "result_degraded"),
+        public_failure_class: safe_runner_smoke_optional_string(value, "public_failure_class"),
+        public_summary: safe_runner_smoke_optional_string(value, "public_summary"),
+    }
+}
+
+async fn public_v1_runtime_runner_smoke(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicRunnerSmokeResponseV1>) {
+    if state.mock_mode {
+        return (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback("degraded", "mock_mode")),
+        );
+    }
+
+    let body = serde_json::to_vec(&json!({
+        "diagnostic": "runner_smoke",
+        "message": "responda apenas OK",
+        "client_session_id": "runner-smoke-public-safe",
+        "request_source": "rust_runner_smoke",
+        "runtime_session_version": state.runtime_session_version,
+    }))
+    .unwrap_or_else(|_| br#"{"diagnostic":"runner_smoke"}"#.to_vec());
+
+    let mut command = Command::new(&state.python_bin);
+    command
+        .arg(&state.python_entry)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_spawn_failed")),
+            )
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        if stdin.write_all(&body).await.is_err() {
+            let _ = child.kill().await;
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_stdin_failed")),
+            );
+        }
+        let _ = stdin.flush().await;
+    }
+
+    let output = match timeout(Duration::from_secs(8), child.wait_with_output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_wait_failed")),
+            )
+        }
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "timeout")),
+            )
+        }
+    };
+
+    if !output.status.success() {
+        return (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback(
+                "error",
+                "python_subprocess_failed",
+            )),
+        );
+    }
+
+    let parsed = serde_json::from_slice::<Value>(&output.stdout);
+    match parsed {
+        Ok(value) => (StatusCode::OK, Json(parse_runner_smoke_response(&value))),
+        Err(_) => (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback("error", "invalid_json")),
+        ),
+    }
 }
 
 fn truncate_preview(s: &str, max_chars: usize) -> String {
@@ -3298,6 +3484,10 @@ mod tests {
         Router::new()
             .route("/chat", post(chat))
             .route("/api/v1/chat", post(public_v1_chat))
+            .route(
+                "/api/v1/runtime/runner-smoke",
+                get(public_v1_runtime_runner_smoke),
+            )
             .with_state(state)
     }
 
@@ -3314,6 +3504,14 @@ mod tests {
             .uri(path)
             .header(CONTENT_TYPE, "application/json")
             .body(body.into())
+            .expect("request")
+    }
+
+    fn get_request(path: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .body(Body::empty())
             .expect("request")
     }
 
@@ -3357,6 +3555,59 @@ mod tests {
         let body = response_json(response).await;
         assert_eq!(body["response"].as_str(), Some("ok"));
         assert_eq!(body["client_session_id"].as_str(), Some("sess-1"));
+    }
+
+    #[tokio::test]
+    async fn runner_smoke_route_returns_safe_fields_only() {
+        let script = r#"import json
+import sys
+
+_ = sys.stdin.read()
+print(json.dumps({
+    "status": "ok",
+    "selected_runtime": "node",
+    "cwd_label": "app",
+    "runner_exists": True,
+    "adapter_exists": True,
+    "fusion_brain_exists": True,
+    "contract_exists": True,
+    "runner_exit_code": 0,
+    "stdout_json_valid": True,
+    "result_degraded": False,
+    "public_failure_class": None,
+    "public_summary": "runner_smoke_ok",
+    "stdout": "sk-test-secret Authorization raw response stack trace",
+    "env": {"OPENAI_API_KEY": "sk-test-secret"}
+}))
+"#;
+        let state = build_test_state(temp_script(script, "runner-smoke-safe"), 15_000);
+        let response = chat_router(state)
+            .oneshot(get_request("/api/v1/runtime/runner-smoke"))
+            .await
+            .expect("runner smoke route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+
+        assert_eq!(payload["api_version"].as_str(), Some("1"));
+        assert_eq!(payload["status"].as_str(), Some("ok"));
+        assert_eq!(payload["selected_runtime"].as_str(), Some("node"));
+        assert_eq!(payload["cwd_label"].as_str(), Some("app"));
+        assert_eq!(payload["runner_exists"].as_bool(), Some(true));
+        assert_eq!(payload["adapter_exists"].as_bool(), Some(true));
+        assert_eq!(payload["fusion_brain_exists"].as_bool(), Some(true));
+        assert_eq!(payload["contract_exists"].as_bool(), Some(true));
+        assert_eq!(payload["runner_exit_code"].as_i64(), Some(0));
+        assert_eq!(payload["stdout_json_valid"].as_bool(), Some(true));
+        assert_eq!(payload["result_degraded"].as_bool(), Some(false));
+        assert_eq!(payload["public_summary"].as_str(), Some("runner_smoke_ok"));
+
+        let serialized = serde_json::to_string(&payload).expect("json");
+        assert!(!serialized.contains("stderr"));
+        assert!(!serialized.contains("env"));
+        assert!(!serialized.contains("sk-test-secret"));
+        assert!(!serialized.contains("Authorization"));
+        assert!(!serialized.contains("raw response"));
+        assert!(!serialized.contains("stack trace"));
     }
 
     #[tokio::test]
