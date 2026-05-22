@@ -15,6 +15,16 @@ from .provider_router import (
     build_provider_routing_decision,
     build_public_provider_routing_decision,
 )
+from .provider_registry import (
+    PROVIDER_REGISTRY_VERSION,
+    ProviderAdapterMetadata,
+    UnknownProviderFamilyError,
+    build_public_provider_adapter_snapshot,
+    get_provider_adapter,
+    list_provider_adapters,
+    list_public_provider_adapters,
+    validate_router_decision_adapter,
+)
 from .token_quota import (
     TOKEN_QUOTA_VERSION,
     InvalidTokenQuotaError,
@@ -29,6 +39,7 @@ from .token_quota import (
 )
 
 __all__ = [
+    "PROVIDER_REGISTRY_VERSION",
     "PROVIDER_ROUTER_VERSION",
     "TOKEN_QUOTA_VERSION",
     "PLAN_POLICY_VERSION",
@@ -36,9 +47,12 @@ __all__ = [
     "PlanMode",
     "PlanPolicy",
     "ProviderMode",
+    "ProviderAdapterMetadata",
     "ProviderRoutingDecision",
     "TokenQuotaSnapshot",
     "ToolAccessMode",
+    "UnknownProviderFamilyError",
+    "build_public_provider_adapter_snapshot",
     "build_provider_routing_decision",
     "build_public_quota_snapshot",
     "build_public_plan_policy",
@@ -46,8 +60,12 @@ __all__ = [
     "build_token_quota_snapshot",
     "calculate_quota_remaining",
     "calculate_tokens_total",
+    "get_provider_adapter",
     "is_quota_exceeded",
+    "list_provider_adapters",
+    "list_public_provider_adapters",
     "resolve_plan_policy",
+    "validate_router_decision_adapter",
     "validate_max_input_tokens",
     "validate_max_output_tokens",
 ]
