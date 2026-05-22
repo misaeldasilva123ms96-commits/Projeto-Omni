@@ -23,3 +23,8 @@ ProviderRouter depends on:
 This phase does not add real provider calls, Puter.js integration, BYOK key
 storage, billing, UI, or production brain integration. BYOK, Pro, and Internal
 routes are contract-level provider-family decisions only.
+
+`policy_overrides` are trusted server-side configuration only. They must never
+be accepted directly from public request payloads, and public users must not be
+able to alter `provider_mode`, provider family, quota limits, or routing
+privileges.

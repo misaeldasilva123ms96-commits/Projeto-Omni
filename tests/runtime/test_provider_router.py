@@ -9,7 +9,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.access_layer import build_public_provider_routing_decision  # noqa: E402
-from brain.runtime.access_layer.plan_policy import UnknownPlanModeError  # noqa: E402
+from brain.runtime.access_layer.plan_policy import (  # noqa: E402
+    InvalidPlanPolicyError,
+    UnknownPlanModeError,
+)
 
 
 class ProviderRouterTest(unittest.TestCase):
@@ -119,6 +122,30 @@ class ProviderRouterTest(unittest.TestCase):
                 tokens_out=1,
                 usage_date="2026-05-22",
             )
+
+    def test_provider_mode_override_attempts_fail_closed(self) -> None:
+        override_attempts = (
+            ("free", "user_key"),
+            ("free", "managed"),
+            ("byok", "managed"),
+            ("byok", "internal"),
+            ("pro", "user_key"),
+            ("pro", "internal"),
+            ("internal", "managed"),
+            ("internal", "user_key"),
+        )
+
+        for plan_mode, provider_mode in override_attempts:
+            with self.subTest(plan_mode=plan_mode, provider_mode=provider_mode):
+                with self.assertRaises(InvalidPlanPolicyError):
+                    build_public_provider_routing_decision(
+                        plan_mode=plan_mode,
+                        subject_id="session-1",
+                        tokens_in=1,
+                        tokens_out=1,
+                        usage_date="2026-05-22",
+                        policy_overrides={"provider_mode": provider_mode},
+                    )
 
     def test_public_router_snapshot_exposes_only_safe_keys(self) -> None:
         approved_keys = {
