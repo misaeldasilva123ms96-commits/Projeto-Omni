@@ -4,8 +4,8 @@ This page documents the current local validation matrix for the audited multi-ru
 
 Latest audit base used for this update:
 
-- Branch audited: `validation/rust-run-control-fix`
-- Commit audited: `9a6c527254fd01f6f07e9f9990b2156c07f34934`
+- Branch audited: `release/omni-current-state-2026-05-21`
+- Base: `origin/main` after PR #171
 
 ## Primary Local Matrix
 
@@ -20,6 +20,16 @@ Run from the repository root unless a command states otherwise.
 | `npm run validate:public-demo` | Static public demo readiness validator | PASS |
 | `npm run validate:audit-pack` | Static audit-pack validator | PASS |
 | `git diff --check` | Whitespace and patch hygiene | Required before commit |
+
+Provider/BYOK focused checks:
+
+```bash
+node tests/runtime/providerRouterFallback.test.mjs
+node tests/runtime/providerRouterMetadata.test.mjs
+node tests/runtime/remoteProviderExecutor.test.mjs
+node tests/runtime/runtimeTruthContract.test.mjs
+python -m pytest tests/runtime/test_bridge_pipeline.py tests/runtime/test_cognitive_orchestration.py -v
+```
 
 ## Focused Runtime/Security Commands
 
