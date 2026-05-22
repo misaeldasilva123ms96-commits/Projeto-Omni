@@ -19,6 +19,7 @@ The API is exposed on:
 ```txt
 http://localhost:3001/health
 http://localhost:3001/chat
+http://localhost:3001/api/v1/runtime/runner-smoke
 ```
 
 ## Compose
@@ -92,6 +93,20 @@ storage
 src
 contract
 ```
+
+## Runtime Smoke Diagnostic
+
+`GET /api/v1/runtime/runner-smoke` is a public-safe production diagnostic for deployment mismatches. It executes the same Node runner path used by chat with a fixed safe prompt and returns only bounded metadata:
+
+- selected runtime (`node`, `bun`, or `unknown`)
+- cwd label (`app`, `repo`, or `unknown`)
+- runner/adapter/fusion/contract existence booleans
+- runner exit code
+- stdout JSON validity
+- degraded boolean
+- public failure class and summary
+
+It must not expose raw stdout/stderr, env values, stack traces, headers, provider payloads, request bodies, API keys, or absolute local paths. The diagnostic subprocess scrubs provider credential/url envs so it does not make real provider calls.
 
 ## Rate Limit Note
 

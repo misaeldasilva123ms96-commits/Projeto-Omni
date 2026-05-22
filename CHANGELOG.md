@@ -9,6 +9,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Current-state runtime audit documentation for the provider/BYOK/diagnostics work through PR #171.
+- Runtime provider documentation covering Groq, OpenRouter, OpenAI, Anthropic, Gemini, Ollama, LM Studio, DeepSeek metadata, and `local-heuristic`.
+- Session-only BYOK documentation with fail-closed policy and privacy boundaries.
+- Public-safe runtime diagnostics documentation for `provider_diagnostics_snapshot` and `GET /api/v1/runtime/runner-smoke`.
+- `.env.example` placeholders for current provider model envs, OpenRouter, local provider config, and JS runtime selection.
 - Professional `docs/` tree: architecture, governance, evolution, operations, setup, product, and phase index (`docs/README.md`, `docs/phases/README.md`).
 - Archive of legacy root Markdown reports under `docs/reports/repository-archive/` (git history preserved via `git mv`).
 - Professional repository documentation and contribution guides

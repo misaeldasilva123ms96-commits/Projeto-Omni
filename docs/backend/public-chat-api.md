@@ -23,6 +23,8 @@
 | `message` | Yes | string | User text; empty after trim → `400`. |
 | `client_session_id` | No | string | Same normalization as `/chat` (trim, drop empty, max 256 scalar chars); forwarded on the stdin bridge when present. |
 | `client_context` | No | object | Optional product hints. Only safe, grounded keys are forwarded on stdin today (see [`python-bridge-contract.md`](python-bridge-contract.md)). |
+| `provider_preference` | No | string | Optional provider id. Without session credentials, normal system-provider behavior and fallback still apply. |
+| `session_provider_credentials` | No | object | Session-only BYOK credential map. When non-empty, fail-closed BYOK mode is active and `provider_preference` is required. Values are private bridge data and are never echoed. |
 
 **Example**
 
@@ -37,6 +39,25 @@
 ```
 
 Clients may send only `{ "message": "..." }`.
+
+### 2.1 Session BYOK shape
+
+Session BYOK is request-scoped only. It does not persist credentials and does not add a frontend key-entry UI by itself.
+
+```json
+{
+  "message": "Olá",
+  "provider_preference": "openai",
+  "session_provider_credentials": {
+    "openai": {
+      "api_key": "<session-only-api-key>",
+      "model": "optional-model"
+    }
+  }
+}
+```
+
+BYOK mode requires `provider_preference` to match a provider present in `session_provider_credentials`. If the selected BYOK provider fails, Omni fails closed and does not fall back to system owner keys.
 
 ---
 
@@ -88,4 +109,5 @@ When the Python layer emits a structured object that includes `server_conversati
 
 | Phase | Change |
 | ----- | ------ |
+| P5C | Added typed session BYOK boundary and fail-closed execution policy. |
 | Phase 11 | `POST /api/v1/chat`, `PublicChatResponseV1`, stdin `client_context`, optional `conversation_id` merge from Python stdout. |
