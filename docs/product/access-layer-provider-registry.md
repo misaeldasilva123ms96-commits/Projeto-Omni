@@ -23,3 +23,7 @@ endpoints, provider request payloads, or production brain integration. Registry
 records are metadata only and must not contain API keys, secrets, access tokens,
 raw credentials, environment variables, internal configuration, or billing
 configuration.
+
+Callers must treat both registry validation failures as fail-closed routing
+denials: `False` from `validate_router_decision_adapter` and
+`UnknownProviderFamilyError` for unregistered provider families.

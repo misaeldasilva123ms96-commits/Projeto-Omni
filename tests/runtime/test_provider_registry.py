@@ -114,6 +114,24 @@ class ProviderRegistryTest(unittest.TestCase):
         with self.assertRaises(UnknownProviderFamilyError):
             validate_router_decision_adapter(decision)
 
+    def test_known_provider_family_with_mismatched_provider_mode_fails_closed(self) -> None:
+        mismatch_cases = (
+            ("experimental_free_provider", "managed"),
+            ("experimental_free_provider", "user_key"),
+            ("user_supplied_provider", "managed"),
+            ("managed_provider", "internal"),
+            ("internal_provider", "user_key"),
+        )
+
+        for provider_family, provider_mode in mismatch_cases:
+            with self.subTest(provider_family=provider_family, provider_mode=provider_mode):
+                decision = {
+                    "selected_provider_family": provider_family,
+                    "provider_mode": provider_mode,
+                }
+
+                self.assertFalse(validate_router_decision_adapter(decision))
+
     def test_free_provider_metadata_is_experimental_and_restricted(self) -> None:
         snapshot = build_public_provider_adapter_snapshot("experimental_free_provider")
 
