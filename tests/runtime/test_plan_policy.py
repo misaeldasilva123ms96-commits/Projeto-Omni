@@ -89,6 +89,44 @@ class PlanPolicyTest(unittest.TestCase):
         self.assertNotIn("secret", serialized)
         self.assertNotIn("sk-", serialized)
 
+    def test_public_policy_key_set_is_safe_for_all_plan_modes(self) -> None:
+        approved_keys = {
+            "policy_version",
+            "plan_mode",
+            "daily_token_limit",
+            "max_input_tokens",
+            "max_output_tokens",
+            "max_context_tokens",
+            "files_enabled",
+            "tools_enabled",
+            "sensitive_tools_enabled",
+            "long_memory_enabled",
+            "provider_mode",
+        }
+        forbidden_fragments = (
+            "api_key",
+            "config",
+            "credential",
+            "internal_config",
+            "provider_key",
+            "secret",
+            "sensitive_provider",
+            "sk-",
+        )
+        forbidden_key_fragments = (*forbidden_fragments, "access_token", "refresh_token")
+
+        for mode in ("free", "byok", "pro", "internal"):
+            with self.subTest(mode=mode):
+                public_policy = build_public_plan_policy(mode)
+                serialized = str(public_policy).lower()
+
+                self.assertEqual(set(public_policy), approved_keys)
+                for fragment in forbidden_fragments:
+                    self.assertNotIn(fragment, serialized)
+                for key in public_policy:
+                    for fragment in forbidden_key_fragments:
+                        self.assertNotIn(fragment, key.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
