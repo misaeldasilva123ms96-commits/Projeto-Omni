@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.access_layer import (  # noqa: E402
+    InvalidTokenQuotaError,
     build_public_quota_snapshot,
     calculate_quota_remaining,
     calculate_tokens_total,
@@ -23,6 +24,51 @@ from brain.runtime.access_layer.plan_policy import UnknownPlanModeError  # noqa:
 class TokenQuotaTest(unittest.TestCase):
     def test_calculates_token_total(self) -> None:
         self.assertEqual(calculate_tokens_total(120, 30), 150)
+
+    def test_negative_token_inputs_are_rejected(self) -> None:
+        with self.assertRaises(InvalidTokenQuotaError):
+            calculate_tokens_total(-1, 30)
+
+        with self.assertRaises(InvalidTokenQuotaError):
+            calculate_tokens_total(120, -1)
+
+        with self.assertRaises(InvalidTokenQuotaError):
+            build_public_quota_snapshot(
+                plan_mode="free",
+                subject_id="session-1",
+                tokens_in=-1,
+                tokens_out=1,
+                usage_date="2026-05-22",
+            )
+
+        with self.assertRaises(InvalidTokenQuotaError):
+            build_public_quota_snapshot(
+                plan_mode="free",
+                subject_id="session-1",
+                tokens_in=1,
+                tokens_out=-1,
+                usage_date="2026-05-22",
+            )
+
+    def test_invalid_daily_limits_are_rejected_and_null_limit_stays_unlimited(self) -> None:
+        for invalid_limit in (-1, 0):
+            with self.subTest(invalid_limit=invalid_limit):
+                with self.assertRaises(InvalidTokenQuotaError):
+                    calculate_quota_remaining(
+                        daily_token_limit=invalid_limit,
+                        tokens_total=1,
+                    )
+                with self.assertRaises(InvalidTokenQuotaError):
+                    is_quota_exceeded(
+                        daily_token_limit=invalid_limit,
+                        tokens_total=1,
+                    )
+
+        with self.assertRaises(InvalidTokenQuotaError):
+            calculate_quota_remaining(daily_token_limit=15000, tokens_total=-1)
+
+        self.assertIsNone(calculate_quota_remaining(daily_token_limit=None, tokens_total=1))
+        self.assertFalse(is_quota_exceeded(daily_token_limit=None, tokens_total=1))
 
     def test_free_mode_daily_quota_remaining_uses_plan_policy_limit(self) -> None:
         snapshot = build_public_quota_snapshot(
@@ -139,6 +185,7 @@ class TokenQuotaTest(unittest.TestCase):
                 serialized = str(snapshot).lower()
 
                 self.assertEqual(set(snapshot), approved_keys)
+                self.assertEqual(snapshot["subject_id"], f"{mode}-subject")
                 for fragment in forbidden_fragments:
                     self.assertNotIn(fragment, serialized)
                 for key in snapshot:

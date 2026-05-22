@@ -20,3 +20,7 @@ limits. It resolves `free`, `byok`, `pro`, and `internal` policies through
 This phase does not add real provider routing, Puter.js, BYOK key storage,
 billing, persistence, UI, or provider calls. Daily usage is supplied by the
 caller and evaluated deterministically against the resolved PlanPolicy.
+
+`subject_id` is included in public quota snapshots only as an opaque public
+identifier. Callers must not pass API keys, credentials, secrets, provider
+tokens, or sensitive configuration as the subject identifier.
