@@ -1,8 +1,9 @@
 name: Feature request
-description: Propose an improvement to Omini
+description: Propose an improvement to Omni public debug, documentation, or runtime behavior
 title: "[Feature]: "
 labels:
   - enhancement
+  - public-debug
 body:
   - type: textarea
     id: problem

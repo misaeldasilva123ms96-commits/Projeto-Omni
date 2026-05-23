@@ -1,26 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AppShell } from '../components/AppShell'
-import { ChatHeader } from '../components/ChatHeader'
-import { Composer } from '../components/Composer'
-import { EmptyState } from '../components/EmptyState'
-import { MessageBubble } from '../components/MessageBubble'
-import { Sidebar } from '../components/Sidebar'
-import { StatusPanel } from '../components/StatusPanel'
-import { fetchHealth, sendOmniMessage } from '../lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import { ChatPanel } from '../components/chat/ChatPanel'
+import { Layout } from '../components/layout/Layout'
+import { Sidebar } from '../components/layout/Sidebar'
+import { RuntimePanel } from '../components/status/RuntimePanel'
+import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
+import { publicStatusV1ToUiRuntimeStatus } from '../features/runtime'
+import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
+import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
+import { useRuntimeConsoleStore, type SidebarItem } from '../state/runtimeConsoleStore'
 import type {
-  ChatApiResponse,
   ChatMessage,
   ChatMode,
   ChatRequestState,
   ConversationSummary,
-  HealthResponse,
   RuntimeMetadata,
   SyncChatStatus,
 } from '../types'
+import type { UiChatResponse } from '../types/ui/chat'
+import type { UiRuntimeStatus } from '../types/ui/runtime'
 
-type View = 'chat' | 'dashboard'
+type View = 'chat' | 'dashboard' | 'observability'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -49,35 +50,6 @@ function buildSessionId() {
   return `${DEFAULT_SESSION_PREFIX}-${crypto.randomUUID().slice(0, 8)}`
 }
 
-function extractResponseText(payload: unknown): string {
-  if (typeof payload === 'string') {
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>
-      return (
-        (typeof parsed?.response === 'string' && parsed.response.trim())
-        || (typeof parsed?.message === 'string' && parsed.message.trim())
-        || (typeof parsed?.text === 'string' && parsed.text.trim())
-        || (typeof parsed?.answer === 'string' && parsed.answer.trim())
-        || payload
-      )
-    } catch {
-      return payload
-    }
-  }
-
-  if (payload !== null && typeof payload === 'object') {
-    const p = payload as Record<string, unknown>
-    const candidates = ['response', 'message', 'text', 'answer']
-    for (const key of candidates) {
-      if (typeof p[key] === 'string' && (p[key] as string).trim()) {
-        return (p[key] as string).trim()
-      }
-    }
-  }
-
-  return ''
-}
-
 function createMessage(
   role: ChatMessage['role'],
   content: string,
@@ -101,14 +73,43 @@ function createMessage(
   }
 }
 
-function normalizeMetadata(response: ChatApiResponse, previousSessionId: string): RuntimeMetadata {
+function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): RuntimeMetadata {
   return {
-    sessionId: response.session_id ?? previousSessionId,
-    source: response.source,
-    matchedCommands: response.matched_commands ?? [],
-    matchedTools: response.matched_tools ?? [],
-    stopReason: response.stop_reason,
-    usage: response.usage,
+    sessionId: ui.sessionId ?? previousSessionId,
+    source: ui.source,
+    matchedCommands: ui.commands,
+    matchedTools: ui.tools,
+    stopReason: ui.stopReason,
+    executionTier: ui.executionTier,
+    wireHealth: ui.wireHealth,
+    runtimeSessionVersion: ui.runtimeSessionVersion,
+    conversationId: ui.conversationId,
+    chatApiVersion: ui.chatApiVersion,
+    usage: ui.usage
+      ? {
+        input_tokens: ui.usage.inputTokens,
+        output_tokens: ui.usage.outputTokens,
+      }
+      : undefined,
+    runtimeMode: ui.runtimeMode,
+    runtimeReason: ui.runtimeReason,
+    cognitiveRuntimeInspection: ui.cognitiveRuntimeInspection,
+    signals: ui.signals,
+    executionPathUsed: ui.executionPathUsed,
+    fallbackTriggered: ui.fallbackTriggered,
+    compatibilityExecutionActive: ui.compatibilityExecutionActive,
+    providerActual: ui.providerActual,
+    providerFailed: ui.providerFailed,
+    failureClass: ui.failureClass,
+    failureReason: ui.failureReason,
+    executionProvenance: ui.executionProvenance,
+    providers: ui.providers,
+    providerDiagnostics: ui.providerDiagnostics,
+    providerFallbackOccurred: ui.providerFallbackOccurred,
+    noProviderAvailable: ui.noProviderAvailable,
+    toolExecution: ui.toolExecution,
+    toolDiagnostics: ui.toolDiagnostics,
+    error: ui.error,
   }
 }
 
@@ -165,6 +166,25 @@ const MODE_LABELS: Record<ChatMode, string> = {
   pesquisa: 'Pesquisa',
 }
 
+const SIDEBAR_PROMPTS: Partial<Record<SidebarItem, { mode: ChatMode; prompt: string }>> = {
+  brainstorm: {
+    mode: 'chat',
+    prompt: 'Faça um brainstorm estruturado com hipóteses, riscos e próximos passos.',
+  },
+  'analisar-dados': {
+    mode: 'pesquisa',
+    prompt: 'Analise os dados disponíveis e destaque padrões, riscos e lacunas.',
+  },
+  'criar-plano': {
+    mode: 'agente',
+    prompt: 'Crie um plano de execução incremental com etapas, critérios de validação e riscos.',
+  },
+  'executar-tarefa': {
+    mode: 'agente',
+    prompt: 'Prepare a execução desta tarefa, identifique ações necessárias e confirme limitações.',
+  },
+}
+
 export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPageProps) {
   const [messages, setMessages] = useState<ExtendedChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -173,9 +193,18 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const [telemetryTick, setTelemetryTick] = useState(0)
+  const resetRuntimeConsoleConversation = useRuntimeConsoleStore((state) => state.resetConversation)
+  const setConsoleCurrentMode = useRuntimeConsoleStore((state) => state.setCurrentMode)
+  const setConsoleIsSending = useRuntimeConsoleStore((state) => state.setIsSending)
+  const setConsoleLastError = useRuntimeConsoleStore((state) => state.setLastError)
+  const setConsoleRuntimeMetadata = useRuntimeConsoleStore((state) => state.setRuntimeMetadata)
+  const setConsoleUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
   const apiReady = canUseApi()
+  const telemetry = useCognitiveTelemetry(apiReady, telemetryTick)
+  const healthUi: UiRuntimeStatus | null = telemetry.publicRuntime
+    ? publicStatusV1ToUiRuntimeStatus(telemetry.publicRuntime)
+    : null
 
   useEffect(() => {
     const stored = loadStoredState()
@@ -205,10 +234,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }, [input, lastMetadata, messages, requestState, sessionId])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  useEffect(() => {
     if (messages.length === 0) {
       return
     }
@@ -217,11 +242,13 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     const status: SyncChatStatus =
       requestState === 'error'
         ? 'failed'
-        : latestMessage?.requestState === 'completed'
-          ? 'completed'
-          : requestState === 'loading'
-            ? 'active'
-            : 'idle'
+        : latestMessage?.requestState === 'degraded'
+          ? 'degraded'
+          : latestMessage?.requestState === 'completed'
+            ? 'completed'
+            : requestState === 'loading'
+              ? 'active'
+              : 'idle'
 
     void syncChatSessionToSupabase({
       externalSessionId: sessionId,
@@ -236,31 +263,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     })
   }, [lastMetadata, messages, mode, requestState, sessionId])
 
-  useEffect(() => {
-    if (!apiReady) {
-      setHealth(null)
-      return
-    }
-
-    let cancelled = false
-    fetchHealth()
-      .then((data) => {
-        if (!cancelled) {
-          setHealth(data)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setHealth(null)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [apiReady, requestState])
-
-  const loading = requestState === 'loading'
   const trimmedInput = input.trim()
   const canSend = Boolean(trimmedInput) && !isLoading
 
@@ -273,13 +275,35 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }], [messages, mode, sessionId])
 
   const helperText = apiReady
-    ? 'Rust bridge to Python cognition and Node runtime.'
-    : API_CONFIGURATION_ERROR || 'A API do Omni nao esta configurada. Voce ainda pode escrever e preparar a mensagem.'
+    ? 'Rust → Python → Node/Bun → Python → Rust. Runtime truth and execution telemetry preserved.'
+    : API_CONFIGURATION_ERROR || 'A API do Omni nao esta configurada. Voce ainda pode preparar a mensagem.'
 
   function sleep(ms: number) {
     return new Promise((resolve) => {
       window.setTimeout(resolve, ms)
     })
+  }
+
+  async function streamAssistantMessage(messageId: string, text: string, metadata: RuntimeMetadata, requestState: ChatMessage['requestState']) {
+    const chunks = text.match(/.{1,28}(\s|$)/g) ?? [text]
+    let streamed = ''
+
+    for (const chunk of chunks) {
+      streamed += chunk
+      setMessages((current) => current.map((message) => (
+        message.id === messageId
+          ? {
+            ...message,
+            content: streamed.trimEnd(),
+            isLoading: false,
+            isNew: true,
+            metadata,
+            requestState,
+          }
+          : message
+      )))
+      await sleep(28)
+    }
   }
 
   async function sendWithRetry(prompt: string, options: { sessionId: string }, maxRetries = 2) {
@@ -296,12 +320,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     }
 
     throw new Error('Failed to send message after retries.')
-  }
-
-  function markMessageAsCompleted(messageId: string) {
-    setMessages((current) => current.map((message) => (
-      message.id === messageId ? { ...message, isNew: false } : message
-    )))
   }
 
   async function handleSubmit() {
@@ -331,51 +349,56 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     setError(null)
     setRequestState('loading')
     setIsLoading(true)
+    setConsoleIsSending(true)
+    setConsoleLastError(null)
 
     try {
       const data = await sendWithRetry(prompt, { sessionId })
       console.debug('[omni:raw]', data)
-      const metadata = normalizeMetadata(data, sessionId)
-      const responseText = extractResponseText(data)
-      const displayText = responseText || '...'
+      const ui = chatApiResponseToUi(data)
+      const metadata = normalizeMetadata(ui, sessionId)
+      const displayText = ui.text.trim() || '...'
+      const assistantOutcome = ui.wireHealth === 'degraded' ? ('degraded' as const) : ('completed' as const)
 
+      await sleep(420)
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
-      setMessages((current) => [
-        ...current.map((message) => (
-          message.id === loadingMessageId
-            ? {
-              ...message,
-              content: displayText,
-              isLoading: false,
-              isNew: true,
-              requestState: 'completed' as const,
-            }
-            : message
-        )),
-      ])
+      setConsoleRuntimeMetadata(metadata)
+      await streamAssistantMessage(loadingMessageId, displayText, metadata, assistantOutcome)
       setRequestState('idle')
+      setTelemetryTick((value) => value + 1)
     } catch (err) {
       setInput(previousInput)
       setRequestState('error')
-      setError(
+      const chatErrorPayload = err instanceof ChatRequestError ? err.payload : undefined
+      const failedUi = chatErrorPayload ? chatApiResponseToUi(chatErrorPayload) : undefined
+      const failedMetadata = failedUi ? normalizeMetadata(failedUi, sessionId) : null
+      if (failedMetadata) {
+        setSessionId(failedMetadata.sessionId ?? sessionId)
+        setLastMetadata(failedMetadata)
+        setConsoleRuntimeMetadata(failedMetadata)
+      }
+      const safeError =
         err instanceof Error
           ? err.message
-          : 'Falha inesperada ao consultar o runtime.',
-      )
+          : 'Falha inesperada ao consultar o runtime.'
+      setError(safeError)
+      setConsoleLastError(safeError)
       setMessages((current) => current.map((message) => (
         message.id === loadingMessageId
           ? {
             ...message,
-            content: 'Não consegui processar sua mensagem. Tente novamente.',
+            content: failedUi?.text?.trim() || 'Não consegui processar sua mensagem. Tente novamente.',
             isLoading: false,
             isNew: true,
             requestState: 'failed' as const,
+            metadata: failedMetadata ?? undefined,
           }
           : message
       )))
     } finally {
       setIsLoading(false)
+      setConsoleIsSending(false)
     }
   }
 
@@ -388,6 +411,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     setRequestState('idle')
     setIsLoading(false)
     setSessionId(nextSessionId)
+    resetRuntimeConsoleConversation()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       input: '',
       lastMetadata: null,
@@ -397,8 +421,23 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     } satisfies StoredChatState))
   }
 
+  function handleSidebarItemSelected(item: SidebarItem) {
+    const preset = SIDEBAR_PROMPTS[item]
+    if (preset) {
+      onChangeMode(preset.mode)
+      setConsoleCurrentMode(preset.mode)
+      setInput(preset.prompt)
+      setConsoleUiNotice(`Preset "${item}" carregado no composer. Revise e envie quando quiser executar.`)
+      return
+    }
+
+    if (item === 'memoria' || item === 'simulacoes' || item === 'insights' || item === 'configuracoes-ia') {
+      setConsoleUiNotice('Este módulo ainda não possui backend dedicado nesta branch, mas a navegação e o estado da interface estão funcionais.')
+    }
+  }
+
   return (
-    <AppShell
+    <Layout
       sidebar={(
         <Sidebar
           activeConversationId={sessionId}
@@ -406,52 +445,36 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           mode={mode}
           onChangeMode={onChangeMode}
           onNewConversation={handleNewConversation}
+          onSidebarItemSelected={handleSidebarItemSelected}
           onSelectView={onChangeView}
           view={view}
         />
       )}
-      statusPanel={(
-        <StatusPanel
-          apiConfigured={apiReady}
+      center={(
+        <ChatPanel
+          canSend={canSend}
           error={error}
-          health={health}
+          input={input}
+          lastMetadata={lastMetadata}
+          loading={isLoading}
+          messages={messages}
+          onChange={setInput}
+          onSubmit={() => {
+            void handleSubmit()
+          }}
+          requestState={requestState}
+          sessionId={sessionId}
+        />
+      )}
+      right={(
+        <RuntimePanel
+          health={healthUi}
           lastMetadata={lastMetadata}
           modeLabel={MODE_LABELS[mode]}
           requestState={requestState}
           sessionId={sessionId}
         />
       )}
-    >
-      <div className="chat-page">
-        <ChatHeader loading={loading} mode={mode} sessionId={sessionId} />
-        <section className="chat-surface panel-card">
-          <section className="messages">
-            {messages.length === 0 ? (
-              <EmptyState onSelectPrompt={(prompt) => setInput(prompt)} />
-            ) : (
-              messages.map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  onTypingComplete={markMessageAsCompleted}
-                />
-              ))
-            )}
-            <div ref={bottomRef} />
-          </section>
-        </section>
-        <Composer
-          canSend={canSend}
-          error={error}
-          helperText={helperText}
-          loading={isLoading}
-          onChange={setInput}
-          onSubmit={() => {
-            void handleSubmit()
-          }}
-          value={input}
-        />
-      </div>
-    </AppShell>
+    />
   )
 }

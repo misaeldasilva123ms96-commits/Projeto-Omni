@@ -1,0 +1,59 @@
+# Omni Analytics view: map to Supabase table public.runtime_tool_events
+# Reference name in Omni: public__runtime_tool_events
+# See https://docs.omni.co/modeling/views and measures reference.
+
+schema: public
+table_name: runtime_tool_events
+
+dimensions:
+  id:
+    primary_key: true
+    label: Event id
+    description: Surrogate key for each tool invocation record.
+  occurred_at:
+    label: Occurred at
+    description: UTC timestamp when the runtime recorded the event.
+  session_id:
+    label: Session id
+    description: Runtime session correlation id (opaque).
+  task_id:
+    label: Task id
+  run_id:
+    label: Run id
+  tool_name:
+    label: Tool name
+    description: Logical tool identifier from the runtime.
+  success:
+    label: Success
+    description: True if the tool invocation completed successfully.
+  error_code:
+    label: Error code
+    description: Failure kind when success is false (no secret payloads).
+  latency_ms:
+    label: Latency ms
+    description: Wall time for the step in milliseconds when available.
+  provider:
+    label: Provider
+    description: Optional LLM provider id when supplied by the runtime.
+
+measures:
+  event_count:
+    label: Event count
+    description: Number of tool invocations.
+    aggregate_type: count
+  successful_events:
+    label: Successful events
+    description: Count of invocations where success is true.
+    aggregate_type: count
+    filters:
+      success:
+        is: true
+  success_rate:
+    label: Success rate
+    description: successful_events / event_count
+    sql: ${successful_events} / NULLIF(${event_count}, 0)
+    format: percent_2
+  avg_latency_ms:
+    label: Average latency ms
+    sql: ${latency_ms}
+    aggregate_type: average

@@ -12,8 +12,21 @@ try {
 }
 
 const MAX_MEMORY_BYTES = 16 * 1024;
-const USER_FALLBACK_RESPONSE = 'Entendido. Como posso ajudá-lo?';
+const USER_FALLBACK_RESPONSE =
+  '[degraded:node_runner] O motor Node/QueryEngine não devolveu um resultado utilizável (resolução de módulo, exceção ou resposta vazia). Verifique js-runner, OMINI_LOG_LEVEL=debug e o caminho fusionBrain (src/queryEngineRunnerAdapter.js).';
 const RESPONSE_CANDIDATE_KEYS = ['response', 'message', 'text', 'answer', 'output', 'result'];
+const PACKAGED_ENGINE_MODE = 'packaged_upstream';
+const FUSION_ADAPTER_MODE = 'fusion_authority';
+const AUTHORITY_FALLBACK_MODE = 'authority_fallback';
+const DIST_CANDIDATE_REASON = 'dist_candidate_selected';
+const ADAPTER_CANDIDATE_REASON = 'adapter_path_selected';
+const HEAVY_EXECUTION_REASON = 'heavy_execution_request';
+const PACKAGED_IMPORT_FAILED_REASON = 'packaged_import_failed';
+const FALLBACK_POLICY_REASON = 'fallback_policy_triggered';
+const BUN_NATIVE_REASON = 'bun_native';
+const NODE_FALLBACK_NO_BUN_REASON = 'node_fallback_no_bun';
+const NODE_FALLBACK_API_MISSING_REASON = 'node_fallback_api_missing';
+const NODE_FALLBACK_ERROR_REASON = 'node_fallback_error';
 
 function getBaseDir() {
   return process.env.BASE_DIR
@@ -49,7 +62,19 @@ const validatePayload = (() => {
 })();
 
 function getRawInput() {
-  return process.argv.slice(2).join(' ').trim();
+  const argvPayload = process.argv.slice(2).join(' ').trim();
+  if (argvPayload) {
+    return argvPayload;
+  }
+
+  try {
+    if (process.stdin.isTTY) {
+      return '';
+    }
+    return fs.readFileSync(0, 'utf8').trim();
+  } catch {
+    return '';
+  }
 }
 
 function getWorkspaceRoot() {
@@ -220,17 +245,155 @@ function getQueryEngineCandidates() {
     ? path.resolve(process.env.RUNNER_ADAPTER_PATH)
     : path.join(workspaceRoot, 'src', 'queryEngineRunnerAdapter.js');
   const esmAdapterPath = adapterPath.replace(/\.js$/i, '.mjs');
-
-  return [
-    esmAdapterPath,
-    adapterPath,
+  const dist = path.join(workspaceRoot, 'dist', 'QueryEngine.js');
+  const build = path.join(workspaceRoot, 'build', 'QueryEngine.js');
+  const tail = [
     path.join(workspaceRoot, 'src', 'QueryEngine.js'),
     path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
-    path.join(workspaceRoot, 'dist', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'build', 'QueryEngine.js'),
   ];
+  const preferDistFirst = String(process.env.OMINI_QUERY_ENGINE_ORDER || '')
+    .trim()
+    .toLowerCase() === 'dist_first';
+  if (preferDistFirst) {
+    return [dist, build, esmAdapterPath, adapterPath, ...tail];
+  }
+  return [esmAdapterPath, adapterPath, dist, build, ...tail];
+}
+
+function getPackagedQueryEngineCandidate() {
+  return path.join(getWorkspaceRoot(), 'dist', 'QueryEngine.js');
+}
+
+function cloneMetadata(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...value }
+    : {};
+}
+
+function resolveRuntimeMetadata(env = process.env, runtimeVersions = process.versions) {
+  if (runtimeVersions && runtimeVersions.bun) {
+    return {
+      runtime_mode: 'bun',
+      runtime_reason: BUN_NATIVE_REASON,
+    };
+  }
+
+  const runtimeName = String(env.OMINI_JS_RUNTIME || '').trim().toLowerCase();
+  const runtimeSource = String(env.OMINI_JS_RUNTIME_SOURCE || '').trim().toLowerCase();
+
+  if (runtimeName === 'bun') {
+    return {
+      runtime_mode: 'bun',
+      runtime_reason: BUN_NATIVE_REASON,
+    };
+  }
+
+  if (runtimeSource === 'bun_api_missing') {
+    return {
+      runtime_mode: 'node',
+      runtime_reason: NODE_FALLBACK_API_MISSING_REASON,
+    };
+  }
+
+  if (runtimeSource === 'bun_error') {
+    return {
+      runtime_mode: 'node',
+      runtime_reason: NODE_FALLBACK_ERROR_REASON,
+    };
+  }
+
+  return {
+    runtime_mode: 'node',
+    runtime_reason: NODE_FALLBACK_NO_BUN_REASON,
+  };
+}
+
+function buildRunnerMetadata(engineMode, engineReason, metadata = {}, env = process.env, runtimeVersions = process.versions) {
+  const runtimeMetadata = resolveRuntimeMetadata(env, runtimeVersions);
+  return {
+    ...cloneMetadata(metadata),
+    engine_mode: engineMode,
+    engine_reason: engineReason,
+    runtime_mode: runtimeMetadata.runtime_mode,
+    runtime_reason: runtimeMetadata.runtime_reason,
+  };
+}
+
+function normalizeResultShape(result) {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    return { ...result };
+  }
+
+  if (typeof result === 'string') {
+    return { response: result.trim() };
+  }
+
+  return { response: '' };
+}
+
+function attachRunnerMetadata(result, engineMode, engineReason) {
+  const normalized = normalizeResultShape(result);
+  normalized.metadata = buildRunnerMetadata(engineMode, engineReason, normalized.metadata);
+  return normalized;
+}
+
+function getCandidateError(candidateErrors, candidatePath) {
+  return candidateErrors.find((item) => item && item.candidate === candidatePath) || null;
+}
+
+function isFusionAdapterCandidate(candidatePath) {
+  return /queryEngineRunnerAdapter\.(js|mjs)$/i.test(String(candidatePath || ''));
+}
+
+function inferFallbackMetadata(execution) {
+  const packagedCandidate = getPackagedQueryEngineCandidate();
+  if (getCandidateError(execution.candidateErrors, packagedCandidate)) {
+    return {
+      engineMode: AUTHORITY_FALLBACK_MODE,
+      engineReason: PACKAGED_IMPORT_FAILED_REASON,
+    };
+  }
+
+  return {
+    engineMode: AUTHORITY_FALLBACK_MODE,
+    engineReason: FALLBACK_POLICY_REASON,
+  };
+}
+
+function enrichExecutionMetadata(execution) {
+  const { result, selectedCandidate } = execution;
+  if (!result) {
+    return execution;
+  }
+
+  const packagedCandidate = getPackagedQueryEngineCandidate();
+  const metadata = result && typeof result === 'object' && !Array.isArray(result)
+    ? cloneMetadata(result.metadata)
+    : {};
+
+  let engineMode = String(metadata.engine_mode || '').trim();
+  let engineReason = String(metadata.engine_reason || '').trim();
+
+  if (!engineMode || !engineReason) {
+    if (selectedCandidate === packagedCandidate) {
+      engineMode = PACKAGED_ENGINE_MODE;
+      engineReason = DIST_CANDIDATE_REASON;
+    } else if (isFusionAdapterCandidate(selectedCandidate)) {
+      engineMode = FUSION_ADAPTER_MODE;
+      engineReason = ADAPTER_CANDIDATE_REASON;
+    } else {
+      const fallbackMetadata = inferFallbackMetadata(execution);
+      engineMode = fallbackMetadata.engineMode;
+      engineReason = fallbackMetadata.engineReason;
+    }
+  }
+
+  return {
+    ...execution,
+    result: attachRunnerMetadata(result, engineMode, engineReason),
+  };
 }
 
 async function runAgentLoop(runner, payload) {
@@ -264,6 +427,8 @@ async function tryRunExistingQueryEngineDetailed(payload) {
       const runner =
         imported.runQueryEngine ||
         imported.run ||
+        imported.default?.runQueryEngine ||
+        imported.default?.run ||
         imported.default;
 
       if (typeof runner !== 'function') {
@@ -272,13 +437,13 @@ async function tryRunExistingQueryEngineDetailed(payload) {
 
       const result = await runAgentLoop(runner, payload);
       if (result) {
-        return {
+        return enrichExecutionMetadata({
           result,
           selectedCandidate: candidate,
           attemptedCandidates,
           attemptedTypescriptCandidate,
           candidateErrors,
-        };
+        });
       }
     } catch (error) {
       candidateErrors.push({
@@ -290,13 +455,13 @@ async function tryRunExistingQueryEngineDetailed(payload) {
     }
   }
 
-  return {
+  return enrichExecutionMetadata({
     result: '',
     selectedCandidate: '',
     attemptedCandidates,
     attemptedTypescriptCandidate,
     candidateErrors,
-  };
+  });
 }
 
 async function tryRunExistingQueryEngine(payload) {
@@ -339,8 +504,44 @@ function emitRunnerError(kind, message, details = {}) {
 }
 
 function isDebugLoggingEnabled() {
+  if (isPublicDemoMode()) {
+    return false;
+  }
   const level = String(process.env.OMINI_LOG_LEVEL || process.env.LOG_LEVEL || '').toLowerCase().trim();
   return level === 'debug';
+}
+
+function isPublicDemoMode() {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env.OMNI_PUBLIC_DEMO_MODE || '').trim().toLowerCase())
+    || ['1', 'true', 'yes', 'on'].includes(String(process.env.OMINI_PUBLIC_DEMO_MODE || '').trim().toLowerCase());
+}
+
+function sanitizeDebugPayload(value, depth = 0) {
+  if (depth > 4) {
+    return '[REDACTED_DEPTH]';
+  }
+  if (typeof value === 'string') {
+    return value
+      .replace(/sk-proj-[A-Za-z0-9_-]{12,}/g, '[REDACTED_API_KEY]')
+      .replace(/sk-[A-Za-z0-9_-]{12,}/g, '[REDACTED_API_KEY]')
+      .replace(/Bearer\s+[A-Za-z0-9_.=-]{12,}/gi, 'Bearer [REDACTED_TOKEN]')
+      .slice(0, 500);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map(item => sanitizeDebugPayload(item, depth + 1));
+  }
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (/(token|secret|password|api[_-]?key|authorization|env|stdout|stderr|raw)/i.test(key)) {
+      out[key] = '[REDACTED]';
+    } else {
+      out[key] = sanitizeDebugPayload(item, depth + 1);
+    }
+  }
+  return out;
 }
 
 function debugLogInternal(stage, payload) {
@@ -349,7 +550,7 @@ function debugLogInternal(stage, payload) {
   }
 
   try {
-    process.stderr.write(`${JSON.stringify({ stage, payload })}\n`);
+    process.stderr.write(`${JSON.stringify({ stage, payload: sanitizeDebugPayload(payload) })}\n`);
   } catch {
     // Never break user-visible output because debug logging failed.
   }
@@ -384,20 +585,40 @@ function sanitizeForUserInternal(input) {
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (!trimmed) {
-      return { response: USER_FALLBACK_RESPONSE };
+      return attachRunnerMetadata({
+        response: USER_FALLBACK_RESPONSE,
+        error: {
+          failure_class: 'NODE_EMPTY_RESPONSE',
+          message: 'Node runner received an empty string result.',
+        },
+      }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
     }
     const parsed = tryParseStructuredString(trimmed);
     if (parsed !== null) {
       return sanitizeForUserInternal(parsed);
     }
-    return { response: trimmed };
+    return attachRunnerMetadata({ response: trimmed }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 
   if (input == null || Array.isArray(input)) {
-    return { response: USER_FALLBACK_RESPONSE };
+    return attachRunnerMetadata({
+      response: USER_FALLBACK_RESPONSE,
+      error: {
+        failure_class: 'NODE_EMPTY_RESPONSE',
+        message: 'Node runner received an invalid public response shape.',
+      },
+    }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 
   if (typeof input === 'object') {
+    const metadata = cloneMetadata(input.metadata);
+    if (input.execution_request && typeof input.execution_request === 'object') {
+      return attachRunnerMetadata(
+        input,
+        String(metadata.engine_mode || AUTHORITY_FALLBACK_MODE),
+        String(metadata.engine_reason || FALLBACK_POLICY_REASON),
+      );
+    }
     for (const key of RESPONSE_CANDIDATE_KEYS) {
       const candidate = input[key];
       if (typeof candidate !== 'string') {
@@ -411,11 +632,31 @@ function sanitizeForUserInternal(input) {
       if (parsed !== null) {
         return sanitizeForUserInternal(parsed);
       }
-      return { response: trimmed };
+      return {
+        response: trimmed,
+        error: input.error && typeof input.error === 'object' ? input.error : undefined,
+        metadata: buildRunnerMetadata(
+          String(metadata.engine_mode || AUTHORITY_FALLBACK_MODE),
+          String(metadata.engine_reason || FALLBACK_POLICY_REASON),
+          metadata,
+        ),
+      };
+    }
+    if (input.error && typeof input.error === 'object') {
+      return attachRunnerMetadata({
+        response: USER_FALLBACK_RESPONSE,
+        error: input.error,
+      }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
     }
   }
 
-  return { response: USER_FALLBACK_RESPONSE };
+  return attachRunnerMetadata({
+    response: USER_FALLBACK_RESPONSE,
+    error: {
+      failure_class: 'NODE_EMPTY_RESPONSE',
+      message: 'Node runner could not normalize the result into the public response shape.',
+    },
+  }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
 }
 
 function sanitizeForUser(input) {
@@ -423,7 +664,7 @@ function sanitizeForUser(input) {
   try {
     return sanitizeForUserInternal(input);
   } catch {
-    return { response: USER_FALLBACK_RESPONSE };
+    return attachRunnerMetadata({ response: USER_FALLBACK_RESPONSE }, AUTHORITY_FALLBACK_MODE, FALLBACK_POLICY_REASON);
   }
 }
 
@@ -431,7 +672,16 @@ async function main() {
   try {
     const parsed = safeParsePayload(getRawInput());
     if (!parsed.message) {
-      process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+      process.stdout.write(JSON.stringify(
+        attachRunnerMetadata(
+          {
+            response: USER_FALLBACK_RESPONSE,
+            metadata: { execution_tier: 'technical_fallback', node_runner_degraded: true, empty_message: true },
+          },
+          AUTHORITY_FALLBACK_MODE,
+          FALLBACK_POLICY_REASON,
+        ),
+      ));
       return;
     }
 
@@ -460,7 +710,25 @@ async function main() {
         candidate_errors: execution.candidateErrors.slice(0, 6),
         cwd: payload.cwd,
       });
-      process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+      const fallbackMetadata = inferFallbackMetadata(execution);
+      process.stdout.write(JSON.stringify(
+        attachRunnerMetadata(
+          {
+            response: USER_FALLBACK_RESPONSE,
+            error: {
+              failure_class: 'NODE_BRIDGE_EMPTY_STDOUT',
+              message: 'Node runner could not resolve a usable query engine result.',
+            },
+            metadata: {
+              execution_tier: 'technical_fallback',
+              node_runner_degraded: true,
+              missing_query_engine_result: true,
+            },
+          },
+          fallbackMetadata.engineMode,
+          fallbackMetadata.engineReason,
+        ),
+      ));
       return;
     }
 
@@ -470,7 +738,24 @@ async function main() {
       error_name: error && error.name ? error.name : 'Error',
       error_message: error && error.message ? String(error.message) : String(error || ''),
     });
-    process.stdout.write(JSON.stringify({ response: USER_FALLBACK_RESPONSE }));
+    process.stdout.write(JSON.stringify(
+      attachRunnerMetadata(
+        {
+          response: USER_FALLBACK_RESPONSE,
+          error: {
+            failure_class: 'NODE_BRIDGE_NONZERO_EXIT',
+            message: 'Node runner raised an unhandled exception.',
+          },
+          metadata: {
+            execution_tier: 'technical_fallback',
+            node_runner_degraded: true,
+            main_exception: true,
+          },
+        },
+        AUTHORITY_FALLBACK_MODE,
+        FALLBACK_POLICY_REASON,
+      ),
+    ));
   }
 }
 
@@ -478,14 +763,19 @@ module.exports = {
   emptyPayload,
   getBaseDir,
   getQueryEngineCandidates,
+  getPackagedQueryEngineCandidate,
   getWorkspaceRoot,
+  inferFallbackMetadata,
+  isDebugLoggingEnabled,
   loadAgentMemoryContext,
   loadRunnerSchema,
   main,
   safeParsePayload,
+  sanitizeForUser,
   tryRunExistingQueryEngineDetailed,
   tryRunExistingQueryEngine,
   validatePayload,
+  resolveRuntimeMetadata,
 };
 
 if (require.main === module) {

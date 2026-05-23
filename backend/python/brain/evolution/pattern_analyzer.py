@@ -12,6 +12,7 @@ class PatternAnalyzer:
         evaluations: list[dict[str, Any]],
         learning: dict[str, Any],
         sessions: list[dict[str, Any]],
+        phase41_performance_sketch: dict[str, Any] | list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         weak_patterns: list[dict[str, Any]] = []
         strong_patterns: list[dict[str, Any]] = []
@@ -84,7 +85,7 @@ class PatternAnalyzer:
             reverse=True,
         )[:3]
 
-        return {
+        out: dict[str, Any] = {
             "weak_patterns": sorted(weak_patterns, key=lambda item: item["average_score"]),
             "strong_patterns": sorted(strong_patterns, key=lambda item: item["average_score"], reverse=True),
             "underused_capabilities": underused_capabilities,
@@ -92,3 +93,6 @@ class PatternAnalyzer:
             "frequent_flags": flag_counter.most_common(5),
             "best_hours": best_hours,
         }
+        if phase41_performance_sketch is not None:
+            out["phase41_performance_sketch"] = phase41_performance_sketch
+        return out

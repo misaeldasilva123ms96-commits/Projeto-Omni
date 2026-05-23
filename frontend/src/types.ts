@@ -1,6 +1,6 @@
 export type ChatRole = 'user' | 'assistant' | 'system'
 
-export type SyncChatStatus = 'active' | 'idle' | 'completed' | 'failed'
+export type SyncChatStatus = 'active' | 'idle' | 'completed' | 'failed' | 'degraded'
 
 export type ChatMode = 'chat' | 'pesquisa' | 'codigo' | 'agente'
 
@@ -9,13 +9,107 @@ export type ChatUsage = {
   output_tokens?: number
 }
 
+export type RuntimeErrorPayload = {
+  code?: string
+  error_public_code?: string
+  message?: string
+  error_public_message?: string
+  severity?: 'info' | 'degraded' | 'blocked' | 'error' | 'critical' | string
+  retryable?: boolean
+  internal_error_redacted?: boolean
+  details?: unknown
+}
+
+export type ProviderDiagnostic = {
+  provider?: string
+  configured?: boolean
+  available?: boolean
+  selected?: boolean
+  attempted?: boolean
+  succeeded?: boolean
+  failed?: boolean
+  failure_class?: string | null
+  failure_reason?: string | null
+  latency_ms?: number | null
+}
+
+export type ToolExecutionDiagnostic = {
+  tool_requested?: boolean
+  tool_selected?: string | null
+  tool_available?: boolean
+  tool_attempted?: boolean
+  tool_succeeded?: boolean
+  tool_failed?: boolean
+  tool_denied?: boolean
+  tool_failure_class?: string | null
+  tool_failure_reason?: string | null
+  tool_latency_ms?: number | null
+}
+
+export type RuntimeSignals = {
+  runtime_reason?: string
+  execution_path_used?: string
+  fallback_triggered?: boolean
+  compatibility_execution_active?: boolean
+  provider_actual?: string
+  provider_failed?: boolean
+  failure_class?: string
+  failure_reason?: string
+  error_public_code?: string
+  error_public_message?: string
+  severity?: string
+  retryable?: boolean
+  internal_error_redacted?: boolean
+  execution_provenance?: unknown
+  node_execution_successful?: boolean
+  provider_diagnostics?: ProviderDiagnostic[] | null
+  provider_fallback_occurred?: boolean
+  no_provider_available?: boolean
+  tool_execution?: ToolExecutionDiagnostic | null
+  tool_diagnostics?: ToolExecutionDiagnostic[] | null
+}
+
 export type RuntimeMetadata = {
   sessionId?: string
   source?: string
   matchedCommands: string[]
   matchedTools: string[]
   stopReason?: string
+  /** When backend returns `cognitive_runtime_inspection.execution_tier` (degraded vs real). */
+  executionTier?: string
+  /** Derived from wire contract (`wireChatHealth`); not a second source of truth. */
+  wireHealth?: 'ok' | 'degraded'
   usage?: ChatUsage
+  /** From `POST /chat` (`runtime_session_version`); Rust runtime epoch, not UI session. */
+  runtimeSessionVersion?: number
+  /** Server/orchestrator id when returned on the wire; not the UI-owned session key. */
+  conversationId?: string
+  /** `api_version` when the response came from `POST /api/v1/chat`. */
+  chatApiVersion?: string
+  runtimeMode?: string
+  runtimeReason?: string
+  cognitiveRuntimeInspection?: Record<string, unknown>
+  signals?: RuntimeSignals
+  executionPathUsed?: string
+  fallbackTriggered?: boolean
+  compatibilityExecutionActive?: boolean
+  providerActual?: string
+  providerFailed?: boolean
+  failureClass?: string
+  failureReason?: string
+  errorPublicCode?: string
+  errorPublicMessage?: string
+  severity?: string
+  retryable?: boolean
+  internalErrorRedacted?: boolean
+  executionProvenance?: unknown
+  providers?: unknown[]
+  providerDiagnostics?: ProviderDiagnostic[]
+  providerFallbackOccurred?: boolean
+  noProviderAvailable?: boolean
+  toolExecution?: ToolExecutionDiagnostic
+  toolDiagnostics?: ToolExecutionDiagnostic[]
+  error?: RuntimeErrorPayload
 }
 
 export type ChatMessage = {
@@ -24,17 +118,50 @@ export type ChatMessage = {
   content: string
   createdAt: string
   metadata?: RuntimeMetadata
-  requestState?: 'completed' | 'failed'
+  requestState?: 'completed' | 'failed' | 'degraded'
 }
 
 export type ChatApiResponse = {
   response: string
   session_id?: string
+  /** Echo of request `client_session_id` when the server returned it (Phase 7). */
+  client_session_id?: string
   source?: string
   matched_commands?: string[]
   matched_tools?: string[]
   stop_reason?: string
   usage?: ChatUsage
+  /** Rust runtime epoch; aligns with `GET /api/v1/status.runtime_session_version` / `/health`. */
+  runtime_session_version?: number
+  /** Truthful server/orchestrator conversation id when present (Phase 11+). */
+  conversation_id?: string
+  /** Present on `POST /api/v1/chat` responses (`api_version` in JSON). */
+  api_version?: string
+  /** Rust/Python cognitive envelope when present; never fabricate client-side. */
+  cognitive_runtime_inspection?: Record<string, unknown>
+  runtime_mode?: string
+  runtime_reason?: string
+  signals?: RuntimeSignals
+  execution_path_used?: string
+  fallback_triggered?: boolean
+  compatibility_execution_active?: boolean
+  provider_actual?: string
+  provider_failed?: boolean
+  failure_class?: string
+  failure_reason?: string
+  error_public_code?: string
+  error_public_message?: string
+  severity?: string
+  retryable?: boolean
+  internal_error_redacted?: boolean
+  execution_provenance?: unknown
+  providers?: unknown[]
+  provider_diagnostics?: ProviderDiagnostic[]
+  provider_fallback_occurred?: boolean
+  no_provider_available?: boolean
+  tool_execution?: ToolExecutionDiagnostic
+  tool_diagnostics?: ToolExecutionDiagnostic[]
+  error?: RuntimeErrorPayload
 }
 
 export type ChatRequestState = 'idle' | 'loading' | 'error'
@@ -45,6 +172,53 @@ export type ConversationSummary = {
   updatedAt: string
   messageCount: number
   mode: ChatMode
+}
+
+/** Product-safe public snapshot (`GET /api/v1/status`). */
+export type PublicStatusResponseV1 = {
+  api_version: string
+  status: string
+  runtime_mode: string
+  rust_service: string
+  python_status: string
+  node_status: string
+  runtime_session_version: number
+  timestamp_ms: number
+}
+
+/** `GET /api/v1/runtime/signals/summary` — reduced counts + latest run preview (Phase 8). */
+export type PublicRuntimeSignalsSummaryV1 = {
+  api_version: string
+  status: string
+  recent_signal_sample_size: number
+  recent_signal_count: number
+  recent_mode_transition_count: number
+  latest_run_id: string
+  latest_plan_kind: string
+  latest_run_message_preview: string
+  timestamp_ms: number
+}
+
+/** `GET /api/v1/milestones/summary` — checkpoint counts only (Phase 8). */
+export type PublicMilestonesSummaryV1 = {
+  api_version: string
+  status: string
+  latest_run_id: string
+  completed_milestone_count: number
+  blocked_milestone_count: number
+  patch_set_count: number
+  checkpoint_status: string
+  timestamp_ms: number
+}
+
+/** `GET /api/v1/strategy/summary` — version + safe scalars (Phase 8). */
+export type PublicStrategySummaryV1 = {
+  api_version: string
+  status: string
+  strategy_version: number
+  recent_change_log_count: number
+  create_plan_weight: number | null
+  timestamp_ms: number
 }
 
 export type HealthResponse = {
@@ -108,4 +282,41 @@ export type MilestonesResponse = {
 export type PrSummariesResponse = {
   status: string
   summaries: Array<Record<string, unknown>>
+}
+
+/** Where richer (non-summary) runtime rows came from for this request. */
+export type RichTelemetryDetailSource = 'operator' | 'internal'
+
+/** `GET /api/v1/operator/runtime/signals` — JWT; redacted audit projection. */
+export type OperatorRuntimeSignalsV1 = {
+  api_version: string
+  status: string
+  timestamp_ms: number
+  recent_signal_sample_size: number
+  recent_signals: Record<string, unknown>[]
+  recent_mode_transitions: Record<string, unknown>[]
+  latest_run_summary: Record<string, unknown>
+}
+
+/** `GET /api/v1/operator/strategy/changes` — JWT; no full rules blob. */
+export type OperatorStrategyChangesV1 = {
+  api_version: string
+  status: string
+  timestamp_ms: number
+  strategy_version: number
+  recent_changes: Record<string, unknown>[]
+}
+
+/** `GET /api/v1/operator/milestones` — JWT; bounded patch_sets + redacted JSON. */
+export type OperatorMilestonesV1 = {
+  api_version: string
+  status: string
+  timestamp_ms: number
+  latest_run_id?: string | null
+  checkpoint_status: Record<string, unknown>
+  milestone_state: Record<string, unknown>
+  patch_sets: Array<Record<string, unknown>>
+  patch_sets_total: number
+  patch_sets_returned: number
+  execution_state: Record<string, unknown>
 }

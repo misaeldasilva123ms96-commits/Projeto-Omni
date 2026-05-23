@@ -1,0 +1,11 @@
+{
+  "step": "build_sft_dataset",
+  "source": "omni-training",
+  "generated_at": "2026-04-21T22:35:23.111652+00:00",
+  "stats": {
+    "total_converted": 8,
+    "public_examples": 0,
+    "curated_examples": 8,
+    "output_path": "omni-training/data/sft/omni_sft_seed.jsonl"
+  }
+}

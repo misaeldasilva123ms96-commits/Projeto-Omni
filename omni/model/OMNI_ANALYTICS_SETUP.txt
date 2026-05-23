@@ -1,0 +1,28 @@
+Omni Analytics + Supabase: runtime tool success model
+======================================================
+
+1) Apply the migration
+   Run Supabase migrations so table public.runtime_tool_events exists:
+   supabase db push   (or apply supabase/migrations/20260418120000_runtime_tool_events.sql in SQL Editor)
+
+2) Postgres connection in Omni (todo: omni-connection)
+   - Omni Admin: add a Postgres connection to the same database (Supabase).
+   - Host: Project Settings -> Database -> Connection string (URI), use SSL.
+   - Prefer a dedicated read-only database user for BI; the bundled postgres user bypasses RLS.
+   - After the migration, refresh schema in Omni so public.runtime_tool_events is visible.
+
+3) Model files (todo: yaml-topic)
+   - Copy YAML from omni/model/ into your Omni model (Model IDE or omni-sync / API).
+   - View file name must match Omni convention: public__runtime_tool_events (schema + table).
+   - Topic base_view must be public__runtime_tool_events.
+   - Create a branch in Omni before promoting to shared model.
+
+4) Runtime writer (optional env)
+   - Set SUPABASE_SERVICE_ROLE_KEY in the Python process environment (never commit real keys).
+   - Optional: OMINI_SUPABASE_TOOL_EVENTS_DISABLE=1 to turn off POSTs.
+   - Backend posts via PostgREST: POST /rest/v1/runtime_tool_events
+
+Validation
+----------
+- SQL: select tool_name, count(*), avg(case when success then 1.0 else 0.0 end) from public.runtime_tool_events group by 1;
+- Omni: open topic "Runtime tools" and chart success_rate by tool_name for last 7 days.

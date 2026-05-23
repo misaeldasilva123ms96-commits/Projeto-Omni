@@ -6,7 +6,11 @@ const {
   describeEmbeddingMode,
   rankSemanticCandidates,
 } = require('./semanticMemory');
-const { isSupabaseConfigured, supabase, supabaseUrl } = require('./supabaseClient');
+const {
+  getSupabaseClient,
+  getSupabaseDiagnostics,
+  isSupabaseConfigured,
+} = require('./supabaseClient');
 
 const SUPABASE_VECTOR_TABLE = 'runtime_memory_embeddings';
 
@@ -53,12 +57,14 @@ function flattenEnvelope(envelope) {
     semantic_last_matches: Array.isArray(envelope.semantic?.last_matches) ? envelope.semantic.last_matches : [],
     vector_mode: envelope.semantic?.vector_mode || describeEmbeddingMode(),
     vector_backend: envelope.semantic?.vector_backend || (isSupabaseConfigured() ? 'supabase' : 'local-file'),
+    vector_diagnostics: getSupabaseDiagnostics(),
     repository_analysis: envelope.repository || {},
   };
 }
 
 async function persistSemanticEntryToSupabase(sessionId, entry) {
-  if (!isSupabaseConfigured()) {
+  const client = getSupabaseClient();
+  if (!client) {
     return { ok: false, backend: 'local-file', skipped: true };
   }
 
@@ -76,7 +82,7 @@ async function persistSemanticEntryToSupabase(sessionId, entry) {
     updated_at: entry.updated_at || new Date().toISOString(),
   };
 
-  const { error } = await supabase
+  const { error } = await client
     .from(SUPABASE_VECTOR_TABLE)
     .insert(payload);
 
@@ -88,11 +94,12 @@ async function persistSemanticEntryToSupabase(sessionId, entry) {
 }
 
 async function fetchSemanticCandidatesFromSupabase(sessionId, limit = 24) {
-  if (!isSupabaseConfigured()) {
+  const client = getSupabaseClient();
+  if (!client) {
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from(SUPABASE_VECTOR_TABLE)
     .select('path, preview, source, embedding_text, embedding, embedding_model, embedding_dimensions, updated_at, session_relevance, transcript_ref')
     .eq('session_id', sessionId)
@@ -202,7 +209,7 @@ async function findSemanticMatches(cwd, sessionId, query, limit = 3) {
     try {
       remoteCandidates = await fetchSemanticCandidatesFromSupabase(sessionId, Math.max(limit * 8, 24));
       envelope.semantic.vector_backend = 'supabase';
-      envelope.semantic.vector_origin = supabaseUrl;
+      envelope.semantic.vector_origin = 'supabase';
     } catch {
       envelope.semantic.vector_backend = 'local-file';
     }

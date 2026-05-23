@@ -25,8 +25,28 @@ async function main() {
   assert.equal(typeof result.memory, 'object');
   assert.match(result.response.toLowerCase(), /olá|ola/);
 
+  const providerEnvKeys = [
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'GROQ_API_KEY',
+    'GEMINI_API_KEY',
+    'DEEPSEEK_API_KEY',
+    'OLLAMA_URL',
+    'OMNI_AVAILABLE_PROVIDERS',
+  ];
+  const savedProviderEnv = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]));
+  for (const key of providerEnvKeys) {
+    delete process.env[key];
+  }
   const provider = chooseProvider({ complexity: 'complex' });
   assert.equal(provider.name, 'local-heuristic');
+  for (const [key, value] of Object.entries(savedProviderEnv)) {
+    if (typeof value === 'string') {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
 
   const policy = createPermissionPolicy({
     defaultMode: PermissionMode.PROMPT,

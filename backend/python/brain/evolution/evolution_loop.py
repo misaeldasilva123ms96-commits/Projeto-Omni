@@ -63,10 +63,28 @@ class EvolutionLoop:
             self._append_log(result)
             return result
 
+        phase41_sketch: dict[str, Any] | list[dict[str, Any]] | None = None
+        if str(os.getenv("OMINI_PHASE41_EVOLUTION_FEED", "0")).strip().lower() in ("1", "true", "yes"):
+            try:
+                from brain.runtime.policy.performance_store import PerformanceStore
+
+                project_root = self.python_root.parents[1] if len(self.python_root.parents) > 1 else self.python_root
+                ps = PerformanceStore(project_root)
+                p42 = ps.phase42_snapshot()
+                phase41_sketch = {
+                    "top_provider_buckets": ps.top_buckets(limit=5),
+                    "phase42_rollups": dict(p42.get("rollups") or {}),
+                    "phase42_policy_match_rate": p42.get("policy_match_rate"),
+                    "phase42_provenance_completeness_rate": p42.get("provenance_completeness_rate"),
+                }
+            except Exception:
+                phase41_sketch = None
+
         analysis = self.pattern_analyzer.analyze(
             evaluations=evaluations[-100:],
             learning=learning,
             sessions=sessions[-50:],
+            phase41_performance_sketch=phase41_sketch,
         )
         average_score = round(
             sum(float(item.get("overall", 0.0)) for item in evaluations[-100:]) / max(1, len(evaluations[-100:])),

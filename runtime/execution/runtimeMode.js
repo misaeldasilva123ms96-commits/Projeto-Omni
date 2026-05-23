@@ -10,6 +10,8 @@ const EXECUTION_MODES = Object.freeze({
 function findCompiledBridge(cwd) {
   const root = cwd || process.cwd();
   const candidates = [
+    path.join(root, 'backend', 'rust', 'target', 'debug', 'executor_bridge'),
+    path.join(root, 'backend', 'rust', 'target', 'x86_64-unknown-linux-gnu', 'debug', 'executor_bridge'),
     path.join(root, 'backend', 'rust', 'target', 'x86_64-pc-windows-gnullvm', 'debug', 'executor_bridge.exe'),
     path.join(root, 'backend', 'rust', 'target', 'debug', 'executor_bridge.exe'),
   ];

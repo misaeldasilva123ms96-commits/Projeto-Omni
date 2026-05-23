@@ -1,288 +1,123 @@
-# Architecture
+# Omni Architecture
 
-## Overview
+## System overview
 
-Omini is structured as a layered runtime rather than a single process with mixed responsibilities. Each layer has a narrow contract:
+Omni is a multi-runtime system with a split execution model:
 
-```text
-Client
-  |
-  v
-Rust API
-  |
-  v
-Python Brain
-  |
-  v
-Swarm Orchestrator
-  |
-  v
-Node Runner
-  |
-  v
-Persistent State
-```
+- Rust exposes the public HTTP/API boundary.
+- Python coordinates the brain/runtime behavior.
+- Node/Bun provides execution authority, planning output, and execution-request generation.
 
-This design keeps the Rust-facing contract simple while letting Python and Node handle orchestration and reasoning.
+The repository is not a greenfield prototype. It already contains multiple layers for orchestration, control, observability, learning, and execution. The architecture is therefore best understood as a live runtime under audit and recovery, not as a finished product.
 
-## Architectural Decisions
+## Main layers
 
-### 1. Rust handles the external HTTP boundary
+### Rust API layer
 
-Why:
+The Rust service receives client requests, manages the public API surface, invokes Python, and shapes the final response envelope.
 
-- strong typing and predictable request/response handling
-- process isolation from the cognitive runtime
-- clear subprocess boundary for Python
+Primary files:
 
-Tradeoff:
+- `backend/rust/src/main.rs`
+- `backend/rust/Cargo.toml`
 
-- one more layer to operate
-- subprocess orchestration must remain stable
+### Python brain runtime
 
-### 2. Python owns orchestration and persistence
+Python is the main orchestration layer. It owns request coordination, runtime state, strategy dispatch, fallback behavior, observability emission, and cognitive runtime inspection.
 
-Why:
+Primary files:
 
-- it is the best fit for memory, sessions, transcripts, scoring, and strategy control
-- orchestration logic is easier to audit and evolve in Python
+- `backend/python/main.py`
+- `backend/python/brain/runtime/orchestrator.py`
+- `backend/python/brain/runtime/control/`
+- `backend/python/brain/runtime/observability/`
+- `backend/python/brain/runtime/language/`
 
-Tradeoff:
+### Node/Bun execution layer
 
-- subprocess calls to Node require strict contracts
+Node/Bun handles the execution-side authority that can return:
 
-### 3. Node owns the explicit reasoning pipeline
+- matcher shortcuts
+- local direct responses
+- bridge execution requests
+- action-backed execution requests
 
-Why:
+Primary files:
 
-- the adapter pipeline is easier to express and iterate in JavaScript
-- delegate resolution and runner schema validation fit naturally in the Node layer
-
-Tradeoff:
-
-- interop requires schema stability
-
-### 4. Swarm is internal, not vendor-managed
-
-Why:
-
-- no dependence on hosted swarm APIs
-- complete control over traces, messages, and agent lifecycle
-- deterministic local execution on CPU-only infrastructure
-
-### 5. Strategy evolution is parameter-based
-
-Why:
-
-- no fine-tuning, no GPU assumptions
-- changes remain auditable and reversible
-- production safety is higher than direct code mutation
+- `js-runner/queryEngineRunner.js`
+- `src/queryEngineRunnerAdapter.js`
+- `core/brain/queryEngineAuthority.js`
 
-## Full Flow
+### Observability layer
 
-```text
-HTTP request
-  |
-  v
-Rust POST /chat
-  |
-  v
-python main.py
-  |
-  v
-BrainOrchestrator
-  |
-  +--> memory lookup
-  +--> transcript merge
-  +--> strategy state read
-  |
-  v
-SwarmOrchestrator
-  |
-  +--> RouterAgent
-  +--> PlannerAgent
-  +--> ExecutorAgent(s)
-  +--> CriticAgent
-  +--> MemoryAgent
-  |
-  v
-Node runner + reasoning adapter
-  |
-  v
-final text response
-  |
-  +--> evaluation
-  +--> learning update
-  +--> session snapshot
-  +--> transcript append
-  +--> swarm log append
-```
-
-## Interface Contracts
-
-### Rust -> Python
-
-Contract:
-
-- input: CLI argument with user message
-- output: stdout only, final response text only
+Observability is implemented mainly in Python, with persisted runtime traces and derived read models. The goal is to expose what path actually happened, not just whether the user received a response.
 
-Guarantee:
-
-- Rust never needs to understand internal swarm or evolution structures
-
-### Python -> Node
-
-Contract file:
-
-- [`contract/runner-schema.v1.json`](./contract/runner-schema.v1.json)
-
-Payload shape:
-
-```json
-{
-  "message": "string",
-  "memory": {
-    "nome": "string",
-    "preferencias": ["string"]
-  },
-  "history": [
-    {
-      "role": "user | assistant",
-      "content": "string"
-    }
-  ],
-  "summary": "string",
-  "capabilities": [
-    {
-      "name": "string",
-      "description": "string",
-      "category": "string"
-    }
-  ],
-  "session": {
-    "session_id": "string",
-    "summary": "string"
-  }
-}
-```
-
-Validation:
-
-- performed in `js-runner/queryEngineRunner.js` using `ajv`
-
-## Hybrid Memory Strategy
-
-Omini uses two complementary memory forms:
-
-### Structured memory
-
-Files:
-
-- `backend/python/memory.json`
-- `backend/python/memory/user.json`
-- `backend/python/memory/preferences.json`
-
-Used for:
-
-- user identity
-- explicit preferences
-- short structured state
-
-### Operational memory
-
-Files:
-
-- `backend/python/transcripts/*.jsonl`
-- `backend/python/brain/runtime/sessions/*.json`
-- `backend/python/brain/runtime/swarm_log.json`
-- `backend/python/memory/learning.json`
-
-Used for:
-
-- recent dialogue recall
-- agent trace reconstruction
-- evaluation history
-- strategy evolution
-
-## Swarm Task Distribution
-
-Internal agent order:
-
-```text
-RouterAgent
-  -> PlannerAgent
-  -> ExecutorAgent(s)
-  -> CriticAgent
-  -> MemoryAgent
-```
-
-Communication model:
-
-- in-memory `asyncio.Queue`
-- typed messages
-- session-scoped payloads
-- persisted communication trace in `swarm_log.json`
-
-Message shape:
-
-```json
-{
-  "from": "agent_id",
-  "to": "agent_id | broadcast",
-  "type": "task | result | critique | memory_op",
-  "payload": {},
-  "timestamp": "ISO8601",
-  "session_id": "string"
-}
-```
-
-## Self-Evolution Loop
-
-The evolution loop never rewrites orchestrator code. It only updates strategy files that the orchestrator reads.
-
-```text
-Response
-  |
-  v
-Evaluator
-  |
-  v
-Pattern Analyzer
-  |
-  v
-Strategy Updater
-  |
-  +--> strategy_state.json
-  +--> snapshots/strategy_vN.json
-  +--> strategy_log.json
-  |
-  v
-Future requests read the new parameters
-```
-
-Current adjustable parameters:
-
-- capability weights
-- decision thresholds
-- memory history limits
-- orchestrator hints
-
-Rollback:
-
-```text
-python -m brain.evolution.dashboard rollback <version>
-```
-
-## Auditability
-
-Omini keeps every major adaptive artifact inspectable:
-
-- session snapshots
-- transcripts
-- swarm communication logs
-- evaluations
-- strategy snapshots
-- strategy logs
-
-That makes it possible to trace why a response happened and what parameter version shaped it.
+Primary files:
+
+- `backend/python/brain/runtime/observability/`
+- `backend/python/brain/runtime/observability/cognitive_runtime_inspector.py`
+- `backend/python/brain/runtime/observability/runtime_lane_classifier.py`
+
+### Governance layer
+
+Governance and control decide what is allowed, how the runtime records operational decisions, and how degraded behavior is surfaced instead of hidden.
+
+Primary files:
+
+- `backend/python/brain/runtime/control/`
+- `backend/python/brain/runtime/orchestrator_services/`
+- `runtime/tooling/`
+
+## Data flow
+
+The real runtime path is:
+
+1. User input arrives through Rust.
+2. Rust invokes the Python entrypoint.
+3. Python sanitizes the input envelope and calls `BrainOrchestrator.run(...)`.
+4. Python builds runtime context and can delegate to Node.
+5. Node may return a direct response, a bridge execution request, or an action-backed execution request.
+6. Python may execute the returned actions and synthesize the final result.
+7. Python emits runtime inspection and returns a safe JSON envelope.
+8. Rust returns the public response.
+
+## Runtime interaction
+
+The three runtimes interact through explicit transport boundaries:
+
+- Rust → Python by subprocess/stdin/stdout handoff
+- Python → Node by subprocess/stdin/stdout handoff
+- Node → Python by structured JSON payload
+
+This architecture gives Omni flexibility, but it also creates failure modes around:
+
+- contract drift
+- output sanitization
+- fallback masking
+- execution-lane truthfulness
+
+Those are active areas of public debugging.
+
+## Current architectural reality
+
+The architecture is real, but not fully recovered yet.
+
+Today the repository contains:
+
+- explicit semantic lane classification
+- explicit execution-lane classification
+- compatibility execution paths
+- a real `true_action_execution` path
+- audit documents that describe where the runtime is still unstable
+
+For a simpler introduction, see:
+
+- [docs/overview.md](docs/overview.md)
+- [docs/architecture/layers.md](docs/architecture/layers.md)
+- [docs/architecture/runtime-flow.md](docs/architecture/runtime-flow.md)
+- [docs/architecture/runtime-modes.md](docs/architecture/runtime-modes.md)
+- [docs/architecture/bridge-pipeline.md](docs/architecture/bridge-pipeline.md)
+- [docs/architecture/bridge-response-contract.md](docs/architecture/bridge-response-contract.md)
+- [docs/architecture/tool-runtime.md](docs/architecture/tool-runtime.md)
+- [docs/architecture/cognitive-decision-model.md](docs/architecture/cognitive-decision-model.md)
+- [docs/architecture/learning-loop.md](docs/architecture/learning-loop.md)

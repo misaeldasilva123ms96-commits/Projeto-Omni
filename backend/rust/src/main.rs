@@ -1,26 +1,40 @@
 mod error;
+mod observability;
+mod observability_auth;
+mod run_control;
 
 use std::{
-    env,
-    fs,
+    collections::{BTreeMap, HashMap, VecDeque},
+    env, fmt, fs,
+    io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
+    body::Bytes,
     extract::State,
-    http::StatusCode,
+    http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
+    middleware::from_fn_with_state,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use error::AppError;
+use observability_auth::{require_supabase_auth, sanitize_uri_for_logs, SupabaseAuthConfig};
 use runtime::Session;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use tokio::{net::TcpListener, process::Command, sync::RwLock, time::timeout};
+use serde_json::{json, Map, Value};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    process::Command,
+    sync::RwLock,
+    time::timeout,
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
 
@@ -31,23 +45,154 @@ struct AppState {
     python_bin: String,
     python_entry: PathBuf,
     python_timeout_ms: u64,
+    python_runtime: PythonRuntimeConfig,
+    python_circuit: Arc<Mutex<PythonCircuitBreaker>>,
     runtime_mode: String,
     runtime_session_version: u32,
     mock_mode: bool,
     node_bin: String,
     python_health: Arc<RwLock<DependencyStatus>>,
+    supabase_auth: Arc<SupabaseAuthConfig>,
+    chat_security: Arc<ChatSecurityState>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PythonRuntimeMode {
+    Subprocess,
+    Service,
+}
+
+#[derive(Debug, Clone)]
+struct PythonRuntimeConfig {
+    mode: PythonRuntimeMode,
+    service_host: String,
+    service_port: u16,
+    service_timeout_ms: u64,
+    fallback_to_subprocess: bool,
+    retry_attempts: usize,
+    circuit_breaker_enabled: bool,
+    circuit_failure_threshold: usize,
+    circuit_reset_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CircuitBreakerState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+#[derive(Debug)]
+struct PythonCircuitBreaker {
+    state: CircuitBreakerState,
+    failure_count: usize,
+    opened_at: Option<Instant>,
+    half_open_in_flight: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PythonServiceFailureKind {
+    Timeout,
+    ServiceFailure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PythonServiceFailure {
+    kind: PythonServiceFailureKind,
+    circuit_state: CircuitBreakerState,
+}
+
+pub(crate) struct ChatSecurityState {
+    config: ChatSecurityConfig,
+    rate_limiter: Mutex<HashMap<String, VecDeque<Instant>>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ChatSecurityConfig {
+    max_message_chars: usize,
+    max_body_bytes: usize,
+    rate_limit_enabled: bool,
+    rate_limit_per_minute: usize,
+}
+
+/// `POST /chat` JSON body. `message` is required; `client_session_id` is optional.
+/// See `docs/backend/chat-session-contract.md`.
 #[derive(Debug, Deserialize)]
 struct ChatRequest {
     message: String,
+    /// Opaque UI-owned conversation key for logging/correlation; echoed on [`ChatResponse`] when present.
+    #[serde(default)]
+    client_session_id: Option<String>,
+    #[serde(default)]
+    request_id: Option<String>,
+    #[serde(default)]
+    provider_preference: Option<String>,
+    #[serde(default)]
+    session_provider_credentials: Option<BTreeMap<String, SessionProviderCredential>>,
 }
 
+/// `POST /api/v1/chat` JSON body — same execution path as [`ChatRequest`] with an optional nested client context.
+#[derive(Debug, Deserialize, Serialize)]
+struct PublicChatClientContextV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PublicChatRequestV1 {
+    message: String,
+    #[serde(default)]
+    client_session_id: Option<String>,
+    #[serde(default)]
+    request_id: Option<String>,
+    #[serde(default)]
+    client_context: Option<PublicChatClientContextV1>,
+    #[serde(default)]
+    provider_preference: Option<String>,
+    #[serde(default)]
+    session_provider_credentials: Option<BTreeMap<String, SessionProviderCredential>>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SessionProviderCredential {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+}
+
+impl fmt::Debug for SessionProviderCredential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionProviderCredential")
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
+/// Stable v1 envelope: `api_version` plus the same fields as [`ChatResponse`] (flattened for one JSON object).
+#[derive(Debug, Serialize)]
+struct PublicChatResponseV1 {
+    api_version: &'static str,
+    #[serde(flatten)]
+    chat: ChatResponse,
+}
+
+/// `POST /chat` JSON response. `session_id` remains a transport placeholder until Python returns a real orchestrator id.
+/// `runtime_session_version` is the Rust runtime epoch, not a user session. See `docs/backend/chat-session-contract.md`.
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatResponse {
     response: String,
+    /// Subprocess / mock path label — **not** the client conversation id today.
     session_id: String,
     source: String,
+    /// Rust runtime session epoch; aligns chat envelope with `/health` and `GET /api/v1/status` (additive field).
+    #[serde(default)]
+    runtime_session_version: u32,
+    /// Echo of request `client_session_id` when the client sent one; omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    client_session_id: Option<String>,
     #[serde(default)]
     matched_commands: Vec<String>,
     #[serde(default)]
@@ -56,6 +201,18 @@ struct ChatResponse {
     stop_reason: Option<String>,
     #[serde(default)]
     usage: Option<serde_json::Value>,
+    /// Server-issued or orchestrator-backed conversation id when truthfully available on the Python path; omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
+    /// Conservative per-turn classification of cognitive vs degraded execution (Python `main.py` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cognitive_runtime_inspection: Option<Value>,
+    /// Logical LLM provider ids with validated env keys (Python `main.py`); never secret values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    providers: Option<Vec<String>>,
+    /// Structured bridge/runtime failure when available. Additive and backward-compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<Value>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -90,6 +247,36 @@ struct HealthResponse {
     timestamp_ms: u64,
     python: DependencyHealth,
     node: DependencyHealth,
+}
+
+/// Stable public read model for product UIs (`GET /api/v1/status`). Intentionally omits file paths and binary locations.
+#[derive(Debug, Serialize)]
+struct PublicStatusResponseV1 {
+    api_version: &'static str,
+    status: String,
+    runtime_mode: String,
+    rust_service: String,
+    python_status: String,
+    node_status: String,
+    runtime_session_version: u32,
+    timestamp_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicRunnerSmokeResponseV1 {
+    api_version: &'static str,
+    status: String,
+    selected_runtime: String,
+    cwd_label: String,
+    runner_exists: bool,
+    adapter_exists: bool,
+    fusion_brain_exists: bool,
+    contract_exists: bool,
+    runner_exit_code: Option<i64>,
+    stdout_json_valid: bool,
+    result_degraded: bool,
+    public_failure_class: Option<String>,
+    public_summary: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +317,106 @@ struct PrSummariesResponse {
     summaries: Vec<Value>,
 }
 
+/// Authenticated operator read model — redacted runtime audit + run summary (see `docs/backend/operator-telemetry-api.md`).
+#[derive(Debug, Serialize)]
+struct OperatorRuntimeSignalsV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    recent_signal_sample_size: usize,
+    recent_signals: Vec<Value>,
+    recent_mode_transitions: Vec<Value>,
+    latest_run_summary: Value,
+}
+
+/// Authenticated operator — recent strategy log entries only (no full `strategy_state` blob).
+#[derive(Debug, Serialize)]
+struct OperatorStrategyChangesV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    strategy_version: u64,
+    recent_changes: Vec<Value>,
+}
+
+/// Authenticated operator — milestone checkpoint slice with bounded `patch_sets` and redacted nested JSON.
+#[derive(Debug, Serialize)]
+struct OperatorMilestonesV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    latest_run_id: Option<String>,
+    checkpoint_status: Value,
+    milestone_state: Value,
+    patch_sets: Vec<Value>,
+    patch_sets_total: usize,
+    patch_sets_returned: usize,
+    execution_state: Value,
+}
+
+/// Authenticated operator — bounded, redacted tail of `swarm_log.json` events.
+#[derive(Debug, Serialize)]
+struct OperatorSwarmV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    /// Events in this response after redaction (≤ tail cap).
+    events_returned: usize,
+    /// Total events in the backing log before tailing.
+    total_events: usize,
+    events: Vec<Value>,
+}
+
+/// Authenticated operator — PR / merge digest rows from `run-summaries.jsonl` (same projection as `/internal/pr-summaries`, redacted).
+#[derive(Debug, Serialize)]
+struct OperatorPrDigestV1 {
+    api_version: &'static str,
+    status: &'static str,
+    timestamp_ms: u64,
+    summaries_returned: usize,
+    summaries: Vec<Value>,
+}
+
+/// Public summary of runtime signals — counts and latest run labels only (no raw audit lines).
+#[derive(Debug, Serialize)]
+struct PublicRuntimeSignalsSummaryV1 {
+    api_version: &'static str,
+    status: &'static str,
+    /// Max JSONL lines read from the audit file for this summary (bounded read).
+    recent_signal_sample_size: usize,
+    recent_signal_count: usize,
+    recent_mode_transition_count: usize,
+    latest_run_id: String,
+    latest_plan_kind: String,
+    latest_run_message_preview: String,
+    timestamp_ms: u64,
+}
+
+/// Public milestone checkpoint summary — counts and status label only.
+#[derive(Debug, Serialize)]
+struct PublicMilestonesSummaryV1 {
+    api_version: &'static str,
+    status: &'static str,
+    latest_run_id: String,
+    completed_milestone_count: u32,
+    blocked_milestone_count: u32,
+    patch_set_count: usize,
+    checkpoint_status: String,
+    timestamp_ms: u64,
+}
+
+/// Public strategy file summary — version, one safe weight, change log size only.
+#[derive(Debug, Serialize)]
+struct PublicStrategySummaryV1 {
+    api_version: &'static str,
+    status: &'static str,
+    strategy_version: u64,
+    /// Entries in `strategy_log.json` `changes` array (capped for bounded JSON).
+    recent_change_log_count: usize,
+    create_plan_weight: Option<f64>,
+    timestamp_ms: u64,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
     init_tracing();
@@ -148,6 +435,15 @@ async fn main() -> Result<(), AppError> {
     let python_entry = resolve_python_entry();
     let project_root = resolve_project_root(&python_entry);
     let python_root = resolve_python_root(&project_root, &python_entry);
+    let supabase_auth = match SupabaseAuthConfig::from_env() {
+        Ok(config) => Arc::new(config),
+        Err(error) => {
+            error!(%error, "observability auth configuration failed");
+            return Err(AppError::Internal(format!(
+                "observability auth configuration error: {error}"
+            )));
+        }
+    };
     let state = AppState {
         project_root,
         python_root,
@@ -158,6 +454,8 @@ async fn main() -> Result<(), AppError> {
             .and_then(|value| value.parse::<u64>().ok())
             .filter(|value| *value > 0)
             .unwrap_or(60_000),
+        python_runtime: PythonRuntimeConfig::from_env(),
+        python_circuit: Arc::new(Mutex::new(PythonCircuitBreaker::new())),
         runtime_mode: resolve_runtime_mode(mock_mode),
         runtime_session_version: bootstrap_runtime_session().version,
         mock_mode,
@@ -168,19 +466,100 @@ async fn main() -> Result<(), AppError> {
             last_error: None,
             last_checked_ms: None,
         })),
+        supabase_auth,
+        chat_security: default_chat_security_state(),
     };
 
+    let protected_observability = Router::new()
+        .route("/api/observability/snapshot", get(observability::snapshot))
+        .route("/api/observability/stream", get(observability::stream))
+        .route("/api/observability/traces", get(observability::traces))
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
+    let protected_operator = Router::new()
+        .route(
+            "/api/v1/operator/runtime/signals",
+            get(operator_v1_runtime_signals),
+        )
+        .route(
+            "/api/v1/operator/strategy/changes",
+            get(operator_v1_strategy_changes),
+        )
+        .route("/api/v1/operator/milestones", get(operator_v1_milestones))
+        .route("/api/v1/operator/swarm", get(operator_v1_swarm))
+        .route("/api/v1/operator/pr-digest", get(operator_v1_pr_digest))
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
+
+    let protected_control = Router::new()
+        .route("/api/control/runs", get(run_control::list_runs))
+        .route("/api/control/runs/:run_id", get(run_control::get_run))
+        .route(
+            "/api/control/runs/summary/resolution",
+            get(run_control::resolution_summary),
+        )
+        .route(
+            "/api/control/runs/waiting-operator",
+            get(run_control::runs_waiting_operator),
+        )
+        .route(
+            "/api/control/runs/with-rollback",
+            get(run_control::runs_with_rollback),
+        )
+        .route(
+            "/api/control/runs/:run_id/pause",
+            post(run_control::pause_run),
+        )
+        .route(
+            "/api/control/runs/:run_id/resume",
+            post(run_control::resume_run),
+        )
+        .route(
+            "/api/control/runs/:run_id/approve",
+            post(run_control::approve_run),
+        )
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
+
+    // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
+    // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
+    // Internal (no auth middleware): /internal/*
+    // Protected (Supabase JWT): /api/observability/*, /api/control/*, /api/v1/operator/*
     let app = Router::new()
         .route("/health", get(health))
+        .route("/api/v1/status", get(public_v1_status))
+        .route(
+            "/api/v1/runtime/runner-smoke",
+            get(public_v1_runtime_runner_smoke),
+        )
+        .route(
+            "/api/v1/runtime/signals/summary",
+            get(public_v1_runtime_signals_summary),
+        )
+        .route(
+            "/api/v1/milestones/summary",
+            get(public_v1_milestones_summary),
+        )
+        .route("/api/v1/strategy/summary", get(public_v1_strategy_summary))
+        .route("/api/v1/chat", post(public_v1_chat))
         .route("/chat", post(chat))
         .route("/internal/runtime-signals", get(runtime_signals))
         .route("/internal/swarm-log", get(swarm_log))
         .route("/internal/strategy-state", get(strategy_state))
         .route("/internal/milestones", get(milestones))
         .route("/internal/pr-summaries", get(pr_summaries))
+        .merge(protected_observability)
+        .merge(protected_operator)
+        .merge(protected_control)
         .layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
+                tracing::info_span!(
+                    "http-request",
+                    method = %request.method(),
+                    uri = %sanitize_uri_for_logs(request.uri()),
+                    version = ?request.version(),
+                )
+            }),
+        )
+        .with_state(state.clone());
 
     let address: SocketAddr = format!("{host}:{port}")
         .parse()
@@ -190,12 +569,12 @@ async fn main() -> Result<(), AppError> {
         .await
         .map_err(|err| AppError::Internal(format!("failed to bind listener: {err}")))?;
 
-    let bound_address = listener.local_addr().map_err(|err| {
-        AppError::Internal(format!("failed to read listener address: {err}"))
-    })?;
+    let bound_address = listener
+        .local_addr()
+        .map_err(|err| AppError::Internal(format!("failed to read listener address: {err}")))?;
 
     info!(
-        "API listening on http://{} (host={}, port={}, render_port_env={})",
+        "API listening on http://{} (host={}, port={}, render_port_env={}, observability_auth=enabled)",
         bound_address,
         host,
         port,
@@ -269,7 +648,10 @@ fn resolve_python_root(project_root: &Path, python_entry: &Path) -> PathBuf {
         }
     }
 
-    if python_entry.parent().is_some_and(|parent| parent.ends_with("python")) {
+    if python_entry
+        .parent()
+        .is_some_and(|parent| parent.ends_with("python"))
+    {
         return python_entry
             .parent()
             .map(Path::to_path_buf)
@@ -329,7 +711,273 @@ fn unix_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
-async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
+fn read_env_alias_usize(canonical: &str, legacy: &str, default: usize) -> usize {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn read_env_alias_usize_clamped(
+    canonical: &str,
+    legacy: &str,
+    default: usize,
+    max: usize,
+) -> usize {
+    read_env_alias_usize(canonical, legacy, default).min(max)
+}
+
+fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .map(|value| {
+            matches!(
+                value.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(default)
+}
+
+fn read_env_alias_string(canonical: &str, legacy: &str, default: &str) -> String {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn read_env_alias_u16(canonical: &str, legacy: &str, default: u16) -> u16 {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .and_then(|value| value.trim().parse::<u16>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn read_env_alias_u64(canonical: &str, legacy: &str, default: u64) -> u64 {
+    env::var(canonical)
+        .ok()
+        .or_else(|| env::var(legacy).ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+impl PythonRuntimeConfig {
+    fn from_env() -> Self {
+        Self {
+            mode: PythonRuntimeMode::from_env(),
+            service_host: read_env_alias_string(
+                "OMNI_PYTHON_SERVICE_HOST",
+                "OMINI_PYTHON_SERVICE_HOST",
+                "127.0.0.1",
+            ),
+            service_port: read_env_alias_u16(
+                "OMNI_PYTHON_SERVICE_PORT",
+                "OMINI_PYTHON_SERVICE_PORT",
+                7010,
+            ),
+            service_timeout_ms: read_env_alias_u64(
+                "OMNI_PYTHON_SERVICE_TIMEOUT_MS",
+                "OMINI_PYTHON_SERVICE_TIMEOUT_MS",
+                30_000,
+            ),
+            fallback_to_subprocess: read_env_alias_bool(
+                "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+                "OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+                false,
+            ),
+            retry_attempts: read_env_alias_usize_clamped(
+                "OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+                "OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+                0,
+                3,
+            ),
+            circuit_breaker_enabled: read_env_alias_bool(
+                "OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+                "OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+                true,
+            ),
+            circuit_failure_threshold: read_env_alias_usize(
+                "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+                "OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+                3,
+            ),
+            circuit_reset_ms: read_env_alias_u64(
+                "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+                "OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+                30_000,
+            ),
+        }
+    }
+}
+
+impl PythonCircuitBreaker {
+    fn new() -> Self {
+        Self {
+            state: CircuitBreakerState::Closed,
+            failure_count: 0,
+            opened_at: None,
+            half_open_in_flight: false,
+        }
+    }
+
+    fn state_label(state: CircuitBreakerState) -> &'static str {
+        match state {
+            CircuitBreakerState::Closed => "CLOSED",
+            CircuitBreakerState::Open => "OPEN",
+            CircuitBreakerState::HalfOpen => "HALF_OPEN",
+        }
+    }
+
+    fn before_call(&mut self, config: &PythonRuntimeConfig, now: Instant) -> CircuitBreakerState {
+        if !config.circuit_breaker_enabled {
+            return CircuitBreakerState::Closed;
+        }
+
+        match self.state {
+            CircuitBreakerState::Closed => CircuitBreakerState::Closed,
+            CircuitBreakerState::Open => {
+                let reset_elapsed = self
+                    .opened_at
+                    .map(|opened| {
+                        now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms
+                    })
+                    .unwrap_or(true);
+                if reset_elapsed {
+                    self.state = CircuitBreakerState::HalfOpen;
+                    self.half_open_in_flight = true;
+                    CircuitBreakerState::HalfOpen
+                } else {
+                    CircuitBreakerState::Open
+                }
+            }
+            CircuitBreakerState::HalfOpen => {
+                if self.half_open_in_flight {
+                    CircuitBreakerState::Open
+                } else {
+                    self.half_open_in_flight = true;
+                    CircuitBreakerState::HalfOpen
+                }
+            }
+        }
+    }
+
+    fn record_success(&mut self) {
+        self.state = CircuitBreakerState::Closed;
+        self.failure_count = 0;
+        self.opened_at = None;
+        self.half_open_in_flight = false;
+    }
+
+    fn record_failure(&mut self, config: &PythonRuntimeConfig, now: Instant) {
+        if !config.circuit_breaker_enabled {
+            return;
+        }
+
+        match self.state {
+            CircuitBreakerState::HalfOpen => {
+                self.state = CircuitBreakerState::Open;
+                self.failure_count = config.circuit_failure_threshold.max(1);
+                self.opened_at = Some(now);
+                self.half_open_in_flight = false;
+            }
+            _ => {
+                self.failure_count = self.failure_count.saturating_add(1);
+                self.half_open_in_flight = false;
+                if self.failure_count >= config.circuit_failure_threshold.max(1) {
+                    self.state = CircuitBreakerState::Open;
+                    self.opened_at = Some(now);
+                }
+            }
+        }
+    }
+}
+
+impl PythonRuntimeMode {
+    fn from_env() -> Self {
+        let raw = read_env_alias_string("OMNI_PYTHON_MODE", "OMINI_PYTHON_MODE", "subprocess");
+        match raw.trim().to_lowercase().as_str() {
+            "service" => Self::Service,
+            _ => Self::Subprocess,
+        }
+    }
+}
+
+impl ChatSecurityState {
+    fn from_env() -> Self {
+        Self {
+            config: ChatSecurityConfig {
+                max_message_chars: read_env_alias_usize(
+                    "OMNI_MAX_MESSAGE_CHARS",
+                    "OMINI_MAX_MESSAGE_CHARS",
+                    8_000,
+                ),
+                max_body_bytes: read_env_alias_usize(
+                    "OMNI_MAX_BODY_BYTES",
+                    "OMINI_MAX_BODY_BYTES",
+                    65_536,
+                ),
+                rate_limit_enabled: read_env_alias_bool(
+                    "OMNI_RATE_LIMIT_ENABLED",
+                    "OMINI_RATE_LIMIT_ENABLED",
+                    true,
+                ),
+                rate_limit_per_minute: read_env_alias_usize(
+                    "OMNI_RATE_LIMIT_PER_MINUTE",
+                    "OMINI_RATE_LIMIT_PER_MINUTE",
+                    30,
+                ),
+            },
+            rate_limiter: Mutex::new(HashMap::new()),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_config(config: ChatSecurityConfig) -> Self {
+        Self {
+            config,
+            rate_limiter: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn check_rate_limit(&self, client_key: &str, now: Instant) -> bool {
+        if !self.config.rate_limit_enabled {
+            return true;
+        }
+        let limit = self.config.rate_limit_per_minute.max(1);
+        let window = Duration::from_secs(60);
+        let mut guard = self
+            .rate_limiter
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hits = guard.entry(client_key.to_string()).or_default();
+        while hits
+            .front()
+            .is_some_and(|instant| now.duration_since(*instant) >= window)
+        {
+            hits.pop_front();
+        }
+        if hits.len() >= limit {
+            return false;
+        }
+        hits.push_back(now);
+        true
+    }
+}
+
+pub(crate) fn default_chat_security_state() -> Arc<ChatSecurityState> {
+    Arc::new(ChatSecurityState::from_env())
+}
+
+/// Shared liveness snapshot used by `/health` and derived public contracts.
+async fn build_health_snapshot(state: &AppState) -> HealthResponse {
     let python_status = state.python_health.read().await.clone();
     let node_observable = binary_observable(&state.node_bin);
     let python_ready = matches!(
@@ -342,47 +990,583 @@ async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRespon
         "degraded"
     };
 
+    HealthResponse {
+        status: status.to_string(),
+        rust_service: "ok",
+        runtime_mode: state.runtime_mode.clone(),
+        runtime_session_version: state.runtime_session_version,
+        timestamp_ms: unix_timestamp_ms(),
+        python: DependencyHealth {
+            configured_bin: state.python_bin.clone(),
+            entry: state.python_entry.display().to_string(),
+            entry_exists: state.python_entry.exists(),
+            observable: python_status.observable,
+            last_status: python_status.last_status,
+            last_error: python_status.last_error,
+            last_checked_ms: python_status.last_checked_ms,
+        },
+        node: DependencyHealth {
+            configured_bin: state.node_bin.clone(),
+            entry: String::new(),
+            entry_exists: false,
+            observable: node_observable,
+            last_status: if node_observable {
+                "observable".to_string()
+            } else {
+                "unavailable".to_string()
+            },
+            last_error: None,
+            last_checked_ms: Some(unix_timestamp_ms()),
+        },
+    }
+}
+
+async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
+    let snapshot = build_health_snapshot(&state).await;
+    (StatusCode::OK, Json(snapshot))
+}
+
+/// Versioned public status — subset of `/health` without paths or internal-only diagnostics.
+async fn public_v1_status(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicStatusResponseV1>) {
+    let h = build_health_snapshot(&state).await;
     (
         StatusCode::OK,
-        Json(HealthResponse {
-            status: status.to_string(),
-            rust_service: "ok",
-            runtime_mode: state.runtime_mode.clone(),
-            runtime_session_version: state.runtime_session_version,
-            timestamp_ms: unix_timestamp_ms(),
-            python: DependencyHealth {
-                configured_bin: state.python_bin.clone(),
-                entry: state.python_entry.display().to_string(),
-                entry_exists: state.python_entry.exists(),
-                observable: python_status.observable,
-                last_status: python_status.last_status,
-                last_error: python_status.last_error,
-                last_checked_ms: python_status.last_checked_ms,
-            },
-            node: DependencyHealth {
-                configured_bin: state.node_bin.clone(),
-                entry: String::new(),
-                entry_exists: false,
-                observable: node_observable,
-                last_status: if node_observable {
-                    "observable".to_string()
-                } else {
-                    "unavailable".to_string()
-                },
-                last_error: None,
-                last_checked_ms: Some(unix_timestamp_ms()),
-            },
+        Json(PublicStatusResponseV1 {
+            api_version: "1",
+            status: h.status.clone(),
+            runtime_mode: h.runtime_mode.clone(),
+            rust_service: h.rust_service.to_string(),
+            python_status: h.python.last_status.clone(),
+            node_status: h.node.last_status.clone(),
+            runtime_session_version: h.runtime_session_version,
+            timestamp_ms: h.timestamp_ms,
         }),
     )
 }
 
-async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<RuntimeSignalsResponse>) {
-    let audit_path = state.project_root.join(".logs").join("fusion-runtime").join("execution-audit.jsonl");
-    let run_summary_path = state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl");
+fn safe_runner_smoke_string(value: &Value, key: &str, allowed: &[&str], fallback: &str) -> String {
+    let candidate = value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+        .trim()
+        .to_ascii_lowercase();
+    if allowed
+        .iter()
+        .any(|allowed_value| *allowed_value == candidate)
+    {
+        candidate
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn safe_runner_smoke_optional_string(value: &Value, key: &str) -> Option<String> {
+    let candidate = value.get(key)?.as_str()?.trim();
+    if candidate.is_empty() || candidate.len() > 120 {
+        return None;
+    }
+    if !candidate
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    {
+        return None;
+    }
+    Some(candidate.to_string())
+}
+
+fn bool_from_json(value: &Value, key: &str) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn build_runner_smoke_fallback(status: &str, failure_class: &str) -> PublicRunnerSmokeResponseV1 {
+    PublicRunnerSmokeResponseV1 {
+        api_version: "1",
+        status: status.to_string(),
+        selected_runtime: "unknown".to_string(),
+        cwd_label: "unknown".to_string(),
+        runner_exists: false,
+        adapter_exists: false,
+        fusion_brain_exists: false,
+        contract_exists: false,
+        runner_exit_code: None,
+        stdout_json_valid: false,
+        result_degraded: true,
+        public_failure_class: Some(failure_class.to_string()),
+        public_summary: Some(format!("runner_smoke_{failure_class}")),
+    }
+}
+
+fn parse_runner_smoke_response(value: &Value) -> PublicRunnerSmokeResponseV1 {
+    PublicRunnerSmokeResponseV1 {
+        api_version: "1",
+        status: safe_runner_smoke_string(value, "status", &["ok", "degraded", "error"], "error"),
+        selected_runtime: safe_runner_smoke_string(
+            value,
+            "selected_runtime",
+            &["node", "bun", "unknown"],
+            "unknown",
+        ),
+        cwd_label: safe_runner_smoke_string(
+            value,
+            "cwd_label",
+            &["app", "repo", "unknown"],
+            "unknown",
+        ),
+        runner_exists: bool_from_json(value, "runner_exists"),
+        adapter_exists: bool_from_json(value, "adapter_exists"),
+        fusion_brain_exists: bool_from_json(value, "fusion_brain_exists"),
+        contract_exists: bool_from_json(value, "contract_exists"),
+        runner_exit_code: value.get("runner_exit_code").and_then(Value::as_i64),
+        stdout_json_valid: bool_from_json(value, "stdout_json_valid"),
+        result_degraded: bool_from_json(value, "result_degraded"),
+        public_failure_class: safe_runner_smoke_optional_string(value, "public_failure_class"),
+        public_summary: safe_runner_smoke_optional_string(value, "public_summary"),
+    }
+}
+
+async fn public_v1_runtime_runner_smoke(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicRunnerSmokeResponseV1>) {
+    if state.mock_mode {
+        return (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback("degraded", "mock_mode")),
+        );
+    }
+
+    let body = serde_json::to_vec(&json!({
+        "diagnostic": "runner_smoke",
+        "message": "responda apenas OK",
+        "client_session_id": "runner-smoke-public-safe",
+        "request_source": "rust_runner_smoke",
+        "runtime_session_version": state.runtime_session_version,
+    }))
+    .unwrap_or_else(|_| br#"{"diagnostic":"runner_smoke"}"#.to_vec());
+
+    let mut command = Command::new(&state.python_bin);
+    command
+        .arg(&state.python_entry)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_spawn_failed")),
+            )
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        if stdin.write_all(&body).await.is_err() {
+            let _ = child.kill().await;
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_stdin_failed")),
+            );
+        }
+        let _ = stdin.flush().await;
+    }
+
+    let output = match timeout(Duration::from_secs(8), child.wait_with_output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_wait_failed")),
+            )
+        }
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "timeout")),
+            )
+        }
+    };
+
+    if !output.status.success() {
+        return (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback(
+                "error",
+                "python_subprocess_failed",
+            )),
+        );
+    }
+
+    let parsed = serde_json::from_slice::<Value>(&output.stdout);
+    match parsed {
+        Ok(value) => (StatusCode::OK, Json(parse_runner_smoke_response(&value))),
+        Err(_) => (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback("error", "invalid_json")),
+        ),
+    }
+}
+
+fn truncate_preview(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max_chars).collect::<String>())
+    }
+}
+
+/// Product-safe subset of `/internal/runtime-signals` — no raw audit JSONL rows.
+async fn public_v1_runtime_signals_summary(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicRuntimeSignalsSummaryV1>) {
+    const SAMPLE: usize = 20;
+    let audit_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("execution-audit.jsonl");
+    let run_summary_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("run-summaries.jsonl");
+    let recent_signals = read_recent_jsonl(&audit_path, SAMPLE);
+    let recent_mode_transition_count = recent_signals
+        .iter()
+        .filter(|item| {
+            item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition")
+        })
+        .count();
+    let latest_run_summary = read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({}));
+    let latest_run_id = latest_run_summary
+        .get("run_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let latest_plan_kind = latest_run_summary
+        .get("plan_kind")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let latest_run_message_preview = latest_run_summary
+        .get("message")
+        .and_then(Value::as_str)
+        .map(|s| truncate_preview(s, 200))
+        .unwrap_or_default();
+
+    (
+        StatusCode::OK,
+        Json(PublicRuntimeSignalsSummaryV1 {
+            api_version: "1",
+            status: "ok",
+            recent_signal_sample_size: SAMPLE,
+            recent_signal_count: recent_signals.len(),
+            recent_mode_transition_count,
+            latest_run_id,
+            latest_plan_kind,
+            latest_run_message_preview,
+            timestamp_ms: unix_timestamp_ms(),
+        }),
+    )
+}
+
+/// Product-safe subset of `/internal/milestones` — counts and checkpoint status string only.
+async fn public_v1_milestones_summary(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicMilestonesSummaryV1>) {
+    let latest_run_summary = read_latest_jsonl(
+        &state
+            .project_root
+            .join(".logs")
+            .join("fusion-runtime")
+            .join("run-summaries.jsonl"),
+    );
+    let latest_run_id = latest_run_summary
+        .as_ref()
+        .and_then(|value| value.get("run_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let checkpoint = if latest_run_id.is_empty() {
+        json!({})
+    } else {
+        read_json_value(
+            &state
+                .project_root
+                .join(".logs")
+                .join("fusion-runtime")
+                .join("checkpoints")
+                .join(format!("{latest_run_id}.json")),
+        )
+        .unwrap_or_else(|| json!({}))
+    };
+    let engineering = checkpoint
+        .get("engineering_data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let milestone_state = engineering
+        .get("milestone_state")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let completed_milestone_count = milestone_state
+        .get("completed_milestones")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as u32;
+    let blocked_milestone_count = milestone_state
+        .get("blocked_milestones")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as u32;
+    let patch_set_count = engineering
+        .get("patch_sets")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let checkpoint_status = checkpoint
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+
+    (
+        StatusCode::OK,
+        Json(PublicMilestonesSummaryV1 {
+            api_version: "1",
+            status: "ok",
+            latest_run_id,
+            completed_milestone_count,
+            blocked_milestone_count,
+            patch_set_count,
+            checkpoint_status,
+            timestamp_ms: unix_timestamp_ms(),
+        }),
+    )
+}
+
+/// Product-safe subset of `/internal/strategy-state` — no full rules blob or change payloads.
+async fn public_v1_strategy_summary(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicStrategySummaryV1>) {
+    const MAX_CHANGE_LOG_COUNT: usize = 10_000;
+    let strategy_state_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_state.json");
+    let strategy_log_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_log.json");
+    let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
+    let strategy_version = strategy_state
+        .get("version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let create_plan_weight = strategy_state
+        .get("capability_weights")
+        .and_then(|cw| cw.get("create_plan"))
+        .and_then(Value::as_f64);
+    let recent_change_log_count = read_json_value(&strategy_log_path)
+        .and_then(|value| value.get("changes").and_then(Value::as_array).map(Vec::len))
+        .unwrap_or(0)
+        .min(MAX_CHANGE_LOG_COUNT);
+
+    (
+        StatusCode::OK,
+        Json(PublicStrategySummaryV1 {
+            api_version: "1",
+            status: "ok",
+            strategy_version,
+            recent_change_log_count,
+            create_plan_weight,
+            timestamp_ms: unix_timestamp_ms(),
+        }),
+    )
+}
+
+const OPERATOR_JSON_MAX_DEPTH: usize = 14;
+const OPERATOR_JSON_MAX_ARRAY_LEN: usize = 48;
+const OPERATOR_JSON_MAX_STRING_CHARS: usize = 1200;
+
+fn string_looks_like_filesystem_path(s: &str) -> bool {
+    let t = s.trim();
+    if t.len() < 2 {
+        return false;
+    }
+    if t.starts_with('/') && !t.starts_with("//") {
+        return true;
+    }
+    let b = t.as_bytes();
+    b.len() >= 3 && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+}
+
+fn operator_redact_sensitive_key(key: &str) -> bool {
+    let k = key.to_lowercase();
+    matches!(
+        k.as_str(),
+        "authorization" | "password" | "api_key" | "apikey" | "access_token" | "refresh_token"
+    ) || k.ends_with("_secret")
+        || k == "jwt"
+}
+
+/// Bounded-depth JSON redaction for operator telemetry (paths, secrets, oversized strings/arrays).
+fn operator_redact_json(value: &Value, depth: usize) -> Value {
+    if depth == 0 {
+        return json!("[DEPTH_LIMIT]");
+    }
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => value.clone(),
+        Value::String(s) => {
+            if string_looks_like_filesystem_path(s) {
+                json!("[PATH_REDACTED]")
+            } else {
+                Value::String(truncate_preview(s, OPERATOR_JSON_MAX_STRING_CHARS))
+            }
+        }
+        Value::Array(arr) => Value::Array(
+            arr.iter()
+                .take(OPERATOR_JSON_MAX_ARRAY_LEN)
+                .map(|item| operator_redact_json(item, depth - 1))
+                .collect(),
+        ),
+        Value::Object(map) => {
+            let mut out = Map::new();
+            for (k, v) in map.iter() {
+                if operator_redact_sensitive_key(k) {
+                    continue;
+                }
+                let kl = k.to_lowercase();
+                if kl == "cwd" || kl == "executable" {
+                    out.insert(k.clone(), json!("[REDACTED]"));
+                    continue;
+                }
+                if kl.contains("path") && v.as_str().is_some_and(string_looks_like_filesystem_path)
+                {
+                    out.insert(k.clone(), json!("[PATH_REDACTED]"));
+                    continue;
+                }
+                if (kl == "env" || kl == "environment") && v.is_object() {
+                    out.insert(k.clone(), json!({}));
+                    continue;
+                }
+                out.insert(k.clone(), operator_redact_json(v, depth - 1));
+            }
+            Value::Object(out)
+        }
+    }
+}
+
+fn fusion_latest_checkpoint(state: &AppState) -> (Option<String>, Value) {
+    let latest_run_summary = read_latest_jsonl(
+        &state
+            .project_root
+            .join(".logs")
+            .join("fusion-runtime")
+            .join("run-summaries.jsonl"),
+    );
+    let latest_run_id = latest_run_summary
+        .as_ref()
+        .and_then(|value| value.get("run_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let checkpoint = latest_run_id
+        .as_ref()
+        .and_then(|run_id| {
+            read_json_value(
+                &state
+                    .project_root
+                    .join(".logs")
+                    .join("fusion-runtime")
+                    .join("checkpoints")
+                    .join(format!("{run_id}.json")),
+            )
+        })
+        .unwrap_or_else(|| json!({}));
+    (latest_run_id, checkpoint)
+}
+
+/// Latest `tail` swarm events (chronological order preserved), plus total count in file.
+fn fusion_swarm_events_tail(state: &AppState, tail: usize) -> (Vec<Value>, usize) {
+    let swarm_path = state
+        .python_root
+        .join("brain")
+        .join("runtime")
+        .join("swarm_log.json");
+    let payload = read_json_value(&swarm_path).unwrap_or_else(|| json!({ "events": [] }));
+    let events = payload
+        .get("events")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total_events = events.len();
+    let events = events
+        .into_iter()
+        .rev()
+        .take(tail)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    (events, total_events)
+}
+
+/// Recent run-summary rows projected like `/internal/pr-summaries` (bounded `limit`).
+fn fusion_pr_digest_rows(state: &AppState, limit: usize) -> Vec<Value> {
+    read_recent_jsonl(
+        &state
+            .project_root
+            .join(".logs")
+            .join("fusion-runtime")
+            .join("run-summaries.jsonl"),
+        limit,
+    )
+    .into_iter()
+    .map(|entry| {
+        json!({
+            "run_id": entry.get("run_id").cloned().unwrap_or_else(|| json!("")),
+            "timestamp": entry.get("timestamp").cloned().unwrap_or_else(|| json!("")),
+            "message": entry.get("message").cloned().unwrap_or_else(|| json!("")),
+            "pr_summary": entry
+                .get("execution_state")
+                .and_then(|value| value.get("pr_summary"))
+                .cloned()
+                .or_else(|| entry.get("engineering_data").and_then(|value| value.get("pr_summary")).cloned())
+                .unwrap_or_else(|| json!({})),
+            "merge_readiness": entry
+                .get("execution_state")
+                .and_then(|value| value.get("merge_readiness"))
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        })
+    })
+    .collect()
+}
+
+async fn runtime_signals(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<RuntimeSignalsResponse>) {
+    let audit_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("execution-audit.jsonl");
+    let run_summary_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("run-summaries.jsonl");
     let recent_signals = read_recent_jsonl(&audit_path, 20);
     let recent_mode_transitions = recent_signals
         .iter()
-        .filter(|item| item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition"))
+        .filter(|item| {
+            item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition")
+        })
         .cloned()
         .collect::<Vec<_>>();
     let latest_run_summary = read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({}));
@@ -399,15 +1583,8 @@ async fn runtime_signals(State(state): State<AppState>) -> (StatusCode, Json<Run
 }
 
 async fn swarm_log(State(state): State<AppState>) -> (StatusCode, Json<SwarmLogResponse>) {
-    let swarm_path = state.python_root.join("brain").join("runtime").join("swarm_log.json");
-    let payload = read_json_value(&swarm_path).unwrap_or_else(|| json!({ "events": [] }));
-    let events = payload
-        .get("events")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let total_events = events.len();
-    let events = events.into_iter().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect();
+    const TAIL: usize = 12;
+    let (events, total_events) = fusion_swarm_events_tail(&state, TAIL);
 
     (
         StatusCode::OK,
@@ -419,9 +1596,19 @@ async fn swarm_log(State(state): State<AppState>) -> (StatusCode, Json<SwarmLogR
     )
 }
 
-async fn strategy_state(State(state): State<AppState>) -> (StatusCode, Json<StrategyStateResponse>) {
-    let strategy_state_path = state.python_root.join("brain").join("evolution").join("strategy_state.json");
-    let strategy_log_path = state.python_root.join("brain").join("evolution").join("strategy_log.json");
+async fn strategy_state(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<StrategyStateResponse>) {
+    let strategy_state_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_state.json");
+    let strategy_log_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_log.json");
     let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
     let recent_changes = read_json_value(&strategy_log_path)
         .and_then(|value| value.get("changes").and_then(Value::as_array).cloned())
@@ -445,35 +1632,21 @@ async fn strategy_state(State(state): State<AppState>) -> (StatusCode, Json<Stra
 }
 
 async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<MilestonesResponse>) {
-    let latest_run_summary = read_latest_jsonl(
-        &state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl"),
-    );
-    let latest_run_id = latest_run_summary
-        .as_ref()
-        .and_then(|value| value.get("run_id"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let checkpoint = latest_run_id
-        .as_ref()
-        .and_then(|run_id| {
-            read_json_value(
-                &state
-                    .project_root
-                    .join(".logs")
-                    .join("fusion-runtime")
-                    .join("checkpoints")
-                    .join(format!("{run_id}.json")),
-            )
-        })
+    let (latest_run_id, checkpoint) = fusion_latest_checkpoint(&state);
+    let engineering = checkpoint
+        .get("engineering_data")
+        .cloned()
         .unwrap_or_else(|| json!({}));
-    let engineering = checkpoint.get("engineering_data").cloned().unwrap_or_else(|| json!({}));
 
     (
         StatusCode::OK,
         Json(MilestonesResponse {
             status: "ok",
             latest_run_id,
-            milestone_state: engineering.get("milestone_state").cloned().unwrap_or_else(|| json!({})),
+            milestone_state: engineering
+                .get("milestone_state")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
             patch_sets: engineering
                 .get("patch_sets")
                 .and_then(Value::as_array)
@@ -484,36 +1657,17 @@ async fn milestones(State(state): State<AppState>) -> (StatusCode, Json<Mileston
                 "next_step_index": checkpoint.get("next_step_index").cloned().unwrap_or_else(|| json!(0)),
                 "total_actions": checkpoint.get("total_actions").cloned().unwrap_or_else(|| json!(0)),
             }),
-            execution_state: checkpoint.get("execution_state").cloned().unwrap_or_else(|| json!({})),
+            execution_state: checkpoint
+                .get("execution_state")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         }),
     )
 }
 
 async fn pr_summaries(State(state): State<AppState>) -> (StatusCode, Json<PrSummariesResponse>) {
-    let summaries = read_recent_jsonl(
-        &state.project_root.join(".logs").join("fusion-runtime").join("run-summaries.jsonl"),
-        6,
-    )
-    .into_iter()
-    .map(|entry| {
-        json!({
-            "run_id": entry.get("run_id").cloned().unwrap_or_else(|| json!("")),
-            "timestamp": entry.get("timestamp").cloned().unwrap_or_else(|| json!("")),
-            "message": entry.get("message").cloned().unwrap_or_else(|| json!("")),
-            "pr_summary": entry
-                .get("execution_state")
-                .and_then(|value| value.get("pr_summary"))
-                .cloned()
-                .or_else(|| entry.get("engineering_data").and_then(|value| value.get("pr_summary")).cloned())
-                .unwrap_or_else(|| json!({})),
-            "merge_readiness": entry
-                .get("execution_state")
-                .and_then(|value| value.get("merge_readiness"))
-                .cloned()
-                .unwrap_or_else(|| json!({})),
-        })
-    })
-    .collect();
+    const LIMIT: usize = 6;
+    let summaries = fusion_pr_digest_rows(&state, LIMIT);
 
     (
         StatusCode::OK,
@@ -524,24 +1678,651 @@ async fn pr_summaries(State(state): State<AppState>) -> (StatusCode, Json<PrSumm
     )
 }
 
-async fn chat(
+/// `GET /api/v1/operator/runtime/signals` — Supabase JWT; same sources as `/internal/runtime-signals` with redaction.
+async fn operator_v1_runtime_signals(
     State(state): State<AppState>,
-    Json(payload): Json<ChatRequest>,
-) -> Result<(StatusCode, Json<ChatResponse>), AppError> {
-    let message = payload.message.trim().to_string();
-    if message.is_empty() {
-        return Err(AppError::InvalidRequest(
-            "message must not be empty".to_string(),
+) -> (StatusCode, Json<OperatorRuntimeSignalsV1>) {
+    const SAMPLE: usize = 20;
+    let audit_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("execution-audit.jsonl");
+    let run_summary_path = state
+        .project_root
+        .join(".logs")
+        .join("fusion-runtime")
+        .join("run-summaries.jsonl");
+    let raw_signals = read_recent_jsonl(&audit_path, SAMPLE);
+    let recent_signals: Vec<Value> = raw_signals
+        .iter()
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let recent_mode_transitions: Vec<Value> = raw_signals
+        .iter()
+        .filter(|item| {
+            item.get("event_type").and_then(Value::as_str) == Some("runtime.mode.transition")
+        })
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let latest_run_summary = operator_redact_json(
+        &read_latest_jsonl(&run_summary_path).unwrap_or_else(|| json!({})),
+        OPERATOR_JSON_MAX_DEPTH,
+    );
+
+    (
+        StatusCode::OK,
+        Json(OperatorRuntimeSignalsV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            recent_signal_sample_size: SAMPLE,
+            recent_signals,
+            recent_mode_transitions,
+            latest_run_summary,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/strategy/changes` — recent `strategy_log.json` entries only (no full rules blob).
+async fn operator_v1_strategy_changes(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorStrategyChangesV1>) {
+    const MAX_CHANGES: usize = 12;
+    let strategy_state_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_state.json");
+    let strategy_log_path = state
+        .python_root
+        .join("brain")
+        .join("evolution")
+        .join("strategy_log.json");
+    let strategy_state = read_json_value(&strategy_state_path).unwrap_or_else(|| json!({}));
+    let strategy_version = strategy_state
+        .get("version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let recent_changes: Vec<Value> = read_json_value(&strategy_log_path)
+        .and_then(|value| value.get("changes").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .rev()
+        .take(MAX_CHANGES)
+        .map(|v| operator_redact_json(&v, OPERATOR_JSON_MAX_DEPTH))
+        .rev()
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(OperatorStrategyChangesV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            strategy_version,
+            recent_changes,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/milestones` — latest checkpoint slice; `patch_sets` capped; nested JSON redacted.
+async fn operator_v1_milestones(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorMilestonesV1>) {
+    const MAX_PATCH: usize = 5;
+    let (latest_run_id, checkpoint) = fusion_latest_checkpoint(&state);
+    let engineering = checkpoint
+        .get("engineering_data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let milestone_state = operator_redact_json(
+        &engineering
+            .get("milestone_state")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+        OPERATOR_JSON_MAX_DEPTH,
+    );
+    let patch_sets_full = engineering
+        .get("patch_sets")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let patch_sets_total = patch_sets_full.len();
+    let patch_sets: Vec<Value> = patch_sets_full
+        .iter()
+        .take(MAX_PATCH)
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let patch_sets_returned = patch_sets.len();
+    let checkpoint_status = json!({
+        "status": checkpoint.get("status").cloned().unwrap_or_else(|| json!("unknown")),
+        "next_step_index": checkpoint.get("next_step_index").cloned().unwrap_or_else(|| json!(0)),
+        "total_actions": checkpoint.get("total_actions").cloned().unwrap_or_else(|| json!(0)),
+    });
+    let execution_state = operator_redact_json(
+        &checkpoint
+            .get("execution_state")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+        OPERATOR_JSON_MAX_DEPTH,
+    );
+
+    (
+        StatusCode::OK,
+        Json(OperatorMilestonesV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            latest_run_id,
+            checkpoint_status,
+            milestone_state,
+            patch_sets,
+            patch_sets_total,
+            patch_sets_returned,
+            execution_state,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/swarm` — redacted tail of `swarm_log.json` (same source as `/internal/swarm-log`).
+async fn operator_v1_swarm(State(state): State<AppState>) -> (StatusCode, Json<OperatorSwarmV1>) {
+    const TAIL: usize = 10;
+    let (raw_events, total_events) = fusion_swarm_events_tail(&state, TAIL);
+    let events: Vec<Value> = raw_events
+        .iter()
+        .map(|e| operator_redact_json(e, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let events_returned = events.len();
+
+    (
+        StatusCode::OK,
+        Json(OperatorSwarmV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            events_returned,
+            total_events,
+            events,
+        }),
+    )
+}
+
+/// `GET /api/v1/operator/pr-digest` — redacted PR-style rows from `run-summaries.jsonl` (same projection as `/internal/pr-summaries`).
+async fn operator_v1_pr_digest(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<OperatorPrDigestV1>) {
+    const LIMIT: usize = 6;
+    let summaries: Vec<Value> = fusion_pr_digest_rows(&state, LIMIT)
+        .iter()
+        .map(|v| operator_redact_json(v, OPERATOR_JSON_MAX_DEPTH))
+        .collect();
+    let summaries_returned = summaries.len();
+
+    (
+        StatusCode::OK,
+        Json(OperatorPrDigestV1 {
+            api_version: "1",
+            status: "ok",
+            timestamp_ms: unix_timestamp_ms(),
+            summaries_returned,
+            summaries,
+        }),
+    )
+}
+
+/// Normalizes optional client session id: trim, drop empty, cap length for safe logging/JSON size.
+#[cfg(test)]
+fn normalize_client_session_id(raw: Option<String>) -> Option<String> {
+    const MAX_CHARS: usize = 256;
+    let inner = raw?;
+    let s = inner.trim().to_string();
+    if s.is_empty() {
+        return None;
+    }
+    if s.chars().count() > MAX_CHARS {
+        warn!(
+            len = s.chars().count(),
+            "client_session_id exceeded {MAX_CHARS} characters; truncating"
+        );
+        Some(s.chars().take(MAX_CHARS).collect())
+    } else {
+        Some(s)
+    }
+}
+
+fn build_public_error_payload(code: &str) -> Value {
+    let (message, severity, retryable) = match code {
+        "INPUT_VALIDATION_FAILED" => ("Request input failed validation.", "blocked", false),
+        "PAYLOAD_TOO_LARGE" => (
+            "Request payload exceeds the configured size limit.",
+            "blocked",
+            false,
+        ),
+        "RATE_LIMITED" => ("Too many requests. Please retry later.", "blocked", true),
+        "INVALID_CONTENT_TYPE" => (
+            "Request content type must be application/json.",
+            "blocked",
+            false,
+        ),
+        "INVALID_JSON" => ("Request body must be valid JSON.", "blocked", false),
+        "PYTHON_ORCHESTRATOR_FAILED" => (
+            "Python orchestrator could not complete the request.",
+            "error",
+            true,
+        ),
+        "TIMEOUT" => ("The operation timed out.", "error", true),
+        "INTERNAL_ERROR_REDACTED" => (
+            "An internal runtime error occurred and details were redacted.",
+            "critical",
+            false,
+        ),
+        _ => ("Request could not be processed.", "error", false),
+    };
+    json!({
+        "error_public_code": code,
+        "error_public_message": message,
+        "severity": severity,
+        "retryable": retryable,
+        "internal_error_redacted": true,
+    })
+}
+
+fn public_error_response(status: StatusCode, code: &str) -> Response {
+    (status, Json(build_public_error_payload(code))).into_response()
+}
+
+type BoxedResponseResult<T> = Result<T, Box<Response>>;
+
+fn boxed_public_error_response(status: StatusCode, code: &str) -> Box<Response> {
+    Box::new(public_error_response(status, code))
+}
+
+fn validate_content_type(headers: &HeaderMap) -> BoxedResponseResult<()> {
+    let Some(value) = headers.get(CONTENT_TYPE) else {
+        return Err(boxed_public_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "INVALID_CONTENT_TYPE",
+        ));
+    };
+    let Ok(raw) = value.to_str() else {
+        return Err(boxed_public_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "INVALID_CONTENT_TYPE",
+        ));
+    };
+    let mime = raw.split(';').next().unwrap_or("").trim();
+    if mime.eq_ignore_ascii_case("application/json") {
+        Ok(())
+    } else {
+        Err(boxed_public_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "INVALID_CONTENT_TYPE",
+        ))
+    }
+}
+
+fn contains_unsafe_control_chars(value: &str) -> bool {
+    value
+        .chars()
+        .any(|ch| ch.is_control() && ch != '\t' && ch != '\n' && ch != '\r')
+}
+
+fn validate_message(message: &str, max_chars: usize) -> BoxedResponseResult<String> {
+    let trimmed = message.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    if trimmed.chars().count() > max_chars {
+        return Err(boxed_public_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+        ));
+    }
+    if contains_unsafe_control_chars(&trimmed) {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(trimmed)
+}
+
+fn validate_optional_id(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > 128 || contains_unsafe_control_chars(&trimmed) {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
+    {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(Some(trimmed))
+}
+
+const BYOK_ALLOWED_PROVIDERS: &[&str] = &[
+    "groq",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "lmstudio",
+];
+const BYOK_MAX_PROVIDER_COUNT: usize = 4;
+const BYOK_MAX_API_KEY_CHARS: usize = 4096;
+const BYOK_MAX_MODEL_CHARS: usize = 128;
+
+fn normalize_provider_id(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() || contains_unsafe_control_chars(&normalized) {
+        return None;
+    }
+    if BYOK_ALLOWED_PROVIDERS.contains(&normalized.as_str()) {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn validate_provider_preference(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    normalize_provider_id(trimmed).map(Some).ok_or_else(|| {
+        boxed_public_error_response(StatusCode::BAD_REQUEST, "INPUT_VALIDATION_FAILED")
+    })
+}
+
+fn validate_optional_secret_string(
+    raw: Option<String>,
+    max_chars: usize,
+) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > max_chars || contains_unsafe_control_chars(&trimmed) {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(Some(trimmed))
+}
+
+fn validate_session_provider_credentials(
+    raw: Option<BTreeMap<String, SessionProviderCredential>>,
+) -> BoxedResponseResult<Option<BTreeMap<String, SessionProviderCredential>>> {
+    let Some(raw_credentials) = raw else {
+        return Ok(None);
+    };
+    if raw_credentials.is_empty() {
+        return Ok(None);
+    }
+    if raw_credentials.len() > BYOK_MAX_PROVIDER_COUNT {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "PAYLOAD_TOO_LARGE",
         ));
     }
 
+    let mut validated = BTreeMap::new();
+    for (provider, credential) in raw_credentials {
+        let Some(provider_id) = normalize_provider_id(&provider) else {
+            return Err(boxed_public_error_response(
+                StatusCode::BAD_REQUEST,
+                "INPUT_VALIDATION_FAILED",
+            ));
+        };
+        let api_key = validate_optional_secret_string(credential.api_key, BYOK_MAX_API_KEY_CHARS)?;
+        let model = validate_optional_secret_string(credential.model, BYOK_MAX_MODEL_CHARS)?;
+        if api_key.is_none() && model.is_none() {
+            continue;
+        }
+        validated.insert(provider_id, SessionProviderCredential { api_key, model });
+    }
+
+    if validated.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(validated))
+    }
+}
+
+fn build_private_bridge_context(
+    client_context: Option<Value>,
+    provider_preference: &Option<String>,
+    credentials: &Option<BTreeMap<String, SessionProviderCredential>>,
+) -> Option<Value> {
+    let mut out = Map::new();
+    if let Some(Value::Object(obj)) = client_context {
+        out.extend(obj);
+    }
+    if let Some(provider) = provider_preference {
+        out.insert(
+            "provider_preference".to_string(),
+            Value::String(provider.clone()),
+        );
+    }
+    if let Some(credentials) = credentials {
+        if let Ok(value) = serde_json::to_value(credentials) {
+            out.insert("session_provider_credentials".to_string(), value);
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(Value::Object(out))
+    }
+}
+
+fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResult<()> {
+    if bytes.len() > max_body_bytes {
+        Err(boxed_public_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
+    let client_key = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("global");
+    if state
+        .chat_security
+        .check_rate_limit(client_key, Instant::now())
+    {
+        Ok(())
+    } else {
+        Err(boxed_public_error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED",
+        ))
+    }
+}
+
+fn parse_chat_request(bytes: &Bytes) -> BoxedResponseResult<ChatRequest> {
+    serde_json::from_slice::<ChatRequest>(bytes)
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+}
+
+fn parse_public_chat_request(bytes: &Bytes) -> BoxedResponseResult<PublicChatRequestV1> {
+    serde_json::from_slice::<PublicChatRequestV1>(bytes)
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+}
+
+async fn chat(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    if let Err(response) = validate_content_type(&headers) {
+        return Ok(*response);
+    }
+    if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
+        return Ok(*response);
+    }
+    if let Err(response) = validate_chat_rate_limit(&state, &headers) {
+        return Ok(*response);
+    }
+    let payload = match parse_chat_request(&body) {
+        Ok(payload) => payload,
+        Err(response) => return Ok(*response),
+    };
+    let message = match validate_message(
+        &payload.message,
+        state.chat_security.config.max_message_chars,
+    ) {
+        Ok(message) => message,
+        Err(response) => return Ok(*response),
+    };
+
+    let client_session_id = match validate_optional_id(payload.client_session_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let request_id = match validate_optional_id(payload.request_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let provider_preference = match validate_provider_preference(payload.provider_preference) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let session_provider_credentials =
+        match validate_session_provider_credentials(payload.session_provider_credentials) {
+            Ok(value) => value,
+            Err(response) => return Ok(*response),
+        };
+    let private_context =
+        build_private_bridge_context(None, &provider_preference, &session_provider_credentials);
+
     info!(
+        client_session_id = ?client_session_id,
         "processing /chat request with runtime session version {} and runtime_mode={}",
         state.runtime_session_version,
         state.runtime_mode
     );
-    let response = call_python(&state, &message).await?;
-    Ok((StatusCode::OK, Json(response)))
+    let response = call_python(
+        &state,
+        &message,
+        client_session_id,
+        request_id,
+        private_context.as_ref(),
+    )
+    .await?;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn public_v1_chat(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    if let Err(response) = validate_content_type(&headers) {
+        return Ok(*response);
+    }
+    if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
+        return Ok(*response);
+    }
+    if let Err(response) = validate_chat_rate_limit(&state, &headers) {
+        return Ok(*response);
+    }
+    let payload = match parse_public_chat_request(&body) {
+        Ok(payload) => payload,
+        Err(response) => return Ok(*response),
+    };
+    let message = match validate_message(
+        &payload.message,
+        state.chat_security.config.max_message_chars,
+    ) {
+        Ok(message) => message,
+        Err(response) => return Ok(*response),
+    };
+
+    let client_session_id = match validate_optional_id(payload.client_session_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let request_id = match validate_optional_id(payload.request_id) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let provider_preference = match validate_provider_preference(payload.provider_preference) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let session_provider_credentials =
+        match validate_session_provider_credentials(payload.session_provider_credentials) {
+            Ok(value) => value,
+            Err(response) => return Ok(*response),
+        };
+    let client_context_json = payload
+        .client_context
+        .as_ref()
+        .and_then(|ctx| serde_json::to_value(ctx).ok());
+    let private_context = build_private_bridge_context(
+        client_context_json,
+        &provider_preference,
+        &session_provider_credentials,
+    );
+
+    info!(
+        client_session_id = ?client_session_id,
+        "processing /api/v1/chat request with runtime session version {} and runtime_mode={}",
+        state.runtime_session_version,
+        state.runtime_mode
+    );
+
+    let chat = call_python(
+        &state,
+        &message,
+        client_session_id,
+        request_id,
+        private_context.as_ref(),
+    )
+    .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(PublicChatResponseV1 {
+            api_version: "1",
+            chat,
+        }),
+    )
+        .into_response())
 }
 
 fn bootstrap_runtime_session() -> Session {
@@ -556,10 +2337,26 @@ async fn update_python_health(state: &AppState, status: &str, error_message: Opt
     guard.last_checked_ms = Some(unix_timestamp_ms());
 }
 
-const PYTHON_FALLBACK_RESPONSE: &str = "Entendido. Como posso ajudá-lo?";
+const PYTHON_FALLBACK_RESPONSE: &str =
+    "[degraded:rust_python_boundary] O motor cognitivo Python não respondeu de forma válida. Verifique /health, logs do processo e variáveis PYTHON_BIN / entrada backend/python/main.py.";
+const PYTHON_PARSE_FAILURE_RESPONSE: &str =
+    "[degraded:python_stdout] A saída do adaptador Python não é JSON válido; a resposta do cérebro pode estar incompleta.";
 const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text", "answer"];
 
 fn python_debug_logging_enabled() -> bool {
+    let public_demo_enabled = env::var("OMNI_PUBLIC_DEMO_MODE")
+        .ok()
+        .or_else(|| env::var("OMINI_PUBLIC_DEMO_MODE").ok())
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    if public_demo_enabled {
+        return false;
+    }
     env::var("OMINI_LOG_LEVEL")
         .ok()
         .or_else(|| env::var("LOG_LEVEL").ok())
@@ -567,10 +2364,126 @@ fn python_debug_logging_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn extract_response_from_python_output(stdout: &str) -> String {
+const PYTHON_CONVERSATION_ID_KEYS: &[&str] = &["server_conversation_id", "conversation_id"];
+
+fn normalize_conversation_id_from_str(raw: &str) -> Option<String> {
+    const MAX_CHARS: usize = 256;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed
+        .chars()
+        .any(|c| c == '\n' || c == '\r' || c.is_control())
+    {
+        return None;
+    }
+    if trimmed.chars().count() > MAX_CHARS {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn extract_conversation_id_from_python_json(json: &Value) -> Option<String> {
+    for key in PYTHON_CONVERSATION_ID_KEYS {
+        if let Some(s) = json.get(*key).and_then(Value::as_str) {
+            if let Some(id) = normalize_conversation_id_from_str(s) {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn extract_response_text_from_python_json(json: &Value) -> String {
+    for key in PYTHON_RESPONSE_CANDIDATE_KEYS {
+        if let Some(value) = json.get(*key).and_then(Value::as_str) {
+            let candidate = value.trim();
+            if !candidate.is_empty() {
+                return candidate.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+fn extract_stop_reason_from_python_json(json: &Value) -> Option<String> {
+    json.get("stop_reason")
+        .and_then(Value::as_str)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[derive(Debug, Clone)]
+struct ParsedPythonChat {
+    response: String,
+    conversation_id: Option<String>,
+    cognitive_runtime_inspection: Option<Value>,
+    providers: Option<Vec<String>>,
+    stop_reason: Option<String>,
+    error: Option<Value>,
+}
+
+fn build_bridge_error(failure_class: &str, message: &str, detail: Option<&str>) -> Value {
+    let mut out = Map::new();
+    out.insert(
+        "failure_class".into(),
+        Value::String(failure_class.trim().to_string()),
+    );
+    out.insert("message".into(), Value::String(message.trim().to_string()));
+    if let Some(d) = detail {
+        let t = d.trim();
+        if !t.is_empty() {
+            out.insert("detail".into(), Value::String(t.to_string()));
+        }
+    }
+    Value::Object(out)
+}
+
+fn extract_providers_from_python_json(json: &Value) -> Option<Vec<String>> {
+    let arr = json.get("providers")?.as_array()?;
+    let out: Vec<String> = arr
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return PYTHON_FALLBACK_RESPONSE.to_string();
+        return ParsedPythonChat {
+            response: PYTHON_FALLBACK_RESPONSE.to_string(),
+            conversation_id: None,
+            cognitive_runtime_inspection: Some(json!({
+                "runtime_mode": "SAFE_FALLBACK",
+                "runtime_reason": "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "execution_tier": "technical_fallback",
+                "rust_boundary": true,
+                "reason": "python_stdout_empty_trimmed",
+                "signals": {
+                    "failure_class": "PYTHON_BRIDGE_EMPTY_STDOUT",
+                    "fallback_triggered": true,
+                    "execution_path_used": "rust_python_bridge",
+                    "compatibility_execution_active": false,
+                    "provider_actual": "",
+                    "provider_failed": false,
+                    "execution_provenance": serde_json::Value::Null,
+                }
+            })),
+            providers: None,
+            stop_reason: Some("python_empty_stdout".to_string()),
+            error: Some(build_bridge_error(
+                "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "Python bridge returned empty stdout.",
+                None,
+            )),
+        };
     }
 
     if python_debug_logging_enabled() {
@@ -579,56 +2492,673 @@ fn extract_response_from_python_output(stdout: &str) -> String {
 
     match serde_json::from_str::<Value>(trimmed) {
         Ok(json) => {
-            for key in PYTHON_RESPONSE_CANDIDATE_KEYS {
-                if let Some(value) = json.get(*key).and_then(Value::as_str) {
-                    let candidate = value.trim();
-                    if !candidate.is_empty() {
-                        return candidate.to_string();
+            let conversation_id = extract_conversation_id_from_python_json(&json);
+            let mut response = extract_response_text_from_python_json(&json);
+            let inspection = json.get("cognitive_runtime_inspection").cloned();
+            let providers = extract_providers_from_python_json(&json);
+            let stop_reason = extract_stop_reason_from_python_json(&json);
+            let mut error = json.get("error").cloned();
+            if error.is_none() {
+                if let Some(code) = json.get("error_public_code").and_then(Value::as_str) {
+                    let mut public_error = Map::new();
+                    public_error
+                        .insert("error_public_code".into(), Value::String(code.to_string()));
+                    for key in [
+                        "error_public_message",
+                        "severity",
+                        "retryable",
+                        "internal_error_redacted",
+                    ] {
+                        if let Some(value) = json.get(key) {
+                            public_error.insert(key.to_string(), value.clone());
+                        }
                     }
+                    error = Some(Value::Object(public_error));
                 }
             }
-            PYTHON_FALLBACK_RESPONSE.to_string()
+            if response.trim().is_empty() {
+                response = PYTHON_FALLBACK_RESPONSE.to_string();
+                if error.is_none() {
+                    error = Some(build_bridge_error(
+                        "PYTHON_BRIDGE_INVALID_JSON",
+                        "Python bridge returned JSON without a usable response field.",
+                        Some("missing_or_empty_response"),
+                    ));
+                }
+            }
+            ParsedPythonChat {
+                response,
+                conversation_id,
+                cognitive_runtime_inspection: inspection,
+                providers,
+                stop_reason,
+                error,
+            }
         }
         Err(err) => {
             warn!(error = %err, "failed to parse python output");
-            PYTHON_FALLBACK_RESPONSE.to_string()
+            let parse_detail = err.to_string();
+            ParsedPythonChat {
+                response: PYTHON_PARSE_FAILURE_RESPONSE.to_string(),
+                conversation_id: None,
+                cognitive_runtime_inspection: Some(json!({
+                    "runtime_mode": "SAFE_FALLBACK",
+                    "runtime_reason": "PYTHON_BRIDGE_INVALID_JSON",
+                    "execution_tier": "technical_fallback",
+                    "rust_boundary": true,
+                    "reason": "python_stdout_json_parse_failed",
+                    "parse_error": err.to_string(),
+                    "signals": {
+                        "failure_class": "PYTHON_BRIDGE_INVALID_JSON",
+                        "fallback_triggered": true,
+                        "execution_path_used": "rust_python_bridge",
+                        "compatibility_execution_active": false,
+                        "provider_actual": "",
+                        "provider_failed": false,
+                        "execution_provenance": serde_json::Value::Null,
+                    }
+                })),
+                providers: None,
+                stop_reason: Some("python_stdout_invalid_json".to_string()),
+                error: Some(build_bridge_error(
+                    "PYTHON_BRIDGE_INVALID_JSON",
+                    "Rust could not parse Python stdout as JSON.",
+                    Some(parse_detail.as_str()),
+                )),
+            }
         }
     }
 }
 
-fn build_python_fallback_response(source: &str) -> ChatResponse {
+/// JSON body written to Python stdin (see `docs/backend/python-bridge-contract.md`).
+fn build_python_stdin_json(
+    message: &str,
+    client_session_id: &Option<String>,
+    request_id: &Option<String>,
+    runtime_session_version: u32,
+    client_context: Option<&Value>,
+) -> Vec<u8> {
+    let mut m = serde_json::Map::new();
+    m.insert("message".into(), Value::String(message.to_string()));
+    m.insert(
+        "runtime_session_version".into(),
+        Value::Number(runtime_session_version.into()),
+    );
+    m.insert(
+        "request_source".into(),
+        Value::String("rust_boundary".to_string()),
+    );
+    if let Some(id) = client_session_id {
+        m.insert("client_session_id".into(), Value::String(id.clone()));
+    }
+    if let Some(id) = request_id {
+        m.insert("request_id".into(), Value::String(id.clone()));
+    }
+    if let Some(ctx) = client_context {
+        if let Some(obj) = ctx.as_object() {
+            if !obj.is_empty() {
+                m.insert("client_context".into(), ctx.clone());
+            }
+        }
+    }
+    serde_json::to_vec(&Value::Object(m)).unwrap_or_else(|_| br#"{"message":""}"#.to_vec())
+}
+
+fn build_python_service_json(
+    message: &str,
+    client_session_id: &Option<String>,
+    request_id: &Option<String>,
+    client_context: Option<&Value>,
+) -> Vec<u8> {
+    let mut m = serde_json::Map::new();
+    m.insert("message".into(), Value::String(message.to_string()));
+    if let Some(id) = client_session_id {
+        m.insert("session_id".into(), Value::String(id.clone()));
+    }
+    if let Some(id) = request_id {
+        m.insert("request_id".into(), Value::String(id.clone()));
+    }
+    if let Some(ctx) = client_context {
+        if let Some(obj) = ctx.as_object() {
+            if !obj.is_empty() {
+                m.insert("metadata".into(), ctx.clone());
+            }
+        }
+    }
+    serde_json::to_vec(&Value::Object(m)).unwrap_or_else(|_| br#"{"message":""}"#.to_vec())
+}
+
+fn parse_http_response(raw: &[u8]) -> Option<(u16, String)> {
+    let text = String::from_utf8_lossy(raw);
+    let (head, body) = text.split_once("\r\n\r\n")?;
+    let status = head
+        .lines()
+        .next()?
+        .split_whitespace()
+        .nth(1)?
+        .parse::<u16>()
+        .ok()?;
+    Some((status, body.trim().to_string()))
+}
+
+async fn post_python_service(
+    state: &AppState,
+    body: Vec<u8>,
+) -> Result<(u16, String), &'static str> {
+    let host = state.python_runtime.service_host.as_str();
+    let port = state.python_runtime.service_port;
+    let request = format!(
+        "POST /internal/brain/run HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+
+    let mut stream = timeout(
+        Duration::from_millis(state.python_runtime.service_timeout_ms),
+        TcpStream::connect((host, port)),
+    )
+    .await
+    .map_err(|_| "timeout")?
+    .map_err(|_| "connect_failed")?;
+
+    timeout(
+        Duration::from_millis(state.python_runtime.service_timeout_ms),
+        async {
+            stream
+                .write_all(request.as_bytes())
+                .await
+                .map_err(|_| "write_failed")?;
+            stream.write_all(&body).await.map_err(|_| "write_failed")?;
+            stream.flush().await.map_err(|_| "write_failed")?;
+            let mut out = Vec::new();
+            stream
+                .read_to_end(&mut out)
+                .await
+                .map_err(|_| "read_failed")?;
+            parse_http_response(&out).ok_or("invalid_http_response")
+        },
+    )
+    .await
+    .map_err(|_| "timeout")?
+}
+
+fn build_python_fallback_response(
+    state: &AppState,
+    source: &str,
+    client_session_id: Option<String>,
+    stop_reason: &str,
+    detail: Option<&str>,
+) -> ChatResponse {
+    let mut inspection = json!({
+        "runtime_mode": "SAFE_FALLBACK",
+        "runtime_reason": stop_reason,
+        "execution_tier": "technical_fallback",
+        "rust_boundary": true,
+        "source": source,
+        "stop_reason": stop_reason,
+        "signals": {
+            "failure_class": match stop_reason {
+                "python_empty_stdout" => "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "python_stdout_invalid_json" => "PYTHON_BRIDGE_INVALID_JSON",
+                "python_subprocess_nonzero_exit" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                "python_subprocess_timeout" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                "python_service_timeout" => "TIMEOUT",
+                "python_service_unavailable" | "python_service_error" => {
+                    "PYTHON_ORCHESTRATOR_FAILED"
+                }
+                _ => "PYTHON_BRIDGE_NONZERO_EXIT",
+            },
+            "fallback_triggered": true,
+            "execution_path_used": "rust_python_bridge",
+            "compatibility_execution_active": false,
+            "provider_actual": "",
+            "provider_failed": false,
+            "execution_provenance": serde_json::Value::Null,
+        }
+    });
+    if let Some(d) = detail {
+        if let Some(obj) = inspection.as_object_mut() {
+            obj.insert("detail".into(), Value::String(d.to_string()));
+        }
+    }
     ChatResponse {
         response: PYTHON_FALLBACK_RESPONSE.to_string(),
         session_id: "python-session".to_string(),
         source: source.to_string(),
+        runtime_session_version: state.runtime_session_version,
+        client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
-        stop_reason: Some("completed".to_string()),
+        stop_reason: Some(stop_reason.to_string()),
         usage: None,
+        conversation_id: None,
+        cognitive_runtime_inspection: Some(inspection),
+        providers: None,
+        error: Some(build_bridge_error(
+            match stop_reason {
+                "python_empty_stdout" => "PYTHON_BRIDGE_EMPTY_STDOUT",
+                "python_stdout_invalid_json" => "PYTHON_BRIDGE_INVALID_JSON",
+                "python_subprocess_nonzero_exit" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                "python_subprocess_timeout" => "PYTHON_BRIDGE_NONZERO_EXIT",
+                "python_service_timeout" => "TIMEOUT",
+                "python_service_unavailable" | "python_service_error" => {
+                    "PYTHON_ORCHESTRATOR_FAILED"
+                }
+                _ => "PYTHON_BRIDGE_NONZERO_EXIT",
+            },
+            PYTHON_FALLBACK_RESPONSE,
+            detail,
+        )),
     }
 }
 
-async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, AppError> {
+fn annotate_service_metadata(
+    response: &mut ChatResponse,
+    fallback_triggered: bool,
+    service_fallback_used: bool,
+    circuit_state: CircuitBreakerState,
+    error_public_code: &str,
+) {
+    let mut inspection = response
+        .cognitive_runtime_inspection
+        .take()
+        .unwrap_or_else(|| json!({}));
+
+    if let Some(obj) = inspection.as_object_mut() {
+        obj.insert(
+            "runtime_mode".into(),
+            Value::String("SAFE_FALLBACK".to_string()),
+        );
+        obj.insert(
+            "runtime_reason".into(),
+            Value::String(error_public_code.to_string()),
+        );
+        obj.insert("fallback_triggered".into(), Value::Bool(fallback_triggered));
+        obj.insert("service_mode_attempted".into(), Value::Bool(true));
+        obj.insert(
+            "service_fallback_used".into(),
+            Value::Bool(service_fallback_used),
+        );
+        obj.insert(
+            "circuit_breaker_state".into(),
+            Value::String(PythonCircuitBreaker::state_label(circuit_state).to_string()),
+        );
+        obj.insert(
+            "error_public_code".into(),
+            Value::String(error_public_code.to_string()),
+        );
+        obj.insert("internal_error_redacted".into(), Value::Bool(true));
+        let signals = obj
+            .entry("signals")
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Some(signals_obj) = signals.as_object_mut() {
+            signals_obj.insert("fallback_triggered".into(), Value::Bool(fallback_triggered));
+            signals_obj.insert("service_mode_attempted".into(), Value::Bool(true));
+            signals_obj.insert(
+                "service_fallback_used".into(),
+                Value::Bool(service_fallback_used),
+            );
+            signals_obj.insert(
+                "circuit_breaker_state".into(),
+                Value::String(PythonCircuitBreaker::state_label(circuit_state).to_string()),
+            );
+            signals_obj.insert(
+                "failure_class".into(),
+                Value::String(error_public_code.to_string()),
+            );
+        }
+    }
+
+    response.cognitive_runtime_inspection = Some(inspection);
+}
+
+fn service_failure_code(kind: PythonServiceFailureKind) -> &'static str {
+    match kind {
+        PythonServiceFailureKind::Timeout => "TIMEOUT",
+        PythonServiceFailureKind::ServiceFailure => "PYTHON_ORCHESTRATOR_FAILED",
+    }
+}
+
+fn service_failure_stop_reason(kind: PythonServiceFailureKind) -> &'static str {
+    match kind {
+        PythonServiceFailureKind::Timeout => "python_service_timeout",
+        PythonServiceFailureKind::ServiceFailure => "python_service_unavailable",
+    }
+}
+
+fn current_python_circuit_state(state: &AppState) -> CircuitBreakerState {
+    state
+        .python_circuit
+        .lock()
+        .map(|guard| guard.state)
+        .unwrap_or(CircuitBreakerState::Closed)
+}
+
+fn record_python_service_failure(
+    state: &AppState,
+    _kind: PythonServiceFailureKind,
+    observed_state: CircuitBreakerState,
+) {
+    if !state.python_runtime.circuit_breaker_enabled {
+        return;
+    }
+    if let Ok(mut guard) = state.python_circuit.lock() {
+        if guard.state == observed_state || observed_state == CircuitBreakerState::HalfOpen {
+            guard.record_failure(&state.python_runtime, Instant::now());
+        }
+    }
+}
+
+async fn execute_python_service_with_policy(
+    state: &AppState,
+    body: Vec<u8>,
+) -> Result<(String, CircuitBreakerState), PythonServiceFailure> {
+    let attempts = state.python_runtime.retry_attempts.saturating_add(1);
+    let mut last_failure = PythonServiceFailureKind::ServiceFailure;
+    let mut last_state = CircuitBreakerState::Closed;
+
+    for _ in 0..attempts {
+        let circuit_state = {
+            let mut guard = state
+                .python_circuit
+                .lock()
+                .map_err(|_| PythonServiceFailure {
+                    kind: PythonServiceFailureKind::ServiceFailure,
+                    circuit_state: CircuitBreakerState::Open,
+                })?;
+            guard.before_call(&state.python_runtime, Instant::now())
+        };
+        last_state = circuit_state;
+
+        if circuit_state == CircuitBreakerState::Open {
+            return Err(PythonServiceFailure {
+                kind: PythonServiceFailureKind::ServiceFailure,
+                circuit_state,
+            });
+        }
+
+        match post_python_service(state, body.clone()).await {
+            Ok((status, response_body)) if (200..300).contains(&status) => {
+                if serde_json::from_str::<Value>(&response_body).is_err() {
+                    last_failure = PythonServiceFailureKind::ServiceFailure;
+                    record_python_service_failure(state, last_failure, circuit_state);
+                    continue;
+                }
+                if let Ok(mut guard) = state.python_circuit.lock() {
+                    guard.record_success();
+                }
+                return Ok((response_body, circuit_state));
+            }
+            Ok(_) => {
+                last_failure = PythonServiceFailureKind::ServiceFailure;
+                record_python_service_failure(state, last_failure, circuit_state);
+            }
+            Err("timeout") => {
+                last_failure = PythonServiceFailureKind::Timeout;
+                record_python_service_failure(state, last_failure, circuit_state);
+            }
+            Err(_) => {
+                last_failure = PythonServiceFailureKind::ServiceFailure;
+                record_python_service_failure(state, last_failure, circuit_state);
+            }
+        }
+    }
+
+    Err(PythonServiceFailure {
+        kind: last_failure,
+        circuit_state: current_python_circuit_state(state).max_state(last_state),
+    })
+}
+
+trait CircuitStateOrder {
+    fn max_state(self, other: Self) -> Self;
+}
+
+impl CircuitStateOrder for CircuitBreakerState {
+    fn max_state(self, other: Self) -> Self {
+        if self == CircuitBreakerState::Open || other == CircuitBreakerState::Open {
+            CircuitBreakerState::Open
+        } else if self == CircuitBreakerState::HalfOpen || other == CircuitBreakerState::HalfOpen {
+            CircuitBreakerState::HalfOpen
+        } else {
+            CircuitBreakerState::Closed
+        }
+    }
+}
+
+async fn call_python_service(
+    state: &AppState,
+    message: &str,
+    client_session_id: Option<String>,
+    request_id: Option<String>,
+    client_context: Option<&Value>,
+) -> Result<ChatResponse, AppError> {
+    let body = build_python_service_json(message, &client_session_id, &request_id, client_context);
+    let result = execute_python_service_with_policy(state, body).await;
+    let (response_body, circuit_state) = match result {
+        Ok(value) => value,
+        Err(failure) => {
+            let code = service_failure_code(failure.kind);
+            let stop_reason = service_failure_stop_reason(failure.kind);
+            update_python_health(
+                state,
+                if failure.kind == PythonServiceFailureKind::Timeout {
+                    "timeout"
+                } else {
+                    "failed"
+                },
+                Some(code.to_string()),
+            )
+            .await;
+
+            if state.python_runtime.fallback_to_subprocess {
+                let mut fallback = call_python_subprocess(
+                    state,
+                    message,
+                    client_session_id,
+                    request_id,
+                    client_context,
+                )
+                .await?;
+                fallback.source = "python-service-subprocess-fallback".to_string();
+                fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
+                annotate_service_metadata(&mut fallback, true, true, failure.circuit_state, code);
+                return Ok(fallback);
+            }
+
+            let mut fallback = build_python_fallback_response(
+                state,
+                "python-service",
+                client_session_id,
+                stop_reason,
+                Some(code),
+            );
+            annotate_service_metadata(&mut fallback, true, false, failure.circuit_state, code);
+            return Ok(fallback);
+        }
+    };
+
+    let parsed = extract_chat_from_python_output(&response_body);
+    if parsed.response == PYTHON_FALLBACK_RESPONSE
+        || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE
+    {
+        let kind = PythonServiceFailureKind::ServiceFailure;
+        let code = service_failure_code(kind);
+        let stop_reason = "python_service_error";
+        update_python_health(state, "failed", Some(code.to_string())).await;
+        record_python_service_failure(state, kind, circuit_state);
+        let current_state = current_python_circuit_state(state);
+        if state.python_runtime.fallback_to_subprocess {
+            let mut fallback = call_python_subprocess(
+                state,
+                message,
+                client_session_id,
+                request_id,
+                client_context,
+            )
+            .await?;
+            fallback.source = "python-service-subprocess-fallback".to_string();
+            fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
+            annotate_service_metadata(&mut fallback, true, true, current_state, code);
+            return Ok(fallback);
+        }
+        let mut fallback = build_python_fallback_response(
+            state,
+            "python-service",
+            client_session_id,
+            stop_reason,
+            Some(code),
+        );
+        annotate_service_metadata(&mut fallback, true, false, current_state, code);
+        return Ok(fallback);
+    }
+
+    let stop_reason = parsed
+        .stop_reason
+        .clone()
+        .unwrap_or_else(|| "python_service_completed".to_string());
+    update_python_health(state, "ready", None).await;
+
+    Ok(ChatResponse {
+        response: parsed.response,
+        session_id: "python-session".to_string(),
+        source: "python-service".to_string(),
+        runtime_session_version: state.runtime_session_version,
+        client_session_id,
+        matched_commands: Vec::new(),
+        matched_tools: Vec::new(),
+        stop_reason: Some(stop_reason),
+        usage: None,
+        conversation_id: parsed.conversation_id,
+        cognitive_runtime_inspection: parsed.cognitive_runtime_inspection,
+        providers: parsed.providers,
+        error: parsed.error,
+    })
+}
+
+async fn call_python(
+    state: &AppState,
+    message: &str,
+    client_session_id: Option<String>,
+    request_id: Option<String>,
+    client_context: Option<&Value>,
+) -> Result<ChatResponse, AppError> {
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
-        return Ok(build_mock_response(message, "mock-env"));
+        return Ok(build_mock_response(
+            state,
+            message,
+            "mock-env",
+            client_session_id,
+        ));
     }
+
+    if state.python_runtime.mode == PythonRuntimeMode::Service {
+        return call_python_service(
+            state,
+            message,
+            client_session_id,
+            request_id,
+            client_context,
+        )
+        .await;
+    }
+
+    call_python_subprocess(
+        state,
+        message,
+        client_session_id,
+        request_id,
+        client_context,
+    )
+    .await
+}
+
+async fn call_python_subprocess(
+    state: &AppState,
+    message: &str,
+    client_session_id: Option<String>,
+    request_id: Option<String>,
+    client_context: Option<&Value>,
+) -> Result<ChatResponse, AppError> {
+    if state.mock_mode {
+        update_python_health(state, "mock", None).await;
+        return Ok(build_mock_response(
+            state,
+            message,
+            "mock-env",
+            client_session_id,
+        ));
+    }
+
+    let stdin_body = build_python_stdin_json(
+        message,
+        &client_session_id,
+        &request_id,
+        state.runtime_session_version,
+        client_context,
+    );
 
     let mut command = Command::new(&state.python_bin);
     command
         .arg(&state.python_entry)
-        .arg(message)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-    let output = match timeout(Duration::from_millis(state.python_timeout_ms), command.output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(err)) => {
-            let message = format!("failed to spawn or await python subprocess: {err}");
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            let message = format!("failed to spawn python subprocess: {err}");
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
-            return Ok(build_python_fallback_response("python-subprocess"));
+            return Ok(build_python_fallback_response(
+                state,
+                "python-subprocess",
+                client_session_id.clone(),
+                "python_subprocess_spawn_failed",
+                Some(message.as_str()),
+            ));
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(err) = stdin.write_all(&stdin_body).await {
+            let message = format!("failed to write python stdin: {err}");
+            error!("{message}");
+            let _ = child.kill().await;
+            update_python_health(state, "failed", Some(message.clone())).await;
+            return Ok(build_python_fallback_response(
+                state,
+                "python-subprocess",
+                client_session_id.clone(),
+                "python_subprocess_stdin_failed",
+                Some(message.as_str()),
+            ));
+        }
+        if let Err(err) = stdin.flush().await {
+            warn!("python stdin flush: {err}");
+        }
+    }
+
+    let output = match timeout(
+        Duration::from_millis(state.python_timeout_ms),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(Ok(output)) => output,
+        Ok(Err(err)) => {
+            let message = format!("failed to await python subprocess: {err}");
+            error!("{message}");
+            update_python_health(state, "failed", Some(message.clone())).await;
+            return Ok(build_python_fallback_response(
+                state,
+                "python-subprocess",
+                client_session_id.clone(),
+                "python_subprocess_wait_failed",
+                Some(message.as_str()),
+            ));
         }
         Err(_) => {
             let message = format!(
@@ -637,17 +3167,20 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
             );
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
-            return Ok(build_python_fallback_response("python-subprocess"));
+            return Ok(build_python_fallback_response(
+                state,
+                "python-subprocess",
+                client_session_id.clone(),
+                "python_subprocess_timeout",
+                Some(message.as_str()),
+            ));
         }
     };
 
     if !output.status.success() {
         let code = output.status.code().unwrap_or(-1);
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let message = format!(
-            "python adapter exited with status {}",
-            code
-        );
+        let message = format!("python adapter exited with status {}", code);
         warn!("{message}");
         if !stderr.is_empty() {
             warn!("python stderr: {stderr}");
@@ -655,10 +3188,24 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
         update_python_health(
             state,
             "failed",
-            Some(if stderr.is_empty() { message.clone() } else { stderr.clone() }),
+            Some(if stderr.is_empty() {
+                message.clone()
+            } else {
+                stderr.clone()
+            }),
         )
         .await;
-        return Ok(build_python_fallback_response("python-subprocess"));
+        return Ok(build_python_fallback_response(
+            state,
+            "python-subprocess",
+            client_session_id.clone(),
+            "python_subprocess_nonzero_exit",
+            Some(if stderr.is_empty() {
+                message.as_str()
+            } else {
+                stderr.as_str()
+            }),
+        ));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -672,27 +3219,52 @@ async fn call_python(state: &AppState, message: &str) -> Result<ChatResponse, Ap
         let message = "python adapter returned empty stdout".to_string();
         warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
-        return Ok(build_python_fallback_response("python-subprocess"));
+        return Ok(build_python_fallback_response(
+            state,
+            "python-subprocess",
+            client_session_id.clone(),
+            "python_empty_stdout",
+            Some(message.as_str()),
+        ));
     }
 
     update_python_health(state, "ready", None).await;
 
+    let parsed = extract_chat_from_python_output(&stdout);
+    let stop_reason = parsed
+        .stop_reason
+        .clone()
+        .unwrap_or_else(|| "python_completed".to_string());
+
     Ok(ChatResponse {
-        response: extract_response_from_python_output(&stdout),
+        response: parsed.response,
         session_id: "python-session".to_string(),
         source: "python-subprocess".to_string(),
+        runtime_session_version: state.runtime_session_version,
+        client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
-        stop_reason: Some("completed".to_string()),
+        stop_reason: Some(stop_reason),
         usage: None,
+        conversation_id: parsed.conversation_id,
+        cognitive_runtime_inspection: parsed.cognitive_runtime_inspection,
+        providers: parsed.providers,
+        error: parsed.error,
     })
 }
 
-fn build_mock_response(message: &str, source: &str) -> ChatResponse {
+fn build_mock_response(
+    state: &AppState,
+    message: &str,
+    source: &str,
+    client_session_id: Option<String>,
+) -> ChatResponse {
     ChatResponse {
         response: format!("Mock response from Rust backend: {message}"),
         session_id: "mock-session".to_string(),
         source: source.to_string(),
+        runtime_session_version: state.runtime_session_version,
+        client_session_id,
         matched_commands: Vec::new(),
         matched_tools: Vec::new(),
         stop_reason: Some("mock_completed".to_string()),
@@ -700,6 +3272,10 @@ fn build_mock_response(message: &str, source: &str) -> ChatResponse {
             "input_tokens": 0,
             "output_tokens": 0
         })),
+        conversation_id: None,
+        cognitive_runtime_inspection: None,
+        providers: None,
+        error: None,
     }
 }
 
@@ -709,27 +3285,56 @@ fn read_json_value(path: &Path) -> Option<Value> {
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
 }
 
+const JSONL_TAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
 fn read_recent_jsonl(path: &Path, limit: usize) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|raw| {
-            raw.lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        serde_json::from_str::<Value>(trimmed).ok()
-                    }
-                })
-                .rev()
-                .take(limit)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+    let file_len = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Vec::new(),
+    };
+    if file_len == 0 {
+        return Vec::new();
+    }
+
+    let read_len = file_len.min(JSONL_TAIL_MAX_BYTES);
+    let start = file_len.saturating_sub(read_len);
+    if file.seek(std::io::SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+
+    let mut bytes = Vec::with_capacity(read_len as usize);
+    if std::io::Read::read_to_end(&mut file, &mut bytes).is_err() {
+        return Vec::new();
+    }
+
+    let raw = String::from_utf8_lossy(&bytes);
+    let mut lines = raw.lines();
+    if start > 0 {
+        let _ = lines.next();
+    }
+
+    let mut parsed: Vec<Value> = lines
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                serde_json::from_str::<Value>(trimmed).ok()
+            }
         })
-        .unwrap_or_default()
+        .collect();
+    if parsed.len() > limit {
+        parsed.drain(0..parsed.len() - limit);
+    }
+    parsed
 }
 
 fn read_latest_jsonl(path: &Path) -> Option<Value> {
@@ -739,7 +3344,15 @@ fn read_latest_jsonl(path: &Path) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Method, Request},
+    };
     use std::fs;
+    use std::sync::{Mutex as StdMutex, OnceLock};
+    use tower::ServiceExt;
+
+    static ENV_TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
 
     fn temp_script(content: &str, name: &str) -> PathBuf {
         let root = env::temp_dir().join(format!("omini-rust-tests-{name}"));
@@ -758,12 +3371,156 @@ mod tests {
             python_bin: env::var("PYTHON_BIN").unwrap_or_else(|_| "python".to_string()),
             python_entry: script_path,
             python_timeout_ms,
+            python_runtime: PythonRuntimeConfig {
+                mode: PythonRuntimeMode::Subprocess,
+                service_host: "127.0.0.1".to_string(),
+                service_port: 7010,
+                service_timeout_ms: 30_000,
+                fallback_to_subprocess: false,
+                retry_attempts: 0,
+                circuit_breaker_enabled: true,
+                circuit_failure_threshold: 3,
+                circuit_reset_ms: 30_000,
+            },
+            python_circuit: Arc::new(Mutex::new(PythonCircuitBreaker::new())),
             runtime_mode: "live".to_string(),
             runtime_session_version: 1,
             mock_mode: false,
             node_bin: "node".to_string(),
             python_health: Arc::new(RwLock::new(DependencyStatus::default())),
+            supabase_auth: Arc::new(SupabaseAuthConfig {
+                jwt_secret: "test-secret".to_string(),
+                issuer: "https://example.supabase.co/auth/v1".to_string(),
+            }),
+            chat_security: Arc::new(ChatSecurityState::with_config(ChatSecurityConfig {
+                max_message_chars: 8_000,
+                max_body_bytes: 65_536,
+                rate_limit_enabled: true,
+                rate_limit_per_minute: 30,
+            })),
         }
+    }
+
+    fn build_test_state_with_security(
+        script_path: PathBuf,
+        python_timeout_ms: u64,
+        config: ChatSecurityConfig,
+    ) -> AppState {
+        let mut state = build_test_state(script_path, python_timeout_ms);
+        state.chat_security = Arc::new(ChatSecurityState::with_config(config));
+        state
+    }
+
+    fn build_service_state(port: u16, timeout_ms: u64) -> AppState {
+        let mut state = build_test_state(temp_script("print('unused')\n", "service-mode"), 15_000);
+        state.python_runtime = PythonRuntimeConfig {
+            mode: PythonRuntimeMode::Service,
+            service_host: "127.0.0.1".to_string(),
+            service_port: port,
+            service_timeout_ms: timeout_ms,
+            fallback_to_subprocess: false,
+            retry_attempts: 0,
+            circuit_breaker_enabled: true,
+            circuit_failure_threshold: 3,
+            circuit_reset_ms: 30_000,
+        };
+        state
+    }
+
+    async fn mock_python_service_many(
+        responses: Vec<(u16, Value)>,
+    ) -> (u16, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let handle = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().await.expect("accept");
+                let mut buf = vec![0_u8; 16_384];
+                let n = stream.read(&mut buf).await.expect("read");
+                requests.push(String::from_utf8_lossy(&buf[..n]).to_string());
+                let response_body = serde_json::to_vec(&body).expect("body json");
+                let response = format!(
+                    "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    response_body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write head");
+                stream.write_all(&response_body).await.expect("write body");
+            }
+            requests
+        });
+        (port, handle)
+    }
+
+    async fn mock_python_service_once(
+        status: u16,
+        body: Value,
+    ) -> (u16, tokio::task::JoinHandle<String>) {
+        let (port, handle) = mock_python_service_many(vec![(status, body)]).await;
+        let single = tokio::spawn(async move {
+            handle
+                .await
+                .expect("requests")
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        });
+        (port, single)
+    }
+
+    fn test_chat_security_config() -> ChatSecurityConfig {
+        ChatSecurityConfig {
+            max_message_chars: 20,
+            max_body_bytes: 512,
+            rate_limit_enabled: false,
+            rate_limit_per_minute: 30,
+        }
+    }
+
+    fn chat_router(state: AppState) -> Router {
+        Router::new()
+            .route("/chat", post(chat))
+            .route("/api/v1/chat", post(public_v1_chat))
+            .route(
+                "/api/v1/runtime/runner-smoke",
+                get(public_v1_runtime_runner_smoke),
+            )
+            .with_state(state)
+    }
+
+    async fn response_json(response: Response) -> Value {
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        serde_json::from_slice(&body).expect("json body")
+    }
+
+    fn json_post(path: &str, body: impl Into<Body>) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(CONTENT_TYPE, "application/json")
+            .body(body.into())
+            .expect("request")
+    }
+
+    fn get_request(path: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    async fn assert_python_not_invoked(state: &AppState) {
+        let guard = state.python_health.read().await;
+        assert!(!matches!(
+            guard.last_status.as_str(),
+            "ready" | "failed" | "timeout" | "stderr_warning" | "empty_stdout" | "mock"
+        ));
     }
 
     #[tokio::test]
@@ -772,24 +3529,1194 @@ mod tests {
             temp_script("print('{\"response\":\"ok from python\"}')\n", "success"),
             15_000,
         );
-        let response = call_python(&state, "hello").await.expect("python success");
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("python success");
         assert_eq!(response.response, "ok from python");
         assert_eq!(response.source, "python-subprocess");
+        assert_eq!(response.stop_reason.as_deref(), Some("python_completed"));
+    }
+
+    #[tokio::test]
+    async fn chat_route_valid_request_invokes_runtime() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-valid"),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","client_session_id":"sess-1","request_id":"req:1"}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["response"].as_str(), Some("ok"));
+        assert_eq!(body["client_session_id"].as_str(), Some("sess-1"));
+    }
+
+    #[tokio::test]
+    async fn runner_smoke_route_returns_safe_fields_only() {
+        let script = r#"import json
+import sys
+
+_ = sys.stdin.read()
+print(json.dumps({
+    "status": "ok",
+    "selected_runtime": "node",
+    "cwd_label": "app",
+    "runner_exists": True,
+    "adapter_exists": True,
+    "fusion_brain_exists": True,
+    "contract_exists": True,
+    "runner_exit_code": 0,
+    "stdout_json_valid": True,
+    "result_degraded": False,
+    "public_failure_class": None,
+    "public_summary": "runner_smoke_ok",
+    "stdout": "sk-test-secret Authorization raw response stack trace",
+    "env": {"OPENAI_API_KEY": "sk-test-secret"}
+}))
+"#;
+        let state = build_test_state(temp_script(script, "runner-smoke-safe"), 15_000);
+        let response = chat_router(state)
+            .oneshot(get_request("/api/v1/runtime/runner-smoke"))
+            .await
+            .expect("runner smoke route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+
+        assert_eq!(payload["api_version"].as_str(), Some("1"));
+        assert_eq!(payload["status"].as_str(), Some("ok"));
+        assert_eq!(payload["selected_runtime"].as_str(), Some("node"));
+        assert_eq!(payload["cwd_label"].as_str(), Some("app"));
+        assert_eq!(payload["runner_exists"].as_bool(), Some(true));
+        assert_eq!(payload["adapter_exists"].as_bool(), Some(true));
+        assert_eq!(payload["fusion_brain_exists"].as_bool(), Some(true));
+        assert_eq!(payload["contract_exists"].as_bool(), Some(true));
+        assert_eq!(payload["runner_exit_code"].as_i64(), Some(0));
+        assert_eq!(payload["stdout_json_valid"].as_bool(), Some(true));
+        assert_eq!(payload["result_degraded"].as_bool(), Some(false));
+        assert_eq!(payload["public_summary"].as_str(), Some("runner_smoke_ok"));
+
+        let serialized = serde_json::to_string(&payload).expect("json");
+        assert!(!serialized.contains("stderr"));
+        assert!(!serialized.contains("env"));
+        assert!(!serialized.contains("sk-test-secret"));
+        assert!(!serialized.contains("Authorization"));
+        assert!(!serialized.contains("raw response"));
+        assert!(!serialized.contains("stack trace"));
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_empty_message_before_runtime() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"should-not-run\"}')\n", "chat-empty"),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"   "}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("INPUT_VALIDATION_FAILED")
+        );
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_oversized_message_and_body_before_runtime() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-oversized",
+            ),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 5,
+                max_body_bytes: 32,
+                rate_limit_enabled: false,
+                rate_limit_per_minute: 30,
+            },
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"too long"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("PAYLOAD_TOO_LARGE")
+        );
+
+        let response = chat_router(state.clone())
+            .oneshot(json_post(
+                "/chat",
+                format!(r#"{{"message":"{}"}}"#, "x".repeat(64)),
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_invalid_json_and_content_type_before_runtime() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-invalid-json",
+            ),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", "not-json"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(body["error_public_code"].as_str(), Some("INVALID_JSON"));
+
+        let response = chat_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/chat")
+                    .header(CONTENT_TYPE, "text/plain")
+                    .body(Body::from(r#"{"message":"hello"}"#))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("INVALID_CONTENT_TYPE")
+        );
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_unsafe_control_chars_and_ids() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-control",
+            ),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state.clone())
+            .oneshot(json_post("/chat", "{\"message\":\"bad\\u0000value\"}"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = chat_router(state.clone())
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"ok","client_session_id":"bad/id"}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = chat_router(state.clone())
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"ok","request_id":"bad id"}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn chat_route_allows_tab_and_newline_in_message() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-control-safe"),
+            15_000,
+            test_chat_security_config(),
+        );
+        let response = chat_router(state)
+            .oneshot(json_post("/chat", "{\"message\":\"hello\\n\\tworld\"}"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn chat_route_rate_limits_and_can_disable_rate_limit() {
+        let enabled_state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-rate-enabled"),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 20,
+                max_body_bytes: 512,
+                rate_limit_enabled: true,
+                rate_limit_per_minute: 1,
+            },
+        );
+        let response = chat_router(enabled_state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"one"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = chat_router(enabled_state)
+            .oneshot(json_post("/chat", r#"{"message":"two"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = response_json(response).await;
+        assert_eq!(body["error_public_code"].as_str(), Some("RATE_LIMITED"));
+        assert_eq!(body["retryable"].as_bool(), Some(true));
+
+        let disabled_state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-rate-disabled"),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 20,
+                max_body_bytes: 512,
+                rate_limit_enabled: false,
+                rate_limit_per_minute: 1,
+            },
+        );
+        let response = chat_router(disabled_state.clone())
+            .oneshot(json_post("/chat", r#"{"message":"one"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = chat_router(disabled_state)
+            .oneshot(json_post("/chat", r#"{"message":"two"}"#))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn chat_security_env_aliases_work() {
+        let lock = ENV_TEST_LOCK
+            .get_or_init(|| StdMutex::new(()))
+            .lock()
+            .unwrap();
+        let keys = [
+            "OMNI_MAX_MESSAGE_CHARS",
+            "OMINI_MAX_MESSAGE_CHARS",
+            "OMNI_MAX_BODY_BYTES",
+            "OMINI_MAX_BODY_BYTES",
+            "OMNI_RATE_LIMIT_ENABLED",
+            "OMINI_RATE_LIMIT_ENABLED",
+            "OMNI_RATE_LIMIT_PER_MINUTE",
+            "OMINI_RATE_LIMIT_PER_MINUTE",
+        ];
+        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+        env::set_var("OMINI_MAX_MESSAGE_CHARS", "123");
+        env::set_var("OMINI_MAX_BODY_BYTES", "456");
+        env::set_var("OMINI_RATE_LIMIT_ENABLED", "false");
+        env::set_var("OMINI_RATE_LIMIT_PER_MINUTE", "7");
+        let legacy = ChatSecurityState::from_env();
+        assert_eq!(legacy.config.max_message_chars, 123);
+        assert_eq!(legacy.config.max_body_bytes, 456);
+        assert!(!legacy.config.rate_limit_enabled);
+        assert_eq!(legacy.config.rate_limit_per_minute, 7);
+
+        env::set_var("OMNI_MAX_MESSAGE_CHARS", "321");
+        env::set_var("OMNI_MAX_BODY_BYTES", "654");
+        env::set_var("OMNI_RATE_LIMIT_ENABLED", "true");
+        env::set_var("OMNI_RATE_LIMIT_PER_MINUTE", "9");
+        let canonical = ChatSecurityState::from_env();
+        assert_eq!(canonical.config.max_message_chars, 321);
+        assert_eq!(canonical.config.max_body_bytes, 654);
+        assert!(canonical.config.rate_limit_enabled);
+        assert_eq!(canonical.config.rate_limit_per_minute, 9);
+
+        for (key, value) in saved {
+            if let Some(value) = value {
+                env::set_var(key, value);
+            } else {
+                env::remove_var(key);
+            }
+        }
+        drop(lock);
+    }
+
+    #[test]
+    fn python_debug_logging_is_disabled_in_public_demo() {
+        let lock = ENV_TEST_LOCK
+            .get_or_init(|| StdMutex::new(()))
+            .lock()
+            .unwrap();
+        let keys = [
+            "OMINI_LOG_LEVEL",
+            "LOG_LEVEL",
+            "OMNI_PUBLIC_DEMO_MODE",
+            "OMINI_PUBLIC_DEMO_MODE",
+        ];
+        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+
+        env::set_var("LOG_LEVEL", "debug");
+        assert!(python_debug_logging_enabled());
+        env::set_var("OMNI_PUBLIC_DEMO_MODE", "true");
+        assert!(!python_debug_logging_enabled());
+
+        for (key, value) in saved {
+            if let Some(value) = value {
+                env::set_var(key, value);
+            } else {
+                env::remove_var(key);
+            }
+        }
+        drop(lock);
+    }
+
+    #[test]
+    fn python_runtime_mode_env_aliases_and_precedence_work() {
+        let lock = ENV_TEST_LOCK
+            .get_or_init(|| StdMutex::new(()))
+            .lock()
+            .unwrap();
+        let keys = [
+            "OMNI_PYTHON_MODE",
+            "OMINI_PYTHON_MODE",
+            "OMNI_PYTHON_SERVICE_HOST",
+            "OMINI_PYTHON_SERVICE_HOST",
+            "OMNI_PYTHON_SERVICE_PORT",
+            "OMINI_PYTHON_SERVICE_PORT",
+            "OMNI_PYTHON_SERVICE_TIMEOUT_MS",
+            "OMINI_PYTHON_SERVICE_TIMEOUT_MS",
+            "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+            "OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
+            "OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+            "OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS",
+            "OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+            "OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
+            "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+            "OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
+            "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+            "OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
+        ];
+        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+
+        let default = PythonRuntimeConfig::from_env();
+        assert_eq!(default.mode, PythonRuntimeMode::Subprocess);
+        assert_eq!(default.service_host, "127.0.0.1");
+        assert_eq!(default.service_port, 7010);
+        assert_eq!(default.service_timeout_ms, 30_000);
+        assert!(!default.fallback_to_subprocess);
+        assert_eq!(default.retry_attempts, 0);
+        assert!(default.circuit_breaker_enabled);
+        assert_eq!(default.circuit_failure_threshold, 3);
+        assert_eq!(default.circuit_reset_ms, 30_000);
+
+        env::set_var("OMINI_PYTHON_MODE", "service");
+        env::set_var("OMINI_PYTHON_SERVICE_HOST", "127.0.0.2");
+        env::set_var("OMINI_PYTHON_SERVICE_PORT", "7011");
+        env::set_var("OMINI_PYTHON_SERVICE_TIMEOUT_MS", "1234");
+        env::set_var("OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "true");
+        env::set_var("OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS", "9");
+        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "false");
+        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "2");
+        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "4567");
+        let legacy = PythonRuntimeConfig::from_env();
+        assert_eq!(legacy.mode, PythonRuntimeMode::Service);
+        assert_eq!(legacy.service_host, "127.0.0.2");
+        assert_eq!(legacy.service_port, 7011);
+        assert_eq!(legacy.service_timeout_ms, 1234);
+        assert!(legacy.fallback_to_subprocess);
+        assert_eq!(legacy.retry_attempts, 3);
+        assert!(!legacy.circuit_breaker_enabled);
+        assert_eq!(legacy.circuit_failure_threshold, 2);
+        assert_eq!(legacy.circuit_reset_ms, 4567);
+
+        env::set_var("OMNI_PYTHON_MODE", "subprocess");
+        env::set_var("OMNI_PYTHON_SERVICE_HOST", "127.0.0.3");
+        env::set_var("OMNI_PYTHON_SERVICE_PORT", "7012");
+        env::set_var("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "4321");
+        env::set_var("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "false");
+        env::set_var("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "1");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "true");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "5");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "9876");
+        let canonical = PythonRuntimeConfig::from_env();
+        assert_eq!(canonical.mode, PythonRuntimeMode::Subprocess);
+        assert_eq!(canonical.service_host, "127.0.0.3");
+        assert_eq!(canonical.service_port, 7012);
+        assert_eq!(canonical.service_timeout_ms, 4321);
+        assert!(!canonical.fallback_to_subprocess);
+        assert_eq!(canonical.retry_attempts, 1);
+        assert!(canonical.circuit_breaker_enabled);
+        assert_eq!(canonical.circuit_failure_threshold, 5);
+        assert_eq!(canonical.circuit_reset_ms, 9876);
+
+        env::set_var("OMNI_PYTHON_MODE", "invalid");
+        assert_eq!(
+            PythonRuntimeConfig::from_env().mode,
+            PythonRuntimeMode::Subprocess
+        );
+
+        for (key, value) in saved {
+            if let Some(value) = value {
+                env::set_var(key, value);
+            } else {
+                env::remove_var(key);
+            }
+        }
+        drop(lock);
+    }
+
+    #[tokio::test]
+    async fn service_mode_sends_expected_json_and_preserves_public_envelope() {
+        let (port, handle) = mock_python_service_once(
+            200,
+            json!({
+                "response": "ok from service",
+                "conversation_id": "conv-service",
+                "cognitive_runtime_inspection": {
+                    "runtime_mode": "FULL_COGNITIVE_RUNTIME",
+                    "runtime_truth": {
+                        "runtime_mode": "FULL_COGNITIVE_RUNTIME",
+                        "fallback_triggered": false
+                    }
+                },
+                "error_public_code": "RULE_BASED_INTENT_USED",
+                "error_public_message": "Intent was classified by deterministic rules.",
+                "severity": "info",
+                "retryable": false,
+                "internal_error_redacted": true,
+                "providers": ["openai"]
+            }),
+        )
+        .await;
+        let state = build_service_state(port, 5_000);
+        let response = call_python(
+            &state,
+            "hello",
+            Some("sess-1".to_string()),
+            Some("req-1".to_string()),
+            Some(&json!({"source": "frontend"})),
+        )
+        .await
+        .expect("service response");
+        let request = handle.await.expect("service request");
+
+        assert!(request.starts_with("POST /internal/brain/run HTTP/1.1"));
+        assert!(request.contains("\"message\":\"hello\""));
+        assert!(request.contains("\"session_id\":\"sess-1\""));
+        assert!(request.contains("\"request_id\":\"req-1\""));
+        assert!(request.contains("\"metadata\":{\"source\":\"frontend\"}"));
+        assert_eq!(response.response, "ok from service");
+        assert_eq!(response.source, "python-service");
+        assert_eq!(response.conversation_id.as_deref(), Some("conv-service"));
+        assert_eq!(
+            response
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("runtime_mode"))
+                .and_then(Value::as_str),
+            Some("FULL_COGNITIVE_RUNTIME")
+        );
+        assert_eq!(response.providers, Some(vec!["openai".to_string()]));
+        assert_eq!(
+            response
+                .error
+                .as_ref()
+                .and_then(|v| v.get("error_public_code"))
+                .and_then(Value::as_str),
+            Some("RULE_BASED_INTENT_USED")
+        );
+    }
+
+    #[tokio::test]
+    async fn service_mode_unavailable_and_timeout_are_public_safe() {
+        let unavailable_listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let unavailable_port = unavailable_listener.local_addr().expect("addr").port();
+        let _unavailable_handle = tokio::spawn(async move {
+            let (_stream, _) = unavailable_listener.accept().await.expect("accept");
+        });
+        let state = build_service_state(unavailable_port, 1_000);
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("fallback");
+        assert_eq!(response.source, "python-service");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_service_unavailable")
+        );
+        assert_eq!(
+            response
+                .error
+                .as_ref()
+                .and_then(|v| v.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_ORCHESTRATOR_FAILED")
+        );
+        let serialized = serde_json::to_string(&response).expect("serialize");
+        assert!(!serialized.contains("stack"));
+        assert!(!serialized.contains("token"));
+        assert!(!serialized.contains("/home/"));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let _handle = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("accept");
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        });
+        let timeout_state = build_service_state(port, 25);
+        let timeout_response = call_python(&timeout_state, "hello", None, None, None)
+            .await
+            .expect("timeout fallback");
+        assert_eq!(
+            timeout_response.stop_reason.as_deref(),
+            Some("python_service_timeout")
+        );
+        assert_eq!(
+            timeout_response
+                .error
+                .as_ref()
+                .and_then(|v| v.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("TIMEOUT")
+        );
+    }
+
+    #[tokio::test]
+    async fn service_retry_is_bounded_and_can_recover() {
+        let (port, handle) = mock_python_service_many(vec![
+            (500, json!({"response": "fail"})),
+            (200, json!({"response": "ok after retry"})),
+        ])
+        .await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_runtime.retry_attempts = 1;
+        state.python_runtime.circuit_failure_threshold = 10;
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("retry response");
+        let requests = handle.await.expect("requests");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(response.response, "ok after retry");
+        assert_eq!(
+            state.python_circuit.lock().expect("circuit").state,
+            CircuitBreakerState::Closed
+        );
+    }
+
+    #[tokio::test]
+    async fn service_failure_optionally_falls_back_to_subprocess() {
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let script = r#"print('{"response":"ok from subprocess","cognitive_runtime_inspection":{"runtime_mode":"FULL_COGNITIVE_RUNTIME"}}')"#;
+        let mut state = build_test_state(temp_script(script, "service-fallback"), 15_000);
+        state.python_runtime = PythonRuntimeConfig {
+            mode: PythonRuntimeMode::Service,
+            service_host: "127.0.0.1".to_string(),
+            service_port: port,
+            service_timeout_ms: 5_000,
+            fallback_to_subprocess: true,
+            retry_attempts: 0,
+            circuit_breaker_enabled: true,
+            circuit_failure_threshold: 3,
+            circuit_reset_ms: 30_000,
+        };
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("fallback response");
+        assert_eq!(response.response, "ok from subprocess");
+        assert_eq!(response.source, "python-service-subprocess-fallback");
+        let inspection = response.cognitive_runtime_inspection.expect("inspection");
+        assert_eq!(inspection["runtime_mode"].as_str(), Some("SAFE_FALLBACK"));
+        assert_eq!(inspection["fallback_triggered"].as_bool(), Some(true));
+        assert_eq!(inspection["service_mode_attempted"].as_bool(), Some(true));
+        assert_eq!(inspection["service_fallback_used"].as_bool(), Some(true));
+        assert_ne!(
+            inspection["runtime_mode"].as_str(),
+            Some("FULL_COGNITIVE_RUNTIME")
+        );
+    }
+
+    #[tokio::test]
+    async fn service_failure_without_fallback_does_not_invoke_subprocess() {
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_entry = temp_script(
+            "print('{\"response\":\"should-not-run\"}')\n",
+            "no-fallback",
+        );
+        state.python_runtime.fallback_to_subprocess = false;
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("service failure response");
+        assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
+        assert_eq!(response.source, "python-service");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_service_unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn circuit_opens_skips_service_and_half_open_transitions() {
+        let (port, handle) = mock_python_service_many(vec![
+            (500, json!({"response": "fail-1"})),
+            (500, json!({"response": "fail-2"})),
+            (200, json!({"response": "probe ok"})),
+        ])
+        .await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_runtime.circuit_failure_threshold = 2;
+        state.python_runtime.circuit_reset_ms = 1_000;
+
+        let first = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("first failure");
+        assert_eq!(
+            first
+                .error
+                .as_ref()
+                .and_then(|v| v.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_ORCHESTRATOR_FAILED")
+        );
+
+        let second = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("second failure");
+        assert_eq!(
+            second
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("circuit_breaker_state"))
+                .and_then(Value::as_str),
+            Some("OPEN")
+        );
+
+        let skipped = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("open circuit skip");
+        assert_eq!(
+            skipped
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("circuit_breaker_state"))
+                .and_then(Value::as_str),
+            Some("OPEN")
+        );
+
+        {
+            let mut circuit = state.python_circuit.lock().expect("circuit");
+            circuit.opened_at = Some(Instant::now() - Duration::from_millis(2_000));
+        }
+        let probe = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("half-open probe");
+        assert_eq!(probe.response, "probe ok");
+        assert_eq!(
+            state.python_circuit.lock().expect("circuit").state,
+            CircuitBreakerState::Closed
+        );
+        let requests = handle.await.expect("requests");
+        assert_eq!(requests.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn half_open_failure_reopens_circuit() {
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "probe failed"})).await;
+        let mut state = build_service_state(port, 5_000);
+        state.python_runtime.circuit_failure_threshold = 1;
+        state.python_runtime.circuit_reset_ms = 1;
+        {
+            let mut circuit = state.python_circuit.lock().expect("circuit");
+            circuit.state = CircuitBreakerState::Open;
+            circuit.opened_at = Some(Instant::now() - Duration::from_millis(50));
+        }
+
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("half-open failure");
+        assert_eq!(
+            response
+                .cognitive_runtime_inspection
+                .as_ref()
+                .and_then(|v| v.get("circuit_breaker_state"))
+                .and_then(Value::as_str),
+            Some("OPEN")
+        );
+        assert_eq!(
+            state.python_circuit.lock().expect("circuit").state,
+            CircuitBreakerState::Open
+        );
+    }
+
+    #[tokio::test]
+    async fn call_python_stdin_bridge_echoes_message_and_client_session() {
+        let script = r#"import json,sys
+raw=sys.stdin.read()
+d=json.loads(raw)
+cid=d.get("client_session_id") or ""
+print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime_session_version')}"}))
+"#;
+        let state = build_test_state(temp_script(script, "stdin-bridge"), 15_000);
+        let response = call_python(&state, "hello", Some("sess-9".to_string()), None, None)
+            .await
+            .expect("python stdin bridge");
+        assert_eq!(response.response, "msg=hello;cid=sess-9;rsv=1");
+        assert_eq!(response.client_session_id.as_deref(), Some("sess-9"));
+    }
+
+    #[tokio::test]
+    async fn chat_route_does_not_echo_session_byok_key() {
+        let script = r#"import json,sys
+d=json.loads(sys.stdin.read())
+ctx=d.get("client_context") or {}
+creds=ctx.get("session_provider_credentials") or {}
+seen=bool((creds.get("openai") or {}).get("api_key"))
+print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
+"#;
+        let state = build_test_state(temp_script(script, "byok-private"), 15_000);
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","provider_preference":"openai","session_provider_credentials":{"openai":{"api_key":"test-byok-key","model":"gpt-4o-mini"}}}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        let body_text = serde_json::to_string(&body).unwrap();
+        assert_eq!(body["response"].as_str(), Some("byok_seen=true"));
+        assert!(!body_text.contains("test-byok-key"));
+        assert!(!body_text.contains("gpt-4o-mini"));
+        assert!(body.get("session_provider_credentials").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_invalid_session_byok_without_echoing_secret_material() {
+        let state = build_test_state(temp_script("print('{}')", "byok-invalid"), 15_000);
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","provider_preference":"openai","session_provider_credentials":{"deepseek":{"api_key":"sk-test-byok-session-openai","model":"byok-test-model"}}}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        let body_text = serde_json::to_string(&body).unwrap();
+        assert!(!body_text.contains("sk-test-byok-session-openai"));
+        assert!(!body_text.contains("byok-test-model"));
+        assert!(body.is_object());
+        assert!(body.get("session_provider_credentials").is_none());
+    }
+
+    #[test]
+    fn build_python_stdin_json_includes_optional_client_session() {
+        let v = build_python_stdin_json("hi", &Some("c1".into()), &Some("r1".into()), 42, None);
+        let parsed: Value = serde_json::from_slice(&v).expect("json");
+        assert_eq!(parsed["message"].as_str(), Some("hi"));
+        assert_eq!(parsed["client_session_id"].as_str(), Some("c1"));
+        assert_eq!(parsed["request_id"].as_str(), Some("r1"));
+        assert_eq!(parsed["runtime_session_version"].as_u64(), Some(42));
+        assert_eq!(parsed["request_source"].as_str(), Some("rust_boundary"));
+        let v2 = build_python_stdin_json("x", &None, &None, 0, None);
+        let p2: Value = serde_json::from_slice(&v2).unwrap();
+        assert!(p2.get("client_session_id").is_none());
+    }
+
+    #[test]
+    fn build_python_stdin_json_includes_optional_client_context() {
+        let ctx = json!({"source": "frontend"});
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&ctx));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+        assert_eq!(parsed["client_context"], ctx);
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_merges_optional_conversation_id() {
+        let raw = r#"{"response":"hi","server_conversation_id":"srv-1","noise":true}"#;
+        let parsed = extract_chat_from_python_output(raw);
+        assert_eq!(parsed.response, "hi");
+        assert_eq!(parsed.conversation_id.as_deref(), Some("srv-1"));
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_ignores_invalid_conversation_id() {
+        let raw = format!(
+            r#"{{"response":"x","conversation_id":"{}"}}"#,
+            "y".repeat(300)
+        );
+        let parsed = extract_chat_from_python_output(&raw);
+        assert!(parsed.conversation_id.is_none());
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_parses_providers_array() {
+        let raw = r#"{"response":"hi","providers":["openai","groq","gemini"]}"#;
+        let parsed = extract_chat_from_python_output(raw);
+        assert_eq!(parsed.response, "hi");
+        assert_eq!(
+            parsed.providers,
+            Some(vec![
+                "openai".to_string(),
+                "groq".to_string(),
+                "gemini".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_omits_empty_providers() {
+        let raw = r#"{"response":"x","providers":[]}"#;
+        let parsed = extract_chat_from_python_output(raw);
+        assert!(parsed.providers.is_none());
+    }
+
+    #[test]
+    fn extract_chat_from_python_output_invalid_json_sets_degraded_stop_reason() {
+        let parsed = extract_chat_from_python_output("not-json {{{");
+        assert_eq!(
+            parsed.stop_reason.as_deref(),
+            Some("python_stdout_invalid_json")
+        );
+        assert!(parsed.response.contains("degraded:python_stdout"));
+    }
+
+    #[test]
+    fn public_chat_request_v1_deserializes_optional_client_context() {
+        let raw =
+            r#"{"message":"hi","client_session_id":"s1","client_context":{"source":"frontend"}}"#;
+        let p: PublicChatRequestV1 = serde_json::from_str(raw).expect("deserialize");
+        assert_eq!(p.message, "hi");
+        assert_eq!(p.client_session_id.as_deref(), Some("s1"));
+        let ctx = p.client_context.expect("context");
+        assert_eq!(ctx.source.as_deref(), Some("frontend"));
+    }
+
+    #[test]
+    fn chat_request_deserializes_typed_session_provider_credentials() {
+        let raw = r#"{"message":"hi","provider_preference":"openai","session_provider_credentials":{"openai":{"api_key":"test-byok-key","model":"gpt-4o-mini"}}}"#;
+        let p: ChatRequest = serde_json::from_str(raw).expect("deserialize");
+        assert_eq!(p.provider_preference.as_deref(), Some("openai"));
+        let credentials = p.session_provider_credentials.expect("credentials");
+        assert_eq!(
+            credentials
+                .get("openai")
+                .and_then(|item| item.model.as_deref()),
+            Some("gpt-4o-mini")
+        );
+    }
+
+    #[test]
+    fn session_provider_credentials_reject_unknown_fields() {
+        let raw = r#"{"message":"hi","session_provider_credentials":{"openai":{"api_key":"test-byok-key","extra":"nope"}}}"#;
+        assert!(serde_json::from_str::<ChatRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn session_byok_validation_rejects_unknown_provider_and_deepseek() {
+        let mut unknown = BTreeMap::new();
+        unknown.insert(
+            "notreal".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(unknown)).is_err());
+
+        let mut deepseek = BTreeMap::new();
+        deepseek.insert(
+            "deepseek".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(deepseek)).is_err());
+    }
+
+    #[test]
+    fn session_byok_validation_rejects_oversized_and_control_chars() {
+        let mut too_long = BTreeMap::new();
+        too_long.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("x".repeat(BYOK_MAX_API_KEY_CHARS + 1)),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(too_long)).is_err());
+
+        let mut control = BTreeMap::new();
+        control.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("bad\u{0000}key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(control)).is_err());
+    }
+
+    #[test]
+    fn build_python_stdin_json_forwards_private_byok_bridge_fields() {
+        let mut credentials = BTreeMap::new();
+        credentials.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: Some("gpt-4o-mini".to_string()),
+            },
+        );
+        let context = build_private_bridge_context(
+            Some(json!({"source": "frontend"})),
+            &Some("openai".to_string()),
+            &Some(credentials),
+        )
+        .expect("context");
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+        assert_eq!(
+            parsed["client_context"]["provider_preference"].as_str(),
+            Some("openai")
+        );
+        assert_eq!(
+            parsed["client_context"]["session_provider_credentials"]["openai"]["api_key"].as_str(),
+            Some("test-byok-key")
+        );
+    }
+
+    #[test]
+    fn build_python_stdin_json_forwards_byok_model_without_public_response_echo() {
+        let mut credentials = BTreeMap::new();
+        credentials.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("sk-test-byok-session-openai".to_string()),
+                model: Some("byok-test-model".to_string()),
+            },
+        );
+        let context =
+            build_private_bridge_context(None, &Some("openai".to_string()), &Some(credentials))
+                .expect("context");
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+
+        assert_eq!(
+            parsed["client_context"]["provider_preference"].as_str(),
+            Some("openai")
+        );
+        assert_eq!(
+            parsed["client_context"]["session_provider_credentials"]["openai"]["model"].as_str(),
+            Some("byok-test-model")
+        );
+
+        let public = ChatResponse {
+            response: "ok".to_string(),
+            session_id: "python-session".to_string(),
+            source: "python-subprocess".to_string(),
+            runtime_session_version: 1,
+            client_session_id: None,
+            matched_commands: vec![],
+            matched_tools: vec![],
+            stop_reason: Some("completed".to_string()),
+            usage: None,
+            conversation_id: None,
+            cognitive_runtime_inspection: None,
+            providers: None,
+            error: None,
+        };
+        let public_text = serde_json::to_string(&public).unwrap();
+        assert!(!public_text.contains("sk-test-byok-session-openai"));
+        assert!(!public_text.contains("byok-test-model"));
+        assert!(!public_text.contains("session_provider_credentials"));
+    }
+
+    #[test]
+    fn public_chat_response_v1_serializes_api_version_and_flattened_chat() {
+        let body = PublicChatResponseV1 {
+            api_version: "1",
+            chat: ChatResponse {
+                response: "hello".into(),
+                session_id: "python-session".into(),
+                source: "python-subprocess".into(),
+                runtime_session_version: 2,
+                client_session_id: Some("c".into()),
+                matched_commands: vec![],
+                matched_tools: vec![],
+                stop_reason: Some("completed".into()),
+                usage: None,
+                conversation_id: Some("conv-9".into()),
+                cognitive_runtime_inspection: None,
+                providers: None,
+                error: None,
+            },
+        };
+        let v = serde_json::to_value(&body).expect("serialize");
+        assert_eq!(v["api_version"], "1");
+        assert_eq!(v["response"], "hello");
+        assert_eq!(v["conversation_id"], "conv-9");
+    }
+
+    #[test]
+    fn public_chat_response_v1_serializes_providers_when_present() {
+        let body = PublicChatResponseV1 {
+            api_version: "1",
+            chat: ChatResponse {
+                response: "hello".into(),
+                session_id: "python-session".into(),
+                source: "python-subprocess".into(),
+                runtime_session_version: 2,
+                client_session_id: None,
+                matched_commands: vec![],
+                matched_tools: vec![],
+                stop_reason: Some("completed".into()),
+                usage: None,
+                conversation_id: None,
+                cognitive_runtime_inspection: None,
+                providers: Some(vec!["openai".into(), "groq".into()]),
+                error: None,
+            },
+        };
+        let v = serde_json::to_value(&body).expect("serialize");
+        assert_eq!(v["providers"], json!(["openai", "groq"]));
     }
 
     #[tokio::test]
     async fn call_python_returns_timeout_fallback() {
-        let state = build_test_state(temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"), 200);
-        let response = call_python(&state, "hello").await.expect("timeout fallback expected");
+        let state = build_test_state(
+            temp_script("import time\ntime.sleep(2)\nprint('late')\n", "timeout"),
+            200,
+        );
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("timeout fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
         assert_eq!(response.source, "python-subprocess");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_subprocess_timeout")
+        );
+        assert!(response.cognitive_runtime_inspection.is_some());
+        assert_eq!(
+            response
+                .error
+                .as_ref()
+                .and_then(|e| e.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_BRIDGE_NONZERO_EXIT")
+        );
     }
 
     #[tokio::test]
     async fn call_python_returns_stderr_fallback() {
-        let state = build_test_state(temp_script("import sys\nsys.stderr.write('boom')\nprint('ignored')\n", "stderr"), 2_000);
-        let response = call_python(&state, "hello").await.expect("stderr fallback expected");
+        let state = build_test_state(
+            temp_script(
+                "import sys\nsys.stderr.write('boom')\nsys.exit(1)\n",
+                "stderr",
+            ),
+            15_000,
+        );
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("stderr fallback expected");
         assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
         assert_eq!(response.source, "python-subprocess");
+        assert_eq!(
+            response.stop_reason.as_deref(),
+            Some("python_subprocess_nonzero_exit")
+        );
+        assert!(response.cognitive_runtime_inspection.is_some());
+        assert_eq!(
+            response
+                .error
+                .as_ref()
+                .and_then(|e| e.get("failure_class"))
+                .and_then(Value::as_str),
+            Some("PYTHON_BRIDGE_NONZERO_EXIT")
+        );
+    }
+
+    #[test]
+    fn normalize_client_session_id_trims_and_drops_empty() {
+        assert_eq!(normalize_client_session_id(None), None);
+        assert_eq!(normalize_client_session_id(Some("   ".to_string())), None);
+        assert_eq!(
+            normalize_client_session_id(Some("  abc  ".to_string())),
+            Some("abc".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_client_session_id_truncates_long_strings() {
+        let long = "x".repeat(300);
+        let out = normalize_client_session_id(Some(long)).expect("truncated");
+        assert_eq!(out.chars().count(), 256);
+    }
+
+    #[tokio::test]
+    async fn call_python_merges_conversation_id_from_stdout_json() {
+        let script = r#"print('{"response":"ok","conversation_id":"real-1"}')"#;
+        let state = build_test_state(temp_script(script, "convo-id"), 15_000);
+        let response = call_python(&state, "hello", None, None, None)
+            .await
+            .expect("python success");
+        assert_eq!(response.response, "ok");
+        assert_eq!(response.conversation_id.as_deref(), Some("real-1"));
+    }
+
+    #[test]
+    fn operator_redact_masks_paths_and_cwd() {
+        let v = json!({"cwd": "/tmp/x", "msg": "ok", "nested": {"repo_path": "/usr/bin"}});
+        let out = operator_redact_json(&v, OPERATOR_JSON_MAX_DEPTH);
+        assert_eq!(out["cwd"], "[REDACTED]");
+        assert_eq!(out["msg"], "ok");
+        assert_eq!(out["nested"]["repo_path"], "[PATH_REDACTED]");
+    }
+
+    #[test]
+    fn operator_redact_drops_sensitive_keys() {
+        let v = json!({"password": "x", "access_token": "y", "keep": 1});
+        let out = operator_redact_json(&v, 10);
+        assert!(out.get("password").is_none());
+        assert!(out.get("access_token").is_none());
+        assert_eq!(out["keep"], 1);
+    }
+
+    #[test]
+    fn operator_redact_pr_digest_like_row_masks_path_in_message() {
+        let row = json!({
+            "run_id": "run-1",
+            "message": "/home/user/secret.txt",
+            "pr_summary": {"title": "ok"},
+            "merge_readiness": {}
+        });
+        let out = operator_redact_json(&row, OPERATOR_JSON_MAX_DEPTH);
+        assert_eq!(out["run_id"], "run-1");
+        assert_eq!(out["message"], "[PATH_REDACTED]");
+        assert_eq!(out["pr_summary"]["title"], "ok");
     }
 }

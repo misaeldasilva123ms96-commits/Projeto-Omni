@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Public debug status
+    url: https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/blob/audit/brain-runtime-full-review/docs/public-debug/PROJECT_STATUS.md
+    about: Read the current public debug posture before opening a report.
+  - name: Reproduction guide
+    url: https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/blob/audit/brain-runtime-full-review/docs/public-debug/REPRODUCTION.md
+    about: Use the reproducible setup and prompt baseline before filing a runtime issue.

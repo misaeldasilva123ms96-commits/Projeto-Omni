@@ -7,7 +7,10 @@ const { buildExecutionTree } = require('../planning/executionTree');
 const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
-const { chooseProvider } = require('../../platform/providers/providerRouter');
+const { buildProviderDiagnostics, getAvailableProviders, resolveProviderRoute } = require('../../platform/providers/providerRouter');
+const { executeRemoteProvider } = require('../../platform/providers/remoteProviderExecutor');
+const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
+const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
 const { resolveExecutionMode } = require('../../runtime/execution/runtimeMode');
 const { appendExecutionAudit, appendRuntimeTranscript } = require('../../storage/transcripts/transcriptPersistence');
@@ -27,10 +30,24 @@ const { buildRuntimeTrace } = require('../../observability/tracing/runtimeAudit'
 const { buildDelegationPlan } = require('../../features/multiagent/delegationLayer');
 const { buildCooperativePlan } = require('../../features/multiagent/cooperativeCoordinator');
 const { buildVerificationPlan } = require('../../features/multiagent/verificationPlanner');
+const {
+  buildSpecialistFallback,
+  logSpecialistFallback,
+} = require('../../features/multiagent/specialists/specialistErrorPolicy');
+function safeSpecialistCall(fn, args) {
+  try {
+    return fn(args);
+  } catch (err) {
+    const specialistId = fn.name || 'unknown';
+    logSpecialistFallback({ specialistId, err });
+    return buildSpecialistFallback({ specialistId, err });
+  }
+}
 const { planTask } = require('../../features/multiagent/specialists/advancedPlannerSpecialist');
 const { enrichWithMemory } = require('../../features/multiagent/specialists/memorySpecialist');
 const { extractArtifacts, summarizeExecutionResult } = require('../../features/multiagent/specialists/researcherSpecialist');
 const { synthesizeFinalAnswer } = require('../../features/multiagent/specialists/reviewerSpecialist');
+const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { evaluateStepResult } = require('../../features/multiagent/specialists/evaluatorSpecialist');
 const { reviewPlan } = require('../../features/multiagent/specialists/criticSpecialist');
 const { negotiatePlan } = require('../../features/multiagent/specialists/negotiationSpecialist');
@@ -39,7 +56,6 @@ const { optimizeStrategySelection } = require('../../features/multiagent/special
 const { reviewEngineeringPlan } = require('../../features/multiagent/specialists/codeReviewSpecialist');
 const { reviewDependencyImpact } = require('../../features/multiagent/specialists/dependencyImpactSpecialist');
 const { selectVerificationTargets } = require('../../features/multiagent/specialists/testSelectionSpecialist');
-const { synthesizeGroundedResponse } = require('../../features/multiagent/specialists/synthesizerSpecialist');
 const { fuseResults } = require('../../features/multiagent/specialists/resultFusionSpecialist');
 const { normalizeWriteRequest } = require('../../features/multiagent/specialists/coderSpecialist');
 const { getFusionSourceMap } = require('./fusedSources');
@@ -47,9 +63,18 @@ const { buildRustRuntimeManifest } = require('../../runtime/execution/rustRuntim
 const { getKairosManifest } = require('../../features/kairos/manifest');
 const { getCodexIntegrationStatus } = require('../../platform/integrations/codexIntegration');
 const { getCliPlatformManifest } = require('../../platform/cli/manifest');
-const { buildPolicyDecision, describeTool } = require('../../runtime/tooling/toolGovernance');
+const {
+  buildGovernanceBlockedResult,
+  buildPolicyDecision,
+  classifyToolCategory,
+  describeTool,
+  evaluateToolGovernance,
+} = require('../../runtime/tooling/toolGovernance');
 
-const GLOBAL_CONVERSATIONAL_FALLBACK = 'Não entendi exatamente o que você precisa. Pode reformular ou me dar mais detalhes?';
+const GLOBAL_CONVERSATIONAL_FALLBACK =
+  '[degraded:authority_local] O plano não pôde ser executado com ferramentas ou LLM neste ambiente. Reformule com um ficheiro ou objetivo concreto, ou verifique credenciais de LLM / executor Python.';
+const BYOK_FAIL_CLOSED_RESPONSE =
+  '[degraded:byok_session] Session BYOK provider execution failed safely. Check the session provider credentials and try again.';
 const CONVERSATIONAL_MATCHERS = [
   {
     triggers: [
@@ -97,6 +122,56 @@ const CONVERSATIONAL_MATCHERS = [
     response: 'Recursão é quando uma função chama a si mesma para resolver um problema menor do mesmo tipo. É muito usada em algoritmos de busca, ordenação e estruturas de dados como árvores.',
   },
   {
+    triggers: [
+      'corrigir um codigo',
+      'corrigir codigo',
+      'melhorar um codigo',
+      'melhora um codigo',
+      'ajuda com codigo',
+      'ajuda para corrigir',
+      'ajuda com o codigo',
+      'problema no codigo',
+      'erro no codigo',
+      'bug no codigo',
+      'revisar meu codigo',
+      'melhorar meu codigo',
+    ],
+    response: 'Claro. Posso ajudar a revisar, corrigir e melhorar seu codigo. Me envie o trecho do codigo ou descreva o problema que eu analiso com voce.',
+  },
+  {
+    triggers: [
+      'ajuda com minha ia',
+      'ajudar com minha ia',
+      'melhorar minha ia',
+      'revisar minha ia',
+      'ajuda com meu projeto de ia',
+      'minha ia',
+      'meu projeto de ia',
+      'ajuda com meu projeto',
+      'melhorar meu projeto',
+      'revisar meu projeto de',
+    ],
+    response: 'Claro. Posso ajudar com arquitetura, debugging, melhorias, organizacao do projeto e evolucao da sua IA. Me diga qual parte voce quer ajustar.',
+  },
+  {
+    triggers: [
+      'site de hospedagem',
+      'hospedagem',
+      'ospedagem',
+      'onde hospedar',
+      'indicar hospedagem',
+      'deploy',
+      'onde publicar',
+      'publicar meu projeto',
+      'colocar no ar',
+      'subir o projeto',
+      'hospedar meu projeto',
+      'como publicar',
+      'como fazer deploy',
+    ],
+    response: 'Posso te ajudar a escolher uma hospedagem. Me diga que tipo de projeto voce quer publicar - frontend, backend, app completo, IA ou API - que eu te indico as melhores opcoes para o seu caso.',
+  },
+  {
     triggers: ['o que significa', 'me explique', 'explique o que e', 'o que e que', 'o que seria'],
     response: 'Posso explicar isso. Me diga o termo ou conceito específico que você quer entender.',
   },
@@ -113,14 +188,223 @@ function normalizeText(value) {
 function inferIntent(message) {
   const text = normalizeText(message);
   if (/^(oi|ola|olá|bom dia|boa tarde|boa noite)$/.test(text)) return 'greeting';
-  if (text.includes('meu nome') || text.includes('eu trabalho com')) return 'memory';
+  if (text.includes('meu nome') || text.includes('eu trabalho com') || text.includes('lembre')) return 'memory';
   if (text.includes('leia') || text.includes('arquivo') || text.includes('readme')) return 'execution';
   if (text.includes('liste') || text.includes('arquivos') || text.includes('pastas')) return 'execution';
   if (text.includes('busque') || text.includes('procure') || text.includes('grep')) return 'execution';
   if (text.includes('crie o arquivo') || text.includes('escreva no arquivo') || text.includes('salve')) return 'execution';
+  if (text.includes('git status') || text.includes('git diff')) return 'execution';
   if (text.includes('analise') || text.includes('resuma')) return 'analysis';
   if (/(repositorio|repositório|codigo|código|teste|testes|debug|refator|implemente|corrija|fix)/.test(text)) return 'engineering';
   return 'conversation';
+}
+
+function readEnvWithAlias(primaryName, legacyName, fallbackValue = '') {
+  const primaryValue = process.env[primaryName];
+  if (typeof primaryValue === 'string' && primaryValue.trim()) {
+    return primaryValue.trim();
+  }
+  const legacyValue = process.env[legacyName];
+  if (typeof legacyValue === 'string' && legacyValue.trim()) {
+    return legacyValue.trim();
+  }
+  return fallbackValue;
+}
+
+function resolveIntentClassifierMode() {
+  const rawMode = readEnvWithAlias('OMNI_INTENT_CLASSIFIER', 'OMINI_INTENT_CLASSIFIER', 'regex')
+    .toLowerCase();
+  return ['regex', 'embedding', 'llm', 'hybrid'].includes(rawMode) ? rawMode : 'regex';
+}
+
+function resolveMatcherMode() {
+  const rawMode = readEnvWithAlias('OMNI_MATCHER_MODE', 'OMINI_MATCHER_MODE', 'enabled')
+    .toLowerCase();
+  return ['enabled', 'labeled_only', 'disabled'].includes(rawMode) ? rawMode : 'enabled';
+}
+
+function confidenceForRegexIntent(intent) {
+  return intent === 'conversation' ? 0.45 : 0.7;
+}
+
+function buildClassifierResult({
+  intent,
+  intentSource,
+  confidence,
+  classifierVersion,
+  classifierMode,
+  matcherUsed = false,
+  providerAttempted = false,
+  providerSucceeded = false,
+}) {
+  return {
+    intent,
+    intent_source: intentSource,
+    confidence,
+    classifier_version: classifierVersion,
+    classifier_mode: classifierMode,
+    matcher_used: Boolean(matcherUsed),
+    provider_attempted: Boolean(providerAttempted),
+    provider_succeeded: Boolean(providerSucceeded),
+  };
+}
+
+function classifyIntent(message, context = {}) {
+  const classifierMode = context.classifier_mode || resolveIntentClassifierMode();
+  const regexIntent = inferIntent(message);
+  const regexConfidence = confidenceForRegexIntent(regexIntent);
+
+  if (classifierMode === 'embedding') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'embedding',
+      confidence: Math.min(regexConfidence, 0.55),
+      classifierVersion: 'embedding_scaffold_v1',
+      classifierMode,
+    });
+  }
+
+  if (classifierMode === 'llm') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'rule_based',
+      confidence: Math.min(regexConfidence, 0.6),
+      classifierVersion: 'llm_unavailable_regex_fallback_v1',
+      classifierMode,
+      providerAttempted: false,
+      providerSucceeded: false,
+    });
+  }
+
+  if (classifierMode === 'hybrid') {
+    return buildClassifierResult({
+      intent: regexIntent,
+      intentSource: 'hybrid',
+      confidence: Math.max(regexConfidence, regexIntent === 'conversation' ? 0.5 : 0.75),
+      classifierVersion: 'hybrid_regex_guard_v1',
+      classifierMode,
+    });
+  }
+
+  return buildClassifierResult({
+    intent: regexIntent,
+    intentSource: 'rule_based',
+    confidence: regexConfidence,
+    classifierVersion: 'regex_v1',
+    classifierMode: 'regex',
+  });
+}
+
+function inferIntentWithSource(message) {
+  return classifyIntent(message, { classifier_mode: 'regex' });
+}
+
+const RUNTIME_TRUTH_MODES = {
+  FULL_COGNITIVE_RUNTIME: 'FULL_COGNITIVE_RUNTIME',
+  PARTIAL_COGNITIVE: 'PARTIAL_COGNITIVE',
+  MATCHER_SHORTCUT: 'MATCHER_SHORTCUT',
+  RULE_BASED_INTENT: 'RULE_BASED_INTENT',
+  SAFE_FALLBACK: 'SAFE_FALLBACK',
+  NODE_FALLBACK: 'NODE_FALLBACK',
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  TOOL_BLOCKED: 'TOOL_BLOCKED',
+  TOOL_EXECUTED: 'TOOL_EXECUTED',
+  MEMORY_ONLY_RESPONSE: 'MEMORY_ONLY_RESPONSE',
+};
+
+function buildRuntimeTruth({
+  runtimeMode,
+  runtimeReason,
+  intentInfo,
+  matcherUsed = false,
+  providerAttempted = false,
+  providerSucceeded = false,
+  toolInvoked = false,
+  toolExecuted = false,
+  toolStatus = 'not_invoked',
+  fallbackTriggered = false,
+  nodeInvoked = true,
+  nodeExitCode = 0,
+}) {
+  const truthMode = fallbackTriggered && runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME
+    ? RUNTIME_TRUTH_MODES.SAFE_FALLBACK
+    : runtimeMode;
+  const errorCode = runtimeTruthErrorCode(truthMode);
+  const publicError = errorCode ? buildPublicError(errorCode) : {};
+  return {
+    runtime_mode: truthMode,
+    runtime_reason: String(runtimeReason || '').trim(),
+    intent: intentInfo?.intent || '',
+    intent_source: intentInfo?.intent_source || 'rule_based',
+    classifier_version: intentInfo?.classifier_version || 'regex_v1',
+    classifier_mode: intentInfo?.classifier_mode || 'regex',
+    classifier_provider_attempted: Boolean(intentInfo?.provider_attempted),
+    classifier_provider_succeeded: Boolean(intentInfo?.provider_succeeded),
+    matcher_used: Boolean(matcherUsed),
+    llm_provider_attempted: Boolean(matcherUsed ? false : providerAttempted),
+    llm_provider_succeeded: Boolean(matcherUsed ? false : providerSucceeded),
+    tool_invoked: Boolean(matcherUsed ? false : toolInvoked),
+    tool_executed: Boolean(toolExecuted),
+    tool_status: String(toolStatus || 'not_invoked'),
+    fallback_triggered: Boolean(fallbackTriggered),
+    node_invoked: Boolean(nodeInvoked),
+    node_exit_code: Number.isFinite(Number(nodeExitCode)) ? Number(nodeExitCode) : null,
+    error_public_code: publicError.error_public_code || '',
+    error_public_message: publicError.error_public_message || '',
+    severity: publicError.severity || 'info',
+    retryable: Boolean(publicError.retryable),
+    internal_error_redacted: publicError.internal_error_redacted !== false,
+    public_summary: buildRuntimeTruthSummary(truthMode),
+  };
+}
+
+function runtimeTruthErrorCode(runtimeMode) {
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT) return OMNI_ERROR_CODE.MATCHER_SHORTCUT_USED;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.RULE_BASED_INTENT) return OMNI_ERROR_CODE.RULE_BASED_INTENT_USED;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE) return OMNI_ERROR_CODE.PROVIDER_UNAVAILABLE;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.NODE_FALLBACK) return OMNI_ERROR_CODE.NODE_EMPTY_RESPONSE;
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_BLOCKED) return OMNI_ERROR_CODE.TOOL_BLOCKED_BY_GOVERNANCE;
+  return '';
+}
+
+function buildRuntimeTruthSummary(runtimeMode) {
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT) {
+    return 'Responded using a local pattern matcher. No AI provider was used.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.SAFE_FALLBACK) {
+    return 'System operated in safe fallback mode due to runtime constraints.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME) {
+    return 'Full cognitive execution with provider and tool verification.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_EXECUTED) {
+    return 'A real tool/action executed successfully.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.TOOL_BLOCKED) {
+    return 'A requested tool/action was blocked by policy.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE) {
+    return 'No usable LLM provider completed this turn.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.NODE_FALLBACK) {
+    return 'Node runtime did not produce a usable execution result.';
+  }
+  if (runtimeMode === RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE) {
+    return 'Responded from memory/context without provider execution.';
+  }
+  return `Execution completed in ${runtimeMode || 'unknown'} mode.`;
+}
+
+function attachRuntimeTruth(payload, runtimeTruth) {
+  const safeTruth = runtimeTruth || {};
+  return {
+    ...payload,
+    runtime_truth: safeTruth,
+    metadata: {
+      ...(payload.metadata || {}),
+      runtime_truth: safeTruth,
+    },
+  };
 }
 
 function inferComplexity(message) {
@@ -181,6 +465,84 @@ function resolveDirectConversational(normalizedInput) {
   return null;
 }
 
+function shouldBypassConversationalMatchers(normalizedMessage, rawMessage, intentInfo = null) {
+  if (String(process.env.OMINI_SKIP_CONVERSATIONAL_MATCHERS || '').trim() === '1') {
+    return true;
+  }
+  const matcherMode = resolveMatcherMode();
+  if (matcherMode === 'disabled') {
+    const confidence = Number(intentInfo?.confidence || 0);
+    if (confidence >= 0.7) {
+      return true;
+    }
+  }
+  const msg = String(rawMessage || '');
+  if (msg.length > 140) {
+    return true;
+  }
+  const keys = [
+    'analise',
+    'analis',
+    'arquitet',
+    'melhor',
+    'pontos fracos',
+    'negocio',
+    'negócio',
+    'perfil',
+    'sistema',
+    'seguranca',
+    'segurança',
+    'refator',
+    'desempenho',
+    'performance',
+    'cognitive',
+    'runtime',
+    'queryengine',
+  ];
+  return keys.some(k => normalizedMessage.includes(k));
+}
+
+function buildStructuredLocalGuidance({ message, intent, mergedMemory, repositoryAnalysis }) {
+  const lines = [];
+  lines.push(
+    '**Modo local (plano só com passos `none`)** — raciocínio com inventário estático do repositório e memória injetada; sem ferramentas de leitura/execução neste turno.',
+  );
+  const repoMap = repositoryAnalysis && repositoryAnalysis.repository_map;
+  if (repoMap && typeof repoMap.file_count === 'number') {
+    lines.push(
+      `- Repositório: ~${repoMap.file_count} ficheiros; linguagem predominante: ${repoMap.dominant_language || 'n/d'}; frameworks: ${(repoMap.frameworks || []).join(', ') || 'n/d'}.`,
+    );
+  }
+  if (mergedMemory && typeof mergedMemory === 'object') {
+    const bits = [];
+    for (const k of ['nome', 'email', 'preferencias', 'objetivos']) {
+      const v = mergedMemory[k];
+      if (v == null) continue;
+      const s = Array.isArray(v) ? v.slice(0, 6).join(', ') : String(v);
+      if (s.trim()) bits.push(`${k}: ${s.slice(0, 200)}`);
+    }
+    if (bits.length) {
+      lines.push(`- Perfil / memória: ${bits.join('; ')}.`);
+    }
+  }
+  lines.push(`- Intenção inferida: **${intent}**.`);
+  lines.push(
+    `- O seu pedido: ${message.slice(0, 280)}${message.length > 280 ? '…' : ''}`,
+  );
+  lines.push(
+    '\nPara análise profunda com leitura de ficheiros, inclua caminhos relevantes ou ative o executor com ferramentas `read_file` e credenciais de LLM.',
+  );
+  return lines.join('\n');
+}
+
+function buildPythonBridgePendingCopy({ message, intent, actionsCount }) {
+  return (
+    `[execução_python_requerida] Plano com ${actionsCount} passo(s) preparado (intenção: ${intent}). ` +
+      'O runtime Node encaminhou o grafo para o executor Python; confirme que o serviço Python está ativo.\n\n' +
+      `Resumo do pedido: ${message.slice(0, 260)}${message.length > 260 ? '…' : ''}`
+  );
+}
+
 function absolutizeToolArguments(workspace, selectedTool, toolArguments, useRelativeWorkspacePaths = false) {
   const args = { ...(toolArguments || {}) };
   if (selectedTool === 'write_file') {
@@ -202,6 +564,11 @@ function absolutizeToolArguments(workspace, selectedTool, toolArguments, useRela
   return args;
 }
 
+function readPolicyPreferredProvider() {
+  const env = readPolicyHintEnvelope();
+  return env && env.recommended ? env.recommended : '';
+}
+
 function buildActionAudit(workspace, delegation) {
   return {
     source_map: getFusionSourceMap(workspace),
@@ -214,6 +581,49 @@ function buildActionAudit(workspace, delegation) {
   };
 }
 
+function defaultApprovalStateForTool(toolName) {
+  const category = classifyToolCategory(toolName);
+  return ['write', 'destructive', 'shell', 'network', 'git_sensitive', 'unknown'].includes(category)
+    ? 'pending'
+    : 'approved';
+}
+
+function permissionRequirementForTool(toolName) {
+  return defaultApprovalStateForTool(toolName) === 'pending'
+    ? 'explicit_approval_required'
+    : 'allow_read_only';
+}
+
+function buildProviderDiagnosticContext({
+  selectedProviderName = '',
+  actualProviderName = '',
+  attemptedProviderName = '',
+  succeededProviderName = '',
+  failureClass = '',
+  failureReason = '',
+  latencyMs = null,
+} = {}) {
+  const availableProviders = getAvailableProviders();
+  const remoteAvailable = availableProviders.some(provider => provider.kind !== 'embedded');
+  return {
+    providerDiagnostics: buildProviderDiagnostics({
+      selectedProviderName,
+      actualProviderName,
+      attemptedProviderName,
+      succeededProviderName,
+      failureClass,
+      failureReason,
+      latencyMs,
+    }),
+    providerFallbackOccurred: Boolean(
+      selectedProviderName
+      && actualProviderName
+      && String(selectedProviderName).trim().toLowerCase() !== String(actualProviderName).trim().toLowerCase()
+    ),
+    noProviderAvailable: !remoteAvailable,
+  };
+}
+
 class QueryEngineAuthority {
   constructor(config = {}) {
     this.config = config;
@@ -221,12 +631,81 @@ class QueryEngineAuthority {
   }
 
   async submitMessage({ message, memoryContext, history, summary, capabilities, session, cwd }) {
+    const authorityStarted = Date.now();
     const workspace = cwd || process.cwd();
     const sessionId = session?.session_id || 'ephemeral-session';
     const normalizedMessage = normalizeText(message);
-    const directConversationResponse = resolveDirectConversational(normalizedMessage);
+    const earlyIntentInfo = classifyIntent(message);
+    const bypassMatchers = shouldBypassConversationalMatchers(normalizedMessage, message, earlyIntentInfo);
+    const tinyGreeting = !bypassMatchers ? directConversationalResponse(message) : '';
+    if (tinyGreeting) {
+      const epGreet = buildExecutionProvenance({
+        provider: { name: 'local-heuristic', model: 'native-heuristic' },
+        ...buildProviderDiagnosticContext({
+          selectedProviderName: 'local-heuristic',
+          actualProviderName: 'local-heuristic',
+          attemptedProviderName: 'local-heuristic',
+          succeededProviderName: 'local-heuristic',
+          latencyMs: Date.now() - authorityStarted,
+        }),
+        toolCalls: [],
+        strategyActual: 'regex_greeting',
+        executionMode: 'matcher_shortcut',
+        provenanceSource: 'regex_greeting',
+        provenanceConfidence: 0.55,
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+      });
+      return attachProvenanceMetadata(attachRuntimeTruth({
+        response: tinyGreeting,
+        cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'regex_greeting' },
+        confidence: 0.55,
+        memory: {
+          session: { session_id: sessionId },
+          strategy: 'greeting',
+          runtime_mode: 'matcher_shortcut',
+          provider: 'local-heuristic',
+        },
+      }, buildRuntimeTruth({
+        runtimeMode: RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT,
+        runtimeReason: 'regex_greeting',
+        intentInfo: earlyIntentInfo,
+        matcherUsed: true,
+      })), epGreet);
+    }
+    const directConversationResponse = bypassMatchers ? null : resolveDirectConversational(normalizedMessage);
     if (directConversationResponse) {
-      return { response: directConversationResponse };
+      const ep = buildExecutionProvenance({
+        provider: { name: 'local-heuristic', model: 'native-heuristic' },
+        ...buildProviderDiagnosticContext({
+          selectedProviderName: 'local-heuristic',
+          actualProviderName: 'local-heuristic',
+          attemptedProviderName: 'local-heuristic',
+          succeededProviderName: 'local-heuristic',
+          latencyMs: Date.now() - authorityStarted,
+        }),
+        toolCalls: [],
+        strategyActual: 'conversational_matcher',
+        executionMode: 'matcher_shortcut',
+        provenanceSource: 'matcher_shortcut',
+        provenanceConfidence: 0.52,
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+      });
+      return attachProvenanceMetadata(attachRuntimeTruth({
+        response: directConversationResponse,
+        cognitive_runtime_hint: { lane: 'matcher_shortcut', detail: 'conversational_matcher' },
+        confidence: 0.52,
+        memory: {
+          session: { session_id: sessionId },
+          strategy: 'conversational_matcher',
+          runtime_mode: 'matcher_shortcut',
+          provider: 'local-heuristic',
+        },
+      }, buildRuntimeTruth({
+        runtimeMode: RUNTIME_TRUTH_MODES.MATCHER_SHORTCUT,
+        runtimeReason: 'conversational_matcher',
+        intentInfo: earlyIntentInfo,
+        matcherUsed: true,
+      })), ep);
     }
     const runtimeConfig = loadRuntimeConfig();
     const runtimeMode = resolveExecutionMode({
@@ -236,9 +715,18 @@ class QueryEngineAuthority {
     const taskId = session?.task_id || `task-${randomUUID()}`;
     const runId = session?.run_id || `run-${randomUUID()}`;
     const actionIdBase = randomUUID();
-    const intent = inferIntent(message);
+    const intentInfo = earlyIntentInfo;
+    const intent = intentInfo.intent;
     const complexity = inferComplexity(message);
-    const provider = chooseProvider({ complexity });
+    const hintEnv = readPolicyHintEnvelope();
+    const providerRoute = resolveProviderRoute({ complexity, preferred: readPolicyPreferredProvider() });
+    const provider = providerRoute.executionProvider
+      || providerRoute.localFallbackProvider
+      || providerRoute.fallbackProvider
+      || { name: 'local-heuristic', model: 'native-heuristic' };
+    const selectedProviderName = providerRoute.selectedProviderName || (provider && provider.name ? provider.name : '');
+    let llmProviderAttempted = false;
+    let llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });
@@ -305,11 +793,11 @@ class QueryEngineAuthority {
       rankedStrategies: strategySuggestions,
       plannerResult,
     });
-    const dependencyImpactReview = reviewDependencyImpact({
+    const dependencyImpactReview = safeSpecialistCall(reviewDependencyImpact, {
       repositoryImpactAnalysis,
       repositoryAnalysis,
     });
-    const verificationSelection = selectVerificationTargets({
+    const verificationSelection = safeSpecialistCall(selectVerificationTargets, {
       repositoryImpactAnalysis,
       repositoryAnalysis,
     });
@@ -323,7 +811,7 @@ class QueryEngineAuthority {
       step_id: step.step_id,
       policy_decision: buildPolicyDecision({
         toolName: step.selected_tool,
-        approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+        approvalState: defaultApprovalStateForTool(step.selected_tool),
         parallelSafe: Boolean(step.parallel_safe),
         specialist: step.selected_agent,
       }),
@@ -354,7 +842,7 @@ class QueryEngineAuthority {
     const actions = plannerResult.steps.map((step, index) => {
       const policyDecision = buildPolicyDecision({
         toolName: step.selected_tool,
-        approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+        approvalState: defaultApprovalStateForTool(step.selected_tool),
         parallelSafe: Boolean(step.parallel_safe),
         specialist: step.selected_agent,
       });
@@ -366,8 +854,8 @@ class QueryEngineAuthority {
       dependencyStepIds: Array.isArray(step.depends_on) ? step.depends_on : [],
       selectedTool: step.selected_tool,
       selectedAgent: step.selected_agent,
-      permissionRequirement: step.selected_tool === 'write_file' ? 'explicit_approval_required' : 'allow_read_only',
-      approvalState: step.selected_tool === 'write_file' ? 'pending' : 'approved',
+      permissionRequirement: permissionRequirementForTool(step.selected_tool),
+      approvalState: defaultApprovalStateForTool(step.selected_tool),
       executionContext: {
         session_id: sessionId,
         task_id: taskId,
@@ -412,14 +900,62 @@ class QueryEngineAuthority {
 
     const allActionsAreDirect = actionsWithPolicy.every(action => action.selected_tool === 'none');
     if (allActionsAreDirect) {
-      const directResponse = synthesizeFinalAnswer({
+      const remoteProviderPayload = {
+        message,
+        history,
+        systemPrompt: 'You are Omni. Answer the user directly and safely. Do not expose internal runtime state, secrets, logs, or raw tool payloads.',
+      };
+      const remoteProviderResult = providerRoute.executionProvider
+        ? await executeRemoteProvider(providerRoute.executionProvider, remoteProviderPayload)
+        : null;
+      const byokFailClosed = Boolean(providerRoute.byokSessionMode && providerRoute.byokFailClosed);
+      const executionFallbackUsed = Boolean(providerRoute.fallbackTriggered);
+      const executionFallbackReason = String(providerRoute.fallbackReason || '');
+      const executionFallbackPath = executionFallbackUsed && providerRoute.requestedProviderName
+        ? `${providerRoute.requestedProviderName}->${selectedProviderName}`
+        : (executionFallbackUsed ? executionFallbackReason : '');
+      llmProviderAttempted = Boolean(remoteProviderResult?.llm_provider_attempted ?? remoteProviderResult?.attempted);
+      llmProviderSucceeded = Boolean(remoteProviderResult?.llm_provider_succeeded ?? remoteProviderResult?.succeeded);
+      const remoteProviderFailed = Boolean(remoteProviderResult?.llm_provider_failed ?? (
+        remoteProviderResult?.attempted && !remoteProviderResult?.succeeded
+      ));
+      const remoteProviderName = String(
+        remoteProviderResult?.llm_provider_selected || remoteProviderResult?.providerName || '',
+      ).trim();
+      const remoteProviderError = String(
+        remoteProviderResult?.llm_public_error || remoteProviderResult?.error || '',
+      ).trim();
+      const remoteProviderLatency = remoteProviderResult?.llm_latency_ms ?? remoteProviderResult?.durationMs ?? null;
+      const remoteProviderModel = String(remoteProviderResult?.llm_model_used || remoteProviderResult?.model || '').trim();
+      const byokRouteUnavailable = Boolean(byokFailClosed && !providerRoute.executionProvider);
+      const byokExecutionFailed = Boolean(byokFailClosed && (byokRouteUnavailable || remoteProviderFailed));
+      const byokFailureReason = byokRouteUnavailable
+        ? (executionFallbackReason || 'byok_credentials_incomplete')
+        : (remoteProviderError || 'byok_execution_failed');
+      const executedProviderName = llmProviderSucceeded ? remoteProviderName : '';
+      const providerForProvenance = executedProviderName
+        ? { ...provider, name: executedProviderName, model: remoteProviderModel || provider?.model || '' }
+        : provider;
+      const localGuidance = buildStructuredLocalGuidance({
+        message,
         intent,
-        directMemoryResponse: directMemoryResponse || (intent === 'greeting' ? 'Olá! Como posso te ajudar hoje?' : GLOBAL_CONVERSATIONAL_FALLBACK),
+        mergedMemory,
+        repositoryAnalysis,
+      });
+      const directResponse = byokExecutionFailed
+        ? BYOK_FAIL_CLOSED_RESPONSE
+        : llmProviderSucceeded
+        ? remoteProviderResult.responseText
+        : synthesizeGroundedResponse({
+        intent,
+        directMemoryResponse,
         stepResults: actions.map(action => ({
           ok: true,
-          summary: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
+          summary: directMemoryResponse || null,
+          selected_tool: action.selected_tool,
           action,
         })),
+        fallbackResponse: localGuidance,
       });
 
       const sessionSnapshot = buildSessionSnapshot({
@@ -443,6 +979,10 @@ class QueryEngineAuthority {
         }),
         runtime_mode: 'no-tool-local',
         fallback_mode: null,
+        selected_provider: selectedProviderName,
+        executed_provider: llmProviderAttempted || llmProviderSucceeded ? remoteProviderName : '',
+        execution_fallback_used: executionFallbackUsed,
+        execution_fallback_reason: executionFallbackReason,
         delegated_specialists: delegation.specialists,
         critic_review: criticPlanReview,
         semantic_retrieval: semanticMatches,
@@ -454,8 +994,65 @@ class QueryEngineAuthority {
         })),
       });
 
-      return {
+      const epNoTool = buildExecutionProvenance({
+        provider: providerForProvenance,
+        ...buildProviderDiagnosticContext({
+          selectedProviderName,
+          actualProviderName: executedProviderName,
+          attemptedProviderName: llmProviderAttempted ? remoteProviderName : '',
+          succeededProviderName: executedProviderName,
+          failureClass: byokExecutionFailed
+            ? 'byok_execution_failed'
+            : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
+          failureReason: byokExecutionFailed
+            ? byokFailureReason
+            : remoteProviderFailed ? remoteProviderError : '',
+          latencyMs: llmProviderAttempted ? remoteProviderLatency : null,
+        }),
+        toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
+        strategyActual: String(intent),
+        executionMode: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
+        fallbackPath: executionFallbackPath,
+        providerFailed: remoteProviderFailed || byokExecutionFailed,
+        failureClass: byokExecutionFailed
+          ? 'byok_execution_failed'
+          : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
+        failureReason: byokExecutionFailed
+          ? byokFailureReason
+          : remoteProviderFailed ? remoteProviderError : executionFallbackReason,
+        provenanceSource: llmProviderSucceeded ? 'remote_provider_executor' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+        policyHintEnvelope: hintEnv,
+      });
+      const noToolMode = llmProviderSucceeded
+        ? RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE
+        : byokExecutionFailed
+        ? RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE
+        : directMemoryResponse
+        ? RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE
+        : RUNTIME_TRUTH_MODES.RULE_BASED_INTENT;
+      const noToolReason = llmProviderSucceeded
+        ? 'remote_provider_response'
+        : byokExecutionFailed ? byokFailureReason
+        : directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none';
+      return attachProvenanceMetadata(attachRuntimeTruth({
         response: directResponse,
+        runtime_reason: noToolReason,
+        selected_provider: selectedProviderName,
+        executed_provider: executedProviderName,
+        execution_fallback_used: executionFallbackUsed,
+        execution_fallback_reason: executionFallbackReason,
+        llm_fallback_triggered: executionFallbackUsed,
+        llm_fallback_reason: executionFallbackReason,
+        fallback_triggered: executionFallbackUsed,
+        fallback_reason: executionFallbackReason,
+        provider_failed: remoteProviderFailed || byokExecutionFailed,
+        failure_class: byokExecutionFailed ? 'byok_execution_failed' : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
+        failure_reason: byokExecutionFailed ? byokFailureReason : remoteProviderFailed ? remoteProviderError : '',
+        cognitive_runtime_hint: {
+          lane: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
+          detail: llmProviderSucceeded ? 'remote_provider_chat_completion' : byokExecutionFailed ? byokFailureReason : 'all_actions_tool_none',
+        },
         confidence: 0.92,
         memory: {
           session: sessionSnapshot,
@@ -470,12 +1067,46 @@ class QueryEngineAuthority {
           strategy: intent,
           runtime_mode: 'no-tool-local',
         },
-      };
+      }, buildRuntimeTruth({
+        runtimeMode: noToolMode,
+        runtimeReason: noToolReason,
+        intentInfo,
+        providerAttempted: llmProviderAttempted,
+        providerSucceeded: llmProviderSucceeded,
+        toolInvoked: false,
+        toolExecuted: false,
+        fallbackTriggered: executionFallbackUsed,
+        nodeInvoked: true,
+      })), epNoTool);
     }
 
     if (runtimeMode.primary.owner === 'python') {
-      return {
-        response: directMemoryResponse || GLOBAL_CONVERSATIONAL_FALLBACK,
+      const epBridge = buildExecutionProvenance({
+        provider,
+        ...buildProviderDiagnosticContext({
+          selectedProviderName,
+          actualProviderName: '',
+          attemptedProviderName: '',
+          succeededProviderName: '',
+        }),
+        toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(Boolean),
+        strategyActual: String(intent),
+        executionMode: 'python_executor_bridge',
+        fallbackPath: runtimeMode.fallback?.mode || '',
+        provenanceSource: 'python_bridge_request',
+        provenanceConfidence: 0.82,
+        latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+        policyHintEnvelope: hintEnv,
+      });
+      return attachProvenanceMetadata(attachRuntimeTruth({
+        response:
+          directMemoryResponse ||
+          buildPythonBridgePendingCopy({
+            message,
+            intent,
+            actionsCount: actionsWithPolicy.length,
+          }),
+        cognitive_runtime_hint: { lane: 'node_execution_graph', detail: 'python_executor_bridge' },
         execution_request: {
           task_id: taskId,
           run_id: runId,
@@ -542,7 +1173,17 @@ class QueryEngineAuthority {
           })),
         },
         confidence: 0.82,
-      };
+      }, buildRuntimeTruth({
+        runtimeMode: RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE,
+        runtimeReason: 'python_executor_bridge',
+        intentInfo,
+        providerAttempted: llmProviderAttempted,
+        providerSucceeded: llmProviderSucceeded,
+        toolInvoked: actionsWithPolicy.some(action => action.selected_tool && action.selected_tool !== 'none'),
+        toolExecuted: false,
+        toolStatus: 'pending_bridge',
+        nodeInvoked: true,
+      })), epBridge);
     }
 
     const stepResults = [];
@@ -553,6 +1194,18 @@ class QueryEngineAuthority {
           summary: directMemoryResponse || 'Resposta direta sem execução de ferramenta.',
           action,
         });
+        continue;
+      }
+
+      const governanceDecision = evaluateToolGovernance(action);
+      if (!governanceDecision.allowed) {
+        stepResults.push({
+          ...buildGovernanceBlockedResult(action, governanceDecision),
+          action,
+        });
+        if (plannerResult.stop_on_error) {
+          break;
+        }
         continue;
       }
 
@@ -704,6 +1357,7 @@ class QueryEngineAuthority {
           correction_attempts: item.correction_attempts || [],
           goal_id: item.action?.execution_context?.goal_id || null,
           policy_decision: item.action?.policy_decision || null,
+          governance_audit: item.governance_audit || null,
         })),
         task_id: taskId,
         run_id: runId,
@@ -718,8 +1372,70 @@ class QueryEngineAuthority {
       });
     }
 
-    return {
+    const epRun = buildExecutionProvenance({
+      provider,
+      ...buildProviderDiagnosticContext({
+        selectedProviderName,
+        actualProviderName: provider && provider.name ? provider.name : '',
+        attemptedProviderName: provider && provider.name ? provider.name : '',
+        succeededProviderName: stepResults.some(item => item.ok) ? (provider && provider.name ? provider.name : '') : '',
+        failureClass: String(
+          stepResults
+            .map(item => String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase())
+            .find(Boolean) || ''
+        ),
+        failureReason: String(
+          stepResults
+            .map(item => String(item?.error_payload?.message || item?.error?.message || '').trim())
+            .find(Boolean) || ''
+        ),
+        latencyMs: Date.now() - authorityStarted,
+      }),
+      toolCalls: stepResults
+        .map(item => (item.action && item.action.selected_tool) || '')
+        .filter(t => t && t !== 'none'),
+      strategyActual: String(intent),
+      executionMode: String(runtimeMode.primary.mode || ''),
+      fallbackPath: runtimeMode.fallback?.mode || '',
+      providerFailed: stepResults.some(item => {
+        const kind = String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase();
+        return kind.startsWith('provider_');
+      }),
+      failureClass: String(
+        stepResults
+          .map(item => String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase())
+          .find(Boolean) || ''
+      ),
+      provenanceSource: 'node_local_tool_run',
+      provenanceConfidence: 0.86,
+      latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
+      policyHintEnvelope: hintEnv,
+    });
+    const toolInvoked = stepResults.some(item => item.action && item.action.selected_tool && item.action.selected_tool !== 'none');
+    const toolExecuted = stepResults.some(item => item.ok && item.action && item.action.selected_tool && item.action.selected_tool !== 'none');
+    const toolBlocked = stepResults.some(item => {
+      const kind = String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase();
+      return kind === 'permission_denied' || kind === 'tool_blocked' || kind === 'policy_denied';
+    });
+    const providerFailed = stepResults.some(item => {
+      const kind = String(item?.error_payload?.kind || item?.error?.kind || '').trim().toLowerCase();
+      return kind.startsWith('provider_');
+    });
+    const truthMode = toolBlocked
+      ? RUNTIME_TRUTH_MODES.TOOL_BLOCKED
+      : providerFailed
+        ? RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE
+        : toolExecuted
+          ? RUNTIME_TRUTH_MODES.TOOL_EXECUTED
+          : RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE;
+    return attachProvenanceMetadata(attachRuntimeTruth({
       response: synthesizedResponse,
+      cognitive_runtime_hint: {
+        lane: 'node_local_tool_run',
+        tool_steps: stepResults.filter(
+          item => item.action && item.action.selected_tool && item.action.selected_tool !== 'none',
+        ).length,
+      },
       confidence: stepResults.some(item => item.ok) || directMemoryResponse ? 0.9 : 0.55,
       memory: {
         session: sessionSnapshot,
@@ -736,10 +1452,28 @@ class QueryEngineAuthority {
         task_id: taskId,
         run_id: runId,
       },
-    };
+    }, buildRuntimeTruth({
+      runtimeMode: truthMode,
+      runtimeReason: toolBlocked ? 'tool_blocked' : providerFailed ? 'provider_unavailable' : 'node_local_tool_run',
+      intentInfo,
+      providerAttempted: llmProviderAttempted,
+      providerSucceeded: Boolean(llmProviderAttempted && !providerFailed && toolExecuted),
+      toolInvoked,
+      toolExecuted,
+      toolStatus: toolBlocked ? 'blocked' : toolExecuted ? 'executed' : toolInvoked ? 'failed' : 'not_invoked',
+      fallbackTriggered: false,
+      nodeInvoked: true,
+    })), epRun);
   }
 }
 
 module.exports = {
   QueryEngineAuthority,
+  RUNTIME_TRUTH_MODES,
+  buildRuntimeTruth,
+  classifyIntent,
+  inferIntent,
+  inferIntentWithSource,
+  resolveIntentClassifierMode,
+  resolveMatcherMode,
 };

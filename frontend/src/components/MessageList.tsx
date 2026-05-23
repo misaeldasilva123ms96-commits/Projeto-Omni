@@ -1,6 +1,6 @@
 import type { ChatMessage } from '../types'
-import { EmptyState } from './EmptyState'
-import { MessageBubble } from './MessageBubble'
+import { EmptyState } from './chat/EmptyState'
+import { MessageBubble } from './chat/MessageBubble'
 
 type MessageListProps = {
   loading: boolean

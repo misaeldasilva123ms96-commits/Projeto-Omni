@@ -1,103 +1,99 @@
-# Contributing
+# Contributing to Omni
 
-Thank you for contributing to Omini.
+## Before you start
 
-## Development Setup
+Omni is an open source runtime under active debugging. Please do not assume a path is healthy only because it returns a response. A useful contribution is one that improves clarity, reproducibility, observability, or reliability.
+
+## Local setup
 
 ### Prerequisites
 
-- Python `3.11+`
-- Node.js `20+`
+- Python 3.11+
+- Node.js 20+
 - Rust toolchain
-- Docker
 
-### Local setup
+### Install dependencies
 
 ```bash
-git clone <your-repo-url>
-cd omini
-cp .env.example .env
 npm install
 ```
 
-### Python runtime
+Optional subproject installs:
 
 ```bash
-cd backend/python
-python main.py "hello"
+pip install -r backend/python/requirements.txt
+pip install -r omni-training/requirements.txt
 ```
 
-### Rust bridge
+## Running locally
+
+Run the Node-side tests:
 
 ```bash
-cd backend/rust
-cargo run
+npm run test:node
 ```
 
-## Commit Standard
-
-Use Conventional Commits:
-
-- `feat: add memory scoring`
-- `fix: correct session merge order`
-- `refactor: simplify swarm routing`
-- `docs: rewrite architecture guide`
-- `chore: update CI workflow`
-
-## Adding a New Swarm Agent
-
-1. Create a new file in `backend/python/brain/swarm/`.
-2. Inherit from `BaseAgent`.
-3. Implement:
-   - `receive()`
-   - `think()`
-   - `act()`
-   - `respond()`
-4. Register the new agent profile in `backend/python/brain/registry.py`.
-5. Route the agent in `swarm_orchestrator.py`.
-6. Document the agent behavior in `backend/python/brain/swarm/README.md`.
-
-## Adding a New Capability
-
-1. Add a new capability handler in `backend/python/brain/registry.py`.
-2. Register it in the `CAPABILITIES` map.
-3. Update `recommend_capabilities()` if routing should discover it automatically.
-4. If the capability influences strategy, ensure the evolution layer can observe its usage.
-
-## Running Tests and Checks
-
-### Python compile check
+Run the Python-side tests:
 
 ```bash
-python -m py_compile backend/python/main.py
+npm run test:python
 ```
 
-### Node runner health
+Run everything:
 
 ```bash
-npm run health
+npm test
 ```
 
-### Python smoke test
+Run the Python entrypoint:
 
 ```bash
-cd backend/python
-python main.py "test"
+python backend/python/main.py
 ```
 
-### Docker smoke test
+Run the Rust API:
 
 ```bash
-docker compose up -d --build
-docker compose ps
+cargo run --manifest-path backend/rust/Cargo.toml
 ```
 
-## Pull Request Checklist
+## Opening a pull request
 
-- [ ] The change is scoped and documented
-- [ ] No secrets or real credentials were added
-- [ ] No absolute local filesystem paths were introduced
-- [ ] Python files compile successfully
-- [ ] The relevant runtime path was tested locally
-- [ ] Documentation was updated when behavior changed
-- [ ] The PR title follows Conventional Commits
+Please keep PRs small and focused.
+
+Recommended flow:
+
+1. Create a branch for one problem only.
+2. Add or update tests when behavior changes.
+3. Update documentation when the runtime behavior, contract, or repo structure changes.
+4. Explain what evidence you used to justify the change.
+
+## Contribution rules
+
+- Do not commit secrets, credentials, or local `.env` values.
+- Do not remove failing tests just to make CI green.
+- Do not hide degraded behavior behind vague success messaging.
+- Do not rewrite large runtime subsystems without evidence and scoped tests.
+- Prefer additive changes over breaking public contracts.
+- If a change affects Rust/Python/Node boundaries, mention that explicitly in the PR.
+
+## What areas need help
+
+- Rust/Python/Node runtime boundary debugging
+- execution-lane reliability
+- observability truthfulness
+- test coverage around real runtime paths
+- contributor onboarding and developer setup clarity
+- documentation cleanup and public-facing explanations
+
+## Good entry points
+
+- [docs/public-debug/PROJECT_STATUS.md](docs/public-debug/PROJECT_STATUS.md)
+- [docs/public-debug/REPRODUCTION.md](docs/public-debug/REPRODUCTION.md)
+- [docs/public-debug/CONTRIBUTOR_TASKS.md](docs/public-debug/CONTRIBUTOR_TASKS.md)
+- [docs/audits/brain-runtime-flow-map.md](docs/audits/brain-runtime-flow-map.md)
+- [docs/architecture/runtime-flow.md](docs/architecture/runtime-flow.md)
+
+## Expectations for tests
+
+If you change behavior, run the most relevant tests you can locally and mention what you ran in the PR. If you cannot run a full validation, say what was skipped and why.

@@ -1,9 +1,16 @@
 # Environment and secrets
 .env
+.env.*
 .env.local
+.env.production
+frontend/.env
 .env.*.local
 .env.openclaude.local
 .env.openclaude.*.local
+!.env.example
+!.env.openclaude.example
+!frontend/.env.example
+!backend/rust/.env.example
 .openclaude-profile.json
 .claude/settings.json
 .claude/*.private.json
@@ -14,7 +21,17 @@
 # Runtime logs
 *.log
 .logs/
+.logs/
+logs/
+runtime_logs/
+learning_logs/
 .phase9-temp/
+.tmp-tests/
+tmp/
+temp/
+*.tmp
+*.trace.json
+*.debug.json
 swarm_log.json
 backend/python/brain/runtime/swarm_log.json
 backend/python/brain/runtime/sessions/
@@ -31,13 +48,23 @@ sessions/
 node_modules/
 frontend/node_modules/
 npm-debug.log*
+dist/
+build/
+.cache/
+.vite/
 
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.venv/
+venv/
 
 # Build outputs
-dist/
+dist/*
+!dist/
+!dist/QueryEngine.js
+!dist/package.json
 build/
 target/
 frontend/dist/
@@ -57,8 +84,37 @@ Thumbs.db
 vendor/openclaude-upstream/
 vendor/**/openclaude-vscode-*.vsix
 
+# Cursor / local worktrees (must not be committed)
+.worktrees/
+
 # wrangler files
 .wrangler
 .dev.vars*
 !.dev.vars.example
-!.env.example
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Private runtime memory
+memory/
+memories/
+private-memory/
+local-memory/
+runtime-memory/
+storage/local/
+
+# Private datasets
+datasets/private/
+private-datasets/
+
+# Credentials
+secrets/
+credentials/
+*.pem
+*.key
+
+# Local archives and handoff bundles
+SESSION_HANDOFF*.zip
+.aider*

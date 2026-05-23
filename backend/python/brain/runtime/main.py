@@ -3,14 +3,20 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 
 
 def run_cli(argv: list[str] | None = None) -> int:
-    args = argv if argv is not None else sys.argv[1:]
-    message = args[0] if args else ""
+    bridge: dict = {}
+    if argv is not None:
+        message = argv[0] if argv else ""
+        apply_bridge_env({})
+    else:
+        message, bridge = resolve_entry_message()
+        apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
-    response = orchestrator.run(message)
+    response = orchestrator.run(message, bridge=bridge if isinstance(bridge, dict) else {})
     try:
         print(response)
     except UnicodeEncodeError:

@@ -8,9 +8,24 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.bridge_stdin import apply_bridge_env, read_bridge_stdin_dict, resolve_entry_message
+from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
+from brain.runtime.observability.public_runtime_payload import (
+    build_public_cognitive_runtime_inspection,
+    sanitize_public_runtime_payload,
+)
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
+from config.provider_registry import (
+    describe_provider_diagnostics,
+    describe_provider_diagnostics_snapshot,
+    get_available_providers,
+)
+from brain.runtime.observability.public_runtime_outcome import normalize_public_runtime_outcome
 
-USER_FALLBACK_RESPONSE = "Entendido. Como posso ajudá-lo?"
+USER_FALLBACK_RESPONSE = (
+    "[degraded:python_main] O adaptador Python não pôde concluir o turno. "
+    "Verifique dependências, variáveis de ambiente e logs do processo."
+)
 RESPONSE_CANDIDATE_KEYS = ("response", "message", "text", "answer", "output", "result")
 OPERATIONAL_MESSAGE_MARKERS = (
     "execucao bloqueada",
@@ -31,8 +46,30 @@ OPERATIONAL_MESSAGE_MARKERS = (
     "specialists",
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 LOGGER = logging.getLogger(__name__)
+
+
+def _load_project_dotenv(project_root: Path) -> None:
+    """Load repo-root ``.env`` into the process with ``setdefault`` (real env wins). Never logged."""
+    if str(os.getenv("CI", "")).strip().lower() in ("1", "true", "yes"):
+        return
+    path = project_root / ".env"
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, val = stripped.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, val)
 
 
 def _parse_structured_string(value: str) -> Any | None:
@@ -74,23 +111,61 @@ def is_operational_message(value: str) -> bool:
     return any(marker in normalized for marker in OPERATIONAL_MESSAGE_MARKERS)
 
 
-def sanitize_for_user(internal_obj: Any) -> dict[str, str]:
+def _extract_truthful_conversation_id(d: dict) -> str | None:
+    """Return a single canonical id string when the orchestrator supplied one; never invent."""
+    for key in ("server_conversation_id", "conversation_id"):
+        v = d.get(key)
+        if not isinstance(v, str):
+            continue
+        s = v.strip()
+        if not s or len(s) > 256:
+            continue
+        if "\n" in s or "\r" in s:
+            continue
+        if is_operational_message(s):
+            continue
+        return s
+    return None
+
+
+def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
     if isinstance(internal_obj, str):
         trimmed = internal_obj.strip()
         if not trimmed:
-            return {"response": USER_FALLBACK_RESPONSE}
+            return {
+                "response": USER_FALLBACK_RESPONSE,
+                "error": {
+                    "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+                    "message": "Python main received an empty string response.",
+                },
+            }
         if is_operational_message(trimmed):
-            LOGGER.debug("python_sanitizer_blocked_operational: %r", trimmed)
-            return {"response": USER_FALLBACK_RESPONSE}
+            LOGGER.debug("python_sanitizer_blocked_operational")
+            return {
+                "response": USER_FALLBACK_RESPONSE,
+                "error": {
+                    "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+                    "message": "Python main blocked an operational/control-layer message from public response.",
+                },
+            }
         parsed = _parse_structured_string(trimmed)
         if parsed is not None:
             return sanitize_for_user(parsed)
-        return {"response": trimmed}
+        out: dict[str, Any] = {"response": trimmed}
+        return out
 
     if internal_obj is None or isinstance(internal_obj, list):
-        return {"response": USER_FALLBACK_RESPONSE}
+        return {
+            "response": USER_FALLBACK_RESPONSE,
+            "error": {
+                "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+                "message": "Python main received an unsupported public response shape.",
+            },
+        }
 
     if isinstance(internal_obj, dict):
+        error_payload = internal_obj.get("error")
+        error_out = error_payload if isinstance(error_payload, dict) else None
         for key in RESPONSE_CANDIDATE_KEYS:
             value = internal_obj.get(key)
             if not isinstance(value, str):
@@ -99,29 +174,227 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, str]:
             if not trimmed:
                 continue
             if is_operational_message(trimmed):
-                LOGGER.debug("python_sanitizer_blocked_operational: %r", trimmed)
+                LOGGER.debug("python_sanitizer_blocked_operational")
                 continue
             parsed = _parse_structured_string(trimmed)
             if parsed is not None:
                 return sanitize_for_user(parsed)
-            return {"response": trimmed}
+            out: dict[str, Any] = {"response": trimmed}
+            cid = _extract_truthful_conversation_id(internal_obj)
+            if cid:
+                out["conversation_id"] = cid
+            if error_out:
+                out["error"] = error_out
+            return out
+        if error_out:
+            return {
+                "response": USER_FALLBACK_RESPONSE,
+                "error": error_out,
+            }
 
-    return {"response": USER_FALLBACK_RESPONSE}
+    return {
+        "response": USER_FALLBACK_RESPONSE,
+        "error": {
+            "failure_class": "FRONTEND_RESPONSE_SHAPE_MISMATCH",
+            "message": "Python main could not normalize the internal response into the public shape.",
+        },
+    }
 
 
-def main() -> int:
+def build_public_error(
+    *,
+    failure_class: str,
+    message: str,
+    debug_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    code_map = {
+        "PYTHON_BRIDGE_NONZERO_EXIT": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "PYTHON_BRIDGE_INVALID_JSON": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "FRONTEND_RESPONSE_SHAPE_MISMATCH": OmniErrorCode.PYTHON_ORCHESTRATOR_FAILED,
+        "TIMEOUT": OmniErrorCode.TIMEOUT,
+    }
+    taxonomy = build_taxonomy_error(code_map.get(str(failure_class or ""), failure_class))
+    error: dict[str, Any] = {
+        "failure_class": str(failure_class or "PYTHON_BRIDGE_INVALID_JSON"),
+        "message": taxonomy["error_public_message"] if not message else str(message),
+        **taxonomy,
+    }
+    if str(os.getenv("OMINI_PUBLIC_DEBUG", "")).strip().lower() in ("1", "true", "yes"):
+        if isinstance(debug_details, dict) and debug_details:
+            error["debug"] = sanitize_public_runtime_payload(debug_details)
+    return error
+
+
+def _first_provider_from_diagnostics(
+    diagnostics: Any,
+    *,
+    key: str,
+) -> str:
+    if not isinstance(diagnostics, list):
+        return ""
+    for item in diagnostics:
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get(key, False)):
+            continue
+        provider = str(item.get("provider", "") or "").strip()
+        if provider:
+            return provider
+    return ""
+
+
+def _provider_diagnostics_snapshot_from_response(
+    safe_response: dict[str, Any],
+    diagnostics_source: Any,
+) -> dict[str, Any]:
+    selected_provider = str(safe_response.get("provider_selected", "") or "")
+    actual_provider = str(safe_response.get("provider_actual", "") or "")
+    attempted_provider = str(safe_response.get("provider_attempted", "") or "")
+    active_provider = str(safe_response.get("active_provider", "") or actual_provider or "")
+    if isinstance(diagnostics_source, dict):
+        providers = diagnostics_source.get("providers")
+        if not selected_provider:
+            selected_provider = _first_provider_from_diagnostics(providers, key="selected")
+        if not attempted_provider:
+            attempted_provider = _first_provider_from_diagnostics(providers, key="attempted")
+        if not active_provider:
+            active_provider = str(diagnostics_source.get("active_provider", "") or "")
+    else:
+        if not selected_provider:
+            selected_provider = _first_provider_from_diagnostics(diagnostics_source, key="selected") or actual_provider
+        if not attempted_provider:
+            attempted_provider = _first_provider_from_diagnostics(diagnostics_source, key="attempted") or actual_provider
+    return describe_provider_diagnostics_snapshot(
+        selected_provider=selected_provider,
+        actual_provider=actual_provider,
+        attempted_provider=attempted_provider,
+        failure_class=str(safe_response.get("failure_class", "") or ""),
+        fallback_triggered=bool(safe_response.get("fallback_triggered", False)),
+        fallback_reason=str(safe_response.get("fallback_reason", "") or ""),
+        active_provider=active_provider,
+    )
+
+
+def _provider_diagnostics_rows_from_response(
+    safe_response: dict[str, Any],
+    diagnostics_source: Any,
+) -> list[dict[str, Any]]:
+    if isinstance(diagnostics_source, list):
+        return [dict(item) for item in diagnostics_source if isinstance(item, dict)]
+    if isinstance(diagnostics_source, dict) and isinstance(diagnostics_source.get("providers"), list):
+        return [dict(item) for item in diagnostics_source.get("providers", []) if isinstance(item, dict)]
+
+    selected_provider = str(safe_response.get("provider_selected", "") or "")
+    actual_provider = str(safe_response.get("provider_actual", "") or "")
+    attempted_provider = str(safe_response.get("provider_attempted", "") or "")
+    if not selected_provider:
+        selected_provider = _first_provider_from_diagnostics(diagnostics_source, key="selected") or actual_provider
+    if not attempted_provider:
+        attempted_provider = _first_provider_from_diagnostics(diagnostics_source, key="attempted") or actual_provider
+    return describe_provider_diagnostics(
+        selected_provider=selected_provider,
+        actual_provider=actual_provider,
+        attempted_provider=attempted_provider,
+        failure_class=str(safe_response.get("failure_class", "") or ""),
+        include_embedded_local=True,
+    )
+
+
+def emit_public_json(payload: dict[str, Any]) -> int:
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    return 0
+
+
+def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None) -> dict[str, Any]:
     python_root = Path(__file__).resolve().parent
     project_root = python_root.parents[1]
     os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
     os.environ.setdefault("BASE_DIR", str(project_root))
-
-    message = sys.argv[1] if len(sys.argv) > 1 else ""
+    _load_project_dotenv(project_root)
+    bridge = dict(bridge or {})
+    apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
-    raw_response = orchestrator.run(message)
-    LOGGER.debug("python_main_pre_sanitize=%r", raw_response)
+    raw_response = orchestrator.run(message, bridge=bridge)
+    LOGGER.debug("python_main_pre_sanitize_type=%s", type(raw_response).__name__)
     safe_response = sanitize_for_user(raw_response)
-    print(json.dumps(safe_response, ensure_ascii=False), flush=True)
-    return 0
+    if not str(safe_response.get("response", "")).strip():
+        safe_response["response"] = USER_FALLBACK_RESPONSE
+        safe_response["error"] = build_public_error(
+            failure_class="FRONTEND_RESPONSE_SHAPE_MISMATCH",
+            message="Python main produced an empty public response after sanitization.",
+        )
+    safe_response.setdefault("stop_reason", "python_completed")
+    inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
+    if isinstance(inspection, dict):
+        public_inspection = build_public_cognitive_runtime_inspection(inspection)
+        safe_response["cognitive_runtime_inspection"] = public_inspection
+        for key in (
+            "runtime_mode",
+            "runtime_reason",
+            "fallback_triggered",
+            "provider_actual",
+            "provider_failed",
+            "tool_status",
+            "latency_ms",
+            "public_summary",
+        ):
+            if key in public_inspection:
+                safe_response.setdefault(key, public_inspection.get(key))
+    signals = inspection.get("signals") if isinstance(inspection, dict) else None
+    if isinstance(signals, dict):
+        if "provider_diagnostics" in signals:
+            safe_response["provider_diagnostics"] = signals.get("provider_diagnostics")
+        if "provider_actual" in signals:
+            safe_response["provider_actual"] = signals.get("provider_actual")
+        if "provider_failed" in signals:
+            safe_response["provider_failed"] = signals.get("provider_failed")
+        if "failure_class" in signals:
+            safe_response["failure_class"] = signals.get("failure_class")
+        if "fallback_reason" in signals:
+            safe_response["fallback_reason"] = signals.get("fallback_reason")
+        if "tool_execution" in signals:
+            safe_response["tool_execution"] = signals.get("tool_execution")
+        if "tool_diagnostics" in signals:
+            safe_response["tool_diagnostics"] = signals.get("tool_diagnostics")
+    diagnostics_source = safe_response.get("provider_diagnostics")
+    safe_response["provider_diagnostics"] = _provider_diagnostics_rows_from_response(
+        safe_response,
+        diagnostics_source,
+    )
+    safe_response["provider_diagnostics_snapshot"] = _provider_diagnostics_snapshot_from_response(
+        safe_response,
+        diagnostics_source,
+    )
+    # JSON-only stdout for Rust bridge — never print() diagnostics here.
+    safe_response["providers"] = get_available_providers()
+    provider_diagnostics = safe_response["provider_diagnostics"]
+    provider_diagnostics_snapshot = safe_response["provider_diagnostics_snapshot"]
+    public_payload = sanitize_public_runtime_payload(safe_response)
+    public_payload["provider_diagnostics"] = provider_diagnostics
+    public_payload["provider_diagnostics_snapshot"] = provider_diagnostics_snapshot
+    return public_payload
+
+
+def build_public_runner_smoke_payload() -> dict[str, Any]:
+    python_root = Path(__file__).resolve().parent
+    project_root = python_root.parents[1]
+    os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
+    os.environ.setdefault("BASE_DIR", str(project_root))
+    orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
+    return orchestrator.build_runner_smoke_diagnostic()
+
+
+def main() -> int:
+    bridge = read_bridge_stdin_dict()
+    if bridge.get("diagnostic") == "runner_smoke":
+        return emit_public_json(build_public_runner_smoke_payload())
+    try:
+        message, bridge = resolve_entry_message(bridge)
+    except TypeError:
+        message, bridge = resolve_entry_message()
+    return emit_public_json(build_public_chat_payload(message, bridge))
 
 
 if __name__ == "__main__":
@@ -130,9 +403,46 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception:
-        logging.exception("Unhandled exception in main execution path")
+        LOGGER.error("Unhandled exception in main execution path; emitting public fallback")
         try:
-            print(json.dumps({"response": USER_FALLBACK_RESPONSE}, ensure_ascii=False), flush=True)
+            provider_diagnostics = describe_provider_diagnostics(include_embedded_local=True)
+            provider_diagnostics_snapshot = describe_provider_diagnostics_snapshot()
+            public_payload = sanitize_public_runtime_payload(
+                {
+                    "response": USER_FALLBACK_RESPONSE,
+                    "stop_reason": "python_main_exception",
+                    "error": build_public_error(
+                        failure_class="PYTHON_BRIDGE_NONZERO_EXIT",
+                        message="Python main raised an unhandled exception before completing the public response.",
+                    ),
+                    "cognitive_runtime_inspection": {
+                        "runtime_mode": "SAFE_FALLBACK",
+                        "runtime_reason": "PYTHON_BRIDGE_NONZERO_EXIT",
+                        "execution_tier": "technical_fallback",
+                        "layer": "python_main",
+                        "reason": "unhandled_exception",
+                        "signals": {
+                            "failure_class": "PYTHON_BRIDGE_NONZERO_EXIT",
+                            "fallback_triggered": True,
+                            "execution_path_used": "python_main",
+                            "compatibility_execution_active": False,
+                            "provider_actual": "",
+                            "provider_failed": False,
+                            "tool_execution": None,
+                            "tool_diagnostics": None,
+                            "execution_provenance": None,
+                            "provider_diagnostics": provider_diagnostics,
+                            "provider_diagnostics_snapshot": provider_diagnostics_snapshot,
+                        },
+                    },
+                    "provider_diagnostics": provider_diagnostics,
+                    "provider_diagnostics_snapshot": provider_diagnostics_snapshot,
+                    "providers": get_available_providers(),
+                }
+            )
+            public_payload["provider_diagnostics"] = provider_diagnostics
+            public_payload["provider_diagnostics_snapshot"] = provider_diagnostics_snapshot
+            emit_public_json(public_payload)
         except Exception:
             pass
         sys.exit(1)

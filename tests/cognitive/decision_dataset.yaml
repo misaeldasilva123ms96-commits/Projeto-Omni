@@ -1,0 +1,33 @@
+[
+  {"name":"explain_api","input":"o que e uma api?","expected":{"strategy":"DIRECT_RESPONSE","must_execute":false,"primary_execution_type":"COMPATIBILITY_EXECUTION"}},
+  {"name":"explain_runtime_flow","input":"explique o fluxo do runtime Omni","expected":{"strategy":"DIRECT_RESPONSE","must_execute":false,"primary_execution_type":"COMPATIBILITY_EXECUTION"}},
+  {"name":"greeting","input":"ola","expected":{"strategy":"DIRECT_RESPONSE","must_execute":false,"primary_execution_type":"COMPATIBILITY_EXECUTION"}},
+  {"name":"session_status","input":"gere um relatorio da execucao","expected":{"strategy":"DIRECT_RESPONSE","must_execute":false,"primary_execution_type":"COMPATIBILITY_EXECUTION"}},
+  {"name":"who_are_you","input":"o que voce faz?","expected":{"strategy":"DIRECT_RESPONSE","must_execute":false,"primary_execution_type":"COMPATIBILITY_EXECUTION"}},
+
+  {"name":"read_package_json","input":"analise o arquivo package.json","expected":{"strategy":"TOOL_ASSISTED","tool":"read_file","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"read_requirements","input":"leia o arquivo requirements.txt e resuma as dependencias","expected":{"strategy":"TOOL_ASSISTED","tool":"read_file","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"read_cargo_toml","input":"abra o arquivo Cargo.toml e explique os crates","expected":{"strategy":"TOOL_ASSISTED","tool":"read_file","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"find_tsconfig","input":"encontre o arquivo tsconfig.json","expected":{"strategy":"TOOL_ASSISTED","tool":"glob_search","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"find_architecture_doc","input":"procure o arquivo ARCHITECTURE.md","expected":{"strategy":"TOOL_ASSISTED","tool":"glob_search","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+
+  {"name":"verify_tests","input":"rode os testes e valide","expected":{"strategy":"TOOL_ASSISTED","tool":"test_runner","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"typecheck_regression","input":"rode typecheck e confirme regressao","expected":{"strategy":"TOOL_ASSISTED","tool":"test_runner","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"validate_behavior","input":"valide o comportamento e confira regressao","expected":{"strategy":"TOOL_ASSISTED","tool":"test_runner","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+
+  {"name":"single_file_fix","input":"corrija este arquivo e aplique o patch","expected":{"strategy":"TOOL_ASSISTED","tool":"write_file","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"small_refactor","input":"refatore este arquivo sem alterar o contrato","expected":{"strategy":"TOOL_ASSISTED","tool":"write_file","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+  {"name":"feature_impl","input":"implemente uma pequena feature neste modulo","expected":{"strategy":"TOOL_ASSISTED","tool":"write_file","must_execute":true,"primary_execution_type":"LOCAL_TOOL_EXECUTION"}},
+
+  {"name":"node_runner_fix","input":"implemente ajuste no js-runner e queryengine","metadata":{"requires_node_runtime":true},"expected":{"strategy":"NODE_RUNTIME_DELEGATION","must_execute":true,"requires_node_runtime":true,"primary_execution_type":"NODE_EXECUTION"}},
+  {"name":"node_bridge_fix","input":"corrija o node bridge do queryengine","metadata":{"requires_node_runtime":true},"expected":{"strategy":"NODE_RUNTIME_DELEGATION","must_execute":true,"requires_node_runtime":true,"primary_execution_type":"NODE_EXECUTION"}},
+  {"name":"bun_runtime_change","input":"ajuste a execucao bun do queryengine","metadata":{"requires_node_runtime":true},"expected":{"strategy":"NODE_RUNTIME_DELEGATION","must_execute":true,"requires_node_runtime":true,"primary_execution_type":"NODE_EXECUTION"}},
+
+  {"name":"repo_dependencies","input":"analise o repositorio e dependencias","expected":{"strategy":"MULTI_STEP_REASONING","must_execute":false,"primary_execution_type":"PLANNER_EXECUTION"}},
+  {"name":"inspect_architecture","input":"inspect architecture and dependency impact","expected":{"strategy":"MULTI_STEP_REASONING","must_execute":false,"primary_execution_type":"PLANNER_EXECUTION"}},
+
+  {"name":"recover_failed_test","input":"debug why this failed and retry after failure","expected":{"strategy":"MULTI_STEP_REASONING","must_execute":true,"primary_execution_type":"PLANNER_EXECUTION"}},
+  {"name":"recover_broken_execution","input":"conserte a execucao e valide","expected":{"strategy":"MULTI_STEP_REASONING","must_execute":true,"primary_execution_type":"PLANNER_EXECUTION"}},
+
+  {"name":"summary_request","input":"produce pr summary for the last run","expected":{"strategy":"DIRECT_RESPONSE","must_execute":false,"primary_execution_type":"COMPATIBILITY_EXECUTION"}}
+]
