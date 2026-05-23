@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_OMNI_API_URL?: string
   readonly VITE_API_URL?: string
   readonly VITE_PUBLIC_APP_URL?: string
+  readonly VITE_OMNI_EXPERIMENTAL_PUTER_FREE?: string
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
   readonly VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY?: string
