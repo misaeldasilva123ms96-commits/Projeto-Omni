@@ -51,3 +51,5 @@ brain behavior changes.
 
 The contract rejects request options that attempt to pass API keys, access
 tokens, credentials, secrets, env vars, raw provider payloads, tools, or files.
+In this contract-only phase, `request_options` rejects every key. Benign client
+options may be introduced only in a future phase with explicit allowlist tests.

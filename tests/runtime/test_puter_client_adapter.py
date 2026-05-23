@@ -126,6 +126,68 @@ class PuterClientAdapterContractTest(unittest.TestCase):
         self.assertTrue(selection["denied"])
         self.assertEqual(selection["reason"], "quota_exceeded")
 
+    def test_puter_adapter_cannot_be_selected_when_output_limit_is_exceeded(self) -> None:
+        response = build_access_snapshot_response(
+            {
+                "plan_mode": "free",
+                "subject_id": "session-1",
+                "usage_date": "2026-05-23",
+                "tokens_in": 1,
+                "tokens_out": 1501,
+            }
+        )
+        selection = build_public_puter_client_adapter_selection(
+            response,
+            experimental_feature_enabled=True,
+        )
+
+        self.assertFalse(response["access_snapshot"]["routing_allowed"])
+        self.assertFalse(response["access_snapshot"]["output_allowed"])
+        self.assertFalse(selection["selection_allowed"])
+        self.assertTrue(selection["denied"])
+        self.assertEqual(selection["reason"], "output_limit_exceeded")
+        self.assert_not_publicly_sensitive(selection)
+
+    def test_malformed_or_unsafe_access_snapshot_envelope_is_denied(self) -> None:
+        allowed = self.free_allowed_boundary_response()
+        missing_required_key = dict(allowed)
+        missing_required_key.pop("boundary_version")
+        unexpected_extra_key = dict(allowed)
+        unexpected_extra_key["api_key"] = "sk-hidden"
+        missing_snapshot_key = {
+            **allowed,
+            "access_snapshot": dict(allowed["access_snapshot"]),
+        }
+        missing_snapshot_key["access_snapshot"].pop("snapshot_version")
+        denied_as_selectable = build_access_snapshot_response(
+            {
+                "plan_mode": "free",
+                "subject_id": "session-1",
+                "usage_date": "2026-05-23",
+                "tokens_in": 3001,
+                "tokens_out": 1,
+            }
+        )
+
+        cases = (
+            (missing_required_key, "invalid_access_snapshot"),
+            (unexpected_extra_key, "invalid_access_snapshot"),
+            (missing_snapshot_key, "invalid_access_snapshot"),
+            (denied_as_selectable, "input_limit_exceeded"),
+        )
+
+        for envelope, reason in cases:
+            with self.subTest(reason=reason):
+                selection = build_public_puter_client_adapter_selection(
+                    envelope,
+                    experimental_feature_enabled=True,
+                )
+
+                self.assertFalse(selection["selection_allowed"])
+                self.assertTrue(selection["denied"])
+                self.assertEqual(selection["reason"], reason)
+                self.assert_not_publicly_sensitive(selection)
+
     def test_puter_adapter_cannot_accept_credentials_or_provider_secrets(self) -> None:
         unsafe_options = (
             {"api_key": "sk-secret"},
@@ -133,6 +195,27 @@ class PuterClientAdapterContractTest(unittest.TestCase):
             {"credential": "provider-credential"},
             {"secret": "provider-secret"},
             {"env_var": "PROVIDER_KEY"},
+        )
+
+        for request_options in unsafe_options:
+            with self.subTest(request_options=request_options):
+                selection = build_public_puter_client_adapter_selection(
+                    self.free_allowed_boundary_response(),
+                    experimental_feature_enabled=True,
+                    request_options=request_options,
+                )
+
+                self.assertFalse(selection["selection_allowed"])
+                self.assertTrue(selection["denied"])
+                self.assertEqual(selection["reason"], "unsafe_request_options")
+                self.assert_not_publicly_sensitive(selection)
+
+    def test_puter_adapter_rejects_provider_config_private_endpoint_billing_and_debug_options(self) -> None:
+        unsafe_options = (
+            {"provider_config": {"model": "hidden"}},
+            {"private_endpoint": "https://private.example.test"},
+            {"billing": "managed-plan"},
+            {"debug": True},
         )
 
         for request_options in unsafe_options:
