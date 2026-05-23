@@ -9,6 +9,11 @@ import {
   invokePuterFreeModeManualHarness,
   type PuterManualHarnessResult,
 } from './freeModePuterManualHarness'
+import {
+  createPuterScriptLoaderResult,
+  loadPuterScriptRuntime,
+  type PuterScriptLoaderResult,
+} from './puterScriptLoader'
 
 export const PUTER_DEV_SURFACE_VERSION = 'puter_dev_surface_v1'
 export const PUTER_DEV_SURFACE_FLAG_NAME = 'VITE_OMNI_EXPERIMENTAL_PUTER_DEV_SURFACE'
@@ -79,6 +84,7 @@ export function PuterDevManualSurface({
 }: PuterDevManualSurfaceProps) {
   const [prompt, setPrompt] = useState(defaultPrompt)
   const [state, setState] = useState<PuterDevSurfaceState>(createPuterDevSurfaceState())
+  const [loaderState, setLoaderState] = useState<PuterScriptLoaderResult>(createPuterScriptLoaderResult())
 
   if (!devSurfaceEnabled || !experimentalFeatureEnabled) {
     return null
@@ -96,6 +102,16 @@ export function PuterDevManualSurface({
     setState(resultToPuterDevSurfaceState(result))
   }
 
+  async function handleLoadRuntime() {
+    setLoaderState(createPuterScriptLoaderResult('loading', 'loading'))
+    const result = await loadPuterScriptRuntime({
+      devSurfaceEnabled,
+      experimentalFeatureEnabled,
+      runtime,
+    })
+    setLoaderState(result)
+  }
+
   const outputText = state.sanitized_text || state.reason
 
   return (
@@ -107,6 +123,12 @@ export function PuterDevManualSurface({
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
       />
+      <button type="button" onClick={handleLoadRuntime} disabled={loaderState.status === 'loading'}>
+        Load Puter runtime
+      </button>
+      <output aria-label="Puter runtime loader status">
+        {loaderState.status}
+      </output>
       <button type="button" onClick={handleManualInvoke} disabled={state.pending}>
         Run manual Puter check
       </button>
