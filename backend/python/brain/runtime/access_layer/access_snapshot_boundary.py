@@ -74,6 +74,7 @@ _SAFE_REQUEST_KEYS = frozenset(
 
 _UNSAFE_PUBLIC_INPUT_KEYS = frozenset(
     {
+        "adapter_id",
         "api_key",
         "billing_config",
         "credential",
@@ -94,6 +95,7 @@ _UNSAFE_PUBLIC_INPUT_KEYS = frozenset(
         "raw_provider_config",
         "request_payload",
         "secret",
+        "selected_adapter_id",
         "selected_provider_family",
         "token",
         "tokens_total",

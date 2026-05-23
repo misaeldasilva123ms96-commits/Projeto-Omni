@@ -169,6 +169,36 @@ class AccessSnapshotBoundaryTest(unittest.TestCase):
 
                 self.assert_denied(response, "unsafe_public_input")
 
+    def test_public_input_cannot_override_adapter_identifiers(self) -> None:
+        for field in ("selected_adapter_id", "adapter_id"):
+            with self.subTest(field=field):
+                response = build_access_snapshot_response(
+                    {
+                        "plan_mode": "free",
+                        "subject_id": "session-1",
+                        "usage_date": "2026-05-23",
+                        "tokens_in": 1,
+                        "tokens_out": 1,
+                        field: "managed_adapter",
+                    }
+                )
+
+                self.assert_denied(response, "unsafe_public_input")
+
+    def test_negative_trusted_existing_daily_tokens_fails_closed(self) -> None:
+        response = build_access_snapshot_response(
+            {
+                "plan_mode": "free",
+                "subject_id": "session-1",
+                "usage_date": "2026-05-23",
+                "tokens_in": 1,
+                "tokens_out": 1,
+            },
+            existing_daily_tokens=-1,
+        )
+
+        self.assert_denied(response, "invalid_token_usage")
+
     def test_subject_id_must_be_opaque_public_identifier(self) -> None:
         for subject_id in ("user@example.com", "sk-secret", "bearer raw-token", "token-value"):
             with self.subTest(subject_id=subject_id):
