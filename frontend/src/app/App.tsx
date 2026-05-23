@@ -2,11 +2,22 @@ import { useEffect, useState } from 'react'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
+import {
+  PUTER_DEV_ROUTE_PATH,
+  PuterDevRoutePage,
+  canShowPuterDevRoute,
+} from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-type View = 'chat' | 'dashboard' | 'observability'
+type View = 'chat' | 'dashboard' | 'observability' | 'puter-dev'
 
-function resolveViewFromPath(pathname: string): View {
+export function resolveViewFromPath(
+  pathname: string,
+  puterDevRouteVisible = canShowPuterDevRoute(),
+): View {
+  if (pathname === PUTER_DEV_ROUTE_PATH && puterDevRouteVisible) {
+    return 'puter-dev'
+  }
   if (pathname === '/observability') {
     return 'observability'
   }
@@ -22,6 +33,9 @@ function pathForView(view: View) {
   }
   if (view === 'dashboard') {
     return '/dashboard'
+  }
+  if (view === 'puter-dev') {
+    return PUTER_DEV_ROUTE_PATH
   }
   return '/'
 }
@@ -64,6 +78,10 @@ export default function App() {
         view={view}
       />
     )
+  }
+
+  if (view === 'puter-dev') {
+    return <PuterDevRoutePage />
   }
 
   return (
