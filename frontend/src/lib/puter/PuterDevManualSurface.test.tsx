@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   PUTER_DEV_SURFACE_VERSION,
   PuterDevManualSurface,
@@ -9,6 +9,10 @@ import {
   resultToPuterDevSurfaceState,
 } from './PuterDevManualSurface'
 import { PUTER_MANUAL_HARNESS_VERSION } from './freeModePuterManualHarness'
+import {
+  PUTER_SCRIPT_ID,
+  PUTER_SCRIPT_SRC,
+} from './puterScriptLoader'
 
 const DEV_STATE_KEYS = [
   'surface_version',
@@ -133,7 +137,24 @@ function renderEnabledSurface(chat = vi.fn(), envelope: unknown = safeEnvelope()
   )
 }
 
+function renderEnabledSurfaceWithRuntime(runtime: unknown, envelope: unknown = safeEnvelope()) {
+  render(
+    <PuterDevManualSurface
+      accessSnapshotEnvelope={envelope}
+      defaultPrompt="hello"
+      devSurfaceEnabled
+      experimentalFeatureEnabled
+      runtime={runtime}
+    />,
+  )
+}
+
 describe('Puter dev manual surface', () => {
+  afterEach(() => {
+    delete (window as Window & { puter?: unknown }).puter
+    document.querySelectorAll('script').forEach((script) => script.remove())
+  })
+
   it('keeps the dev surface feature flag disabled by default', () => {
     expect(isPuterDevSurfaceFlagEnabled()).toBe(false)
     expect(isPuterDevSurfaceFlagEnabled('')).toBe(false)
@@ -164,6 +185,43 @@ describe('Puter dev manual surface', () => {
 
     expect(screen.getByLabelText('Puter manual dev surface')).toBeInTheDocument()
     expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('shows puter_unavailable before the runtime loader succeeds', async () => {
+    const user = userEvent.setup()
+
+    renderEnabledSurfaceWithRuntime({ window })
+    await user.click(screen.getByRole('button', { name: 'Run manual Puter check' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Puter manual result')).toHaveTextContent('puter_unavailable')
+    })
+  })
+
+  it('can trigger the Puter script loader manually without calling AI', async () => {
+    const user = userEvent.setup()
+    const chat = vi.fn().mockResolvedValue('loaded response')
+
+    renderEnabledSurfaceWithRuntime({ window })
+    expect(document.getElementById(PUTER_SCRIPT_ID)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Load Puter runtime' }))
+    const script = document.getElementById(PUTER_SCRIPT_ID) as HTMLScriptElement | null
+
+    expect(script).not.toBeNull()
+    expect(script?.src).toBe(PUTER_SCRIPT_SRC)
+    expect(chat).not.toHaveBeenCalled()
+
+    ;(window as Window & { puter?: unknown }).puter = { ai: { chat } }
+    script?.dispatchEvent(new Event('load'))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Puter runtime loader status')).toHaveTextContent('loaded')
+    })
+    expect(chat).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Run manual Puter check' }))
+    await waitFor(() => expect(chat).toHaveBeenCalledTimes(1))
   })
 
   it('requires a manual click before invoking the harness', async () => {
