@@ -15,6 +15,10 @@ This phase does not add endpoints, real provider calls, Puter.js integration,
 OpenRouter/Gemini/Groq/OpenAI calls, BYOK key storage, billing, UI, or
 production brain behavior changes.
 
-`subject_id` is an opaque public identifier. `policy_overrides` and
-`existing_daily_tokens` are trusted server-side inputs only and must never be
+`policy_overrides` and `existing_daily_tokens` are trusted server-side inputs
+only. They must never be accepted directly from public request payloads or
 treated as public request-authoritative values.
+
+`subject_id` is intentionally public only as an opaque identifier. Callers must
+never pass secrets, account credentials, API keys, email addresses, or raw user
+tokens as `subject_id`.

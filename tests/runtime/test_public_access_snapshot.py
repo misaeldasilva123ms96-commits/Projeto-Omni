@@ -221,6 +221,34 @@ class PublicAccessSnapshotTest(unittest.TestCase):
         self.assertEqual(snapshot["decision_reason"], "provider_registry_mismatch")
         self.assertEqual(snapshot["selected_adapter_id"], "")
 
+    def test_policy_override_provider_mode_attempts_fail_closed(self) -> None:
+        override_attempts = (
+            ("free", "user_key"),
+            ("free", "managed"),
+            ("byok", "managed"),
+            ("byok", "internal"),
+            ("pro", "user_key"),
+            ("pro", "internal"),
+            ("internal", "managed"),
+            ("internal", "user_key"),
+        )
+
+        for plan_mode, provider_mode in override_attempts:
+            with self.subTest(plan_mode=plan_mode, provider_mode=provider_mode):
+                snapshot = build_public_access_snapshot(
+                    plan_mode=plan_mode,
+                    subject_id="opaque-subject",
+                    usage_date="2026-05-23",
+                    tokens_in=1,
+                    tokens_out=1,
+                    policy_overrides={"provider_mode": provider_mode},
+                )
+
+                self.assertFalse(snapshot["routing_allowed"])
+                self.assertTrue(snapshot["fallback_allowed"])
+                self.assertEqual(snapshot["decision_reason"], "invalid_plan_or_policy")
+                self.assert_not_publicly_sensitive(snapshot)
+
     def test_public_snapshot_key_sets_are_exact(self) -> None:
         for mode in ("free", "byok", "pro", "internal"):
             with self.subTest(mode=mode):
