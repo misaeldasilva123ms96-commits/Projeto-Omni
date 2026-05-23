@@ -9,6 +9,17 @@ from .plan_policy import (
     build_public_plan_policy,
     resolve_plan_policy,
 )
+from .access_snapshot_boundary import (
+    ACCESS_SNAPSHOT_BOUNDARY_VERSION,
+    APPROVED_ACCESS_SNAPSHOT_ENVELOPE_KEYS,
+    APPROVED_ACCESS_SNAPSHOT_KEYS,
+    APPROVED_ADAPTER_CAPABILITY_KEYS,
+    build_access_snapshot_response,
+    normalize_access_snapshot_request,
+    reject_unsafe_public_input,
+    sanitize_access_snapshot_output,
+    validate_public_access_snapshot_keys,
+)
 from .provider_router import (
     PROVIDER_ROUTER_VERSION,
     ProviderRoutingDecision,
@@ -44,6 +55,10 @@ from .token_quota import (
 )
 
 __all__ = [
+    "ACCESS_SNAPSHOT_BOUNDARY_VERSION",
+    "APPROVED_ACCESS_SNAPSHOT_ENVELOPE_KEYS",
+    "APPROVED_ACCESS_SNAPSHOT_KEYS",
+    "APPROVED_ADAPTER_CAPABILITY_KEYS",
     "PROVIDER_REGISTRY_VERSION",
     "PROVIDER_ROUTER_VERSION",
     "TOKEN_QUOTA_VERSION",
@@ -59,6 +74,7 @@ __all__ = [
     "TokenQuotaSnapshot",
     "ToolAccessMode",
     "UnknownProviderFamilyError",
+    "build_access_snapshot_response",
     "build_public_provider_adapter_snapshot",
     "build_provider_routing_decision",
     "build_public_quota_snapshot",
@@ -73,7 +89,11 @@ __all__ = [
     "list_provider_adapters",
     "list_public_provider_adapters",
     "resolve_plan_policy",
+    "normalize_access_snapshot_request",
+    "reject_unsafe_public_input",
+    "sanitize_access_snapshot_output",
     "validate_router_decision_adapter",
+    "validate_public_access_snapshot_keys",
     "validate_max_input_tokens",
     "validate_max_output_tokens",
 ]
