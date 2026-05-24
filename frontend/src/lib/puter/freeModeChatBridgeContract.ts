@@ -6,6 +6,11 @@ import {
 export const FREE_MODE_CHAT_BRIDGE_VERSION = 'free_mode_chat_bridge_contract_v1'
 export const PUTER_CHAT_BRIDGE_FLAG_NAME = 'VITE_OMNI_EXPERIMENTAL_PUTER_CHAT_BRIDGE'
 
+const ACCESS_SNAPSHOT_BOUNDARY_VERSION = 'access_snapshot_boundary_v1'
+const PUBLIC_ACCESS_SNAPSHOT_VERSION = 'public_access_snapshot_v1'
+const EXPECTED_ACCESS_SNAPSHOT_ADAPTER_ID = 'experimental_free_adapter'
+const UNKNOWN_PLAN_MODE = 'unknown'
+
 const APPROVED_DECISION_KEYS = new Set([
   'bridge_version',
   'allowed',
@@ -212,7 +217,7 @@ export function isPuterChatBridgeFlagEnabled(
 }
 
 export function decideFreeModeChatBridge(input: FreeModeChatBridgeInput): FreeModeChatBridgeDecision {
-  const planMode = readLowerString(input.planMode)
+  const requestedPlanMode = readLowerString(input.planMode)
   const tokenEstimatesValid = isNonNegativeInteger(input.inputTokenEstimate)
     && isNonNegativeInteger(input.outputTokenBudgetEstimate)
     && isNonNegativeInteger(input.dailyTokenUsage)
@@ -220,19 +225,19 @@ export function decideFreeModeChatBridge(input: FreeModeChatBridgeInput): FreeMo
   const snapshot = envelope?.access_snapshot
   const safeProviderFamily = snapshot?.selected_provider_family === PUTER_PROVIDER_FAMILY ? PUTER_PROVIDER_FAMILY : ''
   const state: DecisionState = {
-    planMode,
+    planMode: normalizePlanMode(requestedPlanMode),
     providerFamily: safeProviderFamily,
-    selectedAdapterId: readString(snapshot?.selected_adapter_id) ?? '',
+    selectedAdapterId: normalizeSelectedAdapterId(snapshot?.selected_adapter_id),
     quotaAllowed: snapshot?.quota_allowed === true,
     quotaExceeded: snapshot?.quota_exceeded === true,
     routingAllowed: snapshot?.routing_allowed === true,
     featureFlagAllowed: input.experimentalFeatureEnabled === true && input.chatBridgeFeatureEnabled === true,
     runtimeAllowed: input.browserRuntimeAvailable === true && input.puterRuntimeAvailable === true,
-    boundaryVersion: readString(envelope?.boundary_version) ?? '',
-    snapshotVersion: readString(envelope?.snapshot_version) ?? '',
+    boundaryVersion: normalizeBoundaryVersion(envelope?.boundary_version),
+    snapshotVersion: normalizeSnapshotVersion(envelope?.snapshot_version),
   }
 
-  if (planMode !== 'free') {
+  if (requestedPlanMode !== 'free') {
     return denied('not_free_mode', state)
   }
 
@@ -385,8 +390,12 @@ function normalizeBoundaryEnvelope(value: unknown): AccessSnapshotBoundaryEnvelo
 function isSafeFreeSnapshot(envelope: AccessSnapshotBoundaryEnvelope): boolean {
   const snapshot = envelope.access_snapshot
   const capabilities = snapshot.adapter_capabilities
-  return snapshot.plan_mode === 'free'
+  return envelope.boundary_version === ACCESS_SNAPSHOT_BOUNDARY_VERSION
+    && envelope.snapshot_version === PUBLIC_ACCESS_SNAPSHOT_VERSION
+    && snapshot.snapshot_version === PUBLIC_ACCESS_SNAPSHOT_VERSION
+    && snapshot.plan_mode === 'free'
     && snapshot.provider_mode === 'experimental_free'
+    && snapshot.selected_adapter_id === EXPECTED_ACCESS_SNAPSHOT_ADAPTER_ID
     && snapshot.input_allowed === true
     && snapshot.output_allowed === true
     && isRecord(capabilities)
@@ -443,6 +452,22 @@ function readLowerString(value: unknown): string {
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function normalizePlanMode(value: string): string {
+  return value === 'free' ? 'free' : UNKNOWN_PLAN_MODE
+}
+
+function normalizeSelectedAdapterId(value: unknown): string {
+  return value === EXPECTED_ACCESS_SNAPSHOT_ADAPTER_ID ? EXPECTED_ACCESS_SNAPSHOT_ADAPTER_ID : ''
+}
+
+function normalizeBoundaryVersion(value: unknown): string {
+  return value === ACCESS_SNAPSHOT_BOUNDARY_VERSION ? ACCESS_SNAPSHOT_BOUNDARY_VERSION : ''
+}
+
+function normalizeSnapshotVersion(value: unknown): string {
+  return value === PUBLIC_ACCESS_SNAPSHOT_VERSION ? PUBLIC_ACCESS_SNAPSHOT_VERSION : ''
 }
 
 function hasExactKeys(value: Record<string, unknown>, approvedKeys: Set<string>): boolean {

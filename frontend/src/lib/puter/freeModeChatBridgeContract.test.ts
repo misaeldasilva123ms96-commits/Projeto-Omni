@@ -43,16 +43,20 @@ const RUNTIME_TRUTH_KEYS = [
 const FORBIDDEN_OUTPUT_FRAGMENTS = [
   'access_token',
   'api_key',
+  'billing',
   'billing_config',
   'credential',
+  'debug',
   'debug_payload',
   'env_var',
   'private_endpoint',
+  'process.env',
   'provider_config',
   'provider_payload',
   'raw_provider',
   'request_payload',
   'secret',
+  'sk-test',
   'sk-',
   'stack',
   'traceback',
@@ -134,6 +138,13 @@ function expectPublicSafe(value: unknown) {
   const serialized = JSON.stringify(value).toLowerCase()
   for (const fragment of FORBIDDEN_OUTPUT_FRAGMENTS) {
     expect(serialized).not.toContain(fragment)
+  }
+}
+
+function expectNoEcho(value: unknown, fragments: string[]) {
+  const serialized = JSON.stringify(value).toLowerCase()
+  for (const fragment of fragments) {
+    expect(serialized).not.toContain(fragment.toLowerCase())
   }
 }
 
@@ -266,6 +277,78 @@ describe('Free Mode chat bridge contract', () => {
     expectDenied({ inputTokenEstimate: -1 }, 'invalid_token_estimate')
     expectDenied({ outputTokenBudgetEstimate: 1.5 }, 'invalid_token_estimate')
     expectDenied({ dailyTokenUsage: '125' }, 'invalid_token_estimate')
+  })
+
+  it('does not echo malicious plan mode values', () => {
+    const malicious = 'sk-test-api_key-access_token-provider_config-private_endpoint-billing-debug-process.env-stack-traceback'
+    const decision = expectDenied({ planMode: malicious }, 'not_free_mode')
+
+    expect(decision.plan_mode).toBe('unknown')
+    expect(decision.runtime_truth.access_layer_plan_mode).toBe('unknown')
+    expectNoEcho(decision, malicious.split('-'))
+  })
+
+  it('does not echo malicious selected adapter ids', () => {
+    const malicious = 'sk-test-api_key-access_token-provider_config-private_endpoint-billing-debug-process.env-stack-traceback'
+    const decision = expectDenied({
+      accessSnapshotEnvelope: {
+        ...safeEnvelope(),
+        access_snapshot: {
+          ...safeEnvelope().access_snapshot,
+          selected_adapter_id: malicious,
+        },
+      },
+    }, 'invalid_access_snapshot')
+
+    expect(decision.runtime_truth.selected_adapter_id).toBe('')
+    expectNoEcho(decision, malicious.split('-'))
+  })
+
+  it('does not echo malicious boundary or snapshot versions', () => {
+    const boundaryVersion = 'sk-test-api_key-access_token-provider_config-private_endpoint'
+    const snapshotVersion = 'billing-debug-process.env-stack-traceback'
+
+    const badBoundary = expectDenied({
+      accessSnapshotEnvelope: {
+        ...safeEnvelope({
+          boundary_version: boundaryVersion,
+        }),
+      },
+    }, 'invalid_access_snapshot')
+    expect(badBoundary.runtime_truth.boundary_version).toBe('')
+    expectNoEcho(badBoundary, boundaryVersion.split('-'))
+
+    const badSnapshot = expectDenied({
+      accessSnapshotEnvelope: {
+        ...safeEnvelope({
+          snapshot_version: snapshotVersion,
+        }),
+      },
+    }, 'invalid_access_snapshot')
+    expect(badSnapshot.runtime_truth.snapshot_version).toBe('')
+    expectNoEcho(badSnapshot, snapshotVersion.split('-'))
+  })
+
+  it('fails closed without echoing exact-key envelopes that contain unsafe string values', () => {
+    const malicious = 'sk-test-api_key-access_token-provider_config-private_endpoint-billing-debug-process.env-stack-traceback'
+    const decision = expectDenied({
+      accessSnapshotEnvelope: {
+        ...safeEnvelope({
+          boundary_version: malicious,
+          snapshot_version: malicious,
+        }),
+        access_snapshot: {
+          ...safeEnvelope().access_snapshot,
+          snapshot_version: malicious,
+          selected_adapter_id: malicious,
+        },
+      },
+    }, 'invalid_access_snapshot')
+
+    expect(decision.runtime_truth.boundary_version).toBe('')
+    expect(decision.runtime_truth.snapshot_version).toBe('')
+    expect(decision.runtime_truth.selected_adapter_id).toBe('')
+    expectPublicSafe(decision)
   })
 
   it('denies tools, files, function-calling, long memory, and sensitive tools', () => {
