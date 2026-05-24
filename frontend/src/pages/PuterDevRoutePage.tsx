@@ -5,13 +5,26 @@ import {
   PuterDevManualSurface,
   isPuterDevSurfaceFlagEnabled,
 } from '../lib/puter/PuterDevManualSurface'
+import {
+  PuterFreeChatDevToggleSurface,
+  isPuterFreeChatDevToggleFlagEnabled,
+} from '../lib/puter/PuterFreeChatDevToggleSurface'
+import {
+  isPuterChatBridgeFlagEnabled,
+} from '../lib/puter/freeModeChatBridgeContract'
+import {
+  isPuterChatBridgeDevRealFlagEnabled,
+} from '../lib/puter/freeModeChatBridgeDevReal'
 
 export const PUTER_DEV_ROUTE_PATH = '/dev/puter'
 export const PUTER_DEV_ROUTE_VERSION = 'puter_dev_route_v1'
 
 type PuterDevRoutePageProps = {
   accessSnapshotEnvelope?: unknown
+  chatBridgeFeatureEnabled?: boolean
+  chatDevToggleEnabled?: boolean
   devSurfaceEnabled?: boolean
+  devRealFeatureEnabled?: boolean
   experimentalFeatureEnabled?: boolean
   runtime?: unknown
 }
@@ -69,7 +82,10 @@ export function buildPuterDevRouteBoundaryEnvelope(overrides: Record<string, unk
 
 export function PuterDevRoutePage({
   accessSnapshotEnvelope = buildPuterDevRouteBoundaryEnvelope(),
+  chatBridgeFeatureEnabled = isPuterChatBridgeFlagEnabled(),
+  chatDevToggleEnabled = isPuterFreeChatDevToggleFlagEnabled(),
   devSurfaceEnabled = isPuterDevSurfaceFlagEnabled(),
+  devRealFeatureEnabled = isPuterChatBridgeDevRealFlagEnabled(),
   experimentalFeatureEnabled = isPuterFreeModeFlagEnabled(),
   runtime = globalThis,
 }: PuterDevRoutePageProps) {
@@ -85,6 +101,15 @@ export function PuterDevRoutePage({
           accessSnapshotEnvelope={accessSnapshotEnvelope}
           defaultPrompt="Hello from the local Puter dev route."
           devSurfaceEnabled={devSurfaceEnabled}
+          experimentalFeatureEnabled={experimentalFeatureEnabled}
+          runtime={runtime}
+        />
+        <PuterFreeChatDevToggleSurface
+          accessSnapshotEnvelope={accessSnapshotEnvelope}
+          chatBridgeFeatureEnabled={chatBridgeFeatureEnabled}
+          chatDevToggleEnabled={chatDevToggleEnabled}
+          defaultPrompt="Reply with a short safe Free chat dev result."
+          devRealFeatureEnabled={devRealFeatureEnabled}
           experimentalFeatureEnabled={experimentalFeatureEnabled}
           runtime={runtime}
         />

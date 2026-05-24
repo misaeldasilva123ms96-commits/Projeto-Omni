@@ -76,6 +76,23 @@ function renderEnabledRoute(chat = vi.fn(), accessSnapshotEnvelope: unknown = bu
   )
 }
 
+function renderEnabledRouteWithChatToggle(
+  chat = vi.fn(),
+  accessSnapshotEnvelope: unknown = buildPuterDevRouteBoundaryEnvelope(),
+) {
+  render(
+    <PuterDevRoutePage
+      accessSnapshotEnvelope={accessSnapshotEnvelope}
+      chatBridgeFeatureEnabled
+      chatDevToggleEnabled
+      devRealFeatureEnabled
+      devSurfaceEnabled
+      experimentalFeatureEnabled
+      runtime={puterRuntime(chat)}
+    />,
+  )
+}
+
 describe('Puter dev route mount', () => {
   it('keeps route visibility disabled unless both flags are enabled', () => {
     expect(canShowPuterDevRoute(false, false)).toBe(false)
@@ -112,12 +129,20 @@ describe('Puter dev route mount', () => {
       PUTER_DEV_ROUTE_VERSION,
     )
     expect(screen.getByLabelText('Puter manual dev surface')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Puter Free chat dev toggle')).toBeNull()
+  })
+
+  it('renders the Free chat dev toggle only when its bridge flags are enabled', () => {
+    renderEnabledRouteWithChatToggle()
+
+    expect(screen.getByLabelText('Puter dev route')).toBeInTheDocument()
+    expect(screen.getByLabelText('Puter Free chat dev toggle')).toBeInTheDocument()
   })
 
   it('does not call Puter on route render or mount', () => {
     const chat = vi.fn()
 
-    renderEnabledRoute(chat)
+    renderEnabledRouteWithChatToggle(chat)
 
     expect(chat).not.toHaveBeenCalled()
   })
