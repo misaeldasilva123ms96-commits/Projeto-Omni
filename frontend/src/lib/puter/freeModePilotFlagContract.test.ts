@@ -284,6 +284,108 @@ describe('Free Mode pilot flag contract', () => {
     }
   })
 
+  it('denies camelCase forbidden request and capability fields', () => {
+    for (const requestOptions of [
+      { apiKey: 'hidden' },
+      { accessToken: 'hidden' },
+      { providerFamily: 'managed_provider' },
+      { providerMode: 'managed' },
+      { selectedAdapterId: 'managed' },
+      { policyOverrides: { providerMode: 'managed' } },
+      { quotaLimit: 999999 },
+      { quotaLimits: { daily: 999999 } },
+      { privateEndpoint: 'hidden' },
+      { providerConfig: { model: 'hidden' } },
+      { rawProviderPayload: { text: 'hidden' } },
+      { rawProviderResponse: { text: 'hidden' } },
+    ]) {
+      expectDenied({ requestOptions }, 'unsafe_request_options')
+    }
+
+    for (const requestedCapabilities of [
+      { functionCalling: true },
+      { longMemory: true },
+      { sensitiveTools: true },
+    ]) {
+      const decision = decideFreeModePilotFlag(input({ requestedCapabilities }))
+      expect(decision.pilot_eligible).toBe(false)
+      expect(decision.denied).toBe(true)
+      expect(['unsupported_capability', 'unsafe_request_options']).toContain(decision.reason)
+      expectPublicSafe(decision)
+    }
+  })
+
+  it('denies PascalCase and mixed-case forbidden fields', () => {
+    for (const requestOptions of [
+      { APIKey: 'hidden' },
+      { AccessToken: 'hidden' },
+      { ProviderConfig: { model: 'hidden' } },
+      { PrivateEndpoint: 'hidden' },
+      { RawProviderPayload: { text: 'hidden' } },
+      { bIlLiNgCoNfIg: 'hidden' },
+      { DebugMode: true },
+    ]) {
+      expectDenied({ requestOptions }, 'unsafe_request_options')
+    }
+  })
+
+  it('denies kebab-case and spaced forbidden fields', () => {
+    for (const requestOptions of [
+      { 'api-key': 'hidden' },
+      { 'access-token': 'hidden' },
+      { 'provider-config': { model: 'hidden' } },
+      { 'private-endpoint': 'hidden' },
+      { 'raw-provider-payload': { text: 'hidden' } },
+      { 'api key': 'hidden' },
+      { 'access token': 'hidden' },
+      { 'provider config': { model: 'hidden' } },
+      { 'private endpoint': 'hidden' },
+    ]) {
+      expectDenied({ requestOptions }, 'unsafe_request_options')
+    }
+
+    for (const requestedCapabilities of [
+      { 'function-calling': true },
+      { 'long-memory': true },
+    ]) {
+      const decision = decideFreeModePilotFlag(input({ requestedCapabilities }))
+      expect(decision.pilot_eligible).toBe(false)
+      expect(decision.denied).toBe(true)
+      expect(['unsupported_capability', 'unsafe_request_options']).toContain(decision.reason)
+      expectPublicSafe(decision)
+    }
+  })
+
+  it('does not echo unsafe key variants in serialized denied output', () => {
+    const decision = decideFreeModePilotFlag(input({
+      requestOptions: {
+        apiKey: 'sk-test-hidden',
+        accessToken: 'process.env.SECRET',
+        providerFamily: 'managed_provider',
+        providerConfig: { model: 'hidden' },
+        privateEndpoint: 'hidden',
+        rawProviderPayload: { debug: 'hidden' },
+        billing: true,
+        debug: true,
+      },
+    }))
+
+    expect(decision.pilot_eligible).toBe(false)
+    expect(decision.reason).toBe('unsafe_request_options')
+    expectNoEcho(decision, [
+      'apiKey',
+      'accessToken',
+      'providerFamily',
+      'providerConfig',
+      'privateEndpoint',
+      'rawProviderPayload',
+      'sk-test',
+      'process.env',
+      'billing',
+      'debug',
+    ])
+  })
+
   it('does not echo raw IDs or sensitive-looking string fields', () => {
     const malicious = 'sk-test-api_key-access_token-provider_config-private_endpoint-billing-debug-process.env-stack-traceback-user@example.com'
     const decision = decideFreeModePilotFlag(input({

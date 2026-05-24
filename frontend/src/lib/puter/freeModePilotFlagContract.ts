@@ -56,6 +56,7 @@ const UNSAFE_OPTION_KEYS = new Set([
   'credentials',
   'daily_token_limit',
   'debug',
+  'debug_mode',
   'env',
   'environment',
   'environment_variable',
@@ -104,6 +105,38 @@ const PENDING_CONSENT_STATES = new Set([
   'consent_required',
   'provider_consent_or_auth_pending',
 ])
+
+const KEY_ALIASES: Record<string, string> = {
+  accesshash: 'access_hash',
+  accesstoken: 'access_token',
+  adapterid: 'adapter_id',
+  apikey: 'api_key',
+  billingconfig: 'billing_config',
+  billingmode: 'billing_mode',
+  dailytokenlimit: 'daily_token_limit',
+  debugmode: 'debug_mode',
+  environmentvariable: 'environment_variable',
+  functioncalling: 'function_calling',
+  longmemory: 'long_memory',
+  maxcontexttokens: 'max_context_tokens',
+  maxinputtokens: 'max_input_tokens',
+  maxoutputtokens: 'max_output_tokens',
+  policyoverrides: 'policy_overrides',
+  privateendpoint: 'private_endpoint',
+  providerconfig: 'provider_config',
+  providerfamily: 'provider_family',
+  providermode: 'provider_mode',
+  providerpayload: 'provider_payload',
+  quotalimit: 'quota_limit',
+  quotalimits: 'quota_limits',
+  rawproviderpayload: 'raw_provider_payload',
+  rawproviderrequest: 'raw_provider_request',
+  rawproviderresponse: 'raw_provider_response',
+  requestpayload: 'request_payload',
+  selectedadapterid: 'selected_adapter_id',
+  selectedproviderfamily: 'selected_provider_family',
+  sensitivetools: 'sensitive_tools',
+}
 
 export type FreeModePilotFlagContractInput = {
   planMode: unknown
@@ -425,7 +458,16 @@ function readLowerString(value: unknown): string {
 }
 
 function normalizeKey(value: string): string {
-  return value.trim().toLowerCase()
+  const canonical = value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+  const compact = canonical.replace(/_/g, '')
+  return KEY_ALIASES[compact] ?? canonical
 }
 
 function safeReason(value: string): string {
