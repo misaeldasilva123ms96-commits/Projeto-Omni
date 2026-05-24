@@ -29,6 +29,11 @@ The surface does not replace the normal chat provider, does not modify
 only real provider path remains the Phase 7L bridge, which itself delegates to
 the existing gated manual harness after the Access Layer contract allows it.
 
+If Puter displays a consent or auth prompt and the provider call remains
+unresolved, the dev toggle reports a safe public state such as
+`provider_consent_or_auth_pending`. The toggle must not auto-click, auto-accept,
+hide, or bypass Puter consent/auth UI.
+
 ## Required Gates
 
 The toggle and bridge require:
