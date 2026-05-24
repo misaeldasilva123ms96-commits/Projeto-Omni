@@ -66,7 +66,8 @@ long memory.
 
 Next phase:
 
-- Phase 7N: Controlled Free Chat Pilot Contract
+- Phase 7O: Controlled Free Chat Pilot Contract
 
-That phase should remain contract-first and continue to avoid default provider
-changes until explicitly promoted.
+That phase should remain contract and guardrails first, and it should not enable
+Puter for normal users by default or change default provider behavior until
+explicitly promoted.
