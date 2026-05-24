@@ -1,10 +1,15 @@
 import {
+  runFreeModePilotInternalReal,
+  type FreeModePilotInternalRealInput,
+  type FreeModePilotInternalRealResult,
+} from './freeModePilotInternalReal'
+import {
   decideFreeModePilotFlag,
   type FreeModePilotFlagContractInput,
   type FreeModePilotFlagDecision,
 } from './freeModePilotFlagContract'
 
-export const FREE_MODE_PILOT_ALLOWLISTED_VERSION = 'free_mode_pilot_allowlisted_v1'
+export const FREE_MODE_PILOT_ALLOWLISTED_VERSION = 'free_mode_pilot_allowlisted_v2'
 export const PUTER_FREE_PILOT_ALLOWLISTED_FLAG_NAME = 'VITE_OMNI_EXPERIMENTAL_PUTER_FREE_PILOT_ALLOWLISTED'
 
 const APPROVED_ALLOWLISTED_RESULT_KEYS = new Set([
@@ -46,15 +51,23 @@ const APPROVED_RUNTIME_TRUTH_KEYS = new Set([
   'raw_provider_payload_exposed',
 ])
 
-export type FreeModePilotAllowlistedInput = FreeModePilotFlagContractInput & {
-  allowlistedPilotFeatureEnabled?: boolean
-  allowlistMatched?: boolean
-  puterRuntimeAvailable?: boolean
-}
+const SECRET_PATTERNS = [
+  /\bsk-(?:proj-)?[A-Za-z0-9_-]{8,}\b/g,
+  /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+]
+
+export type FreeModePilotAllowlistedInput = FreeModePilotFlagContractInput
+  & FreeModePilotInternalRealInput
+  & {
+    allowlistedPilotFeatureEnabled?: boolean
+    allowlistMatched?: boolean
+  }
 
 export type FreeModePilotAllowlistedRuntimeTruth = {
   allowlisted_pilot: boolean
-  allowlist_required: boolean
+  allowlist_required: true
   allowlist_matched: boolean
   pilot_enabled: boolean
   pilot_eligible: boolean
@@ -62,8 +75,8 @@ export type FreeModePilotAllowlistedRuntimeTruth = {
   rollback_active: boolean
   access_layer_plan_mode: string
   provider_family: string
-  provider_attempted: false
-  provider_succeeded: false
+  provider_attempted: boolean
+  provider_succeeded: boolean
   provider_failed_reason: string
   fallback_triggered: boolean
   quota_allowed: boolean
@@ -73,7 +86,7 @@ export type FreeModePilotAllowlistedRuntimeTruth = {
   selected_adapter_id: string
   boundary_version: string
   snapshot_version: string
-  sanitized_output_present: false
+  sanitized_output_present: boolean
   raw_provider_payload_exposed: false
 }
 
@@ -87,7 +100,7 @@ export type FreeModePilotAllowlistedResult = {
   pilot_eligible: boolean
   provider_family: string
   fallback_required: boolean
-  sanitized_output: null
+  sanitized_output: string | null
   runtime_truth: FreeModePilotAllowlistedRuntimeTruth
 }
 
@@ -97,9 +110,9 @@ export function isPuterFreePilotAllowlistedFlagEnabled(
   return typeof value === 'string' && ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
-export function decideFreeModePilotAllowlisted(
+export async function runFreeModePilotAllowlisted(
   input: FreeModePilotAllowlistedInput,
-): FreeModePilotAllowlistedResult {
+): Promise<FreeModePilotAllowlistedResult> {
   const pilotDecision = decideFreeModePilotFlag({
     ...input,
     allowlistRequired: true,
@@ -117,25 +130,36 @@ export function decideFreeModePilotAllowlisted(
     return denied(pilotDecision.reason, pilotDecision, false)
   }
 
-  if (input.puterRuntimeAvailable !== true) {
-    return denied('puter_runtime_unavailable', pilotDecision, true)
+  const internalResult = await runFreeModePilotInternalReal({
+    ...input,
+    allowlistRequired: true,
+    allowlistMatched: true,
+  })
+
+  if (!internalResult.allowed) {
+    return denied(internalResult.reason, pilotDecision, true, internalResult)
   }
 
-  return allowed(pilotDecision)
+  return allowed(pilotDecision, internalResult)
 }
 
-function allowed(pilotDecision: FreeModePilotFlagDecision): FreeModePilotAllowlistedResult {
+function allowed(
+  pilotDecision: FreeModePilotFlagDecision,
+  internalResult: FreeModePilotInternalRealResult,
+): FreeModePilotAllowlistedResult {
+  const sanitizedOutput = sanitizeVisibleText(internalResult.sanitized_output)
   return {
-    ...baseResult('allowlisted_pilot_ready', pilotDecision, true),
+    ...baseResult('allowlisted_pilot_ok', pilotDecision, true),
     allowed: true,
     denied: false,
     fallback_required: false,
-    sanitized_output: null,
+    sanitized_output: sanitizedOutput,
     runtime_truth: {
-      ...baseRuntimeTruth('', pilotDecision, true),
+      ...baseRuntimeTruth('', pilotDecision, true, internalResult),
       pilot_denied_reason: '',
       provider_failed_reason: '',
       fallback_triggered: false,
+      sanitized_output_present: Boolean(sanitizedOutput),
     },
   }
 }
@@ -144,6 +168,7 @@ function denied(
   reason: string,
   pilotDecision: FreeModePilotFlagDecision,
   allowlistedPilot: boolean,
+  internalResult?: FreeModePilotInternalRealResult,
 ): FreeModePilotAllowlistedResult {
   return {
     ...baseResult(reason, pilotDecision, allowlistedPilot),
@@ -151,7 +176,7 @@ function denied(
     denied: true,
     fallback_required: true,
     sanitized_output: null,
-    runtime_truth: baseRuntimeTruth(reason, pilotDecision, allowlistedPilot),
+    runtime_truth: baseRuntimeTruth(reason, pilotDecision, allowlistedPilot, internalResult),
   }
 }
 
@@ -174,8 +199,10 @@ function baseRuntimeTruth(
   reason: string,
   pilotDecision: FreeModePilotFlagDecision,
   allowlistedPilot: boolean,
+  internalResult?: FreeModePilotInternalRealResult,
 ): FreeModePilotAllowlistedRuntimeTruth {
   const safe = safeReason(reason)
+  const providerFailedReason = internalResult?.runtime_truth.provider_failed_reason || safe
   return {
     allowlisted_pilot: allowlistedPilot,
     allowlist_required: true,
@@ -186,9 +213,9 @@ function baseRuntimeTruth(
     rollback_active: pilotDecision.rollback_active,
     access_layer_plan_mode: pilotDecision.runtime_truth.access_layer_plan_mode,
     provider_family: pilotDecision.runtime_truth.provider_family,
-    provider_attempted: false,
-    provider_succeeded: false,
-    provider_failed_reason: reason ? safe : '',
+    provider_attempted: internalResult?.runtime_truth.provider_attempted === true,
+    provider_succeeded: internalResult?.runtime_truth.provider_succeeded === true,
+    provider_failed_reason: reason ? safeReason(providerFailedReason) : '',
     fallback_triggered: true,
     quota_allowed: pilotDecision.runtime_truth.quota_allowed,
     quota_exceeded: pilotDecision.runtime_truth.quota_exceeded,
@@ -200,6 +227,14 @@ function baseRuntimeTruth(
     sanitized_output_present: false,
     raw_provider_payload_exposed: false,
   }
+}
+
+function sanitizeVisibleText(value: string | null): string {
+  let sanitized = String(value || '')
+  for (const pattern of SECRET_PATTERNS) {
+    sanitized = sanitized.replace(pattern, '[redacted]')
+  }
+  return sanitized.trim()
 }
 
 function safeReason(value: string): string {
