@@ -105,6 +105,7 @@ function renderEnabled(chat = vi.fn().mockResolvedValue('safe dev chat response'
   render(
     <PuterFreeChatDevToggleSurface
       accessSnapshotEnvelope={envelope}
+      bridgeTimeoutMs={1000}
       chatBridgeFeatureEnabled
       chatDevToggleEnabled
       defaultPrompt="Safe dev chat prompt"
@@ -201,6 +202,48 @@ describe('Puter Free chat dev toggle surface', () => {
     expect(screen.getByLabelText('Puter Free chat dev result')).toHaveTextContent('safe dev chat response')
   })
 
+  it('keeps pending state public-safe while provider consent or auth is unresolved', async () => {
+    const user = userEvent.setup()
+    const chat = vi.fn(() => new Promise(() => {}))
+
+    renderEnabled(chat)
+    await user.click(screen.getByRole('button', { name: 'Run dev Free chat bridge' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Puter Free chat dev result')).toHaveTextContent('pending')
+    })
+    expect(screen.getByRole('button', { name: 'Run dev Free chat bridge' })).toBeDisabled()
+    expectPublicSafeText(screen.getByLabelText('Puter Free chat dev result').textContent)
+  })
+
+  it('turns unresolved consent or auth prompts into a safe timeout state', async () => {
+    const user = userEvent.setup()
+    const chat = vi.fn(() => new Promise(() => {}))
+
+    render(
+      <PuterFreeChatDevToggleSurface
+        accessSnapshotEnvelope={safeEnvelope()}
+        bridgeTimeoutMs={5}
+        chatBridgeFeatureEnabled
+        chatDevToggleEnabled
+        defaultPrompt="Safe dev chat prompt"
+        devRealFeatureEnabled
+        experimentalFeatureEnabled
+        runtime={puterRuntime(chat)}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Run dev Free chat bridge' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Puter Free chat dev result')).toHaveTextContent(
+        'provider_consent_or_auth_pending',
+      )
+    })
+    expect(chat).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Run dev Free chat bridge' })).not.toBeDisabled()
+    expectPublicSafeText(screen.getByLabelText('Puter Free chat dev result').textContent)
+  })
+
   it('does not call Puter when boundary state is denied', async () => {
     const user = userEvent.setup()
     const chat = vi.fn()
@@ -252,6 +295,19 @@ describe('Puter Free chat dev toggle surface', () => {
       )
     })
     expect(screen.getByLabelText('Puter Free chat dev result')).not.toHaveTextContent('raw hidden dev value')
+    expectPublicSafeText(screen.getByLabelText('Puter Free chat dev result').textContent)
+  })
+
+  it('converts unexpected bridge failures into safe public state', async () => {
+    const user = userEvent.setup()
+    const chat = vi.fn().mockRejectedValue(new Error('stack sk-test-hidden provider_config'))
+
+    renderEnabled(chat)
+    await user.click(screen.getByRole('button', { name: 'Run dev Free chat bridge' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Puter Free chat dev result')).toHaveTextContent('puter_call_failed')
+    })
     expectPublicSafeText(screen.getByLabelText('Puter Free chat dev result').textContent)
   })
 

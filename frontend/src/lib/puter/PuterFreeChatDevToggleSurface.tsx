@@ -15,6 +15,7 @@ import {
 
 export const PUTER_FREE_CHAT_DEV_TOGGLE_VERSION = 'puter_free_chat_dev_toggle_v1'
 export const PUTER_FREE_CHAT_DEV_TOGGLE_FLAG_NAME = 'VITE_OMNI_EXPERIMENTAL_PUTER_CHAT_DEV_TOGGLE'
+export const PUTER_FREE_CHAT_DEV_TOGGLE_TIMEOUT_MS = 15000
 
 export type PuterFreeChatDevToggleState = {
   toggle_version: typeof PUTER_FREE_CHAT_DEV_TOGGLE_VERSION
@@ -32,6 +33,7 @@ export type PuterFreeChatDevToggleSurfaceProps = {
   accessSnapshotEnvelope: unknown
   chatBridgeFeatureEnabled?: boolean
   chatDevToggleEnabled?: boolean
+  bridgeTimeoutMs?: number
   defaultPrompt?: string
   devRealFeatureEnabled?: boolean
   experimentalFeatureEnabled?: boolean
@@ -76,6 +78,7 @@ export function resultToPuterFreeChatDevToggleState(
 
 export function PuterFreeChatDevToggleSurface({
   accessSnapshotEnvelope,
+  bridgeTimeoutMs = PUTER_FREE_CHAT_DEV_TOGGLE_TIMEOUT_MS,
   chatBridgeFeatureEnabled = isPuterChatBridgeFlagEnabled(),
   chatDevToggleEnabled = isPuterFreeChatDevToggleFlagEnabled(),
   defaultPrompt = '',
@@ -97,23 +100,27 @@ export function PuterFreeChatDevToggleSurface({
 
   async function handleManualInvoke() {
     setState((current) => ({ ...current, pending: true, reason: 'pending' }))
-    const result = await runFreeModeChatBridgeDevReal({
-      accessSnapshotEnvelope,
-      browserRuntimeAvailable: hasBrowserRuntime(runtime),
-      chatBridgeFeatureEnabled,
-      dailyTokenUsage: 125,
-      devRealFeatureEnabled,
-      experimentalFeatureEnabled,
-      inputTokenEstimate: 100,
-      outputTokenBudgetEstimate: 25,
-      planMode: 'free',
-      prompt,
-      puterRuntimeAvailable: hasPuterRuntime(runtime),
-      requestOptions: {},
-      requestedCapabilities: {},
-      runtime,
-    })
-    setState(resultToPuterFreeChatDevToggleState(result))
+    try {
+      const result = await withProviderPendingTimeout(runFreeModeChatBridgeDevReal({
+        accessSnapshotEnvelope,
+        browserRuntimeAvailable: hasBrowserRuntime(runtime),
+        chatBridgeFeatureEnabled,
+        dailyTokenUsage: 125,
+        devRealFeatureEnabled,
+        experimentalFeatureEnabled,
+        inputTokenEstimate: 100,
+        outputTokenBudgetEstimate: 25,
+        planMode: 'free',
+        prompt,
+        puterRuntimeAvailable: hasPuterRuntime(runtime),
+        requestOptions: {},
+        requestedCapabilities: {},
+        runtime,
+      }), bridgeTimeoutMs)
+      setState(resultToPuterFreeChatDevToggleState(result))
+    } catch {
+      setState(createPuterFreeChatDevToggleState('provider_call_failed'))
+    }
   }
 
   const outputText = state.sanitized_text || state.reason
@@ -162,6 +169,57 @@ function hasPuterRuntime(runtime: unknown): boolean {
 
 function sanitizeVisibleText(value: string | null): string {
   return typeof value === 'string' ? value : ''
+}
+
+function withProviderPendingTimeout(
+  promise: Promise<FreeModeChatBridgeDevRealResult>,
+  timeoutMs: number,
+): Promise<FreeModeChatBridgeDevRealResult> {
+  const safeTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : PUTER_FREE_CHAT_DEV_TOGGLE_TIMEOUT_MS
+  return new Promise((resolve) => {
+    const timeout = globalThis.setTimeout(() => {
+      resolve(createTimedOutBridgeResult('provider_consent_or_auth_pending'))
+    }, safeTimeoutMs)
+
+    promise.then((result) => {
+      globalThis.clearTimeout(timeout)
+      resolve(result)
+    }).catch(() => {
+      globalThis.clearTimeout(timeout)
+      resolve(createTimedOutBridgeResult('provider_call_failed'))
+    })
+  })
+}
+
+function createTimedOutBridgeResult(reason: string): FreeModeChatBridgeDevRealResult {
+  return {
+    dev_real_bridge_version: 'free_mode_chat_bridge_dev_real_v1',
+    allowed: false,
+    denied: true,
+    reason: safeReason(reason),
+    dev_real_enabled: true,
+    provider_family: PUTER_PROVIDER_FAMILY,
+    adapter_id: '',
+    fallback_required: true,
+    sanitized_output: null,
+    runtime_truth: {
+      access_layer_plan_mode: 'free',
+      provider_family: PUTER_PROVIDER_FAMILY,
+      provider_attempted: true,
+      provider_succeeded: false,
+      provider_failed_reason: safeReason(reason),
+      fallback_triggered: true,
+      quota_allowed: true,
+      quota_exceeded: false,
+      routing_allowed: true,
+      selected_adapter_id: '',
+      boundary_version: '',
+      snapshot_version: '',
+      sanitized_output: null,
+    },
+  }
 }
 
 function safeReason(value: string): string {
