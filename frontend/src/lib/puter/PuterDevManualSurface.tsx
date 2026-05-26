@@ -14,6 +14,11 @@ import {
   loadPuterScriptRuntime,
   type PuterScriptLoaderResult,
 } from './puterScriptLoader'
+import {
+  createPuterAuthRetryState,
+  retryStateFromManualHarnessResult,
+  type PuterAuthRetryState,
+} from './puterAuthRetryState'
 
 export const PUTER_DEV_SURFACE_VERSION = 'puter_dev_surface_v1'
 export const PUTER_DEV_SURFACE_FLAG_NAME = 'VITE_OMNI_EXPERIMENTAL_PUTER_DEV_SURFACE'
@@ -33,9 +38,11 @@ export type PuterDevSurfaceState = {
 
 export type PuterDevManualSurfaceProps = {
   accessSnapshotEnvelope: unknown
+  authCompleted?: boolean
   defaultPrompt?: string
   devSurfaceEnabled?: boolean
   experimentalFeatureEnabled?: boolean
+  retrySmokePrompt?: string
   runtime?: unknown
 }
 
@@ -77,14 +84,17 @@ export function resultToPuterDevSurfaceState(result: PuterManualHarnessResult): 
 
 export function PuterDevManualSurface({
   accessSnapshotEnvelope,
+  authCompleted = false,
   defaultPrompt = '',
   devSurfaceEnabled = isPuterDevSurfaceFlagEnabled(),
   experimentalFeatureEnabled = isPuterFreeModeFlagEnabled(),
+  retrySmokePrompt = 'Reply with exactly: OMNI_PUTER_RETRY_AFTER_AUTH_OK',
   runtime,
 }: PuterDevManualSurfaceProps) {
   const [prompt, setPrompt] = useState(defaultPrompt)
   const [state, setState] = useState<PuterDevSurfaceState>(createPuterDevSurfaceState())
   const [loaderState, setLoaderState] = useState<PuterScriptLoaderResult>(createPuterScriptLoaderResult())
+  const [retryState, setRetryState] = useState<PuterAuthRetryState>(() => createPuterAuthRetryState())
 
   if (!devSurfaceEnabled || !experimentalFeatureEnabled) {
     return null
@@ -102,6 +112,33 @@ export function PuterDevManualSurface({
     setState(resultToPuterDevSurfaceState(result))
   }
 
+  async function handleRetryAfterAuth() {
+    if (!authCompleted) {
+      setRetryState(createPuterAuthRetryState({
+        authCompleted: false,
+        retryAllowed: false,
+        retryAttempted: false,
+        status: 'auth_required',
+      }))
+      return
+    }
+
+    setRetryState(createPuterAuthRetryState({
+      authCompleted: true,
+      retryAllowed: true,
+      retryAttempted: true,
+      status: 'retry_invoked',
+    }))
+    const result = await invokePuterFreeModeManualHarness({
+      accessSnapshotEnvelope,
+      experimentalFeatureEnabled,
+      manualInvocation: true,
+      prompt: retrySmokePrompt,
+      runtime,
+    })
+    setRetryState(retryStateFromManualHarnessResult(result, authCompleted))
+  }
+
   async function handleLoadRuntime() {
     setLoaderState(createPuterScriptLoaderResult('loading', 'loading'))
     const result = await loadPuterScriptRuntime({
@@ -113,6 +150,7 @@ export function PuterDevManualSurface({
   }
 
   const outputText = state.sanitized_text || state.reason
+  const retryOutputText = retryState.sanitized_output || retryState.status
 
   return (
     <section aria-label="Puter manual dev surface" data-puter-dev-surface="manual-only">
@@ -134,6 +172,19 @@ export function PuterDevManualSurface({
       </button>
       <output aria-label="Puter manual result">
         {outputText}
+      </output>
+      <output aria-label="Puter auth completion state">
+        {authCompleted ? 'auth_completed' : 'auth_required'}
+      </output>
+      <button
+        type="button"
+        onClick={handleRetryAfterAuth}
+        disabled={!authCompleted || retryState.status === 'retry_invoked'}
+      >
+        Retry manual Puter check after auth
+      </button>
+      <output aria-label="Puter retry after auth result">
+        {retryOutputText}
       </output>
     </section>
   )

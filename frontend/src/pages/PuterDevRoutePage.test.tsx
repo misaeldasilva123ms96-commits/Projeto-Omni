@@ -182,6 +182,38 @@ describe('Puter dev route mount', () => {
     expect(screen.getByLabelText('Puter auth consent result')).toHaveTextContent('consent_or_auth_completed')
   })
 
+  it('does not auto-run retry after auth and keeps retry manual', async () => {
+    const user = userEvent.setup()
+    const signIn = vi.fn().mockResolvedValue({ raw_auth_response: 'hidden' })
+    const chat = vi.fn().mockResolvedValue('retry route response')
+    ;(window as Window & { puter?: unknown }).puter = {
+      auth: { signIn },
+      ai: { chat },
+    }
+
+    render(
+      <PuterDevRoutePage
+        accessSnapshotEnvelope={buildPuterDevRouteBoundaryEnvelope()}
+        devSurfaceEnabled
+        experimentalFeatureEnabled
+        runtime={{ window }}
+      />,
+    )
+
+    expect(chat).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Retry manual Puter check after auth' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Connect / Sign in with Puter' }))
+    await waitFor(() => expect(signIn).toHaveBeenCalledTimes(1))
+    expect(chat).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Retry manual Puter check after auth' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Retry manual Puter check after auth' }))
+    await waitFor(() => expect(chat).toHaveBeenCalledTimes(1))
+    expect(chat).toHaveBeenCalledWith('Reply with exactly: OMNI_PUTER_RETRY_AFTER_AUTH_OK')
+    expect(screen.getByLabelText('Puter retry after auth result')).toHaveTextContent('retry route response')
+  })
+
   it('requires a manual click before the harness can call Puter', async () => {
     const user = userEvent.setup()
     const chat = vi.fn().mockResolvedValue('safe route response')
