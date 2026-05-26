@@ -27,18 +27,16 @@ const FORBIDDEN_FRAGMENTS = [
 ]
 
 function authRuntime(signIn = vi.fn()) {
-  return {
-    window: {
-      puter: {
-        auth: {
-          signIn,
-        },
-        ai: {
-          chat: vi.fn(),
-        },
-      },
+  ;(window as Window & { puter?: unknown }).puter = {
+    auth: {
+      signIn,
+    },
+    ai: {
+      chat: vi.fn(),
     },
   }
+
+  return window
 }
 
 function renderEnabled(runtime: unknown, timeoutMs?: number) {
@@ -61,6 +59,7 @@ function expectPublicSafeText(value: string | null | undefined) {
 
 describe('Puter auth consent dev surface', () => {
   afterEach(() => {
+    delete (window as Window & { puter?: unknown }).puter
     vi.useRealTimers()
   })
 
@@ -95,12 +94,11 @@ describe('Puter auth consent dev surface', () => {
   it('enables the auth button after the dev runtime appears without calling auth', async () => {
     vi.useFakeTimers()
     const signIn = vi.fn()
-    const runtime = { window: {} as { puter?: unknown } }
 
-    renderEnabled(runtime)
+    renderEnabled(window)
     expect(screen.getByRole('button', { name: 'Connect / Sign in with Puter' })).toBeDisabled()
 
-    runtime.window.puter = { auth: { signIn } }
+    ;(window as Window & { puter?: unknown }).puter = { auth: { signIn } }
     act(() => {
       vi.advanceTimersByTime(500)
     })
@@ -124,14 +122,17 @@ describe('Puter auth consent dev surface', () => {
       expect(screen.getByLabelText('Puter auth consent result')).toHaveTextContent('consent_or_auth_completed')
     })
     expect(signIn).toHaveBeenCalledTimes(1)
-    expect(runtime.window.puter.ai.chat).not.toHaveBeenCalled()
+    expect(((window as Window & {
+      puter?: { ai?: { chat?: ReturnType<typeof vi.fn> } }
+    }).puter?.ai?.chat)).not.toHaveBeenCalled()
     expectPublicSafeText(screen.getByLabelText('Puter auth consent result').textContent)
   })
 
   it('returns safe unavailable state when auth API is missing', async () => {
     const user = userEvent.setup()
 
-    renderEnabled({ window: { puter: {} } })
+    ;(window as Window & { puter?: unknown }).puter = {}
+    renderEnabled(window)
     await user.click(screen.getByRole('button', { name: 'Connect / Sign in with Puter' }))
 
     await waitFor(() => {

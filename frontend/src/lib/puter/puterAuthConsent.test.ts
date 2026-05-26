@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createPuterAuthConsentResult,
   isPuterAuthConsentResult,
@@ -50,17 +50,17 @@ const FORBIDDEN_FRAGMENTS = [
 ]
 
 function authRuntime(signIn = vi.fn()) {
-  return {
-    window: {
-      puter: {
-        auth: {
-          signIn,
-        },
-        ai: {
-          chat: vi.fn(),
-        },
-      },
+  ;(window as Window & { puter?: unknown }).puter = {
+    auth: {
+      signIn,
     },
+    ai: {
+      chat: vi.fn(),
+    },
+  }
+
+  return {
+    window,
   }
 }
 
@@ -72,6 +72,10 @@ function expectPublicSafe(value: unknown) {
 }
 
 describe('Puter auth consent helper', () => {
+  afterEach(() => {
+    delete (window as Window & { puter?: unknown }).puter
+  })
+
   it('creates an exact public-safe result shape', () => {
     const result = createPuterAuthConsentResult()
 
@@ -95,8 +99,12 @@ describe('Puter auth consent helper', () => {
   it('detects whether the Puter runtime is loaded for auth', () => {
     expect(isPuterRuntimeLoadedForAuth({})).toBe(false)
     expect(isPuterRuntimeLoadedForAuth({ window: {} })).toBe(false)
-    expect(isPuterRuntimeLoadedForAuth({ window: { puter: {} } })).toBe(true)
-    expect(isPuterRuntimeLoadedForAuth({ puter: {} })).toBe(true)
+    expect(isPuterRuntimeLoadedForAuth({ window: { puter: {} } })).toBe(false)
+    expect(isPuterRuntimeLoadedForAuth({ puter: {} })).toBe(false)
+
+    ;(window as Window & { puter?: unknown }).puter = {}
+    expect(isPuterRuntimeLoadedForAuth({ window })).toBe(true)
+    expect(isPuterRuntimeLoadedForAuth(window)).toBe(true)
   })
 
   it('returns runtime_not_loaded without attempting auth when runtime is missing', async () => {
@@ -108,8 +116,35 @@ describe('Puter auth consent helper', () => {
     expect(result.runtime_truth.provider_succeeded).toBe(false)
   })
 
+  it('denies a non-browser spoofed Puter runtime without attempting auth', async () => {
+    const signIn = vi.fn()
+
+    const result = await requestPuterAuthConsent({
+      runtime: {
+        puter: {
+          auth: {
+            signIn,
+          },
+        },
+      },
+    })
+
+    expect(result.status).toBe('runtime_not_loaded')
+    expect(result.reason).toBe('runtime_not_loaded')
+    expect(result.runtime_truth.auth_attempted).toBe(false)
+    expect(result.runtime_truth.auth_completed).toBe(false)
+    expect(result.runtime_truth.raw_auth_payload_exposed).toBe(false)
+    expect(result.runtime_truth.provider_attempted).toBe(false)
+    expect(result.runtime_truth.provider_succeeded).toBe(false)
+    expect(result.runtime_truth.raw_provider_payload_exposed).toBe(false)
+    expect(signIn).not.toHaveBeenCalled()
+    expectPublicSafe(result)
+  })
+
   it('returns auth_api_unavailable when signIn is missing', async () => {
-    const result = await requestPuterAuthConsent({ runtime: { window: { puter: { auth: {} } } } })
+    ;(window as Window & { puter?: unknown }).puter = { auth: {} }
+
+    const result = await requestPuterAuthConsent({ runtime: { window } })
 
     expect(result.status).toBe('auth_api_unavailable')
     expect(result.runtime_truth.puter_runtime_loaded).toBe(true)
@@ -128,7 +163,9 @@ describe('Puter auth consent helper', () => {
     const result = await requestPuterAuthConsent({ runtime })
 
     expect(signIn).toHaveBeenCalledTimes(1)
-    expect(runtime.window.puter.ai.chat).not.toHaveBeenCalled()
+    expect(((runtime.window as Window & {
+      puter?: { ai?: { chat?: ReturnType<typeof vi.fn> } }
+    }).puter?.ai?.chat)).not.toHaveBeenCalled()
     expect(result.status).toBe('consent_or_auth_completed')
     expect(result.ok).toBe(true)
     expect(result.runtime_truth.auth_completed).toBe(true)
@@ -136,6 +173,24 @@ describe('Puter auth consent helper', () => {
     expect(result.runtime_truth.provider_attempted).toBe(false)
     expect(result.runtime_truth.provider_succeeded).toBe(false)
     expect(result.runtime_truth.raw_provider_payload_exposed).toBe(false)
+    expectPublicSafe(result)
+  })
+
+  it('allows the real browser global Puter runtime when auth.signIn is available', async () => {
+    const signIn = vi.fn().mockResolvedValue({ raw_auth_response: 'hidden' })
+    ;(window as Window & { puter?: unknown }).puter = {
+      auth: {
+        signIn,
+      },
+    }
+
+    const result = await requestPuterAuthConsent({ runtime: globalThis })
+
+    expect(result.status).toBe('consent_or_auth_completed')
+    expect(result.runtime_truth.puter_runtime_loaded).toBe(true)
+    expect(result.runtime_truth.auth_api_available).toBe(true)
+    expect(result.runtime_truth.auth_attempted).toBe(true)
+    expect(signIn).toHaveBeenCalledTimes(1)
     expectPublicSafe(result)
   })
 

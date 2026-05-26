@@ -33,14 +33,15 @@ export type PuterAuthConsentResult = {
 }
 
 type PuterAuthRuntime = {
-  puter?: unknown
-  window?: {
-    puter?: unknown
-  }
+  window?: unknown
 }
 
 type PuterAuthApi = {
   signIn?: unknown
+}
+
+type PuterAuthBrowserWindow = Window & {
+  puter?: unknown
 }
 
 type PuterAuthConsentOptions = {
@@ -175,17 +176,30 @@ export async function requestPuterAuthConsent({
 }
 
 function resolvePuterRuntime(runtime: unknown): Record<string, unknown> | null {
-  if (!isRecord(runtime)) {
+  const browserWindow = resolveTrustedBrowserWindow(runtime)
+  if (!browserWindow || !isRecord(browserWindow.puter)) {
     return null
   }
 
-  const candidate = runtime as PuterAuthRuntime
-  if (isRecord(candidate.puter)) {
-    return candidate.puter as Record<string, unknown>
+  return browserWindow.puter as Record<string, unknown>
+}
+
+function resolveTrustedBrowserWindow(runtime: unknown): PuterAuthBrowserWindow | null {
+  if (
+    typeof globalThis.window === 'undefined' ||
+    typeof globalThis.document === 'undefined' ||
+    globalThis.window.document !== globalThis.document
+  ) {
+    return null
   }
 
-  if (isRecord(candidate.window?.puter)) {
-    return candidate.window?.puter as Record<string, unknown>
+  const browserWindow = globalThis.window as PuterAuthBrowserWindow
+  if (runtime === globalThis || runtime === browserWindow) {
+    return browserWindow
+  }
+
+  if (isRecord(runtime) && (runtime as PuterAuthRuntime).window === browserWindow) {
+    return browserWindow
   }
 
   return null
