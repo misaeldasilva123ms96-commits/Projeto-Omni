@@ -9,15 +9,15 @@ jobs:
   runtime-smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Check for E2E API URL
+      - name: Skip if no E2E URL configured
+        if: ${{ secrets.OMINI_E2E_API_URL == '' }}
         run: |
-          if [ -z "${{ secrets.OMINI_E2E_API_URL }}" ]; then
-            echo "No OMINI_E2E_API_URL secret set; skipping runtime smoke test.";
-            exit 0;
-          fi
+          echo "No OMINI_E2E_API_URL secret set; skipping runtime smoke test.";
 
       - name: Call runtime runner-smoke
         if: ${{ secrets.OMINI_E2E_API_URL != '' }}
+        env:
+          OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
         run: |
           echo "Calling $OMINI_E2E_API_URL/api/v1/runtime/runner-smoke"
           status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$OMINI_E2E_API_URL/api/v1/runtime/runner-smoke") || status=000
@@ -26,5 +26,3 @@ jobs:
             echo "Runtime smoke endpoint returned $status";
             exit 1;
           fi
-        env:
-          OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
