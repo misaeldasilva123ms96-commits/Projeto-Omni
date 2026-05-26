@@ -17,6 +17,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Python (early)
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python deps (ensure pytest present)
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f backend/python/requirements.txt ]; then pip install -r backend/python/requirements.txt || true; fi
+          pip install -U pytest pytest-cov || true
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -42,20 +53,9 @@ jobs:
       - name: Run JS runtime tests
         run: npm run test:node
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/python/requirements.txt
-
       - name: Run Python tests (pytest)
-        working-directory: ./
         run: |
-          python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability || true
+          python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability tests/runtime/test_orchestrator_decomposition.py
 
       - name: Validate frontend build
         working-directory: frontend
