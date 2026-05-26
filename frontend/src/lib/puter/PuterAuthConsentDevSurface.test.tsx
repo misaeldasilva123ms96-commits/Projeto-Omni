@@ -109,19 +109,29 @@ describe('Puter auth consent dev surface', () => {
 
   it('invokes puter.auth.signIn once on explicit click only', async () => {
     const user = userEvent.setup()
+    const onAuthConsentResult = vi.fn()
     const signIn = vi.fn().mockResolvedValue({
       access_token: 'sk-test-token',
       raw_auth_response: 'debug provider_config stack',
     })
     const runtime = authRuntime(signIn)
 
-    renderEnabled(runtime)
+    render(
+      <PuterAuthConsentDevSurface
+        devSurfaceEnabled
+        experimentalFeatureEnabled
+        onAuthConsentResult={onAuthConsentResult}
+        runtime={runtime}
+      />,
+    )
+    expect(onAuthConsentResult).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Connect / Sign in with Puter' }))
 
     await waitFor(() => {
       expect(screen.getByLabelText('Puter auth consent result')).toHaveTextContent('consent_or_auth_completed')
     })
     expect(signIn).toHaveBeenCalledTimes(1)
+    expect(onAuthConsentResult).toHaveBeenCalledTimes(1)
     expect(((window as Window & {
       puter?: { ai?: { chat?: ReturnType<typeof vi.fn> } }
     }).puter?.ai?.chat)).not.toHaveBeenCalled()

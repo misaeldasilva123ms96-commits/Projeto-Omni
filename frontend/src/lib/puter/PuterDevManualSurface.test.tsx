@@ -149,6 +149,19 @@ function renderEnabledSurfaceWithRuntime(runtime: unknown, envelope: unknown = s
   )
 }
 
+function renderEnabledSurfaceWithAuthCompleted(chat = vi.fn(), envelope: unknown = safeEnvelope()) {
+  render(
+    <PuterDevManualSurface
+      accessSnapshotEnvelope={envelope}
+      authCompleted
+      defaultPrompt="unsafe user textarea should not be reused"
+      devSurfaceEnabled
+      experimentalFeatureEnabled
+      runtime={puterRuntime(chat)}
+    />,
+  )
+}
+
 describe('Puter dev manual surface', () => {
   afterEach(() => {
     delete (window as Window & { puter?: unknown }).puter
@@ -235,6 +248,52 @@ describe('Puter dev manual surface', () => {
 
     await waitFor(() => expect(chat).toHaveBeenCalledTimes(1))
     expect(screen.getByLabelText('Puter manual result')).toHaveTextContent('safe dev response')
+  })
+
+  it('does not auto-run retry when auth is already completed', () => {
+    const chat = vi.fn()
+
+    renderEnabledSurfaceWithAuthCompleted(chat)
+
+    expect(screen.getByLabelText('Puter auth completion state')).toHaveTextContent('auth_completed')
+    expect(screen.getByRole('button', { name: 'Retry manual Puter check after auth' })).toBeEnabled()
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('keeps retry disabled before auth completion', () => {
+    const chat = vi.fn()
+
+    renderEnabledSurface(chat)
+
+    expect(screen.getByLabelText('Puter auth completion state')).toHaveTextContent('auth_required')
+    expect(screen.getByRole('button', { name: 'Retry manual Puter check after auth' })).toBeDisabled()
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('runs retry only on explicit click and uses the safe smoke prompt', async () => {
+    const user = userEvent.setup()
+    const chat = vi.fn().mockResolvedValue('retry safe response')
+
+    renderEnabledSurfaceWithAuthCompleted(chat)
+    await user.click(screen.getByRole('button', { name: 'Retry manual Puter check after auth' }))
+
+    await waitFor(() => expect(chat).toHaveBeenCalledTimes(1))
+    expect(chat).toHaveBeenCalledWith('Reply with exactly: OMNI_PUTER_RETRY_AFTER_AUTH_OK')
+    expect(screen.getByLabelText('Puter retry after auth result')).toHaveTextContent('retry safe response')
+  })
+
+  it('keeps retry provider pending/failure safe and sanitized', async () => {
+    const user = userEvent.setup()
+    const chat = vi.fn().mockRejectedValue(new Error('sk-proj-abcdefghijkl stack trace'))
+
+    renderEnabledSurfaceWithAuthCompleted(chat)
+    await user.click(screen.getByRole('button', { name: 'Retry manual Puter check after auth' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Puter retry after auth result')).toHaveTextContent('provider_failed_safe')
+    })
+    expect(screen.getByLabelText('Puter retry after auth result')).not.toHaveTextContent('sk-proj-')
+    expect(screen.getByLabelText('Puter retry after auth result')).not.toHaveTextContent('stack')
   })
 
   it('denies safely when the boundary state is denied', async () => {
@@ -346,6 +405,8 @@ describe('Puter dev manual surface', () => {
     expect(lowered).not.toContain('sendmessage')
     expect(lowered).not.toContain('fetch(')
     expect(lowered).not.toContain('xmlhttprequest')
+    expect(lowered).not.toContain('sendbeacon')
+    expect(lowered).not.toContain('websocket')
     expect(lowered).not.toContain('onload')
     expect(lowered).not.toContain('addeventlistener')
   })

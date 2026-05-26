@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import {
   isPuterFreeModeFlagEnabled,
 } from '../lib/puter/freeModePuterBrowserAdapter'
+import type { PuterAuthConsentResult } from '../lib/puter/puterAuthConsent'
 import {
   PuterDevManualSurface,
   isPuterDevSurfaceFlagEnabled,
@@ -92,6 +94,9 @@ export function PuterDevRoutePage({
   experimentalFeatureEnabled = isPuterFreeModeFlagEnabled(),
   runtime = globalThis,
 }: PuterDevRoutePageProps) {
+  const [authConsentResult, setAuthConsentResult] = useState<PuterAuthConsentResult | null>(null)
+  const authCompleted = authConsentResult?.status === 'consent_or_auth_completed'
+
   if (!canShowPuterDevRoute(experimentalFeatureEnabled, devSurfaceEnabled)) {
     return null
   }
@@ -102,6 +107,7 @@ export function PuterDevRoutePage({
         <p>Development-only Puter manual validation</p>
         <PuterDevManualSurface
           accessSnapshotEnvelope={accessSnapshotEnvelope}
+          authCompleted={authCompleted}
           defaultPrompt="Hello from the local Puter dev route."
           devSurfaceEnabled={devSurfaceEnabled}
           experimentalFeatureEnabled={experimentalFeatureEnabled}
@@ -110,6 +116,7 @@ export function PuterDevRoutePage({
         <PuterAuthConsentDevSurface
           devSurfaceEnabled={devSurfaceEnabled}
           experimentalFeatureEnabled={experimentalFeatureEnabled}
+          onAuthConsentResult={setAuthConsentResult}
           runtime={runtime}
         />
         <PuterFreeChatDevToggleSurface

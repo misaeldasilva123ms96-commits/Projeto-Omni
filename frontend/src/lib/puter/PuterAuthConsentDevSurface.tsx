@@ -13,6 +13,7 @@ export const PUTER_AUTH_CONSENT_DEV_SURFACE_VERSION = 'puter_auth_consent_dev_su
 export type PuterAuthConsentDevSurfaceProps = {
   devSurfaceEnabled?: boolean
   experimentalFeatureEnabled?: boolean
+  onAuthConsentResult?: (result: PuterAuthConsentResult) => void
   runtime?: unknown
   timeoutMs?: number
 }
@@ -20,6 +21,7 @@ export type PuterAuthConsentDevSurfaceProps = {
 export function PuterAuthConsentDevSurface({
   devSurfaceEnabled = isPuterDevSurfaceFlagEnabled(),
   experimentalFeatureEnabled = isPuterFreeModeFlagEnabled(),
+  onAuthConsentResult,
   runtime = globalThis,
   timeoutMs,
 }: PuterAuthConsentDevSurfaceProps) {
@@ -53,6 +55,7 @@ export function PuterAuthConsentDevSurface({
     }))
     const result = await requestPuterAuthConsent({ runtime, timeoutMs })
     setState(result)
+    onAuthConsentResult?.(result)
   }
 
   return (
