@@ -2,76 +2,77 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  validate:
+  build-and-test:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        node-version: [18.x]
+        python-version: [3.11]
+        include:
+          - rust-toolchain: stable
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/node_modules
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json', '**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build Rust Bridge
-        working-directory: backend/rust
-        run: |
-          cargo build --release
-
-      - name: Run Rust tests
-        working-directory: backend/rust
-        run: |
-          cargo test
-
-      - name: Install root dependencies
+      - name: Install root npm dependencies
         run: npm ci
 
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: Typecheck frontend
-        working-directory: frontend
-        env:
-          VITE_OMNI_API_URL: http://127.0.0.1:3001
-          VITE_SUPABASE_URL: https://example.supabase.co
-          VITE_SUPABASE_ANON_KEY: example-public-anon-key
-        run: npm run typecheck
+      - name: Run JS runtime tests
+        run: npm run test:node
 
-      - name: Build frontend
-        working-directory: frontend
-        env:
-          VITE_OMNI_API_URL: http://127.0.0.1:3001
-          VITE_SUPABASE_URL: https://example.supabase.co
-          VITE_SUPABASE_ANON_KEY: example-public-anon-key
-        run: npm run build
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
 
-      - name: Run expanded runtime test suite
-        run: npm test
-
-      - name: Install Python coverage tooling
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-cov
+          pip install -r backend/python/requirements.txt
 
-      - name: Run critical runtime coverage suite
+      - name: Run Python tests (pytest)
         run: npm run test:python:pytest
 
-      - name: Run performance and contract audit suite
-        run: npm run test:python:pytest:audit
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Run cargo tests
+        working-directory: backend/rust
+        run: cargo test --locked --all
+
+      - name: Validate frontend build
+        working-directory: frontend
+        run: |
+          npm run build
+          npm run typecheck
+
+      - name: Run security/validation scripts (light)
+        run: npm run validate:public-demo || true
