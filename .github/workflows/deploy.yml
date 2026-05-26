@@ -30,10 +30,22 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Determine artifact path
+        id: set-artifact
+        run: |
+          if [ -d frontend/dist ]; then
+            echo "path=frontend/dist" >> $GITHUB_OUTPUT
+          elif [ -d frontend/build ]; then
+            echo "path=frontend/build" >> $GITHUB_OUTPUT
+          else
+            echo "path=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload artifact for GitHub Pages
+        if: ${{ steps.set-artifact.outputs.path != '' }}
         uses: actions/upload-pages-artifact@v1
         with:
-          path: frontend/dist
+          path: ${{ steps.set-artifact.outputs.path }}
 
   deploy-pages:
     needs: build

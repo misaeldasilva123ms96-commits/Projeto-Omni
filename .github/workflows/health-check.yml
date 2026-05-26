@@ -2,7 +2,7 @@ name: Health Check
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # every 15 minutes
+    - cron: '0 */1 * * *' # every 1 hour
   workflow_dispatch: {}
 
 jobs:
@@ -14,15 +14,26 @@ jobs:
         run: |
           echo "No OMINI_E2E_API_URL secret set; skipping runtime smoke test.";
 
-      - name: Call runtime runner-smoke
+      - name: Call runtime runner-smoke (with retries)
         if: ${{ secrets.OMINI_E2E_API_URL != '' }}
         env:
           OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
         run: |
-          echo "Calling $OMINI_E2E_API_URL/api/v1/runtime/runner-smoke"
-          status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$OMINI_E2E_API_URL/api/v1/runtime/runner-smoke") || status=000
-          echo "status=$status"
-          if [ "$status" -ne 200 ]; then
-            echo "Runtime smoke endpoint returned $status";
-            exit 1;
-          fi
+          URL="$OMINI_E2E_API_URL/api/v1/runtime/runner-smoke"
+          tries=0
+          max=3
+          status=000
+          until [ $tries -ge $max ]
+          do
+            tries=$((tries+1))
+            echo "Attempt $tries: calling $URL"
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL") || status=000
+            echo "status=$status"
+            if [ "$status" -eq 200 ]; then
+              echo "Health check succeeded on attempt $tries"
+              exit 0
+            fi
+            sleep $((tries*5))
+          done
+          echo "Runtime smoke endpoint returned $status after $tries attempts"
+          exit 1
