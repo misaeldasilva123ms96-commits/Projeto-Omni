@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveViewFromPath } from '../app/App'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -29,14 +29,17 @@ const FORBIDDEN_FRAGMENTS = [
 ]
 
 function puterRuntime(chat = vi.fn()) {
-  return {
-    window: {
-      puter: {
-        ai: {
-          chat,
-        },
-      },
+  ;(window as Window & { puter?: unknown }).puter = {
+    auth: {
+      signIn: vi.fn(),
     },
+    ai: {
+      chat,
+    },
+  }
+
+  return {
+    window,
   }
 }
 
@@ -94,6 +97,10 @@ function renderEnabledRouteWithChatToggle(
 }
 
 describe('Puter dev route mount', () => {
+  afterEach(() => {
+    delete (window as Window & { puter?: unknown }).puter
+  })
+
   it('keeps route visibility disabled unless both flags are enabled', () => {
     expect(canShowPuterDevRoute(false, false)).toBe(false)
     expect(canShowPuterDevRoute(true, false)).toBe(false)
@@ -129,6 +136,7 @@ describe('Puter dev route mount', () => {
       PUTER_DEV_ROUTE_VERSION,
     )
     expect(screen.getByLabelText('Puter manual dev surface')).toBeInTheDocument()
+    expect(screen.getByLabelText('Puter auth consent dev surface')).toBeInTheDocument()
     expect(screen.queryByLabelText('Puter Free chat dev toggle')).toBeNull()
   })
 
@@ -145,6 +153,33 @@ describe('Puter dev route mount', () => {
     renderEnabledRouteWithChatToggle(chat)
 
     expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('requires a manual click before requesting Puter auth consent', async () => {
+    const user = userEvent.setup()
+    const signIn = vi.fn().mockResolvedValue({ raw_auth_response: 'hidden' })
+    ;(window as Window & { puter?: unknown }).puter = {
+      auth: { signIn },
+      ai: { chat: vi.fn() },
+    }
+
+    render(
+      <PuterDevRoutePage
+        accessSnapshotEnvelope={buildPuterDevRouteBoundaryEnvelope()}
+        devSurfaceEnabled
+        experimentalFeatureEnabled
+        runtime={{ window }}
+      />,
+    )
+
+    expect(signIn).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Connect / Sign in with Puter' }))
+
+    await waitFor(() => expect(signIn).toHaveBeenCalledTimes(1))
+    expect(((window as Window & {
+      puter?: { ai?: { chat?: ReturnType<typeof vi.fn> } }
+    }).puter?.ai?.chat)).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Puter auth consent result')).toHaveTextContent('consent_or_auth_completed')
   })
 
   it('requires a manual click before the harness can call Puter', async () => {
@@ -216,8 +251,11 @@ describe('Puter dev route mount', () => {
     const lowered = source.default.toLowerCase()
     expect(lowered).not.toContain('sendomnimessage')
     expect(lowered).not.toContain('chatapi')
+    expect(lowered).not.toContain('puter.ai.chat')
     expect(lowered).not.toContain('fetch(')
     expect(lowered).not.toContain('xmlhttprequest')
+    expect(lowered).not.toContain('sendbeacon')
+    expect(lowered).not.toContain('websocket')
     expect(lowered).not.toContain('onload')
     expect(lowered).not.toContain('addeventlistener')
   })

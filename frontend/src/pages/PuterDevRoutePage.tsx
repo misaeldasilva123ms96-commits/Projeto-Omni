@@ -6,6 +6,9 @@ import {
   isPuterDevSurfaceFlagEnabled,
 } from '../lib/puter/PuterDevManualSurface'
 import {
+  PuterAuthConsentDevSurface,
+} from '../lib/puter/PuterAuthConsentDevSurface'
+import {
   PuterFreeChatDevToggleSurface,
   isPuterFreeChatDevToggleFlagEnabled,
 } from '../lib/puter/PuterFreeChatDevToggleSurface'
@@ -100,6 +103,11 @@ export function PuterDevRoutePage({
         <PuterDevManualSurface
           accessSnapshotEnvelope={accessSnapshotEnvelope}
           defaultPrompt="Hello from the local Puter dev route."
+          devSurfaceEnabled={devSurfaceEnabled}
+          experimentalFeatureEnabled={experimentalFeatureEnabled}
+          runtime={runtime}
+        />
+        <PuterAuthConsentDevSurface
           devSurfaceEnabled={devSurfaceEnabled}
           experimentalFeatureEnabled={experimentalFeatureEnabled}
           runtime={runtime}
