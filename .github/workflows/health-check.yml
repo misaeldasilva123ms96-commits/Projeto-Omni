@@ -19,7 +19,7 @@ jobs:
         env:
           OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
         run: |
-          URL="$OMINI_E2E_API_URL/api/v1/runtime/runner-smoke"
+          URL="${OMINI_E2E_API_URL}/api/v1/runtime/runner-smoke"
           tries=0
           max=3
           status=000
