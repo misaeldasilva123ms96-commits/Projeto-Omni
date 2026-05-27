@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   isPuterFreeModeFlagEnabled,
 } from '../lib/puter/freeModePuterBrowserAdapter'
-import type { PuterAuthConsentResult } from '../lib/puter/puterAuthConsent'
+import {
+  isPuterRuntimeLoadedForAuth,
+  type PuterAuthConsentResult,
+} from '../lib/puter/puterAuthConsent'
 import {
   PuterDevManualSurface,
   isPuterDevSurfaceFlagEnabled,
@@ -10,6 +13,9 @@ import {
 import {
   PuterAuthConsentDevSurface,
 } from '../lib/puter/PuterAuthConsentDevSurface'
+import {
+  PuterAuthStatusDevSurface,
+} from '../lib/puter/PuterAuthStatusDevSurface'
 import {
   PuterFreeChatDevToggleSurface,
   isPuterFreeChatDevToggleFlagEnabled,
@@ -95,7 +101,20 @@ export function PuterDevRoutePage({
   runtime = globalThis,
 }: PuterDevRoutePageProps) {
   const [authConsentResult, setAuthConsentResult] = useState<PuterAuthConsentResult | null>(null)
+  const [puterRuntimeLoaded, setPuterRuntimeLoaded] = useState(() => isPuterRuntimeLoadedForAuth(runtime))
   const authCompleted = authConsentResult?.status === 'consent_or_auth_completed'
+
+  useEffect(() => {
+    if (!canShowPuterDevRoute(experimentalFeatureEnabled, devSurfaceEnabled) || puterRuntimeLoaded) {
+      return
+    }
+
+    const intervalId = setInterval(() => {
+      setPuterRuntimeLoaded(isPuterRuntimeLoadedForAuth(runtime))
+    }, 500)
+
+    return () => clearInterval(intervalId)
+  }, [devSurfaceEnabled, experimentalFeatureEnabled, puterRuntimeLoaded, runtime])
 
   if (!canShowPuterDevRoute(experimentalFeatureEnabled, devSurfaceEnabled)) {
     return null
@@ -119,6 +138,7 @@ export function PuterDevRoutePage({
           onAuthConsentResult={setAuthConsentResult}
           runtime={runtime}
         />
+        <PuterAuthStatusDevSurface puterRuntimeLoaded={puterRuntimeLoaded} />
         <PuterFreeChatDevToggleSurface
           accessSnapshotEnvelope={accessSnapshotEnvelope}
           chatBridgeFeatureEnabled={chatBridgeFeatureEnabled}
