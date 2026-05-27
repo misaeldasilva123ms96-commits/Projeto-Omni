@@ -1,0 +1,45 @@
+name: Issue & PR Automation
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+  schedule:
+    - cron: '0 5 * * *' # daily
+  workflow_dispatch: {}
+
+jobs:
+  labeler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label based on title/body
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue || context.payload.pull_request;
+            if(!issue) return;
+            const number = issue.number;
+            const title = (issue.title || '').toLowerCase();
+            const body = (issue.body || '').toLowerCase();
+            const labels = [];
+            if(/bug|error|failure|crash/.test(title+body)) labels.push('bug');
+            if(/feature|enhancement|improve|improvement/.test(title+body)) labels.push('enhancement');
+            if(/doc|readme|documentation/.test(title+body)) labels.push('documentation');
+            if(/question|help|how to|howto/.test(title+body)) labels.push('question');
+            if(labels.length) {
+              await github.rest.issues.addLabels({owner: context.repo.owner, repo: context.repo.repo, issue_number: number, labels});
+            }
+
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run stale action
+        uses: actions/stale@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: 60
+          days-before-close: 7
+          stale-label: 'stale'
+          exempt-labels: 'pinned,security'
