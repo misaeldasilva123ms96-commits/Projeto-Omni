@@ -43,7 +43,7 @@ jobs:
 
       - name: Upload artifact for GitHub Pages
         if: ${{ steps.set-artifact.outputs.path != '' }}
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ steps.set-artifact.outputs.path }}
 
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v1
+        uses: actions/deploy-pages@v4
 
   optional-wrangler-deploy:
     if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
