@@ -35,7 +35,7 @@ jobs:
           python -m pytest -q omni-training || true
 
       - name: Upload artifacts (if created)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: omni-training-artifacts
           path: omni-training/data || true
