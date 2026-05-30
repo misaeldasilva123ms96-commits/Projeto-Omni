@@ -9,7 +9,7 @@ COPY backend/rust/src ./backend/rust/src
 WORKDIR /build/backend/rust
 RUN cargo build --release
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
