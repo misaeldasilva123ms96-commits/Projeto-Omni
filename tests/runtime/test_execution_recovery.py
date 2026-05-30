@@ -40,7 +40,10 @@ class ExecutionRecoveryTest(unittest.TestCase):
 
         preserved = {
             key: os.environ[key]
-            for key in ("PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH", "NODE_PATH")
+            for key in (
+                "PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH", "NODE_PATH",
+                "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TMP", "TEMP"
+            )
             if key in os.environ and os.environ[key]
         }
         os.environ.clear()
