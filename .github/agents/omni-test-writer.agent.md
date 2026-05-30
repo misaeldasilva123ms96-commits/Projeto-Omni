@@ -2,7 +2,7 @@
 name: omni-test-writer
 description: Add or update targeted tests for existing Projeto Omni behavior without introducing flaky provider, network, timing, or machine-state dependencies.
 tools:
-  - codebase
+  - search/codebase
   - search
   - terminal
   - github

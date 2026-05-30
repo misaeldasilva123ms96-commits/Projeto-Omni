@@ -2,7 +2,7 @@
 name: omni-docs-auditor
 description: Update Projeto Omni documentation, roadmap, architecture docs, audit docs, and runtime truth docs.
 tools:
-  - codebase
+  - search/codebase
   - search
   - terminal
   - github

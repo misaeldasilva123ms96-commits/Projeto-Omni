@@ -2,7 +2,7 @@
 name: omni-runtime-investigator
 description: Investigate Projeto Omni runtime behavior and make surgical runtime fixes only when explicitly requested.
 tools:
-  - codebase
+  - search/codebase
   - search
   - terminal
   - github

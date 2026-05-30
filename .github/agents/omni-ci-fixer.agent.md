@@ -2,7 +2,7 @@
 name: omni-ci-fixer
 description: Fix CI, GitHub Actions, workflow YAML, dependency lock issues, and test environment problems for Projeto Omni.
 tools:
-  - codebase
+  - search/codebase
   - search
   - terminal
   - github
