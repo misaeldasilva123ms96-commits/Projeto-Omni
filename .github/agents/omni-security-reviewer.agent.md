@@ -2,7 +2,7 @@
 name: omni-security-reviewer
 description: Review and fix Projeto Omni security issues involving secrets, logs, public payloads, local memory exposure, providers, and unsafe tooling.
 tools:
-  - codebase
+  - search/codebase
   - search
   - terminal
   - github
