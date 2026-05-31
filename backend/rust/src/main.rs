@@ -491,7 +491,7 @@ async fn main() -> Result<(), AppError> {
 
     let protected_control = Router::new()
         .route("/api/control/runs", get(run_control::list_runs))
-        .route("/api/control/runs/:run_id", get(run_control::get_run))
+        .route("/api/control/runs/{run_id}", get(run_control::get_run))
         .route(
             "/api/control/runs/summary/resolution",
             get(run_control::resolution_summary),
@@ -505,15 +505,15 @@ async fn main() -> Result<(), AppError> {
             get(run_control::runs_with_rollback),
         )
         .route(
-            "/api/control/runs/:run_id/pause",
+            "/api/control/runs/{run_id}/pause",
             post(run_control::pause_run),
         )
         .route(
-            "/api/control/runs/:run_id/resume",
+            "/api/control/runs/{run_id}/resume",
             post(run_control::resume_run),
         )
         .route(
-            "/api/control/runs/:run_id/approve",
+            "/api/control/runs/{run_id}/approve",
             post(run_control::approve_run),
         )
         .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
