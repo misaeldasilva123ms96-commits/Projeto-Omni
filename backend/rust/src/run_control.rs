@@ -290,7 +290,7 @@ mod tests {
     fn control_router(state: AppState) -> Router {
         Router::new()
             .route("/api/control/runs", get(list_runs))
-            .route("/api/control/runs/:run_id", get(get_run))
+            .route("/api/control/runs/{run_id}", get(get_run))
             .route(
                 "/api/control/runs/summary/resolution",
                 get(resolution_summary),
@@ -300,9 +300,9 @@ mod tests {
                 get(runs_waiting_operator),
             )
             .route("/api/control/runs/with-rollback", get(runs_with_rollback))
-            .route("/api/control/runs/:run_id/pause", post(pause_run))
-            .route("/api/control/runs/:run_id/resume", post(resume_run))
-            .route("/api/control/runs/:run_id/approve", post(approve_run))
+            .route("/api/control/runs/{run_id}/pause", post(pause_run))
+            .route("/api/control/runs/{run_id}/resume", post(resume_run))
+            .route("/api/control/runs/{run_id}/approve", post(approve_run))
             .route_layer(from_fn_with_state(state.clone(), require_supabase_auth))
             .with_state(state)
     }
