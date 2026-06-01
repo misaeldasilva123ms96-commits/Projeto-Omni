@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 __all__ = [
@@ -124,6 +125,20 @@ def build_controlled_os_environ_base() -> dict[str, str]:
         val = os.environ.get(key)
         if val is not None and str(val).strip():
             env[key] = str(val)
+    if os.name == "nt":
+        windows_root = (
+            env.get("SystemRoot")
+            or env.get("SYSTEMROOT")
+            or env.get("WINDIR")
+            or (r"C:\Windows" if Path(r"C:\Windows").exists() else "")
+        )
+        if windows_root:
+            env.setdefault("SystemRoot", windows_root)
+            env.setdefault("SYSTEMROOT", windows_root)
+            env.setdefault("WINDIR", windows_root)
+            cmd_path = Path(windows_root) / "System32" / "cmd.exe"
+            if cmd_path.exists():
+                env.setdefault("COMSPEC", str(cmd_path))
     for key, val in os.environ.items():
         if key.startswith("OMINI_") and str(val).strip():
             env[key] = str(val)

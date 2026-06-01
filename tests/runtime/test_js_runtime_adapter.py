@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from config.secrets_manager import build_controlled_os_environ_base  # noqa: E402
 
 
 class JSRuntimeAdapterTest(unittest.TestCase):
@@ -104,6 +105,15 @@ class JSRuntimeAdapterTest(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(selection.runtime_name, env["OMINI_JS_RUNTIME"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only Node subprocess environment guard")
+    def test_controlled_env_synthesizes_windows_runtime_root_when_env_is_isolated(self) -> None:
+        with patch.dict(os.environ, {"PATH": os.environ.get("PATH", "")}, clear=True):
+            env = build_controlled_os_environ_base()
+
+        self.assertIn("SystemRoot", env)
+        self.assertIn("WINDIR", env)
+        self.assertTrue(Path(env["SystemRoot"]).exists())
 
     def test_js_runtime_output_remains_compatible_with_python_expectations(self) -> None:
         orchestrator = BrainOrchestrator(
