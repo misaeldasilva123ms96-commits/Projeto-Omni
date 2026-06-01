@@ -8,16 +8,18 @@ on:
 jobs:
   runtime-smoke:
     runs-on: ubuntu-latest
+    # Definimos a variável aqui para o bloco 'if' dos passos conseguir ler com segurança
+    env:
+      OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
+      
     steps:
       - name: Skip if no E2E URL configured
-        if: ${{ secrets.OMINI_E2E_API_URL == '' }}
+        if: ${{ env.OMINI_E2E_API_URL == '' }}
         run: |
-          echo "No OMINI_E2E_API_URL secret set; skipping runtime smoke test.";
+          echo "No OMINI_E2E_API_URL secret set; skipping runtime smoke test."
 
       - name: Call runtime runner-smoke (with retries)
-        if: ${{ secrets.OMINI_E2E_API_URL != '' }}
-        env:
-          OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
+        if: ${{ env.OMINI_E2E_API_URL != '' }}
         run: |
           URL="${OMINI_E2E_API_URL}/api/v1/runtime/runner-smoke"
           tries=0
