@@ -3,4 +3,4 @@ huggingface_hub>=0.24.0
 transformers>=5.9.0
 peft>=0.19.1
 accelerate>=1.13.0
-torch>=2.2.0
+torch>=2.12.0
