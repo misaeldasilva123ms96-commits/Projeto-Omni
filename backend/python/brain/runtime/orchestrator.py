@@ -3635,7 +3635,7 @@ class BrainOrchestrator:
             "multi_agent_coordination": dict(coordination_payload),
         }
         if direct_response:
-            skip_tid = "perf36-skip-" + hashlib.sha1(str(session_id or "").encode("utf-8")).hexdigest()[:10]
+            skip_tid = "perf36-skip-" + hashlib.sha256(str(session_id or "").encode("utf-8")).hexdigest()[:10]
             performance_payload = {
                 "trace": {
                     "trace_id": skip_tid,
