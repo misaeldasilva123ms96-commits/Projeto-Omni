@@ -901,7 +901,7 @@ class QueryEngineAuthority {
         history,
         systemPrompt: 'You are Omni. Answer the user directly and safely. Do not expose internal runtime state, secrets, logs, or raw tool payloads.',
       };
-      const remoteProviderResult = providerRoute.executionProvider
+      let remoteProviderResult = providerRoute.executionProvider
         ? await executeRemoteProvider(providerRoute.executionProvider, remoteProviderPayload)
         : null;
       const byokFailClosed = Boolean(providerRoute.byokSessionMode && providerRoute.byokFailClosed);
@@ -968,7 +968,7 @@ class QueryEngineAuthority {
         && !directMemoryResponse
         && ['conversation', 'analysis', 'engineering'].includes(intent)
       );
-      const remoteProviderResult = shouldAttemptRemoteProvider
+      remoteProviderResult = shouldAttemptRemoteProvider
         ? await executeRemoteProviderCompletion({
             provider,
             message,
