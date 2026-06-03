@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from hashlib import sha1
+from hashlib import sha256
 from typing import Any
 
 
@@ -117,7 +117,7 @@ class Evaluator:
             flags.append("repeated_pattern")
 
         overall = round((relevance * 0.35) + (coherence * 0.2) + (completeness * 0.3) + (efficiency * 0.15), 3)
-        turn_id = sha1(f"{session_id}:{message}:{response}".encode("utf-8")).hexdigest()[:12]
+        turn_id = sha256(f"{session_id}:{message}:{response}".encode("utf-8")).hexdigest()[:12]
         result = EvaluationResult(
             session_id=session_id,
             turn_id=turn_id,
