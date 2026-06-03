@@ -11,7 +11,7 @@ const {
 const { getAvailableProviders } = require('../../platform/providers/providerRouter.js')
 const { executeGeminiCompletion } = require('../../platform/providers/remoteProviderExecutor.js')
 
-const providerEnvKeys = [
+let providerEnvKeys = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'ANTHROPIC_API_KEY',
@@ -70,7 +70,7 @@ async function withFetchMock(mockFetch, fn) {
   }
 }
 
-const providerEnvKeys = [
+providerEnvKeys = [
   'GROQ_API_KEY',
   'OPENROUTER_API_KEY',
   'OPENAI_API_KEY',

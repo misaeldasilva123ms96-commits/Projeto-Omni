@@ -275,13 +275,81 @@ function selectFallbackProvider(providersByName) {
     };
   }
 
-  if (hasConfig('GEMINI_API_KEY')) {
-    remote.push({
-      name: 'gemini',
-      source: 'project',
-      model: envValue('GEMINI_MODEL') || 'gemini-2.5-flash-lite',
-      priority: 4,
-      kind: 'remote',
+  return {
+    executionProvider: null,
+    localFallbackProvider: null,
+    fallbackProvider: null,
+  };
+}
+
+function buildRouteOutcome({
+  requestedProviderName = null,
+  selectedProviderName = null,
+  executionProvider = null,
+  localFallbackProvider = null,
+  fallbackProvider = null,
+  fallbackTriggered = false,
+  fallbackReason = '',
+  noRemoteProviderAvailable = false,
+  noProviderAvailable = false,
+  byokSessionMode = false,
+  byokProviderName = null,
+  byokFailClosed = false,
+} = {}) {
+  return {
+    requestedProviderName,
+    selectedProviderName,
+    executionProvider,
+    executionProviderName: executionProvider?.name || null,
+    localFallbackProvider,
+    localFallbackProviderName: localFallbackProvider?.name || null,
+    fallbackProvider,
+    fallbackProviderName: fallbackProvider?.name || null,
+    fallbackTriggered: Boolean(fallbackTriggered),
+    fallbackReason: String(fallbackReason || ''),
+    noRemoteProviderAvailable: Boolean(noRemoteProviderAvailable),
+    noProviderAvailable: Boolean(noProviderAvailable),
+    byokSessionMode: Boolean(byokSessionMode),
+    byokProviderName,
+    byokFailClosed: Boolean(byokFailClosed),
+  };
+}
+
+function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
+  const byokPolicy = readByokSessionPolicy();
+  const registry = getProviderRegistry({ includeEmbeddedLocal: true });
+  const providersByName = new Map(registry.map(provider => [provider.name, provider]));
+  const remoteExecutable = sortProvidersByPolicy(
+    registry.filter(provider => provider.kind !== 'embedded' && provider.executable),
+  );
+  const noRemoteProviderAvailable = remoteExecutable.length === 0;
+  const requestedProviderName = byokPolicy.active
+    ? byokPolicy.providerName
+    : normalizeProviderName(preferred);
+  const requestedProvider = requestedProviderName ? providersByName.get(requestedProviderName) : null;
+
+  if (byokPolicy.active) {
+    if (requestedProvider?.executable && requestedProvider.kind !== 'embedded') {
+      return buildRouteOutcome({
+        requestedProviderName,
+        selectedProviderName: requestedProvider.name,
+        executionProvider: { ...requestedProvider },
+        noRemoteProviderAvailable,
+        byokSessionMode: true,
+        byokProviderName: requestedProvider.name,
+        byokFailClosed: byokPolicy.failClosed,
+      });
+    }
+    return buildRouteOutcome({
+      requestedProviderName,
+      selectedProviderName: requestedProviderName,
+      fallbackTriggered: false,
+      fallbackReason: FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE,
+      noRemoteProviderAvailable,
+      noProviderAvailable: true,
+      byokSessionMode: true,
+      byokProviderName: requestedProviderName,
+      byokFailClosed: byokPolicy.failClosed,
     });
   }
 
