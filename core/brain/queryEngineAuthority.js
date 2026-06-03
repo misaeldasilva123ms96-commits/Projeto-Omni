@@ -7,7 +7,7 @@ const { buildExecutionTree } = require('../planning/executionTree');
 const { analyzeRepository } = require('../repository/repositoryAnalyzer');
 const { analyzeRepositoryImpact } = require('../repository/repoImpactAnalyzer');
 const { buildMemoryLayers } = require('../memory/memoryLayers');
-const { buildProviderDiagnostics, chooseProvider, getAvailableProviders } = require('../../platform/providers/providerRouter');
+const { buildProviderDiagnostics, chooseProvider, getAvailableProviders, resolveProviderRoute } = require('../../platform/providers/providerRouter');
 const { executeRemoteProviderCompletion } = require('../../platform/providers/remoteProviderExecutor');
 const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelope } = require('./executionProvenance');
 const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
@@ -719,10 +719,15 @@ class QueryEngineAuthority {
     const intent = intentInfo.intent;
     const complexity = inferComplexity(message);
     const hintEnv = readPolicyHintEnvelope();
-    const provider = chooseProvider({ complexity, preferred: readPolicyPreferredProvider() });
-    const selectedProviderName = provider && provider.name ? provider.name : '';
-    const llmProviderAttempted = false;
-    const llmProviderSucceeded = false;
+    const providerRoute = resolveProviderRoute({ complexity, preferred: readPolicyPreferredProvider() });
+    const provider = providerRoute.executionProvider
+      || providerRoute.localFallbackProvider
+      || providerRoute.fallbackProvider
+      || { name: 'local-heuristic', model: 'native-heuristic' };
+    const selectedProviderName = providerRoute.selectedProviderName
+      || (provider && provider.name ? provider.name : '');
+    let llmProviderAttempted = false;
+    let llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
     const runtimeMemory = getSessionRuntimeMemory(workspace, sessionId);
     const repositoryAnalysis = analyzeRepository(workspace, { maxFiles: 1500 });
@@ -902,7 +907,7 @@ class QueryEngineAuthority {
         systemPrompt: 'You are Omni. Answer the user directly and safely. Do not expose internal runtime state, secrets, logs, or raw tool payloads.',
       };
       let remoteProviderResult = providerRoute.executionProvider
-        ? await executeRemoteProvider(providerRoute.executionProvider, remoteProviderPayload)
+        ? await executeRemoteProviderCompletion({ provider: providerRoute.executionProvider, message, intent, summary })
         : null;
       const byokFailClosed = Boolean(providerRoute.byokSessionMode && providerRoute.byokFailClosed);
       const executionFallbackUsed = Boolean(providerRoute.fallbackTriggered);
@@ -910,19 +915,13 @@ class QueryEngineAuthority {
       const executionFallbackPath = executionFallbackUsed && providerRoute.requestedProviderName
         ? `${providerRoute.requestedProviderName}->${selectedProviderName}`
         : (executionFallbackUsed ? executionFallbackReason : '');
-      llmProviderAttempted = Boolean(remoteProviderResult?.llm_provider_attempted ?? remoteProviderResult?.attempted);
-      llmProviderSucceeded = Boolean(remoteProviderResult?.llm_provider_succeeded ?? remoteProviderResult?.succeeded);
-      const remoteProviderFailed = Boolean(remoteProviderResult?.llm_provider_failed ?? (
-        remoteProviderResult?.attempted && !remoteProviderResult?.succeeded
-      ));
-      const remoteProviderName = String(
-        remoteProviderResult?.llm_provider_selected || remoteProviderResult?.providerName || '',
-      ).trim();
-      const remoteProviderError = String(
-        remoteProviderResult?.llm_public_error || remoteProviderResult?.error || '',
-      ).trim();
-      const remoteProviderLatency = remoteProviderResult?.llm_latency_ms ?? remoteProviderResult?.durationMs ?? null;
-      const remoteProviderModel = String(remoteProviderResult?.llm_model_used || remoteProviderResult?.model || '').trim();
+      llmProviderAttempted = Boolean(remoteProviderResult?.ok !== undefined);
+      llmProviderSucceeded = Boolean(remoteProviderResult?.ok);
+      const remoteProviderFailed = Boolean(!remoteProviderResult?.ok && remoteProviderResult !== null);
+      const remoteProviderName = String(remoteProviderResult?.provider || '').trim();
+      const remoteProviderError = String(remoteProviderResult?.failure_reason || '').trim();
+      const remoteProviderLatency = remoteProviderResult?.latency_ms ?? null;
+      const remoteProviderModel = String(remoteProviderResult?.model || '').trim();
       const byokRouteUnavailable = Boolean(byokFailClosed && !providerRoute.executionProvider);
       const byokExecutionFailed = Boolean(byokFailClosed && (byokRouteUnavailable || remoteProviderFailed));
       const byokFailureReason = byokRouteUnavailable
@@ -941,7 +940,7 @@ class QueryEngineAuthority {
       const directResponse = byokExecutionFailed
         ? BYOK_FAIL_CLOSED_RESPONSE
         : llmProviderSucceeded
-        ? remoteProviderResult.responseText
+        ? remoteProviderResult.text
         : synthesizeGroundedResponse({
         intent,
         directMemoryResponse,
