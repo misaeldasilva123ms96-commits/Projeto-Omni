@@ -73,6 +73,8 @@ const {
 
 const GLOBAL_CONVERSATIONAL_FALLBACK =
   '[degraded:authority_local] O plano não pôde ser executado com ferramentas ou LLM neste ambiente. Reformule com um ficheiro ou objetivo concreto, ou verifique credenciais de LLM / executor Python.';
+const BYOK_FAIL_CLOSED_RESPONSE =
+  '[degraded:byok_session] Session BYOK provider execution failed safely. Check the session provider credentials and try again.';
 const CONVERSATIONAL_MATCHERS = [
   {
     triggers: [
@@ -894,13 +896,53 @@ class QueryEngineAuthority {
 
     const allActionsAreDirect = actionsWithPolicy.every(action => action.selected_tool === 'none');
     if (allActionsAreDirect) {
+      const remoteProviderPayload = {
+        message,
+        history,
+        systemPrompt: 'You are Omni. Answer the user directly and safely. Do not expose internal runtime state, secrets, logs, or raw tool payloads.',
+      };
+      const remoteProviderResult = providerRoute.executionProvider
+        ? await executeRemoteProvider(providerRoute.executionProvider, remoteProviderPayload)
+        : null;
+      const byokFailClosed = Boolean(providerRoute.byokSessionMode && providerRoute.byokFailClosed);
+      const executionFallbackUsed = Boolean(providerRoute.fallbackTriggered);
+      const executionFallbackReason = String(providerRoute.fallbackReason || '');
+      const executionFallbackPath = executionFallbackUsed && providerRoute.requestedProviderName
+        ? `${providerRoute.requestedProviderName}->${selectedProviderName}`
+        : (executionFallbackUsed ? executionFallbackReason : '');
+      llmProviderAttempted = Boolean(remoteProviderResult?.llm_provider_attempted ?? remoteProviderResult?.attempted);
+      llmProviderSucceeded = Boolean(remoteProviderResult?.llm_provider_succeeded ?? remoteProviderResult?.succeeded);
+      const remoteProviderFailed = Boolean(remoteProviderResult?.llm_provider_failed ?? (
+        remoteProviderResult?.attempted && !remoteProviderResult?.succeeded
+      ));
+      const remoteProviderName = String(
+        remoteProviderResult?.llm_provider_selected || remoteProviderResult?.providerName || '',
+      ).trim();
+      const remoteProviderError = String(
+        remoteProviderResult?.llm_public_error || remoteProviderResult?.error || '',
+      ).trim();
+      const remoteProviderLatency = remoteProviderResult?.llm_latency_ms ?? remoteProviderResult?.durationMs ?? null;
+      const remoteProviderModel = String(remoteProviderResult?.llm_model_used || remoteProviderResult?.model || '').trim();
+      const byokRouteUnavailable = Boolean(byokFailClosed && !providerRoute.executionProvider);
+      const byokExecutionFailed = Boolean(byokFailClosed && (byokRouteUnavailable || remoteProviderFailed));
+      const byokFailureReason = byokRouteUnavailable
+        ? (executionFallbackReason || 'byok_credentials_incomplete')
+        : (remoteProviderError || 'byok_execution_failed');
+      const executedProviderName = llmProviderSucceeded ? remoteProviderName : '';
+      const providerForProvenance = executedProviderName
+        ? { ...provider, name: executedProviderName, model: remoteProviderModel || provider?.model || '' }
+        : provider;
       const localGuidance = buildStructuredLocalGuidance({
         message,
         intent,
         mergedMemory,
         repositoryAnalysis,
       });
-      const directResponse = synthesizeGroundedResponse({
+      const directResponse = byokExecutionFailed
+        ? BYOK_FAIL_CLOSED_RESPONSE
+        : llmProviderSucceeded
+        ? remoteProviderResult.responseText
+        : synthesizeGroundedResponse({
         intent,
         directMemoryResponse,
         stepResults: actions.map(action => ({
@@ -1010,6 +1052,10 @@ class QueryEngineAuthority {
         }),
         runtime_mode: 'no-tool-local',
         fallback_mode: null,
+        selected_provider: selectedProviderName,
+        executed_provider: llmProviderAttempted || llmProviderSucceeded ? remoteProviderName : '',
+        execution_fallback_used: executionFallbackUsed,
+        execution_fallback_reason: executionFallbackReason,
         delegated_specialists: delegation.specialists,
         critic_review: criticPlanReview,
         semantic_retrieval: semanticMatches,
@@ -1022,7 +1068,7 @@ class QueryEngineAuthority {
       });
 
       const epNoTool = buildExecutionProvenance({
-        provider,
+        provider: providerForProvenance,
         ...buildProviderDiagnosticContext({
           selectedProviderName,
           actualProviderName: '',
@@ -1042,12 +1088,35 @@ class QueryEngineAuthority {
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
       });
-      const noToolMode = directMemoryResponse
+      const noToolMode = llmProviderSucceeded
+        ? RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE
+        : byokExecutionFailed
+        ? RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE
+        : directMemoryResponse
         ? RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE
         : RUNTIME_TRUTH_MODES.RULE_BASED_INTENT;
+      const noToolReason = llmProviderSucceeded
+        ? 'remote_provider_response'
+        : byokExecutionFailed ? byokFailureReason
+        : directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none';
       return attachProvenanceMetadata(attachRuntimeTruth({
         response: directResponse,
-        cognitive_runtime_hint: { lane: 'no_tool_local', detail: 'all_actions_tool_none' },
+        runtime_reason: noToolReason,
+        selected_provider: selectedProviderName,
+        executed_provider: executedProviderName,
+        execution_fallback_used: executionFallbackUsed,
+        execution_fallback_reason: executionFallbackReason,
+        llm_fallback_triggered: executionFallbackUsed,
+        llm_fallback_reason: executionFallbackReason,
+        fallback_triggered: executionFallbackUsed,
+        fallback_reason: executionFallbackReason,
+        provider_failed: remoteProviderFailed || byokExecutionFailed,
+        failure_class: byokExecutionFailed ? 'byok_execution_failed' : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
+        failure_reason: byokExecutionFailed ? byokFailureReason : remoteProviderFailed ? remoteProviderError : '',
+        cognitive_runtime_hint: {
+          lane: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
+          detail: llmProviderSucceeded ? 'remote_provider_chat_completion' : byokExecutionFailed ? byokFailureReason : 'all_actions_tool_none',
+        },
         confidence: 0.92,
         memory: {
           session: sessionSnapshot,
@@ -1064,12 +1133,13 @@ class QueryEngineAuthority {
         },
       }, buildRuntimeTruth({
         runtimeMode: noToolMode,
-        runtimeReason: directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none',
+        runtimeReason: noToolReason,
         intentInfo,
         providerAttempted: Boolean(remoteProviderResult),
         providerSucceeded: false,
         toolInvoked: false,
         toolExecuted: false,
+        fallbackTriggered: executionFallbackUsed,
         nodeInvoked: true,
       })), epNoTool);
     }

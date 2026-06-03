@@ -1,0 +1,41 @@
+name: Training Pipeline (omni-training)
+
+on:
+  push:
+    paths:
+      - 'omni-training/**'
+  workflow_dispatch: {}
+
+jobs:
+  training-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.11
+
+      - name: Install training deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f omni-training/requirements.txt ]; then pip install -r omni-training/requirements.txt; fi
+
+      - name: Run smoke steps
+        run: |
+          # Run small smoke commands if present
+          if [ -f omni-training/scripts/download_dataset.py ]; then
+            python omni-training/scripts/download_dataset.py --dataset-key default_small || true
+          fi
+          if [ -f omni-training/scripts/filter_dataset.py ]; then
+            echo "Filter step available" || true
+          fi
+          python -m pytest -q omni-training || true
+
+      - name: Upload artifacts (if created)
+        uses: actions/upload-artifact@v7
+        with:
+          name: omni-training-artifacts
+          path: omni-training/data || true

@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class TranscriptEntry:
@@ -24,20 +29,8 @@ class TranscriptStore:
 
     def load_recent_history(self, session_id: str, limit: int = 6) -> list[dict[str, str]]:
         path = self._session_path(session_id)
-        if not path.exists():
-            return []
         entries: list[dict[str, str]] = []
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except Exception:
-            return []
-        for line in lines[-limit:]:
-            if not line.strip():
-                continue
-            try:
-                payload = json.loads(line)
-            except Exception:
-                continue
+        for payload in read_tail_jsonl(path, limit=limit, max_bytes=JSONL_TAIL_MAX_BYTES):
             role = payload.get("role")
             content = payload.get("content")
             if role not in {"user", "assistant"}:

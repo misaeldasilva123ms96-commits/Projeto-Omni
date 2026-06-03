@@ -123,13 +123,54 @@ def _metadata_provider_failed(parsed: dict[str, Any] | None) -> bool:
     return failure_class.startswith("provider_")
 
 
+def _metadata_runtime_truth(parsed: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(parsed, dict):
+        return {}
+    metadata = parsed.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    runtime_truth = metadata.get("runtime_truth")
+    return dict(runtime_truth) if isinstance(runtime_truth, dict) else {}
+
+
+def _metadata_execution_provenance(parsed: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(parsed, dict):
+        return {}
+    metadata = parsed.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    provenance = metadata.get("execution_provenance")
+    return dict(provenance) if isinstance(provenance, dict) else {}
+
+
+def _metadata_remote_provider_succeeded(parsed: dict[str, Any] | None) -> bool:
+    runtime_truth = _metadata_runtime_truth(parsed)
+    provenance = _metadata_execution_provenance(parsed)
+    execution_mode = str(provenance.get("execution_mode") or "").strip().lower()
+    runtime_reason = str(runtime_truth.get("runtime_reason") or "").strip().lower()
+    provider_attempted = bool(runtime_truth.get("llm_provider_attempted", False))
+    provider_succeeded = bool(runtime_truth.get("llm_provider_succeeded", False))
+    return bool(
+        provider_succeeded
+        and (
+            execution_mode == "remote_provider_response"
+            or runtime_reason == "remote_provider_response"
+            or provider_attempted
+        )
+    )
+
+
 def extract_node_envelope_for_provenance(parsed: dict[str, Any]) -> dict[str, Any]:
     keys = ("metadata", "memory", "execution_request", "cognitive_runtime_hint", "confidence", "response", "runtime_truth")
-    return {k: parsed[k] for k in keys if k in parsed}
+    envelope = {k: parsed[k] for k in keys if k in parsed}
+    if "runtime_truth" not in envelope:
+        runtime_truth = _metadata_runtime_truth(parsed)
+        if runtime_truth:
+            envelope["runtime_truth"] = runtime_truth
+    return envelope
 
 
 def interpret_node_payload(
-    *,
     parsed: dict[str, Any] | None,
     stdout: str = "",
 ) -> dict[str, Any]:
@@ -158,6 +199,30 @@ def interpret_node_payload(
 
     if not isinstance(execution_request, dict):
         if normalized:
+            if _metadata_remote_provider_succeeded(parsed):
+                provenance = _metadata_execution_provenance(parsed)
+                node_outcome = normalize_node_outcome(
+                    transport_status=TRANSPORT_SUCCESS,
+                    semantic_lane=LANE_BRIDGE_EXECUTION_REQUEST,
+                    reason_code="remote_provider_response",
+                    node_cognitive_hint=node_cognitive_hint,
+                    node_result_envelope=node_result_envelope,
+                    response_text=normalized,
+                )
+                return {
+                    "fallback": False,
+                    "response_text": normalized,
+                    "reason_code": "remote_provider_response",
+                    "semantic_lane": LANE_BRIDGE_EXECUTION_REQUEST,
+                    "node_cognitive_hint": node_cognitive_hint,
+                    "node_result_envelope": node_result_envelope,
+                    "execution_request": None,
+                    "provider_actual": str(provenance.get("provider_actual") or "").strip().lower(),
+                    "provider_fallback_occurred": bool(provenance.get("provider_fallback_occurred", False)),
+                    "llm_provider_attempted": True,
+                    "llm_provider_succeeded": True,
+                    "node_outcome": node_outcome,
+                }
             semantic_lane = (
                 LANE_MATCHER_SHORTCUT
                 if hint_lane in {"matcher_shortcut", "conversational_matcher"} or "matcher" in hint_lane

@@ -8,13 +8,24 @@ Describe how Omni discovers provider configuration, selects a provider, records 
 
 The provider layer currently depends on these logical inputs:
 
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
 - `GROQ_API_KEY`
+- `GROQ_MODEL`
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL`
 - `GEMINI_API_KEY`
+- `GEMINI_MODEL`
 - `DEEPSEEK_API_KEY`
+- `DEEPSEEK_MODEL`
 - `OLLAMA_URL`
-- optional model overrides such as `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GROQ_MODEL`, `GEMINI_MODEL`, `DEEPSEEK_MODEL`, `OLLAMA_MODEL`
+- `OLLAMA_MODEL`
+- `OLLAMA_API_KEY`
+- `LMSTUDIO_URL`
+- `LMSTUDIO_MODEL`
+- `LMSTUDIO_API_KEY`
 - `OMNI_AVAILABLE_PROVIDERS`
 - `OMNI_POLICY_HINT_JSON`
 
@@ -40,6 +51,14 @@ Node-side discovery:
 1. [providerRouter.js](../../platform/providers/providerRouter.js) checks the forwarded environment.
 2. It builds a provider list with model defaults and priority order.
 3. It always appends `local-heuristic` as an embedded fallback provider.
+
+Current normal fallback chain:
+
+```txt
+groq -> openrouter -> openai -> anthropic -> gemini -> ollama -> lmstudio -> local-heuristic
+```
+
+DeepSeek is registered for metadata parity but remains unsupported and non-executable. Ollama and LM Studio are local adapters, but they are executable only when `OLLAMA_URL` or `LMSTUDIO_URL` is configured; localhost defaults are not attempted implicitly.
 
 ## Selection
 
@@ -87,6 +106,7 @@ Provider fallback currently means one of these:
 This is exposed through:
 
 - `provider_diagnostics`
+- `provider_diagnostics_snapshot`
 - `provider_failed`
 - `failure_class`
 - `failure_reason`
@@ -127,6 +147,8 @@ Each provider diagnostic row is additive and safe for public debugging:
   "latency_ms": null
 }
 ```
+
+`provider_diagnostics` is the legacy array shape used by frontend/provenance consumers. `provider_diagnostics_snapshot` is the newer object shape with `providers`, `fallback_chain`, `active_provider`, `fallback_triggered`, and `fallback_reason`. Both are public-safe and expose env variable names only, never values.
 
 Interpretation:
 

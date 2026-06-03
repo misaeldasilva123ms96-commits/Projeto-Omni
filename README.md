@@ -47,11 +47,30 @@ Current working areas include:
 - real execution paths through the Node runtime and local tools
 - truthful runtime classification
 - structured bridge failure handling
-- provider diagnostics
+- multi-provider routing and provider diagnostics
+- session-only bring-your-own-key (BYOK) boundary with fail-closed execution policy
 - tool execution diagnostics
 - frontend runtime debug visibility
 - decision quality validation
 - controlled learning records and improvement signals
+- public-safe runner smoke diagnostics for deployment debugging
+
+Current provider support:
+
+- Remote adapters: Groq, OpenRouter, OpenAI, Anthropic, Gemini
+- Local adapters: Ollama, LM Studio
+- Embedded fallback: `local-heuristic`
+- Registered but non-executable: DeepSeek
+
+Normal fallback order:
+
+```txt
+Groq -> OpenRouter -> OpenAI -> Anthropic -> Gemini -> Ollama -> LM Studio -> local-heuristic
+```
+
+Provider execution is configuration-gated. Cloud providers require their API key env var. Local providers are not attempted just because a localhost default exists; Ollama requires `OLLAMA_URL`, and LM Studio requires `LMSTUDIO_URL`.
+
+The default JavaScript runtime is Node. Bun is opt-in only through `OMINI_JS_RUNTIME_BIN=bun`. The legacy-compatible alias `OMNI_JS_RUNTIME_BIN` may be used when `OMINI_JS_RUNTIME_BIN` is unset.
 
 Current active work:
 
@@ -104,6 +123,10 @@ Architecture references:
 - [docs/architecture/bridge-response-contract.md](docs/architecture/bridge-response-contract.md)
 - [docs/architecture/bridge-pipeline.md](docs/architecture/bridge-pipeline.md)
 - [docs/architecture/provider-routing.md](docs/architecture/provider-routing.md)
+- [docs/runtime/current-state-runtime-audit.md](docs/runtime/current-state-runtime-audit.md)
+- [docs/runtime/providers.md](docs/runtime/providers.md)
+- [docs/runtime/byok.md](docs/runtime/byok.md)
+- [docs/runtime/diagnostics.md](docs/runtime/diagnostics.md)
 - [docs/architecture/tool-runtime.md](docs/architecture/tool-runtime.md)
 - [docs/architecture/cognitive-decision-model.md](docs/architecture/cognitive-decision-model.md)
 - [docs/architecture/learning-loop.md](docs/architecture/learning-loop.md)
@@ -125,6 +148,7 @@ Omni exposes structured metadata so contributors can verify what actually happen
 - `execution_provenance`
 - `tool_execution`
 - `provider_diagnostics`
+- `provider_diagnostics_snapshot`
 - `cognitive_runtime_inspection`
 - `learning signals`
 
@@ -142,6 +166,14 @@ Important runtime modes:
 | `SAFE_DEGRADED_FALLBACK` / `SAFE_FALLBACK` | The system intentionally returned a controlled degraded/fallback response. |
 
 Transport success is not cognitive success. HTTP 200, valid JSON, `status=success`, or `NODE_EXECUTION_SUCCESS` only prove that a boundary returned a usable payload. Contributors must inspect runtime truth, provider diagnostics, tool execution, and fallback flags before claiming full cognitive execution.
+
+Public-safe runner diagnostic:
+
+```txt
+GET /api/v1/runtime/runner-smoke
+```
+
+This endpoint executes the same Node runner path used by chat with a fixed safe prompt. It returns only bounded public fields such as selected runtime, path-existence booleans, JSON validity, degraded status, and a public failure class. It must never expose raw stdout/stderr, env values, stack traces, headers, provider payloads, API keys, request bodies, or absolute local paths.
 
 ---
 

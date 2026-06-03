@@ -29,7 +29,7 @@ class JSRuntimeAdapter:
         self.root = root.resolve()
 
     def select_runtime(self) -> JSRuntimeSelection:
-        explicit_runtime = str(os.getenv("OMINI_JS_RUNTIME_BIN", "")).strip()
+        explicit_runtime = str(os.getenv("OMINI_JS_RUNTIME_BIN", "") or os.getenv("OMNI_JS_RUNTIME_BIN", "")).strip()
         if explicit_runtime:
             resolved = self._resolve_explicit_runtime(explicit_runtime)
             runtime_name = self._runtime_name_from_executable(explicit_runtime)
@@ -43,30 +43,18 @@ class JSRuntimeAdapter:
                 fallback_used=runtime_name != "bun",
             )
 
-        bun_candidate = os.getenv("BUN_BIN", "").strip() or "bun"
-        bun_resolved = self._resolve_candidate(bun_candidate)
-        if bun_resolved:
-            return JSRuntimeSelection(
-                runtime_name="bun",
-                executable=bun_resolved,
-                source="bun_detected",
-                bun_available=True,
-                node_available=bool(self._resolve_candidate(os.getenv("NODE_BIN", "").strip() or "node")),
-                preferred=True,
-                fallback_used=False,
-            )
-
         node_candidate = os.getenv("NODE_BIN", "").strip() or "node"
         node_resolved = self._resolve_candidate(node_candidate)
+        bun_available = bool(self._resolve_candidate(os.getenv("BUN_BIN", "").strip() or "bun"))
         if node_resolved:
             return JSRuntimeSelection(
                 runtime_name="node",
                 executable=node_resolved,
-                source="node_fallback",
-                bun_available=False,
+                source="node_default",
+                bun_available=bun_available,
                 node_available=True,
-                preferred=False,
-                fallback_used=True,
+                preferred=True,
+                fallback_used=False,
             )
 
         configured_node = os.getenv("NODE_BIN", "").strip()
@@ -74,9 +62,9 @@ class JSRuntimeAdapter:
             runtime_name="node",
             executable=configured_node or "node",
             source="node_missing",
-            bun_available=False,
+            bun_available=bun_available,
             node_available=False,
-            preferred=False,
+            preferred=True,
             fallback_used=True,
         )
 

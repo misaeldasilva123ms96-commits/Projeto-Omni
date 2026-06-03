@@ -4,8 +4,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.observability._reader_utils import read_tail_jsonl
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 from brain.runtime.service_contracts import build_task_envelope, build_task_status, validate_start_task_request
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
+RUN_SUMMARY_TAIL_LIMIT = 4096
 
 
 class TaskService:
@@ -181,16 +186,12 @@ class TaskService:
         checkpoint = self.orchestrator.checkpoint_store.load(run_id)
         run_summary_path = self.orchestrator.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
         latest_summary = None
-        if run_summary_path.exists():
-            import json
-
-            for line in reversed(run_summary_path.read_text(encoding="utf-8").splitlines()):
-                if not line.strip():
-                    continue
-                candidate = json.loads(line)
-                if candidate.get("run_id") == run_id:
-                    latest_summary = candidate
-                    break
+        for candidate in reversed(
+            read_tail_jsonl(run_summary_path, limit=RUN_SUMMARY_TAIL_LIMIT, max_bytes=JSONL_TAIL_MAX_BYTES)
+        ):
+            if candidate.get("run_id") == run_id:
+                latest_summary = candidate
+                break
         return {
             "run_id": run_id,
             "checkpoint": checkpoint,

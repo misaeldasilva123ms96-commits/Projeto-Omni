@@ -8,14 +8,18 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from brain.runtime.bridge_stdin import apply_bridge_env, resolve_entry_message
+from brain.runtime.bridge_stdin import apply_bridge_env, read_bridge_stdin_dict, resolve_entry_message
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
 from brain.runtime.observability.public_runtime_payload import (
     build_public_cognitive_runtime_inspection,
     sanitize_public_runtime_payload,
 )
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
-from config.provider_registry import describe_provider_diagnostics, get_available_providers
+from config.provider_registry import (
+    describe_provider_diagnostics,
+    describe_provider_diagnostics_snapshot,
+    get_available_providers,
+)
 from brain.runtime.observability.public_runtime_outcome import normalize_public_runtime_outcome
 
 USER_FALLBACK_RESPONSE = (
@@ -239,6 +243,63 @@ def _first_provider_from_diagnostics(
     return ""
 
 
+def _provider_diagnostics_snapshot_from_response(
+    safe_response: dict[str, Any],
+    diagnostics_source: Any,
+) -> dict[str, Any]:
+    selected_provider = str(safe_response.get("provider_selected", "") or "")
+    actual_provider = str(safe_response.get("provider_actual", "") or "")
+    attempted_provider = str(safe_response.get("provider_attempted", "") or "")
+    active_provider = str(safe_response.get("active_provider", "") or actual_provider or "")
+    if isinstance(diagnostics_source, dict):
+        providers = diagnostics_source.get("providers")
+        if not selected_provider:
+            selected_provider = _first_provider_from_diagnostics(providers, key="selected")
+        if not attempted_provider:
+            attempted_provider = _first_provider_from_diagnostics(providers, key="attempted")
+        if not active_provider:
+            active_provider = str(diagnostics_source.get("active_provider", "") or "")
+    else:
+        if not selected_provider:
+            selected_provider = _first_provider_from_diagnostics(diagnostics_source, key="selected") or actual_provider
+        if not attempted_provider:
+            attempted_provider = _first_provider_from_diagnostics(diagnostics_source, key="attempted") or actual_provider
+    return describe_provider_diagnostics_snapshot(
+        selected_provider=selected_provider,
+        actual_provider=actual_provider,
+        attempted_provider=attempted_provider,
+        failure_class=str(safe_response.get("failure_class", "") or ""),
+        fallback_triggered=bool(safe_response.get("fallback_triggered", False)),
+        fallback_reason=str(safe_response.get("fallback_reason", "") or ""),
+        active_provider=active_provider,
+    )
+
+
+def _provider_diagnostics_rows_from_response(
+    safe_response: dict[str, Any],
+    diagnostics_source: Any,
+) -> list[dict[str, Any]]:
+    if isinstance(diagnostics_source, list):
+        return [dict(item) for item in diagnostics_source if isinstance(item, dict)]
+    if isinstance(diagnostics_source, dict) and isinstance(diagnostics_source.get("providers"), list):
+        return [dict(item) for item in diagnostics_source.get("providers", []) if isinstance(item, dict)]
+
+    selected_provider = str(safe_response.get("provider_selected", "") or "")
+    actual_provider = str(safe_response.get("provider_actual", "") or "")
+    attempted_provider = str(safe_response.get("provider_attempted", "") or "")
+    if not selected_provider:
+        selected_provider = _first_provider_from_diagnostics(diagnostics_source, key="selected") or actual_provider
+    if not attempted_provider:
+        attempted_provider = _first_provider_from_diagnostics(diagnostics_source, key="attempted") or actual_provider
+    return describe_provider_diagnostics(
+        selected_provider=selected_provider,
+        actual_provider=actual_provider,
+        attempted_provider=attempted_provider,
+        failure_class=str(safe_response.get("failure_class", "") or ""),
+        include_embedded_local=True,
+    )
+
+
 def emit_public_json(payload: dict[str, Any]) -> int:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
     sys.stdout.write("\n")
@@ -291,43 +352,48 @@ def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None
             safe_response["provider_failed"] = signals.get("provider_failed")
         if "failure_class" in signals:
             safe_response["failure_class"] = signals.get("failure_class")
+        if "fallback_reason" in signals:
+            safe_response["fallback_reason"] = signals.get("fallback_reason")
         if "tool_execution" in signals:
             safe_response["tool_execution"] = signals.get("tool_execution")
         if "tool_diagnostics" in signals:
             safe_response["tool_diagnostics"] = signals.get("tool_diagnostics")
-    if not isinstance(safe_response.get("provider_diagnostics"), list):
-        diagnostics_source = safe_response.get("provider_diagnostics")
-        selected_provider = str(safe_response.get("provider_selected", "") or "")
-        actual_provider = str(safe_response.get("provider_actual", "") or "")
-        attempted_provider = str(safe_response.get("provider_attempted", "") or "")
-        if not selected_provider:
-            selected_provider = _first_provider_from_diagnostics(diagnostics_source, key="selected") or actual_provider
-        if not attempted_provider:
-            attempted_provider = _first_provider_from_diagnostics(diagnostics_source, key="attempted") or actual_provider
-        safe_response["provider_diagnostics"] = describe_provider_diagnostics(
-            selected_provider=selected_provider,
-            actual_provider=actual_provider,
-            attempted_provider=attempted_provider,
-            failure_class=str(safe_response.get("failure_class", "") or ""),
-            include_embedded_local=True,
-        )
-    safe_response.setdefault(
-        "provider_diagnostics",
-        describe_provider_diagnostics(
-            selected_provider=str(safe_response.get("provider_selected", "") or ""),
-            actual_provider=str(safe_response.get("provider_actual", "") or ""),
-            attempted_provider=str(safe_response.get("provider_attempted", "") or ""),
-            failure_class=str(safe_response.get("failure_class", "") or ""),
-            include_embedded_local=True,
-        ),
+    diagnostics_source = safe_response.get("provider_diagnostics")
+    safe_response["provider_diagnostics"] = _provider_diagnostics_rows_from_response(
+        safe_response,
+        diagnostics_source,
+    )
+    safe_response["provider_diagnostics_snapshot"] = _provider_diagnostics_snapshot_from_response(
+        safe_response,
+        diagnostics_source,
     )
     # JSON-only stdout for Rust bridge — never print() diagnostics here.
     safe_response["providers"] = get_available_providers()
-    return sanitize_public_runtime_payload(safe_response)
+    provider_diagnostics = safe_response["provider_diagnostics"]
+    provider_diagnostics_snapshot = safe_response["provider_diagnostics_snapshot"]
+    public_payload = sanitize_public_runtime_payload(safe_response)
+    public_payload["provider_diagnostics"] = provider_diagnostics
+    public_payload["provider_diagnostics_snapshot"] = provider_diagnostics_snapshot
+    return public_payload
+
+
+def build_public_runner_smoke_payload() -> dict[str, Any]:
+    python_root = Path(__file__).resolve().parent
+    project_root = python_root.parents[1]
+    os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
+    os.environ.setdefault("BASE_DIR", str(project_root))
+    orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
+    return orchestrator.build_runner_smoke_diagnostic()
 
 
 def main() -> int:
-    message, bridge = resolve_entry_message()
+    bridge = read_bridge_stdin_dict()
+    if bridge.get("diagnostic") == "runner_smoke":
+        return emit_public_json(build_public_runner_smoke_payload())
+    try:
+        message, bridge = resolve_entry_message(bridge)
+    except TypeError:
+        message, bridge = resolve_entry_message()
     return emit_public_json(build_public_chat_payload(message, bridge))
 
 
@@ -339,8 +405,9 @@ if __name__ == "__main__":
     except Exception:
         LOGGER.error("Unhandled exception in main execution path; emitting public fallback")
         try:
-            emit_public_json(
-                sanitize_public_runtime_payload(
+            provider_diagnostics = describe_provider_diagnostics(include_embedded_local=True)
+            provider_diagnostics_snapshot = describe_provider_diagnostics_snapshot()
+            public_payload = sanitize_public_runtime_payload(
                 {
                     "response": USER_FALLBACK_RESPONSE,
                     "stop_reason": "python_main_exception",
@@ -364,14 +431,18 @@ if __name__ == "__main__":
                             "tool_execution": None,
                             "tool_diagnostics": None,
                             "execution_provenance": None,
-                            "provider_diagnostics": describe_provider_diagnostics(include_embedded_local=True),
+                            "provider_diagnostics": provider_diagnostics,
+                            "provider_diagnostics_snapshot": provider_diagnostics_snapshot,
                         },
                     },
-                    "provider_diagnostics": describe_provider_diagnostics(include_embedded_local=True),
+                    "provider_diagnostics": provider_diagnostics,
+                    "provider_diagnostics_snapshot": provider_diagnostics_snapshot,
                     "providers": get_available_providers(),
                 }
-                )
             )
+            public_payload["provider_diagnostics"] = provider_diagnostics
+            public_payload["provider_diagnostics_snapshot"] = provider_diagnostics_snapshot
+            emit_public_json(public_payload)
         except Exception:
             pass
         sys.exit(1)

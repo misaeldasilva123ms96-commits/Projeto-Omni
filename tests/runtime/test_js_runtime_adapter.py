@@ -15,13 +15,24 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.js_runtime_adapter import JSRuntimeAdapter  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from config.secrets_manager import build_controlled_os_environ_base  # noqa: E402
 
 
 class JSRuntimeAdapterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.root = PROJECT_ROOT
         self.adapter = JSRuntimeAdapter(self.root)
-        self.env_backup = {key: os.environ.get(key) for key in ("OMINI_JS_RUNTIME_BIN", "BUN_BIN", "NODE_BIN", "BASE_DIR", "PYTHON_BASE_DIR")}
+        self.env_backup = {
+            key: os.environ.get(key)
+            for key in (
+                "OMINI_JS_RUNTIME_BIN",
+                "OMNI_JS_RUNTIME_BIN",
+                "BUN_BIN",
+                "NODE_BIN",
+                "BASE_DIR",
+                "PYTHON_BASE_DIR",
+            )
+        }
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)
         os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
 
@@ -32,19 +43,49 @@ class JSRuntimeAdapterTest(unittest.TestCase):
             else:
                 os.environ[key] = value
 
-    def test_bun_available_selects_bun(self) -> None:
+    def test_bun_available_still_defaults_to_node(self) -> None:
         with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: "C:/bun.exe" if name == "bun" else "C:/node.exe"):
             selection = self.adapter.select_runtime()
 
-        self.assertEqual(selection.runtime_name, "bun")
+        self.assertEqual(selection.runtime_name, "node")
+        self.assertEqual(selection.source, "node_default")
+        self.assertTrue(selection.bun_available)
         self.assertFalse(selection.fallback_used)
 
-    def test_bun_unavailable_falls_back_to_node(self) -> None:
+    def test_bun_unavailable_uses_node_default(self) -> None:
         with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: None if name == "bun" else "C:/node.exe"):
             selection = self.adapter.select_runtime()
 
         self.assertEqual(selection.runtime_name, "node")
-        self.assertTrue(selection.fallback_used)
+        self.assertEqual(selection.source, "node_default")
+        self.assertFalse(selection.fallback_used)
+
+    def test_explicit_omini_runtime_bin_takes_precedence_over_alias(self) -> None:
+        os.environ["OMINI_JS_RUNTIME_BIN"] = "node"
+        os.environ["OMNI_JS_RUNTIME_BIN"] = "bun"
+        with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: f"C:/{name}.exe"):
+            selection = self.adapter.select_runtime()
+
+        self.assertEqual(selection.runtime_name, "node")
+        self.assertEqual(selection.source, "explicit_env")
+
+    def test_omni_runtime_bin_alias_is_preserved(self) -> None:
+        os.environ.pop("OMINI_JS_RUNTIME_BIN", None)
+        os.environ["OMNI_JS_RUNTIME_BIN"] = "node"
+        with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: f"C:/{name}.exe"):
+            selection = self.adapter.select_runtime()
+
+        self.assertEqual(selection.runtime_name, "node")
+        self.assertEqual(selection.source, "explicit_env")
+
+    def test_bun_is_explicit_opt_in(self) -> None:
+        os.environ["OMINI_JS_RUNTIME_BIN"] = "bun"
+        with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: "C:/bun.exe" if name == "bun" else "C:/node.exe"):
+            selection = self.adapter.select_runtime()
+
+        self.assertEqual(selection.runtime_name, "bun")
+        self.assertEqual(selection.source, "explicit_env")
+        self.assertTrue(selection.preferred)
 
     def test_python_can_invoke_runtime_layer_successfully_via_selected_runtime(self) -> None:
         script = self.root / "js-runner" / "healthcheck.js"
@@ -66,6 +107,15 @@ class JSRuntimeAdapterTest(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertEqual(selection.runtime_name, env["OMINI_JS_RUNTIME"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only Node subprocess environment guard")
+    def test_controlled_env_synthesizes_windows_runtime_root_when_env_is_isolated(self) -> None:
+        with patch.dict(os.environ, {"PATH": os.environ.get("PATH", "")}, clear=True):
+            env = build_controlled_os_environ_base()
+
+        self.assertIn("SystemRoot", env)
+        self.assertIn("WINDIR", env)
+        self.assertTrue(Path(env["SystemRoot"]).exists())
 
     def test_js_runtime_output_remains_compatible_with_python_expectations(self) -> None:
         orchestrator = BrainOrchestrator(

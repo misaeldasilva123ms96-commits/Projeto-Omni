@@ -13,23 +13,14 @@ function candidateExists(command) {
 }
 
 export function detectJsRuntime(env = process.env) {
-  const explicit = String(env.OMINI_JS_RUNTIME_BIN || '').trim();
+  const explicit = String(env.OMINI_JS_RUNTIME_BIN || env.OMNI_JS_RUNTIME_BIN || '').trim();
   if (explicit) {
+    const explicitAvailable = candidateExists(explicit);
     return {
       runtimeName: path.basename(explicit).toLowerCase().includes('bun') ? 'bun' : 'node',
       executable: explicit,
-      source: 'explicit_env',
+      source: explicitAvailable ? 'explicit_env' : 'explicit_env_missing',
       fallbackUsed: !path.basename(explicit).toLowerCase().includes('bun'),
-    };
-  }
-
-  const bunCandidate = String(env.BUN_BIN || 'bun').trim();
-  if (candidateExists(bunCandidate)) {
-    return {
-      runtimeName: 'bun',
-      executable: bunCandidate,
-      source: 'bun_detected',
-      fallbackUsed: false,
     };
   }
 
@@ -37,8 +28,8 @@ export function detectJsRuntime(env = process.env) {
   return {
     runtimeName: 'node',
     executable: nodeCandidate,
-    source: 'node_fallback',
-    fallbackUsed: true,
+    source: 'node_default',
+    fallbackUsed: false,
   };
 }
 

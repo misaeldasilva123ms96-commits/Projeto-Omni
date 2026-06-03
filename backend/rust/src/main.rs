@@ -4,8 +4,9 @@ mod observability_auth;
 mod run_control;
 
 use std::{
-    collections::{HashMap, VecDeque},
-    env, fs,
+    collections::{BTreeMap, HashMap, VecDeque},
+    env, fmt, fs,
+    io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
@@ -124,6 +125,10 @@ struct ChatRequest {
     client_session_id: Option<String>,
     #[serde(default)]
     request_id: Option<String>,
+    #[serde(default)]
+    provider_preference: Option<String>,
+    #[serde(default)]
+    session_provider_credentials: Option<BTreeMap<String, SessionProviderCredential>>,
 }
 
 /// `POST /api/v1/chat` JSON body — same execution path as [`ChatRequest`] with an optional nested client context.
@@ -142,6 +147,28 @@ struct PublicChatRequestV1 {
     request_id: Option<String>,
     #[serde(default)]
     client_context: Option<PublicChatClientContextV1>,
+    #[serde(default)]
+    provider_preference: Option<String>,
+    #[serde(default)]
+    session_provider_credentials: Option<BTreeMap<String, SessionProviderCredential>>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SessionProviderCredential {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+}
+
+impl fmt::Debug for SessionProviderCredential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionProviderCredential")
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("model", &self.model)
+            .finish()
+    }
 }
 
 /// Stable v1 envelope: `api_version` plus the same fields as [`ChatResponse`] (flattened for one JSON object).
@@ -233,6 +260,23 @@ struct PublicStatusResponseV1 {
     node_status: String,
     runtime_session_version: u32,
     timestamp_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicRunnerSmokeResponseV1 {
+    api_version: &'static str,
+    status: String,
+    selected_runtime: String,
+    cwd_label: String,
+    runner_exists: bool,
+    adapter_exists: bool,
+    fusion_brain_exists: bool,
+    contract_exists: bool,
+    runner_exit_code: Option<i64>,
+    stdout_json_valid: bool,
+    result_degraded: bool,
+    public_failure_class: Option<String>,
+    public_summary: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -447,7 +491,7 @@ async fn main() -> Result<(), AppError> {
 
     let protected_control = Router::new()
         .route("/api/control/runs", get(run_control::list_runs))
-        .route("/api/control/runs/:run_id", get(run_control::get_run))
+        .route("/api/control/runs/{run_id}", get(run_control::get_run))
         .route(
             "/api/control/runs/summary/resolution",
             get(run_control::resolution_summary),
@@ -461,15 +505,15 @@ async fn main() -> Result<(), AppError> {
             get(run_control::runs_with_rollback),
         )
         .route(
-            "/api/control/runs/:run_id/pause",
+            "/api/control/runs/{run_id}/pause",
             post(run_control::pause_run),
         )
         .route(
-            "/api/control/runs/:run_id/resume",
+            "/api/control/runs/{run_id}/resume",
             post(run_control::resume_run),
         )
         .route(
-            "/api/control/runs/:run_id/approve",
+            "/api/control/runs/{run_id}/approve",
             post(run_control::approve_run),
         )
         .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
@@ -481,6 +525,10 @@ async fn main() -> Result<(), AppError> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/status", get(public_v1_status))
+        .route(
+            "/api/v1/runtime/runner-smoke",
+            get(public_v1_runtime_runner_smoke),
+        )
         .route(
             "/api/v1/runtime/signals/summary",
             get(public_v1_runtime_signals_summary),
@@ -798,7 +846,9 @@ impl PythonCircuitBreaker {
             CircuitBreakerState::Open => {
                 let reset_elapsed = self
                     .opened_at
-                    .map(|opened| now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms)
+                    .map(|opened| {
+                        now.duration_since(opened).as_millis() as u64 >= config.circuit_reset_ms
+                    })
                     .unwrap_or(true);
                 if reset_elapsed {
                     self.state = CircuitBreakerState::HalfOpen;
@@ -889,6 +939,7 @@ impl ChatSecurityState {
         }
     }
 
+    #[cfg(test)]
     fn with_config(config: ChatSecurityConfig) -> Self {
         Self {
             config,
@@ -993,6 +1044,171 @@ async fn public_v1_status(
             timestamp_ms: h.timestamp_ms,
         }),
     )
+}
+
+fn safe_runner_smoke_string(value: &Value, key: &str, allowed: &[&str], fallback: &str) -> String {
+    let candidate = value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+        .trim()
+        .to_ascii_lowercase();
+    if allowed
+        .iter()
+        .any(|allowed_value| *allowed_value == candidate)
+    {
+        candidate
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn safe_runner_smoke_optional_string(value: &Value, key: &str) -> Option<String> {
+    let candidate = value.get(key)?.as_str()?.trim();
+    if candidate.is_empty() || candidate.len() > 120 {
+        return None;
+    }
+    if !candidate
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    {
+        return None;
+    }
+    Some(candidate.to_string())
+}
+
+fn bool_from_json(value: &Value, key: &str) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn build_runner_smoke_fallback(status: &str, failure_class: &str) -> PublicRunnerSmokeResponseV1 {
+    PublicRunnerSmokeResponseV1 {
+        api_version: "1",
+        status: status.to_string(),
+        selected_runtime: "unknown".to_string(),
+        cwd_label: "unknown".to_string(),
+        runner_exists: false,
+        adapter_exists: false,
+        fusion_brain_exists: false,
+        contract_exists: false,
+        runner_exit_code: None,
+        stdout_json_valid: false,
+        result_degraded: true,
+        public_failure_class: Some(failure_class.to_string()),
+        public_summary: Some(format!("runner_smoke_{failure_class}")),
+    }
+}
+
+fn parse_runner_smoke_response(value: &Value) -> PublicRunnerSmokeResponseV1 {
+    PublicRunnerSmokeResponseV1 {
+        api_version: "1",
+        status: safe_runner_smoke_string(value, "status", &["ok", "degraded", "error"], "error"),
+        selected_runtime: safe_runner_smoke_string(
+            value,
+            "selected_runtime",
+            &["node", "bun", "unknown"],
+            "unknown",
+        ),
+        cwd_label: safe_runner_smoke_string(
+            value,
+            "cwd_label",
+            &["app", "repo", "unknown"],
+            "unknown",
+        ),
+        runner_exists: bool_from_json(value, "runner_exists"),
+        adapter_exists: bool_from_json(value, "adapter_exists"),
+        fusion_brain_exists: bool_from_json(value, "fusion_brain_exists"),
+        contract_exists: bool_from_json(value, "contract_exists"),
+        runner_exit_code: value.get("runner_exit_code").and_then(Value::as_i64),
+        stdout_json_valid: bool_from_json(value, "stdout_json_valid"),
+        result_degraded: bool_from_json(value, "result_degraded"),
+        public_failure_class: safe_runner_smoke_optional_string(value, "public_failure_class"),
+        public_summary: safe_runner_smoke_optional_string(value, "public_summary"),
+    }
+}
+
+async fn public_v1_runtime_runner_smoke(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<PublicRunnerSmokeResponseV1>) {
+    if state.mock_mode {
+        return (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback("degraded", "mock_mode")),
+        );
+    }
+
+    let body = serde_json::to_vec(&json!({
+        "diagnostic": "runner_smoke",
+        "message": "responda apenas OK",
+        "client_session_id": "runner-smoke-public-safe",
+        "request_source": "rust_runner_smoke",
+        "runtime_session_version": state.runtime_session_version,
+    }))
+    .unwrap_or_else(|_| br#"{"diagnostic":"runner_smoke"}"#.to_vec());
+
+    let mut command = Command::new(&state.python_bin);
+    command
+        .arg(&state.python_entry)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_spawn_failed")),
+            )
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        if stdin.write_all(&body).await.is_err() {
+            let _ = child.kill().await;
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_stdin_failed")),
+            );
+        }
+        let _ = stdin.flush().await;
+    }
+
+    let output = match timeout(Duration::from_secs(8), child.wait_with_output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "python_wait_failed")),
+            )
+        }
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(build_runner_smoke_fallback("error", "timeout")),
+            )
+        }
+    };
+
+    if !output.status.success() {
+        return (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback(
+                "error",
+                "python_subprocess_failed",
+            )),
+        );
+    }
+
+    let parsed = serde_json::from_slice::<Value>(&output.stdout);
+    match parsed {
+        Ok(value) => (StatusCode::OK, Json(parse_runner_smoke_response(&value))),
+        Err(_) => (
+            StatusCode::OK,
+            Json(build_runner_smoke_fallback("error", "invalid_json")),
+        ),
+    }
 }
 
 fn truncate_preview(s: &str, max_chars: usize) -> String {
@@ -1656,6 +1872,7 @@ async fn operator_v1_pr_digest(
 }
 
 /// Normalizes optional client session id: trim, drop empty, cap length for safe logging/JSON size.
+#[cfg(test)]
 fn normalize_client_session_id(raw: Option<String>) -> Option<String> {
     const MAX_CHARS: usize = 256;
     let inner = raw?;
@@ -1715,15 +1932,21 @@ fn public_error_response(status: StatusCode, code: &str) -> Response {
     (status, Json(build_public_error_payload(code))).into_response()
 }
 
-fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
+type BoxedResponseResult<T> = Result<T, Box<Response>>;
+
+fn boxed_public_error_response(status: StatusCode, code: &str) -> Box<Response> {
+    Box::new(public_error_response(status, code))
+}
+
+fn validate_content_type(headers: &HeaderMap) -> BoxedResponseResult<()> {
     let Some(value) = headers.get(CONTENT_TYPE) else {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ));
     };
     let Ok(raw) = value.to_str() else {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ));
@@ -1732,7 +1955,7 @@ fn validate_content_type(headers: &HeaderMap) -> Result<(), Response> {
     if mime.eq_ignore_ascii_case("application/json") {
         Ok(())
     } else {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "INVALID_CONTENT_TYPE",
         ))
@@ -1745,22 +1968,22 @@ fn contains_unsafe_control_chars(value: &str) -> bool {
         .any(|ch| ch.is_control() && ch != '\t' && ch != '\n' && ch != '\r')
 }
 
-fn validate_message(message: &str, max_chars: usize) -> Result<String, Response> {
+fn validate_message(message: &str, max_chars: usize) -> BoxedResponseResult<String> {
     let trimmed = message.trim().to_string();
     if trimmed.is_empty() {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
     }
     if trimmed.chars().count() > max_chars {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "PAYLOAD_TOO_LARGE",
         ));
     }
     if contains_unsafe_control_chars(&trimmed) {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1768,7 +1991,7 @@ fn validate_message(message: &str, max_chars: usize) -> Result<String, Response>
     Ok(trimmed)
 }
 
-fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response> {
+fn validate_optional_id(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
     let Some(value) = raw else {
         return Ok(None);
     };
@@ -1777,7 +2000,7 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
         return Ok(None);
     }
     if trimmed.chars().count() > 128 || contains_unsafe_control_chars(&trimmed) {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1786,7 +2009,7 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
     {
-        return Err(public_error_response(
+        return Err(boxed_public_error_response(
             StatusCode::BAD_REQUEST,
             "INPUT_VALIDATION_FAILED",
         ));
@@ -1794,9 +2017,133 @@ fn validate_optional_id(raw: Option<String>) -> Result<Option<String>, Response>
     Ok(Some(trimmed))
 }
 
-fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Response> {
+const BYOK_ALLOWED_PROVIDERS: &[&str] = &[
+    "groq",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "lmstudio",
+];
+const BYOK_MAX_PROVIDER_COUNT: usize = 4;
+const BYOK_MAX_API_KEY_CHARS: usize = 4096;
+const BYOK_MAX_MODEL_CHARS: usize = 128;
+
+fn normalize_provider_id(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() || contains_unsafe_control_chars(&normalized) {
+        return None;
+    }
+    if BYOK_ALLOWED_PROVIDERS.contains(&normalized.as_str()) {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn validate_provider_preference(raw: Option<String>) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    normalize_provider_id(trimmed).map(Some).ok_or_else(|| {
+        boxed_public_error_response(StatusCode::BAD_REQUEST, "INPUT_VALIDATION_FAILED")
+    })
+}
+
+fn validate_optional_secret_string(
+    raw: Option<String>,
+    max_chars: usize,
+) -> BoxedResponseResult<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > max_chars || contains_unsafe_control_chars(&trimmed) {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "INPUT_VALIDATION_FAILED",
+        ));
+    }
+    Ok(Some(trimmed))
+}
+
+fn validate_session_provider_credentials(
+    raw: Option<BTreeMap<String, SessionProviderCredential>>,
+) -> BoxedResponseResult<Option<BTreeMap<String, SessionProviderCredential>>> {
+    let Some(raw_credentials) = raw else {
+        return Ok(None);
+    };
+    if raw_credentials.is_empty() {
+        return Ok(None);
+    }
+    if raw_credentials.len() > BYOK_MAX_PROVIDER_COUNT {
+        return Err(boxed_public_error_response(
+            StatusCode::BAD_REQUEST,
+            "PAYLOAD_TOO_LARGE",
+        ));
+    }
+
+    let mut validated = BTreeMap::new();
+    for (provider, credential) in raw_credentials {
+        let Some(provider_id) = normalize_provider_id(&provider) else {
+            return Err(boxed_public_error_response(
+                StatusCode::BAD_REQUEST,
+                "INPUT_VALIDATION_FAILED",
+            ));
+        };
+        let api_key = validate_optional_secret_string(credential.api_key, BYOK_MAX_API_KEY_CHARS)?;
+        let model = validate_optional_secret_string(credential.model, BYOK_MAX_MODEL_CHARS)?;
+        if api_key.is_none() && model.is_none() {
+            continue;
+        }
+        validated.insert(provider_id, SessionProviderCredential { api_key, model });
+    }
+
+    if validated.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(validated))
+    }
+}
+
+fn build_private_bridge_context(
+    client_context: Option<Value>,
+    provider_preference: &Option<String>,
+    credentials: &Option<BTreeMap<String, SessionProviderCredential>>,
+) -> Option<Value> {
+    let mut out = Map::new();
+    if let Some(Value::Object(obj)) = client_context {
+        out.extend(obj);
+    }
+    if let Some(provider) = provider_preference {
+        out.insert(
+            "provider_preference".to_string(),
+            Value::String(provider.clone()),
+        );
+    }
+    if let Some(credentials) = credentials {
+        if let Ok(value) = serde_json::to_value(credentials) {
+            out.insert("session_provider_credentials".to_string(), value);
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(Value::Object(out))
+    }
+}
+
+fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResult<()> {
     if bytes.len() > max_body_bytes {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "PAYLOAD_TOO_LARGE",
         ))
@@ -1805,7 +2152,7 @@ fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> Result<(), Respon
     }
 }
 
-fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
+fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
     let client_key = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
@@ -1819,21 +2166,21 @@ fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> Result<(),
     {
         Ok(())
     } else {
-        Err(public_error_response(
+        Err(boxed_public_error_response(
             StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",
         ))
     }
 }
 
-fn parse_chat_request(bytes: &Bytes) -> Result<ChatRequest, Response> {
+fn parse_chat_request(bytes: &Bytes) -> BoxedResponseResult<ChatRequest> {
     serde_json::from_slice::<ChatRequest>(bytes)
-        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
 }
 
-fn parse_public_chat_request(bytes: &Bytes) -> Result<PublicChatRequestV1, Response> {
+fn parse_public_chat_request(bytes: &Bytes) -> BoxedResponseResult<PublicChatRequestV1> {
     serde_json::from_slice::<PublicChatRequestV1>(bytes)
-        .map_err(|_| public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        .map_err(|_| boxed_public_error_response(StatusCode::BAD_REQUEST, "INVALID_JSON"))
 }
 
 async fn chat(
@@ -1842,34 +2189,45 @@ async fn chat(
     body: Bytes,
 ) -> Result<Response, AppError> {
     if let Err(response) = validate_content_type(&headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_chat_rate_limit(&state, &headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     let payload = match parse_chat_request(&body) {
         Ok(payload) => payload,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let message = match validate_message(
         &payload.message,
         state.chat_security.config.max_message_chars,
     ) {
         Ok(message) => message,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     let client_session_id = match validate_optional_id(payload.client_session_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let request_id = match validate_optional_id(payload.request_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
+    let provider_preference = match validate_provider_preference(payload.provider_preference) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let session_provider_credentials =
+        match validate_session_provider_credentials(payload.session_provider_credentials) {
+            Ok(value) => value,
+            Err(response) => return Ok(*response),
+        };
+    let private_context =
+        build_private_bridge_context(None, &provider_preference, &session_provider_credentials);
 
     info!(
         client_session_id = ?client_session_id,
@@ -1877,7 +2235,14 @@ async fn chat(
         state.runtime_session_version,
         state.runtime_mode
     );
-    let response = call_python(&state, &message, client_session_id, request_id, None).await?;
+    let response = call_python(
+        &state,
+        &message,
+        client_session_id,
+        request_id,
+        private_context.as_ref(),
+    )
+    .await?;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
@@ -1887,38 +2252,52 @@ async fn public_v1_chat(
     body: Bytes,
 ) -> Result<Response, AppError> {
     if let Err(response) = validate_content_type(&headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
-        return Ok(response);
+        return Ok(*response);
     }
     if let Err(response) = validate_chat_rate_limit(&state, &headers) {
-        return Ok(response);
+        return Ok(*response);
     }
     let payload = match parse_public_chat_request(&body) {
         Ok(payload) => payload,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let message = match validate_message(
         &payload.message,
         state.chat_security.config.max_message_chars,
     ) {
         Ok(message) => message,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     let client_session_id = match validate_optional_id(payload.client_session_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
     let request_id = match validate_optional_id(payload.request_id) {
         Ok(value) => value,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
+    let provider_preference = match validate_provider_preference(payload.provider_preference) {
+        Ok(value) => value,
+        Err(response) => return Ok(*response),
+    };
+    let session_provider_credentials =
+        match validate_session_provider_credentials(payload.session_provider_credentials) {
+            Ok(value) => value,
+            Err(response) => return Ok(*response),
+        };
     let client_context_json = payload
         .client_context
         .as_ref()
         .and_then(|ctx| serde_json::to_value(ctx).ok());
+    let private_context = build_private_bridge_context(
+        client_context_json,
+        &provider_preference,
+        &session_provider_credentials,
+    );
 
     info!(
         client_session_id = ?client_session_id,
@@ -1932,7 +2311,7 @@ async fn public_v1_chat(
         &message,
         client_session_id,
         request_id,
-        client_context_json.as_ref(),
+        private_context.as_ref(),
     )
     .await?;
 
@@ -2385,7 +2764,10 @@ fn annotate_service_metadata(
         .unwrap_or_else(|| json!({}));
 
     if let Some(obj) = inspection.as_object_mut() {
-        obj.insert("runtime_mode".into(), Value::String("SAFE_FALLBACK".to_string()));
+        obj.insert(
+            "runtime_mode".into(),
+            Value::String("SAFE_FALLBACK".to_string()),
+        );
         obj.insert(
             "runtime_reason".into(),
             Value::String(error_public_code.to_string()),
@@ -2476,10 +2858,13 @@ async fn execute_python_service_with_policy(
 
     for _ in 0..attempts {
         let circuit_state = {
-            let mut guard = state.python_circuit.lock().map_err(|_| PythonServiceFailure {
-                kind: PythonServiceFailureKind::ServiceFailure,
-                circuit_state: CircuitBreakerState::Open,
-            })?;
+            let mut guard = state
+                .python_circuit
+                .lock()
+                .map_err(|_| PythonServiceFailure {
+                    kind: PythonServiceFailureKind::ServiceFailure,
+                    circuit_state: CircuitBreakerState::Open,
+                })?;
             guard.before_call(&state.python_runtime, Instant::now())
         };
         last_state = circuit_state;
@@ -2593,7 +2978,9 @@ async fn call_python_service(
     };
 
     let parsed = extract_chat_from_python_output(&response_body);
-    if parsed.response == PYTHON_FALLBACK_RESPONSE || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE {
+    if parsed.response == PYTHON_FALLBACK_RESPONSE
+        || parsed.response == PYTHON_PARSE_FAILURE_RESPONSE
+    {
         let kind = PythonServiceFailureKind::ServiceFailure;
         let code = service_failure_code(kind);
         let stop_reason = "python_service_error";
@@ -2601,9 +2988,14 @@ async fn call_python_service(
         record_python_service_failure(state, kind, circuit_state);
         let current_state = current_python_circuit_state(state);
         if state.python_runtime.fallback_to_subprocess {
-            let mut fallback =
-                call_python_subprocess(state, message, client_session_id, request_id, client_context)
-                    .await?;
+            let mut fallback = call_python_subprocess(
+                state,
+                message,
+                client_session_id,
+                request_id,
+                client_context,
+            )
+            .await?;
             fallback.source = "python-service-subprocess-fallback".to_string();
             fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
             annotate_service_metadata(&mut fallback, true, true, current_state, code);
@@ -2661,11 +3053,24 @@ async fn call_python(
     }
 
     if state.python_runtime.mode == PythonRuntimeMode::Service {
-        return call_python_service(state, message, client_session_id, request_id, client_context)
-            .await;
+        return call_python_service(
+            state,
+            message,
+            client_session_id,
+            request_id,
+            client_context,
+        )
+        .await;
     }
 
-    call_python_subprocess(state, message, client_session_id, request_id, client_context).await
+    call_python_subprocess(
+        state,
+        message,
+        client_session_id,
+        request_id,
+        client_context,
+    )
+    .await
 }
 
 async fn call_python_subprocess(
@@ -2678,7 +3083,7 @@ async fn call_python_subprocess(
     if state.mock_mode {
         update_python_health(state, "mock", None).await;
         return Ok(build_mock_response(
-            &state,
+            state,
             message,
             "mock-env",
             client_session_id,
@@ -2708,7 +3113,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_spawn_failed",
@@ -2724,7 +3129,7 @@ async fn call_python_subprocess(
             let _ = child.kill().await;
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_stdin_failed",
@@ -2748,7 +3153,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "failed", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_wait_failed",
@@ -2763,7 +3168,7 @@ async fn call_python_subprocess(
             error!("{message}");
             update_python_health(state, "timeout", Some(message.clone())).await;
             return Ok(build_python_fallback_response(
-                &state,
+                state,
                 "python-subprocess",
                 client_session_id.clone(),
                 "python_subprocess_timeout",
@@ -2791,7 +3196,7 @@ async fn call_python_subprocess(
         )
         .await;
         return Ok(build_python_fallback_response(
-            &state,
+            state,
             "python-subprocess",
             client_session_id.clone(),
             "python_subprocess_nonzero_exit",
@@ -2815,7 +3220,7 @@ async fn call_python_subprocess(
         warn!("{message}");
         update_python_health(state, "empty_stdout", Some(message.clone())).await;
         return Ok(build_python_fallback_response(
-            &state,
+            state,
             "python-subprocess",
             client_session_id.clone(),
             "python_empty_stdout",
@@ -2880,27 +3285,56 @@ fn read_json_value(path: &Path) -> Option<Value> {
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
 }
 
+const JSONL_TAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
 fn read_recent_jsonl(path: &Path, limit: usize) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|raw| {
-            raw.lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        serde_json::from_str::<Value>(trimmed).ok()
-                    }
-                })
-                .rev()
-                .take(limit)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+    let file_len = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Vec::new(),
+    };
+    if file_len == 0 {
+        return Vec::new();
+    }
+
+    let read_len = file_len.min(JSONL_TAIL_MAX_BYTES);
+    let start = file_len.saturating_sub(read_len);
+    if file.seek(std::io::SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+
+    let mut bytes = Vec::with_capacity(read_len as usize);
+    if std::io::Read::read_to_end(&mut file, &mut bytes).is_err() {
+        return Vec::new();
+    }
+
+    let raw = String::from_utf8_lossy(&bytes);
+    let mut lines = raw.lines();
+    if start > 0 {
+        let _ = lines.next();
+    }
+
+    let mut parsed: Vec<Value> = lines
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                serde_json::from_str::<Value>(trimmed).ok()
+            }
         })
-        .unwrap_or_default()
+        .collect();
+    if parsed.len() > limit {
+        parsed.drain(0..parsed.len() - limit);
+    }
+    parsed
 }
 
 fn read_latest_jsonl(path: &Path) -> Option<Value> {
@@ -3050,6 +3484,10 @@ mod tests {
         Router::new()
             .route("/chat", post(chat))
             .route("/api/v1/chat", post(public_v1_chat))
+            .route(
+                "/api/v1/runtime/runner-smoke",
+                get(public_v1_runtime_runner_smoke),
+            )
             .with_state(state)
     }
 
@@ -3066,6 +3504,14 @@ mod tests {
             .uri(path)
             .header(CONTENT_TYPE, "application/json")
             .body(body.into())
+            .expect("request")
+    }
+
+    fn get_request(path: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .body(Body::empty())
             .expect("request")
     }
 
@@ -3109,6 +3555,59 @@ mod tests {
         let body = response_json(response).await;
         assert_eq!(body["response"].as_str(), Some("ok"));
         assert_eq!(body["client_session_id"].as_str(), Some("sess-1"));
+    }
+
+    #[tokio::test]
+    async fn runner_smoke_route_returns_safe_fields_only() {
+        let script = r#"import json
+import sys
+
+_ = sys.stdin.read()
+print(json.dumps({
+    "status": "ok",
+    "selected_runtime": "node",
+    "cwd_label": "app",
+    "runner_exists": True,
+    "adapter_exists": True,
+    "fusion_brain_exists": True,
+    "contract_exists": True,
+    "runner_exit_code": 0,
+    "stdout_json_valid": True,
+    "result_degraded": False,
+    "public_failure_class": None,
+    "public_summary": "runner_smoke_ok",
+    "stdout": "sk-test-secret Authorization raw response stack trace",
+    "env": {"OPENAI_API_KEY": "sk-test-secret"}
+}))
+"#;
+        let state = build_test_state(temp_script(script, "runner-smoke-safe"), 15_000);
+        let response = chat_router(state)
+            .oneshot(get_request("/api/v1/runtime/runner-smoke"))
+            .await
+            .expect("runner smoke route");
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = response_json(response).await;
+
+        assert_eq!(payload["api_version"].as_str(), Some("1"));
+        assert_eq!(payload["status"].as_str(), Some("ok"));
+        assert_eq!(payload["selected_runtime"].as_str(), Some("node"));
+        assert_eq!(payload["cwd_label"].as_str(), Some("app"));
+        assert_eq!(payload["runner_exists"].as_bool(), Some(true));
+        assert_eq!(payload["adapter_exists"].as_bool(), Some(true));
+        assert_eq!(payload["fusion_brain_exists"].as_bool(), Some(true));
+        assert_eq!(payload["contract_exists"].as_bool(), Some(true));
+        assert_eq!(payload["runner_exit_code"].as_i64(), Some(0));
+        assert_eq!(payload["stdout_json_valid"].as_bool(), Some(true));
+        assert_eq!(payload["result_degraded"].as_bool(), Some(false));
+        assert_eq!(payload["public_summary"].as_str(), Some("runner_smoke_ok"));
+
+        let serialized = serde_json::to_string(&payload).expect("json");
+        assert!(!serialized.contains("stderr"));
+        assert!(!serialized.contains("env"));
+        assert!(!serialized.contains("sk-test-secret"));
+        assert!(!serialized.contains("Authorization"));
+        assert!(!serialized.contains("raw response"));
+        assert!(!serialized.contains("stack trace"));
     }
 
     #[tokio::test]
@@ -3624,7 +4123,8 @@ mod tests {
 
     #[tokio::test]
     async fn service_failure_optionally_falls_back_to_subprocess() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
         let script = r#"print('{"response":"ok from subprocess","cognitive_runtime_inspection":{"runtime_mode":"FULL_COGNITIVE_RUNTIME"}}')"#;
         let mut state = build_test_state(temp_script(script, "service-fallback"), 15_000);
         state.python_runtime = PythonRuntimeConfig {
@@ -3649,14 +4149,21 @@ mod tests {
         assert_eq!(inspection["fallback_triggered"].as_bool(), Some(true));
         assert_eq!(inspection["service_mode_attempted"].as_bool(), Some(true));
         assert_eq!(inspection["service_fallback_used"].as_bool(), Some(true));
-        assert_ne!(inspection["runtime_mode"].as_str(), Some("FULL_COGNITIVE_RUNTIME"));
+        assert_ne!(
+            inspection["runtime_mode"].as_str(),
+            Some("FULL_COGNITIVE_RUNTIME")
+        );
     }
 
     #[tokio::test]
     async fn service_failure_without_fallback_does_not_invoke_subprocess() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "service failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "service failed"})).await;
         let mut state = build_service_state(port, 5_000);
-        state.python_entry = temp_script("print('{\"response\":\"should-not-run\"}')\n", "no-fallback");
+        state.python_entry = temp_script(
+            "print('{\"response\":\"should-not-run\"}')\n",
+            "no-fallback",
+        );
         state.python_runtime.fallback_to_subprocess = false;
 
         let response = call_python(&state, "hello", None, None, None)
@@ -3736,7 +4243,8 @@ mod tests {
 
     #[tokio::test]
     async fn half_open_failure_reopens_circuit() {
-        let (port, _handle) = mock_python_service_once(500, json!({"response": "probe failed"})).await;
+        let (port, _handle) =
+            mock_python_service_once(500, json!({"response": "probe failed"})).await;
         let mut state = build_service_state(port, 5_000);
         state.python_runtime.circuit_failure_threshold = 1;
         state.python_runtime.circuit_reset_ms = 1;
@@ -3777,6 +4285,51 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
             .expect("python stdin bridge");
         assert_eq!(response.response, "msg=hello;cid=sess-9;rsv=1");
         assert_eq!(response.client_session_id.as_deref(), Some("sess-9"));
+    }
+
+    #[tokio::test]
+    async fn chat_route_does_not_echo_session_byok_key() {
+        let script = r#"import json,sys
+d=json.loads(sys.stdin.read())
+ctx=d.get("client_context") or {}
+creds=ctx.get("session_provider_credentials") or {}
+seen=bool((creds.get("openai") or {}).get("api_key"))
+print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
+"#;
+        let state = build_test_state(temp_script(script, "byok-private"), 15_000);
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","provider_preference":"openai","session_provider_credentials":{"openai":{"api_key":"test-byok-key","model":"gpt-4o-mini"}}}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        let body_text = serde_json::to_string(&body).unwrap();
+        assert_eq!(body["response"].as_str(), Some("byok_seen=true"));
+        assert!(!body_text.contains("test-byok-key"));
+        assert!(!body_text.contains("gpt-4o-mini"));
+        assert!(body.get("session_provider_credentials").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_route_rejects_invalid_session_byok_without_echoing_secret_material() {
+        let state = build_test_state(temp_script("print('{}')", "byok-invalid"), 15_000);
+        let response = chat_router(state)
+            .oneshot(json_post(
+                "/chat",
+                r#"{"message":"hello","provider_preference":"openai","session_provider_credentials":{"deepseek":{"api_key":"sk-test-byok-session-openai","model":"byok-test-model"}}}"#,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        let body_text = serde_json::to_string(&body).unwrap();
+        assert!(!body_text.contains("sk-test-byok-session-openai"));
+        assert!(!body_text.contains("byok-test-model"));
+        assert!(body.is_object());
+        assert!(body.get("session_provider_credentials").is_none());
     }
 
     #[test]
@@ -3860,6 +4413,146 @@ print(json.dumps({"response": f"msg={d['message']};cid={cid};rsv={d.get('runtime
         assert_eq!(p.client_session_id.as_deref(), Some("s1"));
         let ctx = p.client_context.expect("context");
         assert_eq!(ctx.source.as_deref(), Some("frontend"));
+    }
+
+    #[test]
+    fn chat_request_deserializes_typed_session_provider_credentials() {
+        let raw = r#"{"message":"hi","provider_preference":"openai","session_provider_credentials":{"openai":{"api_key":"test-byok-key","model":"gpt-4o-mini"}}}"#;
+        let p: ChatRequest = serde_json::from_str(raw).expect("deserialize");
+        assert_eq!(p.provider_preference.as_deref(), Some("openai"));
+        let credentials = p.session_provider_credentials.expect("credentials");
+        assert_eq!(
+            credentials
+                .get("openai")
+                .and_then(|item| item.model.as_deref()),
+            Some("gpt-4o-mini")
+        );
+    }
+
+    #[test]
+    fn session_provider_credentials_reject_unknown_fields() {
+        let raw = r#"{"message":"hi","session_provider_credentials":{"openai":{"api_key":"test-byok-key","extra":"nope"}}}"#;
+        assert!(serde_json::from_str::<ChatRequest>(raw).is_err());
+    }
+
+    #[test]
+    fn session_byok_validation_rejects_unknown_provider_and_deepseek() {
+        let mut unknown = BTreeMap::new();
+        unknown.insert(
+            "notreal".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(unknown)).is_err());
+
+        let mut deepseek = BTreeMap::new();
+        deepseek.insert(
+            "deepseek".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(deepseek)).is_err());
+    }
+
+    #[test]
+    fn session_byok_validation_rejects_oversized_and_control_chars() {
+        let mut too_long = BTreeMap::new();
+        too_long.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("x".repeat(BYOK_MAX_API_KEY_CHARS + 1)),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(too_long)).is_err());
+
+        let mut control = BTreeMap::new();
+        control.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("bad\u{0000}key".to_string()),
+                model: None,
+            },
+        );
+        assert!(validate_session_provider_credentials(Some(control)).is_err());
+    }
+
+    #[test]
+    fn build_python_stdin_json_forwards_private_byok_bridge_fields() {
+        let mut credentials = BTreeMap::new();
+        credentials.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("test-byok-key".to_string()),
+                model: Some("gpt-4o-mini".to_string()),
+            },
+        );
+        let context = build_private_bridge_context(
+            Some(json!({"source": "frontend"})),
+            &Some("openai".to_string()),
+            &Some(credentials),
+        )
+        .expect("context");
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+        assert_eq!(
+            parsed["client_context"]["provider_preference"].as_str(),
+            Some("openai")
+        );
+        assert_eq!(
+            parsed["client_context"]["session_provider_credentials"]["openai"]["api_key"].as_str(),
+            Some("test-byok-key")
+        );
+    }
+
+    #[test]
+    fn build_python_stdin_json_forwards_byok_model_without_public_response_echo() {
+        let mut credentials = BTreeMap::new();
+        credentials.insert(
+            "openai".to_string(),
+            SessionProviderCredential {
+                api_key: Some("sk-test-byok-session-openai".to_string()),
+                model: Some("byok-test-model".to_string()),
+            },
+        );
+        let context =
+            build_private_bridge_context(None, &Some("openai".to_string()), &Some(credentials))
+                .expect("context");
+        let v = build_python_stdin_json("m", &None, &None, 3, Some(&context));
+        let parsed: Value = serde_json::from_slice(&v).unwrap();
+
+        assert_eq!(
+            parsed["client_context"]["provider_preference"].as_str(),
+            Some("openai")
+        );
+        assert_eq!(
+            parsed["client_context"]["session_provider_credentials"]["openai"]["model"].as_str(),
+            Some("byok-test-model")
+        );
+
+        let public = ChatResponse {
+            response: "ok".to_string(),
+            session_id: "python-session".to_string(),
+            source: "python-subprocess".to_string(),
+            runtime_session_version: 1,
+            client_session_id: None,
+            matched_commands: vec![],
+            matched_tools: vec![],
+            stop_reason: Some("completed".to_string()),
+            usage: None,
+            conversation_id: None,
+            cognitive_runtime_inspection: None,
+            providers: None,
+            error: None,
+        };
+        let public_text = serde_json::to_string(&public).unwrap();
+        assert!(!public_text.contains("sk-test-byok-session-openai"));
+        assert!(!public_text.contains("byok-test-model"));
+        assert!(!public_text.contains("session_provider_credentials"));
     }
 
     #[test]

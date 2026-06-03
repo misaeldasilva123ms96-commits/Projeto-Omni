@@ -10,6 +10,8 @@ This directory is the **canonical home** for Omni documentation. The repository 
 | Product vision and product-maturity roadmap | [product/vision.md](product/vision.md), [product/roadmap.md](product/roadmap.md) |
 | Architecture (runtime, layers, contracts) | [architecture/](architecture/) |
 | Runtime truth and bridge contract | [architecture/runtime-modes.md](architecture/runtime-modes.md), [architecture/bridge-response-contract.md](architecture/bridge-response-contract.md) |
+| Current runtime state | [runtime/current-state-runtime-audit.md](runtime/current-state-runtime-audit.md) |
+| Providers, BYOK, diagnostics | [runtime/providers.md](runtime/providers.md), [runtime/byok.md](runtime/byok.md), [runtime/diagnostics.md](runtime/diagnostics.md) |
 | Current testing matrix | [operations/testing.md](operations/testing.md) |
 | Public demo readiness | [release/PUBLIC_DEMO_READINESS.md](release/PUBLIC_DEMO_READINESS.md) |
 | Training readiness | [training/TRAINING_READINESS.md](training/TRAINING_READINESS.md) |

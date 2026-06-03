@@ -37,13 +37,32 @@ _DANGEROUS_KEY_FRAGMENTS = (
     "memory_content",
 )
 
+_SAFE_IDENTIFIER_KEYS = {
+    "artifact_id",
+    "goal_id",
+    "request_id",
+    "run_id",
+    "session_id",
+    "trace_id",
+}
+
 _SUPABASE_URL_RE = re.compile(r"https://[a-z0-9-]+\.supabase\.co(?:/[^\s\"'`{}[\],;]*)?", re.IGNORECASE)
 _SUPABASE_KEY_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
 _JWT_RE = _SUPABASE_KEY_RE
 _OPENAI_KEY_RE = re.compile(r"\bsk-(?:proj-|ant-|groq-)?[A-Za-z0-9_-]{8,}\b")
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}")
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
-_BR_PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?\d{4}[-.\s]?\d{4}(?!\d)")
+_BR_PHONE_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:"
+    r"\+55\s*\(?\d{2}\)?\s*9?\s*\d{4}[-.\s]?\d{4}"
+    r"|"
+    r"\(?\d{2}\)?\s*9\s*\d{4}[-.\s]?\d{4}"
+    r"|"
+    r"\d{5}[-.\s]\d{4}"
+    r")"
+    r"(?![A-Za-z0-9_-])"
+)
 _CPF_RE = re.compile(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)")
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(password|token|secret|api_key)\s*=\s*([^\s,;}\]]+)"
@@ -56,6 +75,8 @@ _WINDOWS_PATH_RE = re.compile(
 
 def _dangerous_key(key: Any) -> bool:
     normalized = str(key or "").strip().lower()
+    if normalized in _SAFE_IDENTIFIER_KEYS:
+        return False
     return any(fragment in normalized for fragment in _DANGEROUS_KEY_FRAGMENTS)
 
 

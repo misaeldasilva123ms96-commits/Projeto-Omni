@@ -1,0 +1,41 @@
+name: Health Check
+
+on:
+  schedule:
+    - cron: '0 */1 * * *' # every 1 hour
+  workflow_dispatch: {}
+
+jobs:
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    # Definimos a variável aqui para o bloco 'if' dos passos conseguir ler com segurança
+    env:
+      OMINI_E2E_API_URL: ${{ secrets.OMINI_E2E_API_URL }}
+      
+    steps:
+      - name: Skip if no E2E URL configured
+        if: ${{ env.OMINI_E2E_API_URL == '' }}
+        run: |
+          echo "No OMINI_E2E_API_URL secret set; skipping runtime smoke test."
+
+      - name: Call runtime runner-smoke (with retries)
+        if: ${{ env.OMINI_E2E_API_URL != '' }}
+        run: |
+          URL="${OMINI_E2E_API_URL}/api/v1/runtime/runner-smoke"
+          tries=0
+          max=3
+          status=000
+          until [ $tries -ge $max ]
+          do
+            tries=$((tries+1))
+            echo "Attempt $tries: calling $URL"
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL") || status=000
+            echo "status=$status"
+            if [ "$status" -eq 200 ]; then
+              echo "Health check succeeded on attempt $tries"
+              exit 0
+            fi
+            sleep $((tries*5))
+          done
+          echo "Runtime smoke endpoint returned $status after $tries attempts"
+          exit 1

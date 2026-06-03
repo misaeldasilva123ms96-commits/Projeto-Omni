@@ -8,8 +8,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("invalid request: {0}")]
-    InvalidRequest(String),
     #[error("python process failed: {message}")]
     PythonProcess {
         code: &'static str,
@@ -37,17 +35,16 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match &self {
-            Self::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             Self::PythonProcess { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         let body = match self {
-            Self::InvalidRequest(message) => Json(json!({
-                "error": format!("invalid request: {message}"),
-                "code": "invalid_request",
-            })),
-            Self::PythonProcess { code, message, stderr } => Json(json!({
+            Self::PythonProcess {
+                code,
+                message,
+                stderr,
+            } => Json(json!({
                 "error": format!("python process failed: {message}"),
                 "code": code,
                 "details": {

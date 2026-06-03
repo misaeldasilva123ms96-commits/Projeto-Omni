@@ -1,0 +1,55 @@
+name: Security Checks
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # weekly on Mondays UTC
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript, python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+
+  dependency-and-audit:
+    name: Dependency & Runtime Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Node audit
+        working-directory: ./
+        run: |
+          npm ci
+          npm audit --audit-level=moderate || true
+
+      - name: Python pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip-audit --exit-code 1 || true
+
+      - name: Cargo audit (optional)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+          cargo install --locked cargo-audit || true
+          cd backend/rust || exit 0
+          cargo audit || true

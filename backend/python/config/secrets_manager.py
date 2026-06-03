@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 __all__ = [
@@ -21,15 +22,27 @@ class SecretError(Exception):
 
 def _mapping() -> dict[str, str]:
     return {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
         "groq": "GROQ_API_KEY",
+        "groq_model": "GROQ_MODEL",
+        "openrouter": "OPENROUTER_API_KEY",
+        "openrouter_model": "OPENROUTER_MODEL",
+        "openai": "OPENAI_API_KEY",
+        "openai_model": "OPENAI_MODEL",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "anthropic_model": "ANTHROPIC_MODEL",
         "gemini": "GEMINI_API_KEY",
+        "gemini_model": "GEMINI_MODEL",
         "deepseek": "DEEPSEEK_API_KEY",
+        "deepseek_model": "DEEPSEEK_MODEL",
+        "ollama": "OLLAMA_URL",
+        "ollama_model": "OLLAMA_MODEL",
+        "ollama_api_key": "OLLAMA_API_KEY",
+        "lmstudio": "LMSTUDIO_URL",
+        "lmstudio_model": "LMSTUDIO_MODEL",
+        "lmstudio_api_key": "LMSTUDIO_API_KEY",
         "codex": "CODEX_API_KEY",
         "supabase_url": "SUPABASE_URL",
         "supabase_anon": "SUPABASE_ANON_KEY",
-        "ollama": "OLLAMA_URL",
     }
 
 
@@ -65,11 +78,14 @@ def get_secret(name: str) -> str:
 def describe_configuration() -> dict[str, str]:
     """Safe status map for debug/health — never returns secret values."""
     mapping = {
+        "groq": "GROQ_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
-        "groq": "GROQ_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
+        "ollama": "OLLAMA_URL",
+        "lmstudio": "LMSTUDIO_URL",
         "codex": "CODEX_API_KEY",
         "supabase": "SUPABASE_ANON_KEY",
     }
@@ -119,6 +135,20 @@ def build_controlled_os_environ_base() -> dict[str, str]:
         val = os.environ.get(key)
         if val is not None and str(val).strip():
             env[key] = str(val)
+    if os.name == "nt":
+        windows_root = (
+            env.get("SystemRoot")
+            or env.get("SYSTEMROOT")
+            or env.get("WINDIR")
+            or (r"C:\Windows" if Path(r"C:\Windows").exists() else "")
+        )
+        if windows_root:
+            env.setdefault("SystemRoot", windows_root)
+            env.setdefault("SYSTEMROOT", windows_root)
+            env.setdefault("WINDIR", windows_root)
+            cmd_path = Path(windows_root) / "System32" / "cmd.exe"
+            if cmd_path.exists():
+                env.setdefault("COMSPEC", str(cmd_path))
     for key, val in os.environ.items():
         if key.startswith("OMINI_") and str(val).strip():
             env[key] = str(val)
@@ -132,15 +162,27 @@ def build_controlled_os_environ_base() -> dict[str, str]:
 def merge_provider_credentials(env: dict[str, str]) -> dict[str, str]:
     """Merge validated provider keys into env; skips missing/invalid without raising."""
     for logical in (
-        "openai",
-        "anthropic",
         "groq",
+        "groq_model",
+        "openrouter",
+        "openrouter_model",
+        "openai",
+        "openai_model",
+        "anthropic",
+        "anthropic_model",
         "gemini",
+        "gemini_model",
         "deepseek",
+        "deepseek_model",
+        "ollama",
+        "ollama_model",
+        "ollama_api_key",
+        "lmstudio",
+        "lmstudio_model",
+        "lmstudio_api_key",
         "codex",
         "supabase_url",
         "supabase_anon",
-        "ollama",
     ):
         try:
             val = get_secret(logical)

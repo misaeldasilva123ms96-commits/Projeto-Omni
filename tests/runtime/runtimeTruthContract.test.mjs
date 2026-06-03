@@ -70,6 +70,85 @@ async function withFetchMock(mockFetch, fn) {
   }
 }
 
+const providerEnvKeys = [
+  'GROQ_API_KEY',
+  'OPENROUTER_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'ANTHROPIC_API_KEY',
+  'GEMINI_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'OLLAMA_URL',
+  'LMSTUDIO_URL',
+  'OMINI_AVAILABLE_PROVIDERS',
+  'OMNI_BYOK_SESSION_MODE',
+  'OMNI_BYOK_PROVIDER',
+  'OMNI_BYOK_FAIL_CLOSED',
+  'OMNI_POLICY_HINT_JSON',
+]
+
+async function withNoProviderEnv(fn) {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  try {
+    await fn()
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+const forbiddenPublicFragments = [
+  'Authorization',
+  'x-api-key',
+  'Bearer ',
+  'bearer token',
+  'session_provider_credentials',
+  'raw request',
+  'raw response',
+  'stack trace',
+  'traceback',
+]
+
+function assertNoForbiddenPublicFragments(payload, fragments, label) {
+  const serialized = JSON.stringify(payload)
+  for (const fragment of [...forbiddenPublicFragments, ...fragments].filter(Boolean)) {
+    assert.equal(serialized.includes(fragment), false, `${label} leaked public fragment: ${fragment}`)
+  }
+}
+
+function collectStringPaths(value, target, prefix = '') {
+  if (typeof value === 'string') {
+    return value.includes(target) ? [prefix] : []
+  }
+  if (!value || typeof value !== 'object') {
+    return []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectStringPaths(item, target, `${prefix}[${index}]`))
+  }
+  return Object.entries(value).flatMap(([key, item]) => {
+    const path = prefix ? `${prefix}.${key}` : key
+    return collectStringPaths(item, target, path)
+  })
+}
+
+function assertModelOnlyInApprovedFields(payload, model) {
+  const paths = collectStringPaths(payload, model)
+  const forbiddenPaths = paths.filter(path => {
+    const lastSegment = path.split(/[.[\]]/).filter(Boolean).at(-1) ?? ''
+    return !lastSegment.includes('model') && lastSegment !== 'llm_model_used'
+  })
+  assert.deepEqual(forbiddenPaths, [], `model appeared outside approved model metadata fields: ${forbiddenPaths.join(', ')}`)
+}
+
 async function testGreetingMatcherTruth() {
   const engine = new QueryEngineAuthority()
   const result = await engine.submitMessage({
@@ -328,6 +407,13 @@ async function testRemoteExecutorDefaultGeminiModel() {
 }
 
 await testGreetingMatcherTruth()
+await testNoRemoteProviderFallbackTruth()
+await testByokFailClosedDoesNotFallbackToSystemProvider()
+await testByokHappyPathUsesSessionProviderOnly()
+await testByokProviderFailureDoesNotFallbackToSystemProvider()
+await testByokUnsupportedProviderHintFailsClosedPublicly()
+await testNormalRemoteFallbackPreservesCanonicalAndLegacyAliases()
+await testByokUnknownProviderHintFailsClosedPublicly()
 testIntentWrapper()
 testTruthHelperModes()
 await testGeminiProviderSuccessTruth()

@@ -141,6 +141,8 @@ MOCK_RUNTIME_RESPONSE = (
     "Modo mock ativo: esta resposta foi gerada sem acionar o caminho completo do runtime."
 )
 SUBPROCESS_TIMEOUT_SECONDS = 60
+MAX_JSONL_SANITIZE_BYTES = 10 * 1024 * 1024
+MAX_JSONL_ACTIVE_BYTES = 50 * 1024 * 1024
 DEFAULT_SESSION_ID = "python-session"
 CONTROL_LAYER_BLOCK_PREFIX = "Execucao bloqueada pela camada de controle"
 MUTATING_TOOLS = {
@@ -178,6 +180,146 @@ TRUSTED_EXECUTION_KNOWN_TOOLS = (
         "none",
     }
 )
+
+SESSION_BYOK_ALLOWED_PROVIDERS = {
+    "groq",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ollama",
+    "lmstudio",
+}
+SESSION_BYOK_ENV_MAP = {
+    "groq": ("GROQ_API_KEY", "GROQ_MODEL"),
+    "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_MODEL"),
+    "openai": ("OPENAI_API_KEY", "OPENAI_MODEL"),
+    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
+    "gemini": ("GEMINI_API_KEY", "GEMINI_MODEL"),
+    "ollama": ("OLLAMA_API_KEY", "OLLAMA_MODEL"),
+    "lmstudio": ("LMSTUDIO_API_KEY", "LMSTUDIO_MODEL"),
+}
+SESSION_BYOK_MAX_API_KEY_CHARS = 4096
+SESSION_BYOK_MAX_MODEL_CHARS = 128
+SESSION_BYOK_CLOUD_PROVIDERS = {"groq", "openrouter", "openai", "anthropic", "gemini"}
+SESSION_BYOK_PUBLIC_RESPONSE = (
+    "[degraded:byok_session] Session BYOK credentials could not be used safely for this request."
+)
+
+
+def _normalize_session_provider_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if not normalized or normalized not in SESSION_BYOK_ALLOWED_PROVIDERS:
+        return None
+    if any(ord(ch) < 32 for ch in normalized):
+        return None
+    return normalized
+
+
+def _private_bridge_source(bridge: dict[str, Any]) -> dict[str, Any]:
+    client_context = bridge.get("client_context")
+    if isinstance(client_context, dict):
+        return {**bridge, **client_context}
+    return dict(bridge)
+
+
+def _safe_session_secret(value: Any, *, max_chars: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    if not trimmed or len(trimmed) > max_chars:
+        return None
+    if any(ord(ch) < 32 for ch in trimmed):
+        return None
+    return trimmed
+
+
+def _extract_session_byok_bridge(bridge: dict[str, Any]) -> dict[str, Any]:
+    source = _private_bridge_source(bridge)
+    raw_credentials = source.get("session_provider_credentials")
+    provider_preference_raw = source.get("provider_preference")
+    provider_preference = _normalize_session_provider_id(provider_preference_raw)
+    if not isinstance(raw_credentials, dict):
+        return {
+            "active": False,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": None,
+        }
+    if not raw_credentials:
+        return {
+            "active": False,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": None,
+        }
+    if isinstance(provider_preference_raw, str) and provider_preference_raw.strip() and not provider_preference:
+        return {
+            "active": True,
+            "provider": None,
+            "env_overlay": {},
+            "error_reason": "byok_provider_not_allowed",
+        }
+    if not provider_preference:
+        return {
+            "active": True,
+            "provider": None,
+            "env_overlay": {},
+            "error_reason": "byok_provider_preference_required",
+        }
+    if provider_preference not in raw_credentials:
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_missing_for_provider",
+        }
+
+    env_overlay: dict[str, str] = {}
+    raw_credential = raw_credentials.get(provider_preference)
+    if not isinstance(raw_credential, dict):
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_incomplete",
+        }
+
+    key_env, model_env = SESSION_BYOK_ENV_MAP[provider_preference]
+    api_key = _safe_session_secret(
+        raw_credential.get("api_key"),
+        max_chars=SESSION_BYOK_MAX_API_KEY_CHARS,
+    )
+    model = _safe_session_secret(
+        raw_credential.get("model"),
+        max_chars=SESSION_BYOK_MAX_MODEL_CHARS,
+    )
+    if provider_preference in SESSION_BYOK_CLOUD_PROVIDERS and not api_key:
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_incomplete",
+        }
+    if provider_preference not in SESSION_BYOK_CLOUD_PROVIDERS and not api_key and not model:
+        return {
+            "active": True,
+            "provider": provider_preference,
+            "env_overlay": {},
+            "error_reason": "byok_credentials_incomplete",
+        }
+    if api_key:
+        env_overlay[key_env] = api_key
+    if model:
+        env_overlay[model_env] = model
+    return {
+        "active": True,
+        "provider": provider_preference,
+        "env_overlay": env_overlay,
+        "error_reason": None,
+    }
 
 
 @dataclass
@@ -368,6 +510,10 @@ class BrainOrchestrator:
         self.policy_router = PolicyRouter(paths.root, performance_store=self.performance_store)
         self._pending_policy_hint_json: str | None = None
         self._runtime_bridge: dict[str, Any] = {}
+        self._session_provider_preference: str | None = None
+        self._session_provider_env_overlay: dict[str, str] = {}
+        self._session_byok_active: bool = False
+        self._session_byok_error_reason: str | None = None
         self._last_phase41_policy_hint: dict[str, Any] | None = None
         self._last_strategy_performance_payload: dict[str, Any] | None = None
         self._last_node_result_envelope: dict[str, Any] | None = None
@@ -506,6 +652,15 @@ class BrainOrchestrator:
 
     def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
         self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
+        byok_state = _extract_session_byok_bridge(self._runtime_bridge)
+        self._session_byok_active = bool(byok_state.get("active"))
+        self._session_provider_preference = byok_state.get("provider") if isinstance(byok_state.get("provider"), str) else None
+        self._session_provider_env_overlay = (
+            dict(byok_state.get("env_overlay")) if isinstance(byok_state.get("env_overlay"), dict) else {}
+        )
+        self._session_byok_error_reason = (
+            str(byok_state.get("error_reason")) if byok_state.get("error_reason") else None
+        )
         self._pending_policy_hint_json = None
         self._last_phase41_policy_hint = None
         self._last_node_result_envelope = None
@@ -519,6 +674,20 @@ class BrainOrchestrator:
         self.last_decision_ranking = None
         self.last_runtime_mode = self._selected_runtime_mode()
         self.last_runtime_reason = "configured_mode"
+        if self._session_byok_error_reason:
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = self._session_byok_error_reason
+            return {
+                "response": SESSION_BYOK_PUBLIC_RESPONSE,
+                "stop_reason": self._session_byok_error_reason,
+                "error": {
+                    "failure_class": "BYOK_SESSION_INVALID",
+                    "message": "Session BYOK credentials are invalid or incomplete.",
+                    "reason": self._session_byok_error_reason,
+                },
+                "provider_failed": True,
+                "failure_class": "BYOK_SESSION_INVALID",
+            }
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
         session_id = self._session_id()
@@ -2064,11 +2233,28 @@ class BrainOrchestrator:
 
     def _build_node_subprocess_env(self) -> dict[str, str]:
         env, selection = self.js_runtime_adapter.build_env()
+        session_overlay = getattr(self, "_session_provider_env_overlay", None)
+        if isinstance(session_overlay, dict) and session_overlay:
+            env.update({str(key): str(value) for key, value in session_overlay.items() if value})
+        if self._session_byok_active and self._session_provider_preference:
+            env["OMNI_BYOK_SESSION_MODE"] = "true"
+            env["OMNI_BYOK_PROVIDER"] = self._session_provider_preference
+            env["OMNI_BYOK_FAIL_CLOSED"] = "true"
         env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
         env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
         hint_json = getattr(self, "_pending_policy_hint_json", None)
-        if isinstance(hint_json, str) and hint_json.strip():
+        if self._session_byok_active and self._session_provider_preference:
+            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
+                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
+                ensure_ascii=False,
+            )
+        elif isinstance(hint_json, str) and hint_json.strip():
             env["OMNI_POLICY_HINT_JSON"] = hint_json.strip()
+        elif self._session_provider_preference:
+            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
+                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
+                ensure_ascii=False,
+            )
         self._pending_policy_hint_json = None
         return env
 
@@ -2464,6 +2650,112 @@ class BrainOrchestrator:
         self._last_runtime_step_results = [dict(item) for item in step_results if isinstance(item, dict)]
 
         return self._synthesize_runtime_response(step_results, semantic["response_text"])
+
+    @staticmethod
+    def _runner_smoke_cwd_label(cwd: str) -> str:
+        try:
+            name = Path(cwd).name.strip().lower()
+        except Exception:
+            return "unknown"
+        if name == "app":
+            return "app"
+        if name in {"project", "repo"}:
+            return "repo"
+        return "unknown"
+
+    @staticmethod
+    def _runner_smoke_scrub_provider_env(env: dict[str, str]) -> dict[str, str]:
+        scrubbed = dict(env)
+        for key in (
+            "GROQ_API_KEY",
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "OLLAMA_API_KEY",
+            "LMSTUDIO_API_KEY",
+            "OLLAMA_URL",
+            "LMSTUDIO_URL",
+            "OMNI_BYOK_SESSION_MODE",
+            "OMNI_BYOK_PROVIDER",
+            "OMNI_BYOK_FAIL_CLOSED",
+            "OMNI_POLICY_HINT_JSON",
+        ):
+            scrubbed.pop(key, None)
+        return scrubbed
+
+    @staticmethod
+    def _runner_smoke_failure_class(transport: dict[str, Any], parsed: Any) -> str | None:
+        reason = str(transport.get("reason_code", "") or "").strip()
+        if reason and reason != "success":
+            return reason
+        if isinstance(parsed, dict):
+            error = parsed.get("error")
+            if isinstance(error, dict):
+                failure_class = str(error.get("failure_class", "") or "").strip()
+                if failure_class:
+                    return failure_class
+            response = str(parsed.get("response", "") or "")
+            if response.startswith("[degraded:node_runner]"):
+                return "node_runner_degraded"
+        return None
+
+    @staticmethod
+    def _runner_smoke_summary(status: str, failure_class: str | None) -> str | None:
+        if status == "ok":
+            return "runner_smoke_ok"
+        if failure_class:
+            return f"runner_smoke_{failure_class}"
+        return "runner_smoke_failed"
+
+    def build_runner_smoke_diagnostic(self, *, timeout_seconds: int = 6) -> dict[str, Any]:
+        payload = json.dumps(
+            {
+                "message": "responda apenas OK",
+                "memory": {},
+                "history": [],
+                "summary": "",
+                "capabilities": [],
+                "session": {"session_id": "runner-smoke-public-safe"},
+            },
+            ensure_ascii=False,
+        )
+        diagnostics = self._resolve_node_command_context(payload=payload)
+        diagnostics["subprocess_env"] = self._runner_smoke_scrub_provider_env(
+            diagnostics.get("subprocess_env", {})
+        )
+        transport = run_node_subprocess(
+            diagnostics=diagnostics,
+            payload=payload,
+            timeout_seconds=max(1, min(int(timeout_seconds), 10)),
+        )
+        parsed = transport.get("parsed") if isinstance(transport, dict) else None
+        response_text = str(parsed.get("response", "") or "") if isinstance(parsed, dict) else ""
+        result_degraded = response_text.startswith("[degraded:node_runner]")
+        failure_class = self._runner_smoke_failure_class(transport, parsed)
+        status = "ok" if transport.get("ok") and isinstance(parsed, dict) and not result_degraded else "degraded"
+        if not transport.get("ok"):
+            status = "error"
+        js_runtime = diagnostics.get("js_runtime") if isinstance(diagnostics.get("js_runtime"), dict) else {}
+        selected_runtime = str(js_runtime.get("runtime_name", "") or "").strip().lower()
+        if selected_runtime not in {"node", "bun"}:
+            selected_runtime = "unknown"
+        contract_path = (self.paths.root / "contract" / "runner-schema.v1.json").resolve()
+        return {
+            "status": status,
+            "selected_runtime": selected_runtime,
+            "cwd_label": self._runner_smoke_cwd_label(str(diagnostics.get("cwd", "") or "")),
+            "runner_exists": bool(diagnostics.get("runner_exists", False)),
+            "adapter_exists": bool(diagnostics.get("adapter_exists", False)),
+            "fusion_brain_exists": bool(diagnostics.get("fusion_brain_exists", False)),
+            "contract_exists": contract_path.exists(),
+            "runner_exit_code": transport.get("returncode"),
+            "stdout_json_valid": bool(transport.get("ok") and isinstance(parsed, dict)),
+            "result_degraded": bool(result_degraded),
+            "public_failure_class": failure_class,
+            "public_summary": self._runner_smoke_summary(status, failure_class),
+        }
 
     def _record_runtime_mode_event(
         self,
@@ -6310,6 +6602,8 @@ class BrainOrchestrator:
         if not path.exists():
             return
         try:
+            if path.stat().st_size > MAX_JSONL_SANITIZE_BYTES:
+                return
             valid_lines: list[str] = []
             changed = False
             for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -6331,8 +6625,24 @@ class BrainOrchestrator:
             return
 
     @staticmethod
+    def _rotate_jsonl_file_if_needed(path: Path) -> None:
+        try:
+            if not path.exists() or path.stat().st_size <= MAX_JSONL_ACTIVE_BYTES:
+                return
+            timestamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+            archive_path = path.with_name(f"{path.name}.{timestamp}.bak")
+            suffix = 1
+            while archive_path.exists():
+                archive_path = path.with_name(f"{path.name}.{timestamp}.{suffix}.bak")
+                suffix += 1
+            path.replace(archive_path)
+        except Exception:
+            return
+
+    @staticmethod
     def _append_jsonl(path: Path, entry: dict[str, Any]) -> None:
         try:
+            BrainOrchestrator._rotate_jsonl_file_if_needed(path)
             BrainOrchestrator._sanitize_jsonl_file(path)
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry, ensure_ascii=False))

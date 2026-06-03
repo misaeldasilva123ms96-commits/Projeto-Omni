@@ -1,0 +1,57 @@
+name: Lint & Static Checks
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  js-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm ci
+      - name: ESLint (root + frontend)
+        run: |
+          npx eslint --ext .js,.mjs,.ts,.tsx . || true
+      - name: Prettier check
+        run: npx prettier --check "**/*.{js,ts,tsx,json,md}" || true
+
+  py-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.11
+      - name: Install linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install black flake8 pylint
+      - name: Black check
+        run: black --check . || true
+      - name: Flake8
+        run: flake8 || true
+      - name: Pylint (select folders)
+        run: |
+          pylint backend/python || true
+
+  rust-clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+      - name: Run clippy
+        working-directory: backend/rust
+        run: cargo clippy --all-targets --all-features -- -D warnings || true

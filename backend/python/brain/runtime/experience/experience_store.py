@@ -2,10 +2,48 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 from brain.runtime.experience.experience_models import ExperienceRecord
+
+
+JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _read_tail_jsonl(path: Path, *, limit: int, chunk_size: int = 8192, max_bytes: int = JSONL_TAIL_MAX_BYTES) -> list[dict[str, Any]]:
+    if limit <= 0 or not path.exists():
+        return []
+    collected = bytearray()
+    bytes_read = 0
+    newline_target = max(8, limit * 3)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            position = handle.tell()
+            while position > 0 and bytes_read < max_bytes:
+                step = min(chunk_size, position, max_bytes - bytes_read)
+                position -= step
+                handle.seek(position)
+                collected = bytearray(handle.read(step)) + collected
+                bytes_read += step
+                if collected.count(b"\n") >= newline_target:
+                    break
+    except OSError:
+        return []
+    results: deque[dict[str, Any]] = deque(maxlen=max(1, limit))
+    for raw_line in collected.decode("utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            results.append(payload)
+    return list(results)
 
 
 class ExperienceStore:
@@ -32,23 +70,9 @@ class ExperienceStore:
         sid = str(session_id or "").strip()
         if not sid or limit <= 0:
             return []
-        if not self._path.exists():
-            return []
-        try:
-            text = self._path.read_text(encoding="utf-8")
-        except OSError:
-            return []
+        scan_limit = max(64, int(limit) * 8)
         out: list[dict[str, Any]] = []
-        for line in reversed(text.splitlines()):
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, dict):
-                continue
+        for row in reversed(_read_tail_jsonl(self._path, limit=scan_limit)):
             if str(row.get("session_id", "")).strip() != sid:
                 continue
             out.append(row)
@@ -57,30 +81,30 @@ class ExperienceStore:
         return out
 
     def session_record_count(self, session_id: str) -> int:
-        return len(self.read_recent_for_session(session_id, limit=50_000))
-
-    def read_recent_global(self, *, limit: int = 200) -> list[dict[str, Any]]:
-        """Most recent experience rows (any session), newest first — bounded for observability."""
-        if limit <= 0 or not self._path.exists():
-            return []
+        sid = str(session_id or "").strip()
+        if not sid or not self._path.exists():
+            return 0
         try:
             text = self._path.read_text(encoding="utf-8")
         except OSError:
-            return []
-        out: list[dict[str, Any]] = []
-        for line in reversed(text.splitlines()):
-            raw = line.strip()
-            if not raw:
+            return 0
+        count = 0
+        for raw in text.splitlines():
+            if not raw.strip():
                 continue
             try:
                 row = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            if isinstance(row, dict):
-                out.append(row)
-            if len(out) >= limit:
-                break
-        return out
+            if isinstance(row, dict) and str(row.get("session_id", "")).strip() == sid:
+                count += 1
+        return count
+
+    def read_recent_global(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Most recent experience rows (any session), newest first — bounded for observability."""
+        if limit <= 0:
+            return []
+        return list(reversed(_read_tail_jsonl(self._path, limit=limit)))
 
     def snapshot_counts(self, *, session_limit: int = 12) -> dict[str, Any]:
         """Safe aggregate for observability (no row bodies)."""
