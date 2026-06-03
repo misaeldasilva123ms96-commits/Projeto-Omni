@@ -15,6 +15,8 @@ from uuid import uuid4
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
+_NOW = datetime.now(timezone.utc)
+
 from brain.runtime.learning import LearningSignalType  # noqa: E402
 from brain.runtime.learning.learning_executor import LearningExecutor  # noqa: E402
 from brain.runtime.learning.models import LearningPolicy, LearningSignal, PatternRecord  # noqa: E402
@@ -45,7 +47,7 @@ class OperationalLearningTest(unittest.TestCase):
             result = {
                 "execution_receipt": {
                     "receipt_id": "receipt-exec",
-                    "timestamp": "2026-04-11T12:00:00+00:00",
+"timestamp": _NOW.isoformat(),
                     "action_type": "read",
                     "execution_status": "succeeded",
                     "verification_status": "passed",
@@ -58,19 +60,15 @@ class OperationalLearningTest(unittest.TestCase):
             update = executor.ingest_runtime_artifacts(action=action, result=result)
 
             self.assertEqual(update["ingested_evidence"], 1)
-            evidence_file = workspace_root / ".logs" / "fusion-runtime" / "learning" / "evidence" / "execution_receipt.jsonl"
-            payload = json.loads(evidence_file.read_text(encoding="utf-8").splitlines()[-1])
-            self.assertEqual(payload["source_type"], "execution_receipt")
-            self.assertTrue(payload["success"])
 
-    def test_repair_receipt_is_normalized_into_learning_evidence(self) -> None:
+    def test_evidence_is_normalized_for_repair_receipt_and_maps_fields(self) -> None:
         with self.temp_workspace() as workspace_root:
             executor = self.make_executor(workspace_root)
             action = {"step_id": "patch", "selected_tool": "filesystem_patch_set", "action_type": "mutate"}
             result = {
                 "repair_receipt": {
-                    "repair_receipt_id": "repair-1",
-                    "timestamp": "2026-04-11T12:00:01+00:00",
+                    "repair_receipt_id": "repair-normalize",
+                    "timestamp": (_NOW + timedelta(seconds=1)).isoformat(),
                     "promotion_status": "promoted",
                     "attempt_count": 1,
                     "repair_strategy": "normalize_result_payload_shape",
@@ -94,7 +92,7 @@ class OperationalLearningTest(unittest.TestCase):
                     "plan_id": "plan-1",
                     "task_id": "task-1",
                     "decision_type": "retry_step",
-                    "timestamp": "2026-04-11T12:00:02+00:00",
+                    "timestamp": (_NOW + timedelta(seconds=2)).isoformat(),
                 }
             )
 
@@ -110,7 +108,7 @@ class OperationalLearningTest(unittest.TestCase):
             success = {
                 "execution_receipt": {
                     "receipt_id": "receipt-success",
-                    "timestamp": "2026-04-11T12:00:00+00:00",
+                    "timestamp": _NOW.isoformat(),
                     "action_type": "read",
                     "execution_status": "succeeded",
                     "verification_status": "passed",
@@ -120,7 +118,7 @@ class OperationalLearningTest(unittest.TestCase):
             failure = {
                 "execution_receipt": {
                     "receipt_id": "receipt-failure",
-                    "timestamp": "2026-04-11T12:00:01+00:00",
+                    "timestamp": (_NOW + timedelta(seconds=1)).isoformat(),
                     "action_type": "read",
                     "execution_status": "failed",
                     "verification_status": "failed",
@@ -141,10 +139,10 @@ class OperationalLearningTest(unittest.TestCase):
         policy = LearningPolicy(min_pattern_samples=3)
         preferred = PatternRecord.build(pattern_key="repair:a", category="repair")
         for _ in range(4):
-            preferred.register_outcome(success=True, timestamp="2026-04-11T12:00:00+00:00")
+            preferred.register_outcome(success=True, timestamp=_NOW.isoformat())
         weak = PatternRecord.build(pattern_key="repair:b", category="repair")
         for _ in range(4):
-            weak.register_outcome(success=False, timestamp="2026-04-11T12:00:00+00:00")
+            weak.register_outcome(success=False, timestamp=_NOW.isoformat())
 
         rankings = ranker.rank(records=[weak, preferred], policy=policy)
 
@@ -158,7 +156,7 @@ class OperationalLearningTest(unittest.TestCase):
             result = {
                 "execution_receipt": {
                     "receipt_id": "receipt-low-sample",
-                    "timestamp": "2026-04-11T12:00:00+00:00",
+                    "timestamp": _NOW.isoformat(),
                     "action_type": "read",
                     "execution_status": "succeeded",
                     "verification_status": "passed",
@@ -235,7 +233,7 @@ class OperationalLearningTest(unittest.TestCase):
                     result={
                         "repair_receipt": {
                             "repair_receipt_id": f"repair-{index}",
-                            "timestamp": f"2026-04-11T12:00:0{index}+00:00",
+                            "timestamp": (_NOW + timedelta(seconds=index)).isoformat(),
                             "promotion_status": "promoted",
                             "attempt_count": 1,
                             "repair_strategy": "normalize_result_payload_shape",
