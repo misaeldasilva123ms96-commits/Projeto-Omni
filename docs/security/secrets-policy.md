@@ -9,6 +9,36 @@ Omni must never commit, log, persist, or expose secret values through public run
 - Keep `.env.example` limited to placeholders such as `<OPENAI_API_KEY>` and `<SUPABASE_URL>`.
 - Do not use real-looking placeholders such as `sk-...`, `eyJ...`, `Bearer ...`, `ghp_...`, or `xoxb-...`.
 
+## Encrypted Credential Store (P5D)
+
+All provider secrets persisted to disk MUST be encrypted using AES-256-GCM authenticated encryption.
+
+### Encryption Rules
+
+- Never store API keys in plaintext on disk or in memory caches.
+- Use `CredentialStore` from `config.encrypted_credential_store` for all credential persistence.
+- Encryption key is loaded from `OMNI_CREDENTIAL_STORE_KEY` environment variable (64 hex chars = 32 bytes / 256 bits).
+- Generate keys using: `python -c "import secrets; print(secrets.token_hex(32))"`
+- Key validation occurs at startup — the store refuses to operate with an invalid key.
+- Each encryption operation uses a unique 12-byte nonce (IV) generated via `os.urandom()`.
+- Authentication tags are verified on every decryption — tampered data raises `TamperDetectedError`.
+
+### Operational Rules
+
+- `saveCredential()` — encrypts the secret before writing to the store file.
+- `getCredential()` — returns decrypted value only when `decrypt=True` is explicitly passed.
+- `getDecryptedSecret()` — explicit method for requesting plaintext; log the access event but never the value.
+- `updateCredential()` — re-encrypts with a fresh nonce on every update.
+- `deleteCredential()` — removes the entry from the store.
+- `listCredentialMetadata()` — returns only metadata (id, user, provider, timestamps); never encrypted payloads.
+- `verifyProviderMismatch()` — validates provider identity before credential use.
+
+### Logging Rules
+
+- Log operations (`Saved credential`, `Updated credential`, `Deleted credential`) with the credential ID only.
+- Never log secret values, decrypted secrets, or encryption keys.
+- User IDs are redacted in logs (first 2 chars + `***` + last char).
+
 ## Diagnostics Rules
 
 Runtime diagnostics may expose only status booleans, public provider names, public error codes, and public messages.

@@ -1,1 +1,2 @@
 # Stdlib-only runtime at the moment.
+cryptography>=48.0.0
