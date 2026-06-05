@@ -91,3 +91,24 @@ export function sanitizeRuntimeDebugPayload(input: unknown): Record<string, unkn
   const sanitized = sanitizeValue(input)
   return isRecord(sanitized) ? sanitized : {}
 }
+
+import type { GovernanceSummary } from '../types'
+
+export function extractGovernanceSummary(
+  metadata: { cognitiveRuntimeInspection?: Record<string, unknown> } | null,
+): GovernanceSummary | null {
+  if (!metadata) return null
+  const raw = metadata.cognitiveRuntimeInspection?.governance
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const decision = ['allowed', 'blocked', 'requires_approval', 'unknown'].includes(String(record.decision))
+    ? (record.decision as GovernanceSummary['decision'])
+    : 'unknown'
+  return {
+    decision,
+    category: String(record.category ?? ''),
+    policy: String(record.policy ?? ''),
+    reason: String(record.reason ?? ''),
+    riskLevel: record.riskLevel as GovernanceSummary['riskLevel'],
+  }
+}

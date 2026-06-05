@@ -26,14 +26,14 @@ describe('Sidebar', () => {
 
   it('navigation updates central state', async () => {
     renderSidebar()
-    await userEvent.click(screen.getByRole('button', { name: /Memória/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Memória (painel)' }))
     expect(useRuntimeConsoleStore.getState().activeSidebarItem).toBe('memoria')
     expect(useRuntimeConsoleStore.getState().panelView).toBe('memory')
   })
 
   it('active item reflects UI state', async () => {
     renderSidebar()
-    const memory = screen.getByRole('button', { name: /Memória/i })
+    const memory = screen.getByRole('button', { name: 'Memória (painel)' })
     await userEvent.click(memory)
     expect(memory.className).toContain('text-white')
   })

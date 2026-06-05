@@ -102,7 +102,7 @@ class PlanningEngine:
     @staticmethod
     def _trace_id(session_id: str | None, run_id: str, plan_id: str, *, degraded: bool) -> str:
         basis = f"{session_id}:{run_id}:{plan_id}:{'d' if degraded else 'n'}"
-        digest = hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
         return f"plan-{digest}"
 
     def _synthesize(

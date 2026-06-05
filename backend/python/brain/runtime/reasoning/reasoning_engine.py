@@ -379,7 +379,7 @@ class ReasoningEngine:
         handoff: ReasoningHandoffContract,
         normalized_input: str,
     ) -> ReasoningTrace:
-        trace_id = hashlib.sha1(f"{session_id}:{run_id}:{mode}:{normalized_input}".encode("utf-8")).hexdigest()[:16]
+        trace_id = hashlib.sha256(f"{session_id}:{run_id}:{mode}:{normalized_input}".encode("utf-8")).hexdigest()[:16]
         return ReasoningTrace(
             trace_id=f"reason-{trace_id}",
             session_id=session_id,

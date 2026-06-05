@@ -7,6 +7,7 @@ type AppShellProps = {
 }
 
 /**
+ * @deprecated Use `OmniShell` from `../shell/OmniShell` instead.
  * Three-column Omni workspace: navigation, primary task, optional status rail.
  */
 export function AppShell({ children, sidebar, statusPanel }: AppShellProps) {

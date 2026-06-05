@@ -7,7 +7,14 @@ export type ConsolePanelView = 'chat' | 'history' | 'memory' | 'simulation' | 'i
 export type SidebarItem =
   | 'nova-conversa'
   | 'historico'
+  | 'projetos'
+  | 'provedores'
+  | 'uso-tokens'
+  | 'agentes'
+  | 'governanca'
   | 'memoria'
+  | 'centro-memoria'
+  | 'lab-mode'
   | 'simulacoes'
   | 'brainstorm'
   | 'analisar-dados'
@@ -86,7 +93,14 @@ export const BOTTOM_TABS: Array<{ id: ConsoleTab; label: string }> = [
 export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'nova-conversa', label: 'Nova conversa', description: 'Abrir uma sessão cognitiva nova.' },
   { id: 'historico', label: 'Histórico', description: 'Revisar sessões e execuções passadas.' },
-  { id: 'memoria', label: 'Memória', description: 'Inspecionar contexto e retenção ativa.' },
+  { id: 'projetos', label: 'Projetos', description: 'Gerenciar projetos e organizar sessões.' },
+  { id: 'provedores', label: 'Provedores', description: 'Gerenciar provedores de IA e credenciais.' },
+  { id: 'uso-tokens', label: 'Uso de Tokens', description: 'Acompanhar consumo de tokens por requisição.' },
+  { id: 'agentes', label: 'Agentes', description: 'Gerenciar agentes de IA e suas configurações.' },
+  { id: 'governanca', label: 'Governança', description: 'Visualizar decisões e políticas de governança.' },
+  { id: 'memoria', label: 'Memória (painel)', description: 'Inspecionar contexto e retenção ativa.' },
+  { id: 'centro-memoria', label: 'Centro de Memória', description: 'Gerenciar entradas de memória do runtime.' },
+  { id: 'lab-mode', label: 'Laboratório', description: 'Sandbox para testar prompts e configurações.' },
   { id: 'simulacoes', label: 'Simulações', description: 'Comparar alternativas antes da execução.' },
 ]
 
@@ -125,7 +139,14 @@ export const mockRuntimeState: RuntimeConsoleMockState = {
 const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   'nova-conversa': 'chat',
   historico: 'history',
+  projetos: 'chat',
+  provedores: 'chat',
+  'uso-tokens': 'chat',
+  agentes: 'chat',
+  governanca: 'chat',
   memoria: 'memory',
+  'centro-memoria': 'memory',
+  'lab-mode': 'chat',
   simulacoes: 'simulation',
   brainstorm: 'chat',
   'analisar-dados': 'chat',

@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
+import { OmniShell } from '../components/shell/OmniShell'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
+import { ProjectsPage } from '../pages/ProjectsPage'
+import { ProviderCenterPage } from '../pages/ProviderCenterPage'
+import { TokenUsagePage } from '../pages/TokenUsagePage'
+import { AgentsPage } from '../pages/AgentsPage'
+import { GovernanceCenterPage } from '../pages/GovernanceCenterPage'
+import { MemoryCenterPage } from '../pages/MemoryCenterPage'
+import { LabModePage } from '../pages/LabModePage'
 import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -10,7 +18,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'governance' | 'memory-center' | 'lab-mode' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -28,6 +36,30 @@ export function resolveViewFromPath(
   if (pathname === '/dashboard') {
     return 'dashboard'
   }
+  if (pathname === '/history') {
+    return 'history'
+  }
+  if (pathname === '/projects') {
+    return 'projects'
+  }
+  if (pathname === '/provider-center') {
+    return 'provider-center'
+  }
+  if (pathname === '/token-usage') {
+    return 'token-usage'
+  }
+  if (pathname === '/agents') {
+    return 'agents'
+  }
+  if (pathname === '/governance') {
+    return 'governance'
+  }
+  if (pathname === '/memory-center') {
+    return 'memory-center'
+  }
+  if (pathname === '/lab-mode') {
+    return 'lab-mode'
+  }
   return 'chat'
 }
 
@@ -40,6 +72,30 @@ function pathForView(view: View) {
   }
   if (view === 'dashboard') {
     return '/dashboard'
+  }
+  if (view === 'history') {
+    return '/history'
+  }
+  if (view === 'projects') {
+    return '/projects'
+  }
+  if (view === 'provider-center') {
+    return '/provider-center'
+  }
+  if (view === 'token-usage') {
+    return '/token-usage'
+  }
+  if (view === 'agents') {
+    return '/agents'
+  }
+  if (view === 'governance') {
+    return '/governance'
+  }
+  if (view === 'memory-center') {
+    return '/memory-center'
+  }
+  if (view === 'lab-mode') {
+    return '/lab-mode'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH
@@ -67,49 +123,88 @@ export default function App() {
     }
   }
 
-  if (view === 'dashboard') {
-    return (
-      <DashboardPage
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'observability') {
-    return (
-      <ObservabilityAuthGate
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'settings') {
-    return (
-      <SettingsView
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'puter-dev') {
-    return <PuterDevRoutePage />
-  }
-
   return (
-    <ChatPage
-      mode={mode}
-      onChangeMode={setMode}
-      onChangeView={handleChangeView}
-      view={view}
-    />
+    <OmniShell>
+      {view === 'dashboard' ? (
+        <DashboardPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'observability' ? (
+        <ObservabilityAuthGate
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'token-usage' ? (
+        <TokenUsagePage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'agents' ? (
+        <AgentsPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'governance' ? (
+        <GovernanceCenterPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'memory-center' ? (
+        <MemoryCenterPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'lab-mode' ? (
+        <LabModePage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'provider-center' ? (
+        <ProviderCenterPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'projects' ? (
+        <ProjectsPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'settings' ? (
+        <SettingsView
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'puter-dev' ? (
+        <PuterDevRoutePage />
+      ) : (
+        <ChatPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      )}
+    </OmniShell>
   )
 }
