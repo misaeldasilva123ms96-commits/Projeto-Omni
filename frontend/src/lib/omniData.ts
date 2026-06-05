@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatMode, ConversationSummary, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
+import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -492,6 +492,92 @@ export async function fetchTokenUsage(): Promise<TokenUsageSummary> {
     }
   } catch {
     return empty
+  }
+}
+
+const AGENTS_STORAGE_KEY = 'omini-agents-v1'
+
+function localStorageAgents(): Agent[] {
+  try {
+    const raw = localStorage.getItem(AGENTS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+function saveLocalStorageAgents(agents: Agent[]) {
+  try {
+    localStorage.setItem(AGENTS_STORAGE_KEY, JSON.stringify(agents))
+  } catch {
+    // ignore
+  }
+}
+
+export async function fetchAgents(): Promise<Agent[]> {
+  return localStorageAgents()
+}
+
+export async function createAgent(
+  input: { name: string; description?: string; model: string; provider: string; tools?: string[] },
+): Promise<Agent | null> {
+  try {
+    const agents = localStorageAgents()
+    const agent: Agent = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      description: input.description ?? '',
+      model: input.model,
+      provider: input.provider,
+      tools: input.tools ?? [],
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    agents.unshift(agent)
+    saveLocalStorageAgents(agents)
+    return agent
+  } catch {
+    return null
+  }
+}
+
+export async function updateAgent(
+  id: string,
+  input: { name?: string; description?: string; model?: string; provider?: string; tools?: string[]; status?: AgentStatus },
+): Promise<Agent | null> {
+  try {
+    const agents = localStorageAgents()
+    const index = agents.findIndex((a) => a.id === id)
+    if (index === -1) return null
+    const agent = { ...agents[index] }
+    if (input.name !== undefined) agent.name = input.name
+    if (input.description !== undefined) agent.description = input.description
+    if (input.model !== undefined) agent.model = input.model
+    if (input.provider !== undefined) agent.provider = input.provider
+    if (input.tools !== undefined) agent.tools = input.tools
+    if (input.status !== undefined) agent.status = input.status
+    agent.updatedAt = new Date().toISOString()
+    agents[index] = agent
+    saveLocalStorageAgents(agents)
+    return agent
+  } catch {
+    return null
+  }
+}
+
+export async function deleteAgent(id: string): Promise<boolean> {
+  try {
+    const agents = localStorageAgents()
+    const filtered = agents.filter((a) => a.id !== id)
+    if (filtered.length === agents.length) return false
+    saveLocalStorageAgents(filtered)
+    return true
+  } catch {
+    return false
   }
 }
 

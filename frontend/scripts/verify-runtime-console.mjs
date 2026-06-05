@@ -137,4 +137,22 @@ assert.match(store, /uso-tokens/, 'runtime console store must expose uso-tokens 
 assert.match(app, /token-usage/, 'app must include token-usage route')
 assert.match(app, /TokenUsagePage/, 'app must render TokenUsagePage')
 
-console.log('runtime console wiring + history v2 + projects + provider-center + token-usage checks passed')
+const agentsPage = read('src/pages/AgentsPage.tsx')
+const agentCard = read('src/components/agents/AgentCard.tsx')
+const agentForm = read('src/components/agents/AgentForm.tsx')
+const agentsList = read('src/components/agents/AgentsList.tsx')
+
+assert.match(agentsPage, /AgentsList/, 'agents page must render list')
+assert.match(agentsPage, /fetchAgents/, 'agents page must fetch agents')
+assert.match(agentsPage, /OmniShell/, 'agents page must use omni shell')
+assert.match(agentCard, /OmniBadge/, 'agent card must show status badge')
+assert.match(agentCard, /OmniButton/, 'agent card must use omni buttons')
+assert.match(agentForm, /OmniButton/, 'agent form must use omni buttons')
+assert.match(agentsList, /AgentCard/, 'agents list must render cards')
+assert.match(agentsList, /AgentForm/, 'agents list must render form')
+assert.match(sidebar, /agentes/, 'sidebar must include agentes icon')
+assert.match(store, /agentes/, 'runtime console store must expose agentes item')
+assert.match(app, /agents/, 'app must include agents route')
+assert.match(app, /AgentsPage/, 'app must render AgentsPage')
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents checks passed')

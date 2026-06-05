@@ -187,6 +187,20 @@ export type Project = {
   updatedAt: string
 }
 
+export type AgentStatus = 'active' | 'inactive'
+
+export type Agent = {
+  id: string
+  name: string
+  description: string
+  model: string
+  provider: string
+  tools: string[]
+  status: AgentStatus
+  createdAt: string
+  updatedAt: string
+}
+
 export type TokenUsageRecord = {
   date: string
   inputTokens: number

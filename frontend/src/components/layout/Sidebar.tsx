@@ -42,6 +42,8 @@ function SidebarIcon({ item }: { item: SidebarItem }) {
       return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.05V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-.4-1.04 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.05-.4H3a2 2 0 1 1 0-4h.09c.4 0 .78-.15 1.05-.4a1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6c.39 0 .77-.22 1-.6.26-.3.4-.67.4-1.05V3a2 2 0 1 1 4 0v.09c0 .39.14.76.4 1.05.23.38.61.6 1 .6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c0 .39.22.77.6 1 .3.25.67.4 1.05.4H21a2 2 0 1 1 0 4h-.09c-.39 0-.76.15-1.05.4-.38.23-.6.61-.6 1Z" /></svg>
     case 'uso-tokens':
       return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+    case 'agentes':
+      return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 2a10 10 0 0 1 10 10" /><path d="M2 12a10 10 0 0 1 10-10" /><path d="M12 22a10 10 0 0 1-10-10" /><path d="M22 12a10 10 0 0 1-10 10" /></svg>
     case 'memoria':
       return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M8 7V5a2 2 0 1 1 4 0v2" /><path d="M16 7V5a2 2 0 1 1 4 0v2" /><path d="M4 9h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /></svg>
     case 'simulacoes':
@@ -87,6 +89,10 @@ function handleItemSelection(
   }
   if (item === 'uso-tokens') {
     onSelectView('token-usage')
+    return
+  }
+  if (item === 'agentes') {
+    onSelectView('agents')
     return
   }
   if (item === 'logs') {
