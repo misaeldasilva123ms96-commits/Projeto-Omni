@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, type JSX } from 'react'
 
 type MobilePanel = 'sidebar' | 'content' | 'inspector'
 
