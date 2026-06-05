@@ -9,7 +9,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-type View = 'chat' | 'dashboard' | 'observability' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'observability' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -41,7 +41,9 @@ function pathForView(view: View) {
 }
 
 export default function App() {
-  const [view, setView] = useState<View>(() => resolveViewFromPath(window.location.pathname))
+  const [view, setView] = useState<View>(() =>
+    resolveViewFromPath(window.location.pathname),
+  )
   const [mode, setMode] = useState<ChatMode>('chat')
 
   useEffect(() => {
