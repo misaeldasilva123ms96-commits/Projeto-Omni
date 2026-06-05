@@ -2351,7 +2351,7 @@ async fn settings_test_provider(
     AxumPath(provider): AxumPath<String>,
     Json(payload): Json<TestProviderRequest>,
 ) -> Result<Json<TestProviderResponse>, AppError> {
-    let user_id =
+    let _user_id =
         extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
 
     let provider = provider.trim().to_ascii_lowercase();
