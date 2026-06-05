@@ -9,6 +9,26 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Frontend Cockpit Audit — All 19 Phases (PRs #294, #295)
+- **Phase 5 — Design System:** OmniThemeProvider (light/dark toggle, localStorage), OmniButton (4 variants), OmniCard, OmniBadge, OmniPanel, OmniTabs (accessible), OmniTooltip, OmniStatusDot, OmniSkeleton
+- **Phase 1 — Omni Shell:** OmniShell (unified 3-column layout), OmniSidebar (collapsible), OmniTopbar (status bar), OmniRightInspector (tabbed container), OmniMobileNav (responsive drawer)
+- **Phase 2 — Runtime Truth:** RuntimeStatusBadge, ProviderStatusBadge, GovernanceBadge, TokenUsageMeter, PlanBadge, RuntimeTruthBar
+- **Phase 3 — Runtime Inspector:** RuntimeInspectorPanel with 8 tabs (Summary, Runtime, Governance, Provider, Tools, Memory, OIL, Safe Logs)
+- **Phase 4 — Safe Debug:** SafeJsonViewer (tree view with redaction), SafeDebugPanel, RedactedField
+- **Phase 6 — Chat Experience:** OmniChatPanel, OmniComposer, OmniMessageList, OmniUserMessage, OmniAssistantMessage (with copy/retry/badges), OmniSystemNotice, OmniAttachmentButton, OmniSendButton, OmniStopButton
+- **Phase 7 — History V2:** HistoryPanel (searchable), HistoryFilters, HistorySessionCard, HistorySessionDetail
+- **Phase 8+ — Provider Center:** ProviderCenterPage, ProviderSettingsPanel
+- **Phase 8+ — Token Usage:** TokenUsagePage, TokenBudgetWarning
+- **Phase 8+ — Projects CRUD:** OmniProjectsPanel, OmniProjectCard, OmniProjectForm, useProjects (Supabase-backed)
+- **Phase 8+ — Governance:** GovernanceCenterPanel, GovernancePolicyCard
+- **Phase 8+ — Memory:** MemoryCenterPanel, MemoryEntryCard, Supabase persistence
+- **Phase 8+ — Agents:** AgentsCenterPanel, OmniAgentCard
+- **Phase 8+ — Lab Mode:** LabModePanel (sandbox)
+- **Phase 8+ — Mobile:** OmniMobileNav with backdrop overlay, AnimatePresence drawer, responsive breakpoints
+- **Phase 8+ — Accessibility:** Skip-to-content link, ARIA landmarks/labels/roles, aria-current, aria-expanded, tablist/tab roles
+- **Phase 8+ — Tests:** 33 new test suites (now 42 total, 370 tests)
+- **Phase 8+ — Product Polish:** PageHero headers on 7 pages, ErrorNotice, OmniButton replacements, rounded-3xl cards, consistent border radius
+
 - Current-state runtime audit documentation for the provider/BYOK/diagnostics work through PR #171.
 - Runtime provider documentation covering Groq, OpenRouter, OpenAI, Anthropic, Gemini, Ollama, LM Studio, DeepSeek metadata, and `local-heuristic`.
 - Session-only BYOK documentation with fail-closed policy and privacy boundaries.
