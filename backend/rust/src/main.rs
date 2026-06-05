@@ -16,11 +16,11 @@ use std::{
 
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Path as AxumPath, State},
     http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
     middleware::from_fn_with_state,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use error::AppError;
@@ -317,6 +317,77 @@ struct PrSummariesResponse {
     summaries: Vec<Value>,
 }
 
+/// ----- Settings API (BYOK) -----
+/// Provider metadata — never contains secrets.
+#[derive(Debug, Serialize, Deserialize)]
+struct ProviderMetadata {
+    provider: String,
+    configured: bool,
+    updated_at: Option<f64>,
+}
+
+/// GET /api/v1/settings/providers
+#[derive(Debug, Serialize, Deserialize)]
+struct ListProvidersResponse {
+    status: String,
+    providers: Vec<ProviderMetadata>,
+}
+
+/// POST /api/v1/settings/providers
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SaveProviderRequest {
+    provider: String,
+    api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SaveProviderResponse {
+    status: String,
+    provider: String,
+    configured: bool,
+    updated_at: f64,
+}
+
+/// PUT /api/v1/settings/providers/{provider}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateProviderRequest {
+    api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UpdateProviderResponse {
+    status: String,
+    provider: String,
+    configured: bool,
+    updated_at: f64,
+}
+
+/// DELETE /api/v1/settings/providers/{provider}
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteProviderResponse {
+    status: String,
+    provider: String,
+    configured: bool,
+    updated_at: Option<f64>,
+}
+
+/// POST /api/v1/settings/providers/{provider}/test
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestProviderRequest {
+    api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TestProviderResponse {
+    provider: String,
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 /// Authenticated operator read model — redacted runtime audit + run summary (see `docs/backend/operator-telemetry-api.md`).
 #[derive(Debug, Serialize)]
 struct OperatorRuntimeSignalsV1 {
@@ -518,10 +589,27 @@ async fn main() -> Result<(), AppError> {
         )
         .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
 
+    let protected_settings = Router::new()
+        .route("/api/v1/settings/providers", get(settings_list_providers))
+        .route("/api/v1/settings/providers", post(settings_save_provider))
+        .route(
+            "/api/v1/settings/providers/{provider}",
+            put(settings_update_provider),
+        )
+        .route(
+            "/api/v1/settings/providers/{provider}",
+            delete(settings_delete_provider),
+        )
+        .route(
+            "/api/v1/settings/providers/{provider}/test",
+            post(settings_test_provider),
+        )
+        .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
+
     // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
     // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
     // Internal (no auth middleware): /internal/*
-    // Protected (Supabase JWT): /api/observability/*, /api/control/*, /api/v1/operator/*
+    // Protected (Supabase JWT): /api/observability/*, /api/control/*, /api/v1/operator/*, /api/v1/settings/*
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/status", get(public_v1_status))
@@ -548,6 +636,7 @@ async fn main() -> Result<(), AppError> {
         .merge(protected_observability)
         .merge(protected_operator)
         .merge(protected_control)
+        .merge(protected_settings)
         .layer(CorsLayer::permissive())
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
@@ -2112,6 +2201,173 @@ fn validate_session_provider_credentials(
     } else {
         Ok(Some(validated))
     }
+}
+
+/// ----- Settings API (BYOK) Handlers -----
+fn python_settings_cli_path(state: &AppState) -> PathBuf {
+    state
+        .project_root
+        .join("..")
+        .join("python")
+        .join("config")
+        .join("provider_settings_cli.py")
+}
+
+async fn run_settings_cli(state: &AppState, args: &[&str]) -> Result<Value, AppError> {
+    let cli_path = python_settings_cli_path(state);
+    let python_bin = &state.python_bin;
+
+    let mut cmd = Command::new(python_bin);
+    cmd.arg(&cli_path)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env(
+            "OMNI_CREDENTIAL_STORE_KEY",
+            env::var("OMNI_CREDENTIAL_STORE_KEY").unwrap_or_default(),
+        )
+        .env(
+            "OMNI_PUBLIC_DEMO_MODE",
+            env::var("OMNI_PUBLIC_DEMO_MODE").unwrap_or_default(),
+        )
+        .env("PYTHONPATH", &state.python_root);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to spawn settings CLI: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Internal(format!("settings CLI failed: {stderr}")));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout)
+        .map_err(|e| AppError::Internal(format!("invalid JSON from settings CLI: {e}")))
+}
+
+fn extract_user_id(extensions: &axum::http::Extensions) -> Option<String> {
+    extensions.get::<String>().cloned()
+}
+
+/// GET /api/v1/settings/providers
+async fn settings_list_providers(
+    State(state): State<AppState>,
+    extensions: axum::http::Extensions,
+) -> Result<Json<ListProvidersResponse>, AppError> {
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+    let result = run_settings_cli(&state, &["list", &user_id]).await?;
+
+    let providers: Vec<ProviderMetadata> = serde_json::from_value(result)
+        .map_err(|e| AppError::Internal(format!("parse list providers: {e}")))?;
+
+    Ok(Json(ListProvidersResponse {
+        status: "ok".to_string(),
+        providers,
+    }))
+}
+
+/// POST /api/v1/settings/providers
+async fn settings_save_provider(
+    State(state): State<AppState>,
+    extensions: axum::http::Extensions,
+    Json(payload): Json<SaveProviderRequest>,
+) -> Result<Json<SaveProviderResponse>, AppError> {
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+
+    let provider = payload.provider.trim().to_ascii_lowercase();
+    if provider.is_empty() {
+        return Err(AppError::Internal("provider is required".into()));
+    }
+    if payload.api_key.trim().is_empty() {
+        return Err(AppError::Internal("api_key is required".into()));
+    }
+
+    let result = run_settings_cli(&state, &["save", &user_id, &provider, &payload.api_key]).await?;
+
+    let response: SaveProviderResponse = serde_json::from_value(result)
+        .map_err(|e| AppError::Internal(format!("parse save provider: {e}")))?;
+
+    Ok(Json(response))
+}
+
+/// PUT /api/v1/settings/providers/{provider}
+async fn settings_update_provider(
+    State(state): State<AppState>,
+    extensions: axum::http::Extensions,
+    AxumPath(provider): AxumPath<String>,
+    Json(payload): Json<UpdateProviderRequest>,
+) -> Result<Json<UpdateProviderResponse>, AppError> {
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+
+    let provider = provider.trim().to_ascii_lowercase();
+    if provider.is_empty() {
+        return Err(AppError::Internal("provider is required".into()));
+    }
+    if payload.api_key.trim().is_empty() {
+        return Err(AppError::Internal("api_key is required".into()));
+    }
+
+    let result =
+        run_settings_cli(&state, &["update", &user_id, &provider, &payload.api_key]).await?;
+
+    let response: UpdateProviderResponse = serde_json::from_value(result)
+        .map_err(|e| AppError::Internal(format!("parse update provider: {e}")))?;
+
+    Ok(Json(response))
+}
+
+/// DELETE /api/v1/settings/providers/{provider}
+async fn settings_delete_provider(
+    State(state): State<AppState>,
+    extensions: axum::http::Extensions,
+    AxumPath(provider): AxumPath<String>,
+) -> Result<Json<DeleteProviderResponse>, AppError> {
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+
+    let provider = provider.trim().to_ascii_lowercase();
+    if provider.is_empty() {
+        return Err(AppError::Internal("provider is required".into()));
+    }
+
+    let result = run_settings_cli(&state, &["delete", &user_id, &provider]).await?;
+
+    let response: DeleteProviderResponse = serde_json::from_value(result)
+        .map_err(|e| AppError::Internal(format!("parse delete provider: {e}")))?;
+
+    Ok(Json(response))
+}
+
+/// POST /api/v1/settings/providers/{provider}/test
+async fn settings_test_provider(
+    State(state): State<AppState>,
+    extensions: axum::http::Extensions,
+    AxumPath(provider): AxumPath<String>,
+    Json(payload): Json<TestProviderRequest>,
+) -> Result<Json<TestProviderResponse>, AppError> {
+    let _user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+
+    let provider = provider.trim().to_ascii_lowercase();
+    if provider.is_empty() {
+        return Err(AppError::Internal("provider is required".into()));
+    }
+    if payload.api_key.trim().is_empty() {
+        return Err(AppError::Internal("api_key is required".into()));
+    }
+
+    let result = run_settings_cli(&state, &["test", &provider, &payload.api_key]).await?;
+
+    let response: TestProviderResponse = serde_json::from_value(result)
+        .map_err(|e| AppError::Internal(format!("parse test provider: {e}")))?;
+
+    Ok(Json(response))
 }
 
 fn build_private_bridge_context(
