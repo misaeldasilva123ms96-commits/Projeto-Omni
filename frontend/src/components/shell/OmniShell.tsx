@@ -19,6 +19,7 @@ type OmniShellProps = {
 function Backdrop({ onClose }: { onClose: () => void }) {
   return (
     <motion.div
+      aria-hidden="true"
       className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
       onClick={onClose}
       initial={{ opacity: 0 }}
@@ -50,7 +51,14 @@ export function OmniShell({
 
   return (
     <div className="min-h-screen overflow-hidden bg-cosmic-gradient text-slate-50">
-      <div className="pointer-events-none absolute inset-0 opacity-75">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-2xl focus:border focus:border-neon-purple/40 focus:bg-[rgba(11,13,29,0.95)] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:outline-none"
+      >
+        Skip to main content
+      </a>
+
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-75">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_10%,rgba(123,97,255,0.12),transparent_50%)]" />
         <div className="absolute inset-0 bg-[length:220px_220px] bg-[image:radial-gradient(circle,rgba(255,255,255,0.03)_1px,transparent_1px)]" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_90%,rgba(78,164,255,0.08),transparent_50%)]" />
@@ -92,6 +100,8 @@ export function OmniShell({
               </AnimatePresence>
 
               <aside
+                role="navigation"
+                aria-label="Sidebar"
                 className={`${
                   mobilePanel === 'sidebar'
                     ? 'fixed inset-y-0 left-0 z-40 w-[280px] translate-x-0 transition-transform duration-300 ease-out'
@@ -102,22 +112,24 @@ export function OmniShell({
               >
                 {sidebarCollapsed ? (
                   <button
+                    aria-label="Expand sidebar"
                     className="flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-slate-300 transition hover:text-white"
                     onClick={() => setSidebarCollapsed(false)}
                     type="button"
                     title="Expand sidebar"
                   >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
+                    <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
                   </button>
                 ) : (
                   <div className="relative h-full">
                     <button
+                      aria-label="Collapse sidebar"
                       className="absolute -right-3 top-4 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[rgba(11,13,29,0.9)] text-slate-400 transition hover:text-white lg:flex"
                       onClick={() => setSidebarCollapsed(true)}
                       type="button"
                       title="Collapse sidebar"
                     >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></svg>
+                      <svg aria-hidden="true" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></svg>
                     </button>
                     {sidebar}
                   </div>
@@ -127,6 +139,8 @@ export function OmniShell({
           ) : null}
 
           <main
+            id="main-content"
+            role="main"
             className={`${
               mobilePanel === 'content' ? 'block' : 'hidden'
             } lg:block`}
@@ -143,6 +157,8 @@ export function OmniShell({
               </AnimatePresence>
 
               <aside
+                role="region"
+                aria-label="Runtime inspector"
                 className={`${
                   mobilePanel === 'inspector'
                     ? 'fixed inset-y-0 right-0 z-40 w-[320px] translate-x-0 transition-transform duration-300 ease-out sm:w-[360px]'
@@ -153,12 +169,13 @@ export function OmniShell({
                   <div className="mb-3 flex items-center justify-between lg:hidden">
                     <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Runtime</span>
                     <button
+                      aria-label="Close inspector"
                       className="rounded-full border border-white/10 bg-white/5 p-1.5 text-slate-400 transition hover:text-white"
                       onClick={() => setMobilePanel('content')}
                       type="button"
                       title="Close inspector"
                     >
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                      <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg>
                     </button>
                   </div>
                   {rightPanel}
