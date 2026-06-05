@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
+import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
   PuterDevRoutePage,
@@ -9,7 +10,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'observability' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -17,6 +18,9 @@ export function resolveViewFromPath(
 ): View {
   if (pathname === PUTER_DEV_ROUTE_PATH && puterDevRouteVisible) {
     return 'puter-dev'
+  }
+  if (pathname === '/settings') {
+    return 'settings'
   }
   if (pathname === '/observability') {
     return 'observability'
@@ -28,6 +32,9 @@ export function resolveViewFromPath(
 }
 
 function pathForView(view: View) {
+  if (view === 'settings') {
+    return '/settings'
+  }
   if (view === 'observability') {
     return '/observability'
   }
@@ -74,6 +81,17 @@ export default function App() {
   if (view === 'observability') {
     return (
       <ObservabilityAuthGate
+        mode={mode}
+        onChangeMode={setMode}
+        onChangeView={handleChangeView}
+        view={view}
+      />
+    )
+  }
+
+  if (view === 'settings') {
+    return (
+      <SettingsView
         mode={mode}
         onChangeMode={setMode}
         onChangeView={handleChangeView}

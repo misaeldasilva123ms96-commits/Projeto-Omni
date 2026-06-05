@@ -346,7 +346,8 @@ struct SaveProviderResponse {
     status: String,
     provider: String,
     configured: bool,
-    updated_at: f64,
+    #[serde(default)]
+    updated_at: Option<f64>,
 }
 
 /// PUT /api/v1/settings/providers/{provider}
@@ -361,7 +362,8 @@ struct UpdateProviderResponse {
     status: String,
     provider: String,
     configured: bool,
-    updated_at: f64,
+    #[serde(default)]
+    updated_at: Option<f64>,
 }
 
 /// DELETE /api/v1/settings/providers/{provider}
@@ -2213,14 +2215,17 @@ fn python_settings_cli_path(state: &AppState) -> PathBuf {
         .join("provider_settings_cli.py")
 }
 
-async fn run_settings_cli(state: &AppState, args: &[&str]) -> Result<Value, AppError> {
+async fn run_settings_cli(
+    state: &AppState,
+    args: &[&str],
+    stdin_secret: Option<&str>,
+) -> Result<Value, AppError> {
     let cli_path = python_settings_cli_path(state);
     let python_bin = &state.python_bin;
 
     let mut cmd = Command::new(python_bin);
     cmd.arg(&cli_path)
         .args(args)
-        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env(
@@ -2233,10 +2238,28 @@ async fn run_settings_cli(state: &AppState, args: &[&str]) -> Result<Value, AppE
         )
         .env("PYTHONPATH", &state.python_root);
 
-    let output = cmd
-        .output()
-        .await
+    if stdin_secret.is_some() {
+        cmd.stdin(Stdio::piped());
+    } else {
+        cmd.stdin(Stdio::null());
+    }
+
+    let mut child = cmd
+        .spawn()
         .map_err(|e| AppError::Internal(format!("failed to spawn settings CLI: {e}")))?;
+
+    if let Some(secret) = stdin_secret {
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(secret.as_bytes()).await.map_err(|e| {
+                AppError::Internal(format!("failed to write to settings CLI stdin: {e}"))
+            })?;
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to read settings CLI output: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2259,7 +2282,7 @@ async fn settings_list_providers(
 ) -> Result<Json<ListProvidersResponse>, AppError> {
     let user_id =
         extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
-    let result = run_settings_cli(&state, &["list", &user_id]).await?;
+    let result = run_settings_cli(&state, &["list", &user_id], None).await?;
 
     let providers: Vec<ProviderMetadata> = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse list providers: {e}")))?;
@@ -2287,7 +2310,12 @@ async fn settings_save_provider(
         return Err(AppError::Internal("api_key is required".into()));
     }
 
-    let result = run_settings_cli(&state, &["save", &user_id, &provider, &payload.api_key]).await?;
+    let result = run_settings_cli(
+        &state,
+        &["save", &user_id, &provider],
+        Some(&payload.api_key),
+    )
+    .await?;
 
     let response: SaveProviderResponse = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse save provider: {e}")))?;
@@ -2313,8 +2341,12 @@ async fn settings_update_provider(
         return Err(AppError::Internal("api_key is required".into()));
     }
 
-    let result =
-        run_settings_cli(&state, &["update", &user_id, &provider, &payload.api_key]).await?;
+    let result = run_settings_cli(
+        &state,
+        &["update", &user_id, &provider],
+        Some(&payload.api_key),
+    )
+    .await?;
 
     let response: UpdateProviderResponse = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse update provider: {e}")))?;
@@ -2336,7 +2368,7 @@ async fn settings_delete_provider(
         return Err(AppError::Internal("provider is required".into()));
     }
 
-    let result = run_settings_cli(&state, &["delete", &user_id, &provider]).await?;
+    let result = run_settings_cli(&state, &["delete", &user_id, &provider], None).await?;
 
     let response: DeleteProviderResponse = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse delete provider: {e}")))?;
@@ -2362,7 +2394,7 @@ async fn settings_test_provider(
         return Err(AppError::Internal("api_key is required".into()));
     }
 
-    let result = run_settings_cli(&state, &["test", &provider, &payload.api_key]).await?;
+    let result = run_settings_cli(&state, &["test", &provider], Some(&payload.api_key)).await?;
 
     let response: TestProviderResponse = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse test provider: {e}")))?;

@@ -11,7 +11,7 @@ from .encrypted_credential_store import (
     EncryptionKeyError,
     _redact_user,
 )
-from .provider_registry import PROVIDERS, provider_metadata
+from .provider_registry import PROVIDERS
 
 __all__ = [
     "ProviderSettingsController",
@@ -32,7 +32,7 @@ class ProviderSettingsController:
     """Controller for BYOK provider credential management."""
 
     def __init__(self, store: CredentialStore | None = None) -> None:
-        self._store = store or self._build_store()
+        self._store = store if store is not None else self._build_store()
 
     @staticmethod
     def _build_store() -> CredentialStore | None:
@@ -47,12 +47,19 @@ class ProviderSettingsController:
 
     def list_providers(self, user_id: str) -> list[dict[str, Any]]:
         """Return credential metadata for available providers."""
-        store = self._store
-        if store is None:
-            return []
         normalized = _normalize_user_id(user_id)
-        metadata = store.list_credential_metadata(user_id=normalized)
-        by_provider = {item.provider_id: item for item in metadata}
+        by_provider = {}
+        store = self._store
+        if store is not None:
+            try:
+                metadata = store.list_credential_metadata(user_id=normalized)
+                by_provider = {item.provider_id: item for item in metadata}
+            except Exception as exc:  # pragma: no cover — hardened fallback
+                logger.debug(
+                    "provider_settings.list_failed user=%s error=%s",
+                    _redact_user(normalized),
+                    exc,
+                )
         results: list[dict[str, Any]] = []
         for provider in ALLOWED_PROVIDERS:
             item = by_provider.get(provider)
@@ -84,7 +91,10 @@ class ProviderSettingsController:
         return self._provider_metadata_response(normalized_user, normalized_provider)
 
     def update_provider(
-        self, user_id: str, provider_id: str, secret: str
+        self,
+        user_id: str,
+        provider_id: str,
+        secret: str,
     ) -> dict[str, Any]:
         self._require_allowed_provider(provider_id)
         self._require_secret(secret)
@@ -96,10 +106,7 @@ class ProviderSettingsController:
             provider_id=normalized_provider,
             decrypt=False,
         )
-        if hasattr(credential, "credential_id"):
-            credential_id = credential.credential_id
-        else:
-            credential_id = credential if isinstance(credential, str) else ""
+        credential_id = _extract_credential_id(credential)
         store.update_credential(credential_id=credential_id, secret=secret)
         logger.info(
             "Updated BYOK provider=%s user=%s",
@@ -110,31 +117,30 @@ class ProviderSettingsController:
 
     def delete_provider(self, user_id: str, provider_id: str) -> dict[str, Any]:
         self._require_allowed_provider(provider_id)
-        store = self._require_store()
         normalized_user = _normalize_user_id(user_id)
         normalized_provider = _normalize_provider(provider_id)
-        try:
-            credential = store.get_credential_by_provider(
-                user_id=normalized_user,
-                provider_id=normalized_provider,
-                decrypt=False,
-            )
-        except Exception:
-            return {
-                "provider": normalized_provider,
-                "configured": False,
-                "updated_at": None,
-            }
-        if hasattr(credential, "credential_id"):
-            credential_id = credential.credential_id
-        else:
-            credential_id = credential if isinstance(credential, str) else ""
-        store.delete_credential(credential_id=credential_id)
-        logger.info(
-            "Deleted BYOK provider=%s user=%s",
-            normalized_provider,
-            _redact_user(normalized_user),
-        )
+        store = self._store
+        if store is not None:
+            try:
+                credential = store.get_credential_by_provider(
+                    user_id=normalized_user,
+                    provider_id=normalized_provider,
+                    decrypt=False,
+                )
+                credential_id = _extract_credential_id(credential)
+                store.delete_credential(credential_id=credential_id)
+                logger.info(
+                    "Deleted BYOK provider=%s user=%s",
+                    normalized_provider,
+                    _redact_user(normalized_user),
+                )
+            except Exception as exc:  # pragma: no cover — hardened fallback
+                logger.debug(
+                    "provider_settings.delete_failed user=%s provider=%s error=%s",
+                    _redact_user(normalized_user),
+                    normalized_provider,
+                    exc,
+                )
         return {
             "provider": normalized_provider,
             "configured": False,
@@ -154,31 +160,26 @@ class ProviderSettingsController:
         }
 
     def _provider_metadata_response(
-        self, user_id: str, provider_id: str
+        self,
+        user_id: str,
+        provider_id: str,
     ) -> dict[str, Any]:
+        updated_at = None
         store = self._store
-        if store is None:
-            return {
-                "provider": provider_id,
-                "configured": True,
-                "updated_at": None,
-            }
-        try:
-            stored = store.get_credential_by_provider(
-                user_id=user_id,
-                provider_id=provider_id,
-                decrypt=False,
-            )
-        except Exception:
-            return {
-                "provider": provider_id,
-                "configured": True,
-                "updated_at": None,
-            }
-        if hasattr(stored, "updated_at"):
-            updated_at = stored.updated_at
-        else:
-            updated_at = None
+        if store is not None:
+            try:
+                stored = store.get_credential_by_provider(
+                    user_id=user_id,
+                    provider_id=provider_id,
+                    decrypt=False,
+                )
+                if hasattr(stored, "updated_at"):
+                    updated_at = stored.updated_at
+                credential_id = _extract_credential_id(stored)
+                if not credential_id:
+                    updated_at = None
+            except Exception:
+                updated_at = None
         return {
             "provider": provider_id,
             "configured": True,
@@ -196,9 +197,10 @@ class ProviderSettingsController:
         if not isinstance(secret, str) or not secret.strip():
             raise ValueError("Secret must be a non-empty string")
 
-    @staticmethod
-    def _require_store() -> CredentialStore:
-        raise RuntimeError("CredentialStore is required but not available")
+    def _require_store(self) -> CredentialStore:
+        if self._store is None:
+            raise RuntimeError("CredentialStore is required but not available")
+        return self._store
 
 
 def _normalize_provider(provider_id: str) -> str:
@@ -207,6 +209,15 @@ def _normalize_provider(provider_id: str) -> str:
 
 def _normalize_user_id(user_id: str) -> str:
     return str(user_id or "").strip()
+
+
+def _extract_credential_id(credential: Any) -> str:
+    if hasattr(credential, "credential_id"):
+        value = credential.credential_id
+        return value if isinstance(value, str) else ""
+    if isinstance(credential, str):
+        return credential
+    return ""
 
 
 def list_providers(user_id: str) -> list[dict[str, Any]]:
@@ -222,7 +233,9 @@ def save_provider(user_id: str, provider_id: str, secret: str) -> dict[str, Any]
 
 
 def update_provider(
-    user_id: str, provider_id: str, secret: str
+    user_id: str,
+    provider_id: str,
+    secret: str,
 ) -> dict[str, Any]:
     controller = ProviderSettingsController()
     return controller.update_provider(
@@ -248,8 +261,7 @@ def _run_provider_test(provider_id: str, secret: str) -> dict[str, Any]:
     """
     try:
         if provider_id in {"openai", "openrouter", "gemini", "groq"}:
-            result = _test_openai_compatible(provider_id, secret)
-            return result
+            return _test_openai_compatible(provider_id, secret)
         if provider_id == "anthropic":
             return _test_anthropic(secret)
     except Exception as exc:  # pragma: no cover — runtime hardening
@@ -263,7 +275,9 @@ def _run_provider_test(provider_id: str, secret: str) -> dict[str, Any]:
 
 
 def _test_openai_compatible(
-    provider_id: str, secret: str, timeout: int = 5
+    provider_id: str,
+    secret: str,
+    timeout: int = 5,
 ) -> dict[str, Any]:
     base_url = _provider_base_url(provider_id)
     headers = _provider_headers(provider_id, secret)
@@ -272,9 +286,7 @@ def _test_openai_compatible(
         response = _http_get(url=url, headers=headers, timeout=timeout)
     except Exception:
         return {"success": False, "error": "Unable to reach provider"}
-    if response.status_code == 401:
-        return {"success": False, "error": "Invalid API key"}
-    if response.status_code == 403:
+    if response.status_code in {401, 403}:
         return {"success": False, "error": "Invalid API key"}
     if response.status_code == 429:
         return {"success": False, "error": "Unable to reach provider"}
@@ -299,9 +311,7 @@ def _test_anthropic(secret: str, timeout: int = 5) -> dict[str, Any]:
         response = _http_post(url=url, headers=headers, body=body, timeout=timeout)
     except Exception:
         return {"success": False, "error": "Unable to reach provider"}
-    if response.status_code == 401:
-        return {"success": False, "error": "Invalid API key"}
-    if response.status_code == 403:
+    if response.status_code in {401, 403}:
         return {"success": False, "error": "Invalid API key"}
     if response.status_code == 429:
         return {"success": False, "error": "Unable to reach provider"}
