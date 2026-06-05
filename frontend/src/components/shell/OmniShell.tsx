@@ -44,9 +44,7 @@ export function OmniShell({
       </div>
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-4 py-4 lg:px-6">
-        {topbar ? (
-          <OmniTopbar>{topbar}</OmniTopbar>
-        ) : null}
+        <OmniTopbar>{topbar}</OmniTopbar>
 
         <OmniMobileNav
           activePanel={mobilePanel}

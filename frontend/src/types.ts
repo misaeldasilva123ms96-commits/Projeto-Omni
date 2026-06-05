@@ -164,6 +164,14 @@ export type ChatApiResponse = {
   error?: RuntimeErrorPayload
 }
 
+export type GovernanceSummary = {
+  decision: 'allowed' | 'blocked' | 'requires_approval' | 'unknown'
+  category?: string
+  policy?: string
+  reason?: string
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical'
+}
+
 export type ChatRequestState = 'idle' | 'loading' | 'error'
 
 export type ConversationSummary = {

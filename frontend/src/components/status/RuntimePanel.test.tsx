@@ -53,7 +53,7 @@ describe('RuntimePanel', () => {
     expect(screen.getByText('FULL_COGNITIVE_RUNTIME')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /Debug/i }))
     expect(screen.getByText('Debug Mode')).toBeInTheDocument()
-    expect(screen.getByText('openai')).toBeInTheDocument()
+    expect(screen.getByText('BYOK')).toBeInTheDocument()
     expect(screen.queryByText(/raw-stack/)).not.toBeInTheDocument()
     expect(screen.queryByText(/execution_request/)).not.toBeInTheDocument()
     expect(screen.queryByText(/raw stderr/)).not.toBeInTheDocument()

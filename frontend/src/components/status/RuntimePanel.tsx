@@ -7,6 +7,8 @@ import { TOP_ACTIONS, mockRuntimeState, useRuntimeConsoleStore } from '../../sta
 import { useLiveRuntimeMetrics } from '../../hooks/useLiveRuntimeMetrics'
 import { sanitizeRuntimeDebugPayload } from '../../lib/runtimeDebugSanitizer'
 import { getGlowState } from '../../lib/ui/glow'
+import { ProviderStatusBadge } from '../runtime/ProviderStatusBadge'
+import { RuntimeStatusBadge } from '../runtime/RuntimeStatusBadge'
 
 type RuntimePanelProps = {
   health: UiRuntimeStatus | null
@@ -194,7 +196,10 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
       <div className="flex-1 space-y-3 overflow-y-auto pr-1">
         <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
           <h3 className="mb-3 text-[18px] font-medium tracking-tight text-white">Runtime Status</h3>
-          <RuntimeMetric label="Mode" value={runtimeMode} />
+          <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5">
+            <span className="text-sm text-slate-300/70">Mode</span>
+            <RuntimeStatusBadge mode={runtimeMode} fallback={lastMetadata?.fallbackTriggered} />
+          </div>
           <RuntimeMetric label="Strategy" value={inferStrategy(lastMetadata)} />
           <div className="border-b border-white/8 py-2.5">
             <div className="mb-2 flex items-center justify-between gap-4">
@@ -291,7 +296,10 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
                 Debug Mode
               </summary>
               <div className="mt-3 grid gap-2 text-sm text-slate-200/80">
-                <RuntimeMetric label="Provider" value={lastMetadata?.providerActual ?? 'unknown'} />
+                <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5">
+                  <span className="text-sm text-slate-300/70">Provider</span>
+                  <ProviderStatusBadge provider={lastMetadata?.providerActual ?? null} />
+                </div>
                 <RuntimeMetric label="Execution Path" value={lastMetadata?.executionPathUsed ?? 'unknown'} />
                 <RuntimeMetric label="Failure Class" value={lastMetadata?.failureClass ?? 'none'} />
               </div>
