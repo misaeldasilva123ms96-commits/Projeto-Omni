@@ -228,4 +228,16 @@ assert.match(omniMobileNav, /aria-selected/, 'mobile nav must have aria-selected
 assert.match(sidebar, /aria-current/, 'sidebar items must have aria-current')
 assert.match(sidebar, /aria-hidden="true"/, 'sidebar icons must be hidden from screen readers')
 
-console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory + lab + mobile + accessibility checks passed')
+const testPaths = [
+  'shell/OmniShell.test.tsx', 'shell/OmniMobileNav.test.tsx', 'shell/OmniTopbar.test.tsx',
+  'shell/OmniSidebar.test.tsx', 'shell/OmniRightInspector.test.tsx',
+  'projects/ProjectCard.test.tsx', 'providers/ProviderHealthCard.test.tsx',
+  'tokens/TokenUsageOverview.test.tsx', 'agents/AgentCard.test.tsx',
+  'governance/GovernanceDecisionsList.test.tsx', 'memory/MemoryCard.test.tsx',
+  'memory/MemoryList.test.tsx',
+]
+for (const tp of testPaths) {
+  try { read(`src/components/${tp}`) } catch { assert.fail(`test file components/${tp} must exist`) }
+}
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory + lab + mobile + accessibility + tests checks passed')
