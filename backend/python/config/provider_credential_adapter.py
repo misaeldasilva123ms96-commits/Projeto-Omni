@@ -12,6 +12,8 @@ Contract
 - Never log plaintext secrets.
 - Never return encrypted payloads, nonces, or raw StoredCredential fields.
 - Fail closed when the store or key is misconfigured.
+- Fail closed when the cryptography dependency is missing so that module
+  import does not break unrelated runtime tests.
 - Preserve backward compatibility: callers passing ``user_id=None`` get
   unchanged behavior.
 """
@@ -20,13 +22,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-
-from .encrypted_credential_store import (
-    CredentialStore,
-    CredentialStoreError,
-    EncryptionKeyError,
-    _redact_user,
-)
 
 __all__ = [
     "ProviderCredentialAdapter",
@@ -59,10 +54,10 @@ class BYOKResolutionError(Exception):
 class ProviderCredentialAdapter:
     """Stateful adapter around a CredentialStore instance."""
 
-    def __init__(self, store: CredentialStore | None = None) -> None:
+    def __init__(self, store: Any | None = None) -> None:
         self._store = store
 
-    def _get_store(self) -> CredentialStore | None:
+    def _get_store(self) -> Any | None:
         return self._store
 
     def load_credential(
@@ -71,6 +66,9 @@ class ProviderCredentialAdapter:
         """Return decrypted secret for a single provider, or None.
 
         Logs only provider + redacted user identifiers, never the secret.
+        Uses duck typing so that test doubles and external store
+        implementations can be injected without importing the encrypted
+        credential store module.
         """
         store = self._get_store()
         if store is None:
@@ -82,20 +80,15 @@ class ProviderCredentialAdapter:
                 provider_id=provider_id,
                 decrypt=True,
             )
-        except (CredentialStoreError, LookupError, KeyError):
+        except Exception:
             logger.debug(
                 "BYOK miss user=%s provider=%s",
-                _redact_user(user_id),
+                "<redacted>",
                 provider_id,
             )
             return None
 
         if not isinstance(secret, str) or not secret.strip():
-            logger.debug(
-                "BYOK empty secret user=%s provider=%s",
-                _redact_user(user_id),
-                provider_id,
-            )
             return None
 
         return secret
@@ -124,7 +117,7 @@ class ProviderCredentialAdapter:
             except Exception as exc:  # pragma: no cover — defensive guard
                 logger.debug(
                     "BYOK resolution failed user=%s provider=%s error=%s",
-                    _redact_user(user_id),
+                    "<redacted>",
                     provider_id,
                     exc,
                 )
@@ -167,9 +160,19 @@ class ProviderCredentialAdapter:
 def _build_adapter_from_env() -> ProviderCredentialAdapter | None:
     """Try to construct an adapter backed by a real CredentialStore.
 
-    Returns None when the encryption key is missing or the store path is
-    invalid. Callers MUST handle None as "BYOK disabled".
+    Returns None when the encryption key is missing, the cryptography
+    dependency is unavailable, or the store path is invalid. Callers MUST
+    handle None as "BYOK disabled".
     """
+    try:
+        from .encrypted_credential_store import CredentialStore, CredentialStoreError, EncryptionKeyError
+    except ModuleNotFoundError:
+        logger.debug("CredentialStore unavailable; BYOK disabled")
+        return None
+    except Exception as exc:  # pragma: no cover — defensive guard
+        logger.debug("CredentialStore initialization failed: %s", exc)
+        return None
+
     try:
         store = CredentialStore()
     except (CredentialStoreError, EncryptionKeyError):
