@@ -1,6 +1,7 @@
 import { SettingsView } from '../../pages/SettingsPage'
 import { useRequireAuth } from '../../hooks/useRequireAuth'
-import type { ChatMode, View } from '../../types'
+import type { ChatMode } from '../../types'
+import type { View } from '../../app/App'
 
 type SettingsAuthGateProps = {
   mode: ChatMode

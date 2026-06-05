@@ -10,7 +10,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
