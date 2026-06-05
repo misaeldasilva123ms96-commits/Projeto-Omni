@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
+import { SettingsAuthGate } from '../features/settings/SettingsAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
 import {
@@ -9,7 +10,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-type View = 'chat' | 'dashboard' | 'observability' | 'puter-dev'
+type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -21,6 +22,9 @@ export function resolveViewFromPath(
   if (pathname === '/observability') {
     return 'observability'
   }
+  if (pathname === '/settings') {
+    return 'settings'
+  }
   if (pathname === '/dashboard') {
     return 'dashboard'
   }
@@ -30,6 +34,9 @@ export function resolveViewFromPath(
 function pathForView(view: View) {
   if (view === 'observability') {
     return '/observability'
+  }
+  if (view === 'settings') {
+    return '/settings'
   }
   if (view === 'dashboard') {
     return '/dashboard'
@@ -72,6 +79,17 @@ export default function App() {
   if (view === 'observability') {
     return (
       <ObservabilityAuthGate
+        mode={mode}
+        onChangeMode={setMode}
+        onChangeView={handleChangeView}
+        view={view}
+      />
+    )
+  }
+
+  if (view === 'settings') {
+    return (
+      <SettingsAuthGate
         mode={mode}
         onChangeMode={setMode}
         onChangeView={handleChangeView}
