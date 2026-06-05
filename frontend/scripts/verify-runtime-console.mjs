@@ -195,4 +195,14 @@ assert.match(store, /lab-mode/, 'runtime console store must expose lab-mode item
 assert.match(app, /lab-mode/, 'app must include lab-mode route')
 assert.match(app, /LabModePage/, 'app must render LabModePage')
 
-console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory + lab checks passed')
+const omniShell = read('src/components/shell/OmniShell.tsx')
+const omniMobileNav = read('src/components/shell/OmniMobileNav.tsx')
+
+assert.match(omniShell, /Backdrop/, 'omni shell must have backdrop overlay')
+assert.match(omniShell, /AnimatePresence/, 'omni shell must animate panel transitions')
+assert.match(omniShell, /translate-x-0/, 'omni shell must translate sidebar on mobile')
+assert.match(omniShell, /backdrop-blur-sm/, 'omni shell must blur backdrop')
+assert.match(omniShell, /sm:px-4/, 'omni shell must have responsive padding')
+assert.match(omniMobileNav, /M3 12h18M3 6h18M3 18h18/, 'mobile nav must have menu icon')
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory + lab + mobile checks passed')

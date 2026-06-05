@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useState } from 'react'
 import type { ReactNode } from 'react'
 import { OmniTopbar } from './OmniTopbar'
@@ -14,6 +14,19 @@ type OmniShellProps = {
   showSidebar?: boolean
   showRightPanel?: boolean
   onToggleRightPanel?: () => void
+}
+
+function Backdrop({ onClose }: { onClose: () => void }) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    />
+  )
 }
 
 export function OmniShell({
@@ -43,7 +56,7 @@ export function OmniShell({
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_90%,rgba(78,164,255,0.08),transparent_50%)]" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-4 py-4 lg:px-6">
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[1480px] flex-col px-3 py-3 sm:px-4 sm:py-4 lg:px-6">
         <OmniTopbar>{topbar}</OmniTopbar>
 
         <OmniMobileNav
@@ -71,36 +84,46 @@ export function OmniShell({
           }}
         >
           {hasSidebar ? (
-            <aside
-              className={`${
-                mobilePanel === 'sidebar' ? 'block' : 'hidden'
-              } lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)] ${
-                sidebarCollapsed ? 'w-16' : ''
-              }`}
-            >
-              {sidebarCollapsed ? (
-                <button
-                  className="flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-slate-300 transition hover:text-white"
-                  onClick={() => setSidebarCollapsed(false)}
-                  type="button"
-                  title="Expand sidebar"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
-                </button>
-              ) : (
-                <div className="relative h-full">
+            <>
+              <AnimatePresence>
+                {mobilePanel === 'sidebar' ? (
+                  <Backdrop onClose={() => setMobilePanel('content')} />
+                ) : null}
+              </AnimatePresence>
+
+              <aside
+                className={`${
+                  mobilePanel === 'sidebar'
+                    ? 'fixed inset-y-0 left-0 z-40 w-[280px] translate-x-0 transition-transform duration-300 ease-out'
+                    : 'hidden'
+                } lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)] lg:w-auto lg:translate-x-0 ${
+                  sidebarCollapsed ? 'w-16' : ''
+                }`}
+              >
+                {sidebarCollapsed ? (
                   <button
-                    className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[rgba(11,13,29,0.9)] text-slate-400 transition hover:text-white"
-                    onClick={() => setSidebarCollapsed(true)}
+                    className="flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-slate-300 transition hover:text-white"
+                    onClick={() => setSidebarCollapsed(false)}
                     type="button"
-                    title="Collapse sidebar"
+                    title="Expand sidebar"
                   >
-                    <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></svg>
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
                   </button>
-                  {sidebar}
-                </div>
-              )}
-            </aside>
+                ) : (
+                  <div className="relative h-full">
+                    <button
+                      className="absolute -right-3 top-4 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[rgba(11,13,29,0.9)] text-slate-400 transition hover:text-white lg:flex"
+                      onClick={() => setSidebarCollapsed(true)}
+                      type="button"
+                      title="Collapse sidebar"
+                    >
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></svg>
+                    </button>
+                    {sidebar}
+                  </div>
+                )}
+              </aside>
+            </>
           ) : null}
 
           <main
@@ -112,23 +135,36 @@ export function OmniShell({
           </main>
 
           {hasRightPanel ? (
-            <aside
-              className={`${
-                mobilePanel === 'inspector' ? 'block md:fixed md:inset-0 md:z-40' : 'hidden'
-              } lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)]`}
-            >
-              <div className="flex items-center justify-between lg:mb-2">
-                <button
-                  className="rounded-full border border-white/10 bg-white/[0.05] p-1.5 text-slate-400 transition hover:text-white md:ml-auto lg:hidden"
-                  onClick={() => setMobilePanel('content')}
-                  type="button"
-                  title="Close inspector"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-              </div>
-              {rightPanel}
-            </aside>
+            <>
+              <AnimatePresence>
+                {mobilePanel === 'inspector' ? (
+                  <Backdrop onClose={() => setMobilePanel('content')} />
+                ) : null}
+              </AnimatePresence>
+
+              <aside
+                className={`${
+                  mobilePanel === 'inspector'
+                    ? 'fixed inset-y-0 right-0 z-40 w-[320px] translate-x-0 transition-transform duration-300 ease-out sm:w-[360px]'
+                    : 'hidden'
+                } lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)] lg:w-auto lg:translate-x-0`}
+              >
+                <div className="flex h-full flex-col overflow-y-auto rounded-2xl border border-white/10 bg-[rgba(11,13,29,0.92)] p-4 backdrop-blur-xl lg:h-auto lg:rounded-none lg:border-none lg:bg-transparent lg:p-0">
+                  <div className="mb-3 flex items-center justify-between lg:hidden">
+                    <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Runtime</span>
+                    <button
+                      className="rounded-full border border-white/10 bg-white/5 p-1.5 text-slate-400 transition hover:text-white"
+                      onClick={() => setMobilePanel('content')}
+                      type="button"
+                      title="Close inspector"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                  {rightPanel}
+                </div>
+              </aside>
+            </>
           ) : null}
         </motion.div>
       </div>
