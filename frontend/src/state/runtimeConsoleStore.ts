@@ -14,6 +14,7 @@ export type SidebarItem =
   | 'governanca'
   | 'memoria'
   | 'centro-memoria'
+  | 'lab-mode'
   | 'simulacoes'
   | 'brainstorm'
   | 'analisar-dados'
@@ -99,6 +100,7 @@ export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'governanca', label: 'Governança', description: 'Visualizar decisões e políticas de governança.' },
   { id: 'memoria', label: 'Memória (painel)', description: 'Inspecionar contexto e retenção ativa.' },
   { id: 'centro-memoria', label: 'Centro de Memória', description: 'Gerenciar entradas de memória do runtime.' },
+  { id: 'lab-mode', label: 'Laboratório', description: 'Sandbox para testar prompts e configurações.' },
   { id: 'simulacoes', label: 'Simulações', description: 'Comparar alternativas antes da execução.' },
 ]
 
@@ -144,6 +146,7 @@ const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   governanca: 'chat',
   memoria: 'memory',
   'centro-memoria': 'memory',
+  'lab-mode': 'chat',
   simulacoes: 'simulation',
   brainstorm: 'chat',
   'analisar-dados': 'chat',

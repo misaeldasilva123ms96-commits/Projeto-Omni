@@ -9,6 +9,7 @@ import { TokenUsagePage } from '../pages/TokenUsagePage'
 import { AgentsPage } from '../pages/AgentsPage'
 import { GovernanceCenterPage } from '../pages/GovernanceCenterPage'
 import { MemoryCenterPage } from '../pages/MemoryCenterPage'
+import { LabModePage } from '../pages/LabModePage'
 import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -17,7 +18,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'governance' | 'memory-center' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'governance' | 'memory-center' | 'lab-mode' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -56,6 +57,9 @@ export function resolveViewFromPath(
   if (pathname === '/memory-center') {
     return 'memory-center'
   }
+  if (pathname === '/lab-mode') {
+    return 'lab-mode'
+  }
   return 'chat'
 }
 
@@ -89,6 +93,9 @@ function pathForView(view: View) {
   }
   if (view === 'memory-center') {
     return '/memory-center'
+  }
+  if (view === 'lab-mode') {
+    return '/lab-mode'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH
@@ -155,6 +162,13 @@ export default function App() {
         />
       ) : view === 'memory-center' ? (
         <MemoryCenterPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'lab-mode' ? (
+        <LabModePage
           mode={mode}
           onChangeMode={setMode}
           onChangeView={handleChangeView}

@@ -201,6 +201,23 @@ export type Agent = {
   updatedAt: string
 }
 
+export type LabConfig = {
+  model: string
+  provider: string
+  temperature: number
+  maxTokens: number
+  systemPrompt: string
+}
+
+export type LabTest = {
+  id: string
+  config: LabConfig
+  prompt: string
+  response: string
+  latencyMs: number
+  timestamp: string
+}
+
 export type MemoryType = 'working' | 'episodic' | 'semantic' | 'procedural'
 
 export type MemoryEntry = {

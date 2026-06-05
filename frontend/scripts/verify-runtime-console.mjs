@@ -182,4 +182,17 @@ assert.match(store, /centro-memoria/, 'runtime console store must expose centro-
 assert.match(app, /memory-center/, 'app must include memory-center route')
 assert.match(app, /MemoryCenterPage/, 'app must render MemoryCenterPage')
 
-console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory checks passed')
+const labModePage = read('src/pages/LabModePage.tsx')
+const labConsole = read('src/components/lab/LabConsole.tsx')
+
+assert.match(labModePage, /LabConsole/, 'lab mode page must render console')
+assert.match(labConsole, /sendOmniMessage/, 'lab console must send chat messages')
+assert.match(labConsole, /temperature/, 'lab console must have temperature config')
+assert.match(labConsole, /maxTokens/, 'lab console must have max tokens config')
+assert.match(labConsole, /systemPrompt/, 'lab console must have system prompt config')
+assert.match(sidebar, /lab-mode/, 'sidebar must include lab-mode icon')
+assert.match(store, /lab-mode/, 'runtime console store must expose lab-mode item')
+assert.match(app, /lab-mode/, 'app must include lab-mode route')
+assert.match(app, /LabModePage/, 'app must render LabModePage')
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory + lab checks passed')
