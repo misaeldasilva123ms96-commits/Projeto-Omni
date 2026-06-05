@@ -101,7 +101,7 @@ fn env_flag(name: &str) -> Option<bool> {
 
 pub(crate) async fn require_supabase_auth(
     State(state): State<AppState>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     let token = extract_auth_token(req.headers(), req.uri().path(), req.uri().query());
@@ -110,7 +110,12 @@ pub(crate) async fn require_supabase_auth(
     };
 
     match state.supabase_auth.validate_token(token) {
-        Ok(_) => next.run(req).await,
+        Ok(claims) => {
+            if let Some(user_id) = claims.sub {
+                req.extensions_mut().insert(user_id);
+            }
+            next.run(req).await
+        }
         Err(_) => unauthorized_response(),
     }
 }
