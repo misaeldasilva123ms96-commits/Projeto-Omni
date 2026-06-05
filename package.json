@@ -39,11 +39,11 @@
     "node": ">=24 <25"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.106.2",
+    "@supabase/supabase-js": "^2.107.0",
     "ajv": "^8.17.1"
   },
   "devDependencies": {
-    "tsx": "^4.22.3",
-    "wrangler": "^4.95.0"
+    "tsx": "^4.22.4",
+    "wrangler": "^4.98.0"
   }
 }

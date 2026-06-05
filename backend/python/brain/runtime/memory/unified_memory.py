@@ -45,7 +45,7 @@ class UnifiedMemoryLayer:
         candidates = self._to_candidates(short_term=short_term, long_term=long_term, semantic=semantic, operational=operational)
         ranked = self._rank(candidates=candidates, query=query)
         selected = ranked[:safe_max]
-        context_id = hashlib.sha1(f"{session_id}:{run_id or ''}:{query}".encode("utf-8")).hexdigest()[:16]
+        context_id = hashlib.sha256(f"{session_id}:{run_id or ''}:{query}".encode("utf-8")).hexdigest()[:16]
         sources_used = sorted({item.memory_type for item in selected})
         summary = self._summary(selected=selected, total=len(candidates))
         score_values = [item.score for item in selected]
