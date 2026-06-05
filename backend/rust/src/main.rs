@@ -20,7 +20,7 @@ use axum::{
     http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
     middleware::from_fn_with_state,
     response::{IntoResponse, Response},
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use error::AppError;
@@ -2213,10 +2213,7 @@ fn python_settings_cli_path(state: &AppState) -> PathBuf {
         .join("provider_settings_cli.py")
 }
 
-async fn run_settings_cli(
-    state: &AppState,
-    args: &[&str],
-) -> Result<Value, AppError> {
+async fn run_settings_cli(state: &AppState, args: &[&str]) -> Result<Value, AppError> {
     let cli_path = python_settings_cli_path(state);
     let python_bin = &state.python_bin;
 
@@ -2226,8 +2223,14 @@ async fn run_settings_cli(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env("OMNI_CREDENTIAL_STORE_KEY", env::var("OMNI_CREDENTIAL_STORE_KEY").unwrap_or_default())
-        .env("OMNI_PUBLIC_DEMO_MODE", env::var("OMNI_PUBLIC_DEMO_MODE").unwrap_or_default())
+        .env(
+            "OMNI_CREDENTIAL_STORE_KEY",
+            env::var("OMNI_CREDENTIAL_STORE_KEY").unwrap_or_default(),
+        )
+        .env(
+            "OMNI_PUBLIC_DEMO_MODE",
+            env::var("OMNI_PUBLIC_DEMO_MODE").unwrap_or_default(),
+        )
         .env("PYTHONPATH", &state.python_root);
 
     let output = cmd
@@ -2241,7 +2244,8 @@ async fn run_settings_cli(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(&stdout).map_err(|e| AppError::Internal(format!("invalid JSON from settings CLI: {e}")))
+    serde_json::from_str(&stdout)
+        .map_err(|e| AppError::Internal(format!("invalid JSON from settings CLI: {e}")))
 }
 
 fn extract_user_id(extensions: &axum::http::Extensions) -> Option<String> {
@@ -2253,16 +2257,17 @@ async fn settings_list_providers(
     State(state): State<AppState>,
     extensions: axum::http::Extensions,
 ) -> Result<Json<ListProvidersResponse>, AppError> {
-    let user_id = extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
     let result = run_settings_cli(&state, &["list", &user_id]).await?;
 
     let providers: Vec<ProviderMetadata> = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse list providers: {e}")))?;
 
     Ok(Json(ListProvidersResponse {
-            status: "ok".to_string(),
-            providers,
-        }))
+        status: "ok".to_string(),
+        providers,
+    }))
 }
 
 /// POST /api/v1/settings/providers
@@ -2271,7 +2276,8 @@ async fn settings_save_provider(
     extensions: axum::http::Extensions,
     Json(payload): Json<SaveProviderRequest>,
 ) -> Result<Json<SaveProviderResponse>, AppError> {
-    let user_id = extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
 
     let provider = payload.provider.trim().to_ascii_lowercase();
     if provider.is_empty() {
@@ -2296,7 +2302,8 @@ async fn settings_update_provider(
     AxumPath(provider): AxumPath<String>,
     Json(payload): Json<UpdateProviderRequest>,
 ) -> Result<Json<UpdateProviderResponse>, AppError> {
-    let user_id = extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
 
     let provider = provider.trim().to_ascii_lowercase();
     if provider.is_empty() {
@@ -2306,7 +2313,8 @@ async fn settings_update_provider(
         return Err(AppError::Internal("api_key is required".into()));
     }
 
-    let result = run_settings_cli(&state, &["update", &user_id, &provider, &payload.api_key]).await?;
+    let result =
+        run_settings_cli(&state, &["update", &user_id, &provider, &payload.api_key]).await?;
 
     let response: UpdateProviderResponse = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse update provider: {e}")))?;
@@ -2320,7 +2328,8 @@ async fn settings_delete_provider(
     extensions: axum::http::Extensions,
     AxumPath(provider): AxumPath<String>,
 ) -> Result<Json<DeleteProviderResponse>, AppError> {
-    let user_id = extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
 
     let provider = provider.trim().to_ascii_lowercase();
     if provider.is_empty() {
@@ -2342,7 +2351,8 @@ async fn settings_test_provider(
     AxumPath(provider): AxumPath<String>,
     Json(payload): Json<TestProviderRequest>,
 ) -> Result<Json<TestProviderResponse>, AppError> {
-    let user_id = extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
+    let user_id =
+        extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
 
     let provider = provider.trim().to_ascii_lowercase();
     if provider.is_empty() {
