@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.101.1",
+    "@supabase/supabase-js": "^2.107.0",
     "framer-motion": "^12.38.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
