@@ -174,6 +174,19 @@ export type GovernanceSummary = {
 
 export type ChatRequestState = 'idle' | 'loading' | 'error'
 
+export type ProjectStatus = 'active' | 'archived'
+
+export type Project = {
+  id: string
+  name: string
+  description: string
+  status: ProjectStatus
+  mode: ChatMode
+  sessionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type ConversationSummary = {
   id: string
   title: string

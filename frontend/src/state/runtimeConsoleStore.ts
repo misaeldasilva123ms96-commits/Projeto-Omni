@@ -7,6 +7,7 @@ export type ConsolePanelView = 'chat' | 'history' | 'memory' | 'simulation' | 'i
 export type SidebarItem =
   | 'nova-conversa'
   | 'historico'
+  | 'projetos'
   | 'memoria'
   | 'simulacoes'
   | 'brainstorm'
@@ -86,6 +87,7 @@ export const BOTTOM_TABS: Array<{ id: ConsoleTab; label: string }> = [
 export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'nova-conversa', label: 'Nova conversa', description: 'Abrir uma sessão cognitiva nova.' },
   { id: 'historico', label: 'Histórico', description: 'Revisar sessões e execuções passadas.' },
+  { id: 'projetos', label: 'Projetos', description: 'Gerenciar projetos e organizar sessões.' },
   { id: 'memoria', label: 'Memória', description: 'Inspecionar contexto e retenção ativa.' },
   { id: 'simulacoes', label: 'Simulações', description: 'Comparar alternativas antes da execução.' },
 ]
@@ -125,6 +127,7 @@ export const mockRuntimeState: RuntimeConsoleMockState = {
 const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   'nova-conversa': 'chat',
   historico: 'history',
+  projetos: 'chat',
   memoria: 'memory',
   simulacoes: 'simulation',
   brainstorm: 'chat',

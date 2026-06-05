@@ -3,6 +3,7 @@ import { OmniShell } from '../components/shell/OmniShell'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
+import { ProjectsPage } from '../pages/ProjectsPage'
 import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -11,7 +12,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -32,6 +33,9 @@ export function resolveViewFromPath(
   if (pathname === '/history') {
     return 'history'
   }
+  if (pathname === '/projects') {
+    return 'projects'
+  }
   return 'chat'
 }
 
@@ -47,6 +51,9 @@ function pathForView(view: View) {
   }
   if (view === 'history') {
     return '/history'
+  }
+  if (view === 'projects') {
+    return '/projects'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH
@@ -85,6 +92,13 @@ export default function App() {
         />
       ) : view === 'observability' ? (
         <ObservabilityAuthGate
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'projects' ? (
+        <ProjectsPage
           mode={mode}
           onChangeMode={setMode}
           onChangeView={handleChangeView}

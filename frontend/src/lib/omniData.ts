@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatMode, ConversationSummary, RuntimeMetadata } from '../types'
+import type { ChatMessage, ChatMode, ConversationSummary, Project, ProjectStatus, RuntimeMetadata } from '../types'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -218,5 +218,218 @@ export async function fetchChatMessages(
     })
   } catch {
     return []
+  }
+}
+
+export async function fetchProjects(): Promise<Project[]> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return localStorageProjects()
+
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, description, status, mode, metadata, created_at, updated_at')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(50)
+
+    if (error) throw error
+    if (!data || data.length === 0) return localStorageProjects()
+
+    const projects: Project[] = data.map((row: Record<string, unknown>) => {
+      const meta = (row.metadata as Record<string, unknown>) ?? {}
+      return {
+        id: String(row.id ?? ''),
+        name: String(row.name ?? ''),
+        description: String(row.description ?? ''),
+        status: (['active', 'archived'].includes(String(row.status)) ? String(row.status) : 'active') as ProjectStatus,
+        mode: (['chat', 'pesquisa', 'codigo', 'agente'].includes(String(row.mode)) ? String(row.mode) : 'chat') as ChatMode,
+        sessionCount: typeof meta.session_count === 'number' ? meta.session_count : 0,
+        createdAt: String(row.created_at ?? new Date().toISOString()),
+        updatedAt: String(row.updated_at ?? new Date().toISOString()),
+      }
+    })
+
+    return projects
+  } catch {
+    return localStorageProjects()
+  }
+}
+
+export async function createProject(
+  input: { name: string; description?: string; mode?: ChatMode },
+): Promise<Project | null> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return localStorageCreateProject(input)
+
+    const { data, error } = await supabase
+      .from('projects')
+      .insert({
+        user_id: user.id,
+        name: input.name,
+        description: input.description ?? '',
+        status: 'active',
+        mode: input.mode ?? 'chat',
+        metadata: { session_count: 0 },
+      })
+      .select('id, name, description, status, mode, metadata, created_at, updated_at')
+      .single()
+
+    if (error) throw error
+    if (!data) return null
+
+    const meta = (data.metadata as Record<string, unknown>) ?? {}
+    return {
+      id: String(data.id),
+      name: String(data.name),
+      description: String(data.description ?? ''),
+      status: 'active',
+      mode: (['chat', 'pesquisa', 'codigo', 'agente'].includes(String(data.mode)) ? String(data.mode) : 'chat') as ChatMode,
+      sessionCount: typeof meta.session_count === 'number' ? meta.session_count : 0,
+      createdAt: String(data.created_at ?? new Date().toISOString()),
+      updatedAt: String(data.updated_at ?? new Date().toISOString()),
+    }
+  } catch {
+    return localStorageCreateProject(input)
+  }
+}
+
+export async function updateProject(
+  id: string,
+  input: { name?: string; description?: string; status?: ProjectStatus; mode?: ChatMode },
+): Promise<Project | null> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return localStorageUpdateProject(id, input)
+
+    const payload: Record<string, unknown> = {}
+    if (input.name !== undefined) payload.name = input.name
+    if (input.description !== undefined) payload.description = input.description
+    if (input.status !== undefined) payload.status = input.status
+    if (input.mode !== undefined) payload.mode = input.mode
+
+    const { data, error } = await supabase
+      .from('projects')
+      .update(payload)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select('id, name, description, status, mode, metadata, created_at, updated_at')
+      .single()
+
+    if (error) throw error
+    if (!data) return null
+
+    const meta = (data.metadata as Record<string, unknown>) ?? {}
+    return {
+      id: String(data.id),
+      name: String(data.name),
+      description: String(data.description ?? ''),
+      status: (['active', 'archived'].includes(String(data.status)) ? String(data.status) : 'active') as ProjectStatus,
+      mode: (['chat', 'pesquisa', 'codigo', 'agente'].includes(String(data.mode)) ? String(data.mode) : 'chat') as ChatMode,
+      sessionCount: typeof meta.session_count === 'number' ? meta.session_count : 0,
+      createdAt: String(data.created_at ?? new Date().toISOString()),
+      updatedAt: String(data.updated_at ?? new Date().toISOString()),
+    }
+  } catch {
+    return localStorageUpdateProject(id, input)
+  }
+}
+
+export async function deleteProject(id: string): Promise<boolean> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return localStorageDeleteProject(id)
+
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id)
+
+    if (error) throw error
+    localStorageRemoveProject(id)
+    return true
+  } catch {
+    return localStorageDeleteProject(id)
+  }
+}
+
+const PROJECTS_STORAGE_KEY = 'omini-projects-v1'
+
+function localStorageProjects(): Project[] {
+  try {
+    const raw = localStorage.getItem(PROJECTS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+function localStorageCreateProject(input: { name: string; description?: string; mode?: ChatMode }): Project | null {
+  try {
+    const projects = localStorageProjects()
+    const project: Project = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      description: input.description ?? '',
+      status: 'active',
+      mode: input.mode ?? 'chat',
+      sessionCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    projects.unshift(project)
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects))
+    return project
+  } catch {
+    return null
+  }
+}
+
+function localStorageUpdateProject(
+  id: string,
+  input: { name?: string; description?: string; status?: ProjectStatus; mode?: ChatMode },
+): Project | null {
+  try {
+    const projects = localStorageProjects()
+    const index = projects.findIndex((p: Project) => p.id === id)
+    if (index === -1) return null
+    const project = { ...projects[index] }
+    if (input.name !== undefined) project.name = input.name
+    if (input.description !== undefined) project.description = input.description
+    if (input.status !== undefined) project.status = input.status
+    if (input.mode !== undefined) project.mode = input.mode
+    project.updatedAt = new Date().toISOString()
+    projects[index] = project
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects))
+    return project
+  } catch {
+    return null
+  }
+}
+
+function localStorageDeleteProject(id: string): boolean {
+  try {
+    const projects = localStorageProjects()
+    const filtered = projects.filter((p: Project) => p.id !== id)
+    if (filtered.length === projects.length) return false
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(filtered))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function localStorageRemoveProject(id: string) {
+  try {
+    const projects = localStorageProjects()
+    const filtered = projects.filter((p: Project) => p.id !== id)
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(filtered))
+  } catch {
+    // ignore
   }
 }
