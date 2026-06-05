@@ -9,6 +9,7 @@ export type SidebarItem =
   | 'historico'
   | 'projetos'
   | 'provedores'
+  | 'uso-tokens'
   | 'memoria'
   | 'simulacoes'
   | 'brainstorm'
@@ -90,6 +91,7 @@ export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'historico', label: 'Histórico', description: 'Revisar sessões e execuções passadas.' },
   { id: 'projetos', label: 'Projetos', description: 'Gerenciar projetos e organizar sessões.' },
   { id: 'provedores', label: 'Provedores', description: 'Gerenciar provedores de IA e credenciais.' },
+  { id: 'uso-tokens', label: 'Uso de Tokens', description: 'Acompanhar consumo de tokens por requisição.' },
   { id: 'memoria', label: 'Memória', description: 'Inspecionar contexto e retenção ativa.' },
   { id: 'simulacoes', label: 'Simulações', description: 'Comparar alternativas antes da execução.' },
 ]
@@ -131,6 +133,7 @@ const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   historico: 'history',
   projetos: 'chat',
   provedores: 'chat',
+  'uso-tokens': 'chat',
   memoria: 'memory',
   simulacoes: 'simulation',
   brainstorm: 'chat',

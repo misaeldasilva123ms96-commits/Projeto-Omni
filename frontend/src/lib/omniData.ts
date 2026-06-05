@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatMode, ConversationSummary, Project, ProjectStatus, RuntimeMetadata } from '../types'
+import type { ChatMessage, ChatMode, ConversationSummary, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -421,6 +421,77 @@ function localStorageDeleteProject(id: string): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+export async function fetchTokenUsage(): Promise<TokenUsageSummary> {
+  const empty: TokenUsageSummary = {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalTokens: 0,
+    totalRequests: 0,
+    avgTokensPerRequest: 0,
+    byDate: [],
+  }
+
+  try {
+    const conversations = await fetchChatSessions()
+    if (conversations.length === 0) return empty
+
+    const dailyMap = new Map<string, { input: number; output: number; count: number }>()
+
+    for (const conv of conversations) {
+      const messages = await fetchChatMessages(conv.id)
+      for (const msg of messages) {
+        const usage = msg.metadata?.usage
+        if (!usage) continue
+
+        const input = usage.input_tokens ?? 0
+        const output = usage.output_tokens ?? 0
+        if (input === 0 && output === 0) continue
+
+        const day = msg.createdAt.slice(0, 10)
+        const entry = dailyMap.get(day) ?? { input: 0, output: 0, count: 0 }
+        entry.input += input
+        entry.output += output
+        entry.count += 1
+        dailyMap.set(day, entry)
+      }
+    }
+
+    const byDate: TokenUsageSummary['byDate'] = []
+    let totalInputTokens = 0
+    let totalOutputTokens = 0
+    let totalRequests = 0
+
+    for (const [date, vals] of dailyMap) {
+      const totalTokens = vals.input + vals.output
+      byDate.push({
+        date,
+        inputTokens: vals.input,
+        outputTokens: vals.output,
+        totalTokens,
+        requestCount: vals.count,
+      })
+      totalInputTokens += vals.input
+      totalOutputTokens += vals.output
+      totalRequests += vals.count
+    }
+
+    byDate.sort((a, b) => a.date.localeCompare(b.date))
+
+    const totalTokens = totalInputTokens + totalOutputTokens
+
+    return {
+      totalInputTokens,
+      totalOutputTokens,
+      totalTokens,
+      totalRequests,
+      avgTokensPerRequest: totalRequests > 0 ? Math.round(totalTokens / totalRequests) : 0,
+      byDate,
+    }
+  } catch {
+    return empty
   }
 }
 

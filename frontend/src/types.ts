@@ -187,6 +187,23 @@ export type Project = {
   updatedAt: string
 }
 
+export type TokenUsageRecord = {
+  date: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  requestCount: number
+}
+
+export type TokenUsageSummary = {
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalTokens: number
+  totalRequests: number
+  avgTokensPerRequest: number
+  byDate: TokenUsageRecord[]
+}
+
 export type ConversationSummary = {
   id: string
   title: string

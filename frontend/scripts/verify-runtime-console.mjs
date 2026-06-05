@@ -123,4 +123,18 @@ assert.match(store, /provedores/, 'runtime console store must expose provedores 
 assert.match(app, /provider-center/, 'app must include provider-center route')
 assert.match(app, /ProviderCenterPage/, 'app must render ProviderCenterPage')
 
-console.log('runtime console wiring + history v2 + projects + provider-center checks passed')
+const tokenUsagePage = read('src/pages/TokenUsagePage.tsx')
+const tokenUsageOverview = read('src/components/tokens/TokenUsageOverview.tsx')
+const tokenUsageChart = read('src/components/tokens/TokenUsageChart.tsx')
+
+assert.match(tokenUsagePage, /TokenUsageOverview/, 'token usage page must render overview')
+assert.match(tokenUsagePage, /TokenUsageChart/, 'token usage page must render chart')
+assert.match(tokenUsagePage, /fetchTokenUsage/, 'token usage page must fetch usage data')
+assert.match(tokenUsageOverview, /OmniCard/, 'token usage overview must use omni cards')
+assert.match(tokenUsageChart, /OmniCard/, 'token usage chart must use omni card')
+assert.match(sidebar, /uso-tokens/, 'sidebar must include uso-tokens icon')
+assert.match(store, /uso-tokens/, 'runtime console store must expose uso-tokens item')
+assert.match(app, /token-usage/, 'app must include token-usage route')
+assert.match(app, /TokenUsagePage/, 'app must render TokenUsagePage')
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage checks passed')
