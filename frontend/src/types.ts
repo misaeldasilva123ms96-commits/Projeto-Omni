@@ -201,6 +201,23 @@ export type Agent = {
   updatedAt: string
 }
 
+export type MemoryType = 'working' | 'episodic' | 'semantic' | 'procedural'
+
+export type MemoryEntry = {
+  id: string
+  memoryType: MemoryType
+  title: string
+  summary: string
+  content: Record<string, unknown>
+  source: string
+  importance: number
+  tags: string[]
+  isPinned: boolean
+  sessionId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type GovernanceDecision = {
   id: string
   sessionId: string

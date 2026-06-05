@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, GovernanceDecision, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
+import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, GovernanceDecision, MemoryEntry, MemoryType, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -620,6 +620,280 @@ export async function deleteAgent(id: string): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+const MEMORY_STORAGE_KEY = 'omini-memory-v1'
+
+function localStorageMemoryEntries(): MemoryEntry[] {
+  try {
+    const raw = localStorage.getItem(MEMORY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+function saveLocalStorageMemoryEntries(entries: MemoryEntry[]) {
+  try {
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(entries))
+  } catch {
+    // ignore
+  }
+}
+
+export async function fetchMemoryEntries(): Promise<MemoryEntry[]> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return localStorageMemoryEntries()
+
+    const { data, error } = await supabase
+      .from('memory_entries')
+      .select('id, memory_type, title, summary, content, source, importance, tags, is_pinned, session_id, created_at, updated_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) throw error
+    if (!data || data.length === 0) return localStorageMemoryEntries()
+
+    return data.map((row: Record<string, unknown>) => {
+      const content = row.content as Record<string, unknown> ?? {}
+      const tags = row.tags as string[] ?? []
+      const rawType = String(row.memory_type ?? 'working')
+      const memoryType = (['working', 'episodic', 'semantic', 'procedural'].includes(rawType) ? rawType : 'working') as MemoryType
+      return {
+        id: String(row.id ?? ''),
+        memoryType,
+        title: String(row.title ?? ''),
+        summary: String(row.summary ?? ''),
+        content,
+        source: String(row.source ?? ''),
+        importance: typeof row.importance === 'number' ? row.importance : 0,
+        tags,
+        isPinned: row.is_pinned === true,
+        sessionId: row.session_id ? String(row.session_id) : null,
+        createdAt: String(row.created_at ?? new Date().toISOString()),
+        updatedAt: String(row.updated_at ?? new Date().toISOString()),
+      }
+    })
+  } catch {
+    return localStorageMemoryEntries()
+  }
+}
+
+export async function createMemoryEntry(
+  input: {
+    memoryType: MemoryType
+    title: string
+    summary?: string
+    content?: Record<string, unknown>
+    source?: string
+    importance?: number
+    tags?: string[]
+    isPinned?: boolean
+    sessionId?: string | null
+  },
+): Promise<MemoryEntry | null> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (user) {
+      const { data, error } = await supabase
+        .from('memory_entries')
+        .insert({
+          user_id: user.id,
+          memory_type: input.memoryType,
+          title: input.title,
+          summary: input.summary ?? '',
+          content: input.content ?? {},
+          source: input.source ?? '',
+          importance: input.importance ?? 0,
+          tags: input.tags ?? [],
+          is_pinned: input.isPinned ?? false,
+          session_id: input.sessionId ?? null,
+        })
+        .select('id, memory_type, title, summary, content, source, importance, tags, is_pinned, session_id, created_at, updated_at')
+        .single()
+
+      if (!error && data) {
+        return mapMemoryRow(data as Record<string, unknown>)
+      }
+    }
+
+    const entries = localStorageMemoryEntries()
+    const entry: MemoryEntry = {
+      id: crypto.randomUUID(),
+      memoryType: input.memoryType,
+      title: input.title,
+      summary: input.summary ?? '',
+      content: input.content ?? {},
+      source: input.source ?? '',
+      importance: input.importance ?? 0,
+      tags: input.tags ?? [],
+      isPinned: input.isPinned ?? false,
+      sessionId: input.sessionId ?? null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    entries.unshift(entry)
+    saveLocalStorageMemoryEntries(entries)
+    return entry
+  } catch {
+    return localStorageCreateMemoryEntry(input)
+  }
+}
+
+function localStorageCreateMemoryEntry(
+  input: {
+    memoryType: MemoryType
+    title: string
+    summary?: string
+    content?: Record<string, unknown>
+    source?: string
+    importance?: number
+    tags?: string[]
+    isPinned?: boolean
+    sessionId?: string | null
+  },
+): MemoryEntry | null {
+  try {
+    const entries = localStorageMemoryEntries()
+    const entry: MemoryEntry = {
+      id: crypto.randomUUID(),
+      memoryType: input.memoryType,
+      title: input.title,
+      summary: input.summary ?? '',
+      content: input.content ?? {},
+      source: input.source ?? '',
+      importance: input.importance ?? 0,
+      tags: input.tags ?? [],
+      isPinned: input.isPinned ?? false,
+      sessionId: input.sessionId ?? null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    entries.unshift(entry)
+    saveLocalStorageMemoryEntries(entries)
+    return entry
+  } catch {
+    return null
+  }
+}
+
+export async function updateMemoryEntry(
+  id: string,
+  input: {
+    title?: string
+    summary?: string
+    content?: Record<string, unknown>
+    source?: string
+    importance?: number
+    tags?: string[]
+    isPinned?: boolean
+  },
+): Promise<MemoryEntry | null> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (user) {
+      const payload: Record<string, unknown> = {}
+      if (input.title !== undefined) payload.title = input.title
+      if (input.summary !== undefined) payload.summary = input.summary
+      if (input.content !== undefined) payload.content = input.content
+      if (input.source !== undefined) payload.source = input.source
+      if (input.importance !== undefined) payload.importance = input.importance
+      if (input.tags !== undefined) payload.tags = input.tags
+      if (input.isPinned !== undefined) payload.is_pinned = input.isPinned
+
+      const { data, error } = await supabase
+        .from('memory_entries')
+        .update(payload)
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select('id, memory_type, title, summary, content, source, importance, tags, is_pinned, session_id, created_at, updated_at')
+        .single()
+
+      if (!error && data) {
+        return mapMemoryRow(data as Record<string, unknown>)
+      }
+    }
+
+    const entries = localStorageMemoryEntries()
+    const index = entries.findIndex((e) => e.id === id)
+    if (index === -1) return null
+    const entry = { ...entries[index] }
+    if (input.title !== undefined) entry.title = input.title
+    if (input.summary !== undefined) entry.summary = input.summary
+    if (input.content !== undefined) entry.content = input.content
+    if (input.source !== undefined) entry.source = input.source
+    if (input.importance !== undefined) entry.importance = input.importance
+    if (input.tags !== undefined) entry.tags = input.tags
+    if (input.isPinned !== undefined) entry.isPinned = input.isPinned
+    entry.updatedAt = new Date().toISOString()
+    entries[index] = entry
+    saveLocalStorageMemoryEntries(entries)
+    return entry
+  } catch {
+    return null
+  }
+}
+
+export async function deleteMemoryEntry(id: string): Promise<boolean> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (user) {
+      const { error } = await supabase
+        .from('memory_entries')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id)
+
+      if (!error) {
+        localStorageRemoveMemoryEntry(id)
+        return true
+      }
+    }
+
+    const entries = localStorageMemoryEntries()
+    const filtered = entries.filter((e) => e.id !== id)
+    if (filtered.length === entries.length) return false
+    saveLocalStorageMemoryEntries(filtered)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function localStorageRemoveMemoryEntry(id: string) {
+  try {
+    const entries = localStorageMemoryEntries()
+    const filtered = entries.filter((e) => e.id !== id)
+    saveLocalStorageMemoryEntries(filtered)
+  } catch {
+    // ignore
+  }
+}
+
+function mapMemoryRow(row: Record<string, unknown>): MemoryEntry {
+  const content = row.content as Record<string, unknown> ?? {}
+  const tags = row.tags as string[] ?? []
+  const rawType = String(row.memory_type ?? 'working')
+  const memoryType = (['working', 'episodic', 'semantic', 'procedural'].includes(rawType) ? rawType : 'working') as MemoryType
+  return {
+    id: String(row.id ?? ''),
+    memoryType,
+    title: String(row.title ?? ''),
+    summary: String(row.summary ?? ''),
+    content,
+    source: String(row.source ?? ''),
+    importance: typeof row.importance === 'number' ? row.importance : 0,
+    tags,
+    isPinned: row.is_pinned === true,
+    sessionId: row.session_id ? String(row.session_id) : null,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
   }
 }
 

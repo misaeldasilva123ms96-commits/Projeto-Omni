@@ -167,4 +167,19 @@ assert.match(store, /governanca/, 'runtime console store must expose governanca 
 assert.match(app, /governance/, 'app must include governance route')
 assert.match(app, /GovernanceCenterPage/, 'app must render GovernanceCenterPage')
 
-console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance checks passed')
+const memoryPage = read('src/pages/MemoryCenterPage.tsx')
+const memoryCard = read('src/components/memory/MemoryCard.tsx')
+const memoryList = read('src/components/memory/MemoryList.tsx')
+
+assert.match(memoryPage, /MemoryList/, 'memory page must render list')
+assert.match(memoryPage, /fetchMemoryEntries/, 'memory page must fetch entries')
+assert.match(memoryPage, /OmniCard/, 'memory page must use omni cards')
+assert.match(memoryCard, /OmniBadge/, 'memory card must show type badge')
+assert.match(memoryCard, /OmniButton/, 'memory card must use omni buttons')
+assert.match(memoryList, /MemoryCard/, 'memory list must render cards')
+assert.match(sidebar, /centro-memoria/, 'sidebar must include centro-memoria icon')
+assert.match(store, /centro-memoria/, 'runtime console store must expose centro-memoria item')
+assert.match(app, /memory-center/, 'app must include memory-center route')
+assert.match(app, /MemoryCenterPage/, 'app must render MemoryCenterPage')
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance + memory checks passed')

@@ -46,6 +46,8 @@ function SidebarIcon({ item }: { item: SidebarItem }) {
       return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 2a10 10 0 0 1 10 10" /><path d="M2 12a10 10 0 0 1 10-10" /><path d="M12 22a10 10 0 0 1-10-10" /><path d="M22 12a10 10 0 0 1-10 10" /></svg>
     case 'governanca':
       return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+    case 'centro-memoria':
+      return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" /></svg>
     case 'memoria':
       return <svg className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M8 7V5a2 2 0 1 1 4 0v2" /><path d="M16 7V5a2 2 0 1 1 4 0v2" /><path d="M4 9h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /></svg>
     case 'simulacoes':
@@ -99,6 +101,10 @@ function handleItemSelection(
   }
   if (item === 'governanca') {
     onSelectView('governance')
+    return
+  }
+  if (item === 'centro-memoria') {
+    onSelectView('memory-center')
     return
   }
   if (item === 'logs') {

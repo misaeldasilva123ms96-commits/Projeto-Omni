@@ -13,6 +13,7 @@ export type SidebarItem =
   | 'agentes'
   | 'governanca'
   | 'memoria'
+  | 'centro-memoria'
   | 'simulacoes'
   | 'brainstorm'
   | 'analisar-dados'
@@ -96,7 +97,8 @@ export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'uso-tokens', label: 'Uso de Tokens', description: 'Acompanhar consumo de tokens por requisição.' },
   { id: 'agentes', label: 'Agentes', description: 'Gerenciar agentes de IA e suas configurações.' },
   { id: 'governanca', label: 'Governança', description: 'Visualizar decisões e políticas de governança.' },
-  { id: 'memoria', label: 'Memória', description: 'Inspecionar contexto e retenção ativa.' },
+  { id: 'memoria', label: 'Memória (painel)', description: 'Inspecionar contexto e retenção ativa.' },
+  { id: 'centro-memoria', label: 'Centro de Memória', description: 'Gerenciar entradas de memória do runtime.' },
   { id: 'simulacoes', label: 'Simulações', description: 'Comparar alternativas antes da execução.' },
 ]
 
@@ -141,6 +143,7 @@ const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   agentes: 'chat',
   governanca: 'chat',
   memoria: 'memory',
+  'centro-memoria': 'memory',
   simulacoes: 'simulation',
   brainstorm: 'chat',
   'analisar-dados': 'chat',

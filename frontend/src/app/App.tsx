@@ -8,6 +8,7 @@ import { ProviderCenterPage } from '../pages/ProviderCenterPage'
 import { TokenUsagePage } from '../pages/TokenUsagePage'
 import { AgentsPage } from '../pages/AgentsPage'
 import { GovernanceCenterPage } from '../pages/GovernanceCenterPage'
+import { MemoryCenterPage } from '../pages/MemoryCenterPage'
 import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -16,7 +17,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'governance' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'governance' | 'memory-center' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -52,6 +53,9 @@ export function resolveViewFromPath(
   if (pathname === '/governance') {
     return 'governance'
   }
+  if (pathname === '/memory-center') {
+    return 'memory-center'
+  }
   return 'chat'
 }
 
@@ -82,6 +86,9 @@ function pathForView(view: View) {
   }
   if (view === 'governance') {
     return '/governance'
+  }
+  if (view === 'memory-center') {
+    return '/memory-center'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH
@@ -141,6 +148,13 @@ export default function App() {
         />
       ) : view === 'governance' ? (
         <GovernanceCenterPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'memory-center' ? (
+        <MemoryCenterPage
           mode={mode}
           onChangeMode={setMode}
           onChangeView={handleChangeView}
