@@ -4,6 +4,7 @@ import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
 import { ProjectsPage } from '../pages/ProjectsPage'
+import { ProviderCenterPage } from '../pages/ProviderCenterPage'
 import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -12,7 +13,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -36,6 +37,9 @@ export function resolveViewFromPath(
   if (pathname === '/projects') {
     return 'projects'
   }
+  if (pathname === '/provider-center') {
+    return 'provider-center'
+  }
   return 'chat'
 }
 
@@ -54,6 +58,9 @@ function pathForView(view: View) {
   }
   if (view === 'projects') {
     return '/projects'
+  }
+  if (view === 'provider-center') {
+    return '/provider-center'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH
@@ -92,6 +99,13 @@ export default function App() {
         />
       ) : view === 'observability' ? (
         <ObservabilityAuthGate
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'provider-center' ? (
+        <ProviderCenterPage
           mode={mode}
           onChangeMode={setMode}
           onChangeView={handleChangeView}
