@@ -29,8 +29,11 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         env:
-          # Injeta a URL que o seu código do frontend está exigindo para produção
           VITE_OMNI_API_URL: ${{ secrets.VITE_OMNI_API_URL || 'https://projeto-omni.pages.dev' }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_PUBLIC_APP_URL: ${{ secrets.VITE_PUBLIC_APP_URL || 'https://projeto-omni.pages.dev' }}
+          VITE_BASE_URL: ${{ vars.VITE_BASE_URL || '/Projeto-Omni/' }}
         run: npm run build
 
       - name: Determine artifact path

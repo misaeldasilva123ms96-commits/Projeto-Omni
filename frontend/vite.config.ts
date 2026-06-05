@@ -3,8 +3,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  // Configura os caminhos para os assets carregarem direto da subpasta do GitHub Pages
-  base: '/Projeto-Omni/',
+  base: process.env.VITE_BASE_URL || '/Projeto-Omni/',
   plugins: [react()],
   resolve: {
     alias: {
