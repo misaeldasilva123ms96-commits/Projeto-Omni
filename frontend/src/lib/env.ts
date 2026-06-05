@@ -76,8 +76,16 @@ function warnLegacyFallback(legacyName: EnvName, canonicalName: EnvName) {
   }
 }
 
-function fail(message: string): never {
-  throw new Error(message)
+function warn(message: string) {
+  if (isDev) {
+    console.warn(`[env] ${message}`)
+  }
+}
+
+function warnIgnore(name: EnvName) {
+  if (isDev) {
+    console.warn(`[env] ${name} not set. Related features will be unavailable.`)
+  }
 }
 
 const resolvedApiUrl = pickFirstNonEmpty(
@@ -116,11 +124,11 @@ const normalizedApiUrl = resolvedApiUrl?.value
     : ''
 
 if (isProd && !resolvedApiUrl?.value) {
-  fail('Missing VITE_OMNI_API_URL for production.')
+  warn('Missing VITE_OMNI_API_URL for production. API features will be unavailable.')
 }
 
 if (isProd && isLocalhostUrl(normalizedApiUrl)) {
-  fail('VITE_OMNI_API_URL cannot point to a loopback host in production.')
+  warn('VITE_OMNI_API_URL cannot point to a loopback host in production.')
 }
 
 const normalizedPublicAppUrl = resolvedPublicAppUrl?.value
@@ -130,38 +138,38 @@ const normalizedPublicAppUrl = resolvedPublicAppUrl?.value
     : ''
 
 if (isProd && !resolvedPublicAppUrl?.value) {
-  fail('Missing VITE_PUBLIC_APP_URL for production.')
+  warn('Missing VITE_PUBLIC_APP_URL for production. Using window.location.origin.')
 }
 
 if (isProd && normalizedPublicAppUrl && isLocalhostUrl(normalizedPublicAppUrl)) {
-  fail('VITE_PUBLIC_APP_URL cannot point to a loopback host in production.')
+  warn('VITE_PUBLIC_APP_URL cannot point to a loopback host in production.')
 }
 
 if (!resolvedSupabaseUrl?.value) {
-  fail('Missing VITE_SUPABASE_URL.')
+  warnIgnore('VITE_SUPABASE_URL')
 }
 
 if (!resolvedSupabaseAnonKey?.value) {
-  fail('Missing VITE_SUPABASE_ANON_KEY.')
+  warnIgnore('VITE_SUPABASE_ANON_KEY')
 }
 
 export const API_BASE_URL = normalizedApiUrl
 export const PUBLIC_APP_URL = normalizedPublicAppUrl
-export const SUPABASE_URL = resolvedSupabaseUrl.value
-export const SUPABASE_ANON_KEY = resolvedSupabaseAnonKey.value
+export const SUPABASE_URL = resolvedSupabaseUrl?.value ?? ''
+export const SUPABASE_ANON_KEY = resolvedSupabaseAnonKey?.value ?? ''
 
 export const API_CONFIGURATION_ERROR = !API_BASE_URL
   ? isDev
     ? 'Configure VITE_OMNI_API_URL or start the Omni API locally on port 3001.'
-    : 'Missing VITE_OMNI_API_URL for this deployment.'
+    : 'VITE_OMNI_API_URL não configurada — funcionalidades da API indisponíveis.'
   : ''
 
 export const PUBLIC_APP_URL_CONFIGURATION_ERROR = !PUBLIC_APP_URL
-  ? 'Missing VITE_PUBLIC_APP_URL for this deployment.'
+  ? 'VITE_PUBLIC_APP_URL não configurada.'
   : ''
 
 export const SUPABASE_CONFIGURATION_ERROR = !SUPABASE_URL || !SUPABASE_ANON_KEY
-  ? 'Missing Supabase public environment variables.'
+  ? 'Variáveis do Supabase não configuradas.'
   : ''
 
 export function canUseApi() {
