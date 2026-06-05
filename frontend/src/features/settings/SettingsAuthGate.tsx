@@ -1,6 +1,6 @@
-import { SettingsView } from '../pages/SettingsPage'
-import { useRequireAuth } from '../hooks/useRequireAuth'
-import type { ChatMode, View } from '../types'
+import { SettingsView } from '../../pages/SettingsPage'
+import { useRequireAuth } from '../../hooks/useRequireAuth'
+import type { ChatMode, View } from '../../types'
 
 type SettingsAuthGateProps = {
   mode: ChatMode
