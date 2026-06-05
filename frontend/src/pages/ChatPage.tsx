@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChatPanel } from '../components/chat/ChatPanel'
-import { Layout } from '../components/layout/Layout'
-import { Sidebar } from '../components/layout/Sidebar'
+import { OmniShell } from '../components/shell/OmniShell'
+import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { RuntimePanel } from '../components/status/RuntimePanel'
 import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
 import { publicStatusV1ToUiRuntimeStatus } from '../features/runtime'
@@ -437,9 +437,10 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   }
 
   return (
-    <Layout
+    <OmniShell
+      showRightPanel={true}
       sidebar={(
-        <Sidebar
+        <OmniSidebar
           activeConversationId={sessionId}
           conversations={conversations}
           mode={mode}
@@ -450,23 +451,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           view={view}
         />
       )}
-      center={(
-        <ChatPanel
-          canSend={canSend}
-          error={error}
-          input={input}
-          lastMetadata={lastMetadata}
-          loading={isLoading}
-          messages={messages}
-          onChange={setInput}
-          onSubmit={() => {
-            void handleSubmit()
-          }}
-          requestState={requestState}
-          sessionId={sessionId}
-        />
-      )}
-      right={(
+      rightPanel={(
         <RuntimePanel
           health={healthUi}
           lastMetadata={lastMetadata}
@@ -475,6 +460,21 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           sessionId={sessionId}
         />
       )}
-    />
+    >
+      <ChatPanel
+        canSend={canSend}
+        error={error}
+        input={input}
+        lastMetadata={lastMetadata}
+        loading={isLoading}
+        messages={messages}
+        onChange={setInput}
+        onSubmit={() => {
+          void handleSubmit()
+        }}
+        requestState={requestState}
+        sessionId={sessionId}
+      />
+    </OmniShell>
   )
 }

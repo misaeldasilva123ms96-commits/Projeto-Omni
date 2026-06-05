@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { OmniShell } from '../components/shell/OmniShell'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
@@ -67,49 +68,39 @@ export default function App() {
     }
   }
 
-  if (view === 'dashboard') {
-    return (
-      <DashboardPage
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'observability') {
-    return (
-      <ObservabilityAuthGate
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'settings') {
-    return (
-      <SettingsView
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'puter-dev') {
-    return <PuterDevRoutePage />
-  }
-
   return (
-    <ChatPage
-      mode={mode}
-      onChangeMode={setMode}
-      onChangeView={handleChangeView}
-      view={view}
-    />
+    <OmniShell>
+      {view === 'dashboard' ? (
+        <DashboardPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'observability' ? (
+        <ObservabilityAuthGate
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'settings' ? (
+        <SettingsView
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'puter-dev' ? (
+        <PuterDevRoutePage />
+      ) : (
+        <ChatPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      )}
+    </OmniShell>
   )
 }

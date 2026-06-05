@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { AppShell } from '../components/layout/AppShell'
-import { Sidebar } from '../components/layout/Sidebar'
+import { OmniShell } from '../components/shell/OmniShell'
+import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { PageHero } from '../components/ui/PageHero'
 import { PanelCard } from '../components/ui/PanelCard'
@@ -42,9 +42,9 @@ export function ObservabilityPage({
   const connectionLabel = status === 'live' ? 'Live' : status === 'reconnecting' ? 'Reconnecting' : status === 'error' ? 'Error' : 'Idle'
 
   return (
-    <AppShell
+    <OmniShell
       sidebar={(
-        <Sidebar
+        <OmniSidebar
           conversations={conversations}
           mode={mode}
           onChangeMode={onChangeMode}
@@ -108,6 +108,6 @@ export function ObservabilityPage({
           </div>
         )}
       </section>
-    </AppShell>
+    </OmniShell>
   )
 }

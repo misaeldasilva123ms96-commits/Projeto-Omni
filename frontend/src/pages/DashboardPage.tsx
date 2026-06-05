@@ -1,8 +1,8 @@
 ﻿import { useEffect, useState } from 'react'
 import { MetricCard } from '../components/dashboard/MetricCard'
 import { SignalList } from '../components/dashboard/SignalList'
-import { AppShell } from '../components/layout/AppShell'
-import { Sidebar } from '../components/layout/Sidebar'
+import { OmniShell } from '../components/shell/OmniShell'
+import { OmniSidebar } from '../components/shell/OmniSidebar'
 import {
   loadCognitiveTelemetryBundle,
   publicMilestonesSummaryV1ToUi,
@@ -131,9 +131,9 @@ export function DashboardPage({
   const recentSwarmEvents = data.swarmLog?.events ?? []
   const recentPrSummaries = data.prSummaries?.summaries ?? []
   return (
-    <AppShell
+    <OmniShell
       sidebar={(
-        <Sidebar
+        <OmniSidebar
           conversations={conversations}
           mode={mode}
           onChangeMode={onChangeMode}
@@ -268,7 +268,7 @@ export function DashboardPage({
           />
         </section>
       </section>
-    </AppShell>
+    </OmniShell>
   )
 }
 
