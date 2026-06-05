@@ -3,7 +3,9 @@ import type { View } from '../app/App'
 import { GovernanceDecisionsList } from '../components/governance/GovernanceDecisionsList'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { OmniButton } from '../components/ui/OmniButton'
 import { OmniCard } from '../components/ui/OmniCard'
+import { PageHero } from '../components/ui/PageHero'
 import { fetchGovernanceDecisions } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, GovernanceDecision } from '../types'
 
@@ -62,12 +64,12 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, view }:
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-white">Centro de Governança</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Visualize decisões de governança, políticas e regras aplicadas pelo runtime
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Conformidade"
+          title="Centro de Governança"
+          subtitle="Visualize decisões de governança, políticas e regras aplicadas pelo runtime"
+          className="mb-6"
+        />
 
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OmniCard variant="panel">
@@ -101,13 +103,9 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, view }:
 
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-white">Decisões Recentes</h2>
-          <button
-            className="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-slate-400 transition hover:border-white/20 hover:text-slate-300"
-            onClick={refresh}
-            type="button"
-          >
+          <OmniButton variant="secondary" onClick={refresh}>
             Atualizar
-          </button>
+          </OmniButton>
         </div>
 
         {loading ? (

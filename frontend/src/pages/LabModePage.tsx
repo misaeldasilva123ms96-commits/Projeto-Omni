@@ -2,6 +2,7 @@ import type { View } from '../app/App'
 import { LabConsole } from '../components/lab/LabConsole'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { PageHero } from '../components/ui/PageHero'
 import type { ChatMode, ConversationSummary } from '../types'
 
 type LabModePageProps = {
@@ -27,12 +28,12 @@ export function LabModePage({ mode, onChangeMode, onChangeView, view }: LabModeP
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-white">Modo Laboratório</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Sandbox para testar prompts com diferentes modelos, provedores e configurações
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Sandbox"
+          title="Modo Laboratório"
+          subtitle="Sandbox para testar prompts com diferentes modelos, provedores e configurações"
+          className="mb-6"
+        />
 
         <LabConsole />
       </div>

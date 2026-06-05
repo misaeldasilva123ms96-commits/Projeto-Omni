@@ -4,6 +4,7 @@ import { MemoryList } from '../components/memory/MemoryList'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { OmniCard } from '../components/ui/OmniCard'
+import { PageHero } from '../components/ui/PageHero'
 import { deleteMemoryEntry, fetchMemoryEntries, updateMemoryEntry } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, MemoryEntry } from '../types'
 
@@ -78,12 +79,12 @@ export function MemoryCenterPage({ mode, onChangeMode, onChangeView, view }: Mem
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-white">Centro de Memória</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Inspecione entradas de memória do runtime — working, episódica, semântica e procedural
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Memória do Runtime"
+          title="Centro de Memória"
+          subtitle="Inspecione entradas de memória do runtime — working, episódica, semântica e procedural"
+          className="mb-6"
+        />
 
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <OmniCard variant="panel">

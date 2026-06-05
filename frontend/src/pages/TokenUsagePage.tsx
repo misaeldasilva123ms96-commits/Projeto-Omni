@@ -4,6 +4,8 @@ import { TokenUsageChart } from '../components/tokens/TokenUsageChart'
 import { TokenUsageOverview } from '../components/tokens/TokenUsageOverview'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { ErrorNotice } from '../components/ui/ErrorNotice'
+import { PageHero } from '../components/ui/PageHero'
 import { fetchTokenUsage } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, TokenUsageSummary } from '../types'
 
@@ -56,11 +58,7 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: Token
     }
 
     if (error) {
-      return (
-        <div className="mx-auto mt-8 max-w-lg rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
-          {error}
-        </div>
-      )
+      return <ErrorNotice message={error} className="mx-auto mt-8 max-w-lg" />
     }
 
     if (!summary) {
@@ -97,12 +95,12 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: Token
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-white">Uso de Tokens</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Acompanhe o consumo de tokens por requisição e ao longo do tempo
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Monitoramento"
+          title="Uso de Tokens"
+          subtitle="Acompanhe o consumo de tokens por requisição e ao longo do tempo"
+          className="mb-6"
+        />
 
         {content()}
       </div>

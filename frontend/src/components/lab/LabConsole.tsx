@@ -152,7 +152,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
               <label className="block">
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Modelo</span>
                 <select
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+                  className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
                   value={config.model}
                   onChange={(e) => updateConfig('model', e.target.value)}
                 >
@@ -167,7 +167,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
               <label className="block">
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Provedor</span>
                 <select
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+                  className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
                   value={config.provider}
                   onChange={(e) => updateConfig('provider', e.target.value)}
                 >
@@ -199,7 +199,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
               <label className="block">
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Max Tokens</span>
                 <input
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+                  className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
                   max={8192}
                   min={64}
                   step={64}
@@ -213,7 +213,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
             <label className="mt-4 block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-400">System Prompt</span>
               <textarea
-                className="mt-1 min-h-[60px] w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+                className="mt-1 min-h-[60px] w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
                 placeholder="Instruções de sistema para o modelo (opcional)"
                 value={config.systemPrompt}
                 onChange={(e) => updateConfig('systemPrompt', e.target.value)}
@@ -224,7 +224,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
 
         <OmniCard variant="panel">
           <textarea
-            className="min-h-[100px] w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+            className="min-h-[100px] w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
             placeholder="Digite seu prompt de teste aqui..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -286,7 +286,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
               {recentTests.map((test) => (
                 <button
                   key={test.id}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-xs transition hover:border-white/20"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-xs transition hover:border-white/20"
                   onClick={() => handleRestore(test)}
                   type="button"
                 >

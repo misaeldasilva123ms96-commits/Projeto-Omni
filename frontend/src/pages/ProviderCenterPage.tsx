@@ -4,6 +4,9 @@ import { ProviderCenterOverview } from '../components/providers/ProviderCenterOv
 import { ProviderHealthCard } from '../components/providers/ProviderHealthCard'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { ErrorNotice } from '../components/ui/ErrorNotice'
+import { OmniButton } from '../components/ui/OmniButton'
+import { PageHero } from '../components/ui/PageHero'
 import { useProviders } from '../features/settings/hooks/useProviders'
 import type { ChatMode, ConversationSummary } from '../types'
 
@@ -57,12 +60,12 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, view }: P
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-white">Centro de Provedores</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Gerencie credenciais e conexões com provedores de IA
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Integrações"
+          title="Centro de Provedores"
+          subtitle="Gerencie credenciais e conexões com provedores de IA"
+          className="mb-6"
+        />
 
         <ProviderCenterOverview
           providers={resolvedProviders}
@@ -71,15 +74,11 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, view }: P
         />
 
         {actionError ? (
-          <div className="mb-4 flex items-center justify-between rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
-            <span>{actionError}</span>
-            <button
-              className="rounded-xl border border-red-400/20 px-2 py-1 text-xs text-red-200 transition hover:bg-red-400/10"
-              onClick={clearActionError}
-              type="button"
-            >
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <ErrorNotice message={actionError} className="flex-1" />
+            <OmniButton variant="ghost" onClick={clearActionError}>
               OK
-            </button>
+            </OmniButton>
           </div>
         ) : null}
 

@@ -3,6 +3,7 @@ import type { View } from '../app/App'
 import { AgentsList } from '../components/agents/AgentsList'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { PageHero } from '../components/ui/PageHero'
 import { createAgent, deleteAgent, fetchAgents, updateAgent } from '../lib/omniData'
 import type { Agent, ChatMode, ConversationSummary } from '../types'
 
@@ -78,12 +79,12 @@ export function AgentsPage({ mode, onChangeMode, onChangeView, view }: AgentsPag
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-white">Centro de Agentes</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Gerencie agentes de IA, configure modelos, provedores e ferramentas
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Automação"
+          title="Centro de Agentes"
+          subtitle="Gerencie agentes de IA, configure modelos, provedores e ferramentas"
+          className="mb-6"
+        />
 
         <AgentsList
           agents={agents}

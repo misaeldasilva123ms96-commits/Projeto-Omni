@@ -59,7 +59,7 @@ export function GovernanceDecisionsList({ decisions, className = '' }: Governanc
       {decisions.map((d) => (
         <div
           key={d.id}
-          className="rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] backdrop-blur-xl transition hover:border-white/18"
+          className="rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] backdrop-blur-xl transition hover:border-white/18"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">

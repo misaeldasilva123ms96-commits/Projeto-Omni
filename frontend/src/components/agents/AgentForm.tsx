@@ -75,7 +75,7 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
       <label className="mb-4 block">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Nome</span>
         <input
-          className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+          className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
           placeholder="Ex: Assistente de Pesquisa"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -86,7 +86,7 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
       <label className="mb-4 block">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Descrição</span>
         <textarea
-          className="mt-1 min-h-[72px] w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+          className="mt-1 min-h-[72px] w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
           placeholder="Descrição do agente e seu propósito"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -97,7 +97,7 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
         <label className="block">
           <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Modelo</span>
           <select
-            className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+            className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
             value={model}
             onChange={(e) => setModel(e.target.value)}
           >
@@ -112,7 +112,7 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
         <label className="block">
           <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Provedor</span>
           <select
-            className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+            className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
           >

@@ -3,6 +3,7 @@ import type { View } from '../app/App'
 import { ProjectsList } from '../components/projects/ProjectsList'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { PageHero } from '../components/ui/PageHero'
 import { createProject, deleteProject, fetchProjects, updateProject } from '../lib/omniData'
 import { useRuntimeConsoleStore } from '../state/runtimeConsoleStore'
 import type { ChatMode, ConversationSummary, Project } from '../types'
@@ -89,6 +90,12 @@ export function ProjectsPage({ mode, onChangeMode, onChangeView, view }: Project
       )}
     >
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
+        <PageHero
+          eyebrow="Gerenciamento"
+          title="Centro de Projetos"
+          subtitle="Organize suas sessões em projetos"
+          className="mb-6"
+        />
         <ProjectsList
           projects={projects}
           loading={loading}
