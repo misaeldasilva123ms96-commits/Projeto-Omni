@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 
+/** @deprecated Use `OmniShell` from `../shell/OmniShell` instead. */
 type LayoutProps = {
   sidebar: ReactNode
   center: ReactNode

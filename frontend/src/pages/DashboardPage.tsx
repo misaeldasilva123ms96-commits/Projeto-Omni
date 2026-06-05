@@ -1,8 +1,8 @@
 ﻿import { useEffect, useState } from 'react'
 import { MetricCard } from '../components/dashboard/MetricCard'
 import { SignalList } from '../components/dashboard/SignalList'
-import { AppShell } from '../components/layout/AppShell'
-import { Sidebar } from '../components/layout/Sidebar'
+import { OmniShell } from '../components/shell/OmniShell'
+import { OmniSidebar } from '../components/shell/OmniSidebar'
 import {
   loadCognitiveTelemetryBundle,
   publicMilestonesSummaryV1ToUi,
@@ -15,6 +15,7 @@ import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { MetricRow } from '../components/ui/MetricRow'
 import { PageHero } from '../components/ui/PageHero'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import type { View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
 import type {
   MilestonesResponse,
@@ -26,8 +27,6 @@ import type {
   SwarmLogResponse,
 } from '../types/api/wire'
 import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../types/ui/telemetry'
-
-type View = 'chat' | 'dashboard' | 'observability'
 
 type DashboardPageProps = {
   mode: ChatMode
@@ -131,9 +130,9 @@ export function DashboardPage({
   const recentSwarmEvents = data.swarmLog?.events ?? []
   const recentPrSummaries = data.prSummaries?.summaries ?? []
   return (
-    <AppShell
+    <OmniShell
       sidebar={(
-        <Sidebar
+        <OmniSidebar
           conversations={conversations}
           mode={mode}
           onChangeMode={onChangeMode}
@@ -268,7 +267,7 @@ export function DashboardPage({
           />
         </section>
       </section>
-    </AppShell>
+    </OmniShell>
   )
 }
 

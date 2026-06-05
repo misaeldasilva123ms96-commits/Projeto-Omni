@@ -164,7 +164,104 @@ export type ChatApiResponse = {
   error?: RuntimeErrorPayload
 }
 
+export type GovernanceSummary = {
+  decision: 'allowed' | 'blocked' | 'requires_approval' | 'unknown'
+  category?: string
+  policy?: string
+  reason?: string
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical'
+}
+
 export type ChatRequestState = 'idle' | 'loading' | 'error'
+
+export type ProjectStatus = 'active' | 'archived'
+
+export type Project = {
+  id: string
+  name: string
+  description: string
+  status: ProjectStatus
+  mode: ChatMode
+  sessionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentStatus = 'active' | 'inactive'
+
+export type Agent = {
+  id: string
+  name: string
+  description: string
+  model: string
+  provider: string
+  tools: string[]
+  status: AgentStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type LabConfig = {
+  model: string
+  provider: string
+  temperature: number
+  maxTokens: number
+  systemPrompt: string
+}
+
+export type LabTest = {
+  id: string
+  config: LabConfig
+  prompt: string
+  response: string
+  latencyMs: number
+  timestamp: string
+}
+
+export type MemoryType = 'working' | 'episodic' | 'semantic' | 'procedural'
+
+export type MemoryEntry = {
+  id: string
+  memoryType: MemoryType
+  title: string
+  summary: string
+  content: Record<string, unknown>
+  source: string
+  importance: number
+  tags: string[]
+  isPinned: boolean
+  sessionId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type GovernanceDecision = {
+  id: string
+  sessionId: string
+  decision: 'allowed' | 'blocked' | 'requires_approval' | 'unknown'
+  category: string
+  policy: string
+  reason: string
+  riskLevel: 'low' | 'medium' | 'high' | 'critical' | undefined
+  timestamp: string
+}
+
+export type TokenUsageRecord = {
+  date: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  requestCount: number
+}
+
+export type TokenUsageSummary = {
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalTokens: number
+  totalRequests: number
+  avgTokensPerRequest: number
+  byDate: TokenUsageRecord[]
+}
 
 export type ConversationSummary = {
   id: string

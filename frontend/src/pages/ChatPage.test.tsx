@@ -51,6 +51,8 @@ vi.mock('../lib/env', () => ({
 
 vi.mock('../lib/omniData', () => ({
   bootstrapOmniUser: vi.fn(() => Promise.resolve()),
+  fetchChatMessages: vi.fn(() => Promise.resolve([])),
+  fetchChatSessions: vi.fn(() => Promise.resolve([])),
   syncChatSessionToSupabase: vi.fn(() => Promise.resolve()),
 }))
 

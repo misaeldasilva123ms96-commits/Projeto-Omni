@@ -3,9 +3,8 @@ import { ObservabilityPage } from '../pages/ObservabilityPage'
 import { PUBLIC_APP_URL, canUseSupabase } from '../lib/env'
 import { supabase } from '../lib/supabase'
 import { useRequireAuth } from '../hooks/useRequireAuth'
+import type { View } from '../app/App'
 import type { ChatMode } from '../types'
-
-type View = 'chat' | 'dashboard' | 'observability'
 
 type ObservabilityAuthGateProps = {
   mode: ChatMode

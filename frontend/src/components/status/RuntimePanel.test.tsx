@@ -16,11 +16,11 @@ describe('RuntimePanel', () => {
       />,
     )
 
-    expect(screen.getByText('Runtime Status')).toBeInTheDocument()
-    expect(screen.getByText('Chat')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Summary' })).toBeInTheDocument()
+    expect(screen.getByText('não disponível')).toBeInTheDocument()
   })
 
-  it('renders with metadata and debug payload', async () => {
+  it('renders with metadata and shows summary + safe logs', async () => {
     const metadata: RuntimeMetadata = {
       matchedCommands: ['Criar plano'],
       matchedTools: [],
@@ -51,9 +51,10 @@ describe('RuntimePanel', () => {
     )
 
     expect(screen.getByText('FULL_COGNITIVE_RUNTIME')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /Debug/i }))
-    expect(screen.getByText('Debug Mode')).toBeInTheDocument()
-    expect(screen.getByText('openai')).toBeInTheDocument()
+    expect(screen.getByText('BYOK')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Logs' }))
+    expect(screen.getByText('Safe Debug Log')).toBeInTheDocument()
     expect(screen.queryByText(/raw-stack/)).not.toBeInTheDocument()
     expect(screen.queryByText(/execution_request/)).not.toBeInTheDocument()
     expect(screen.queryByText(/raw stderr/)).not.toBeInTheDocument()

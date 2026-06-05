@@ -6,6 +6,17 @@
   --animate-pulse-ring: pulseRing 3s ease-in-out infinite;
   --font-sans: Inter, Geist, ui-sans-serif, system-ui, sans-serif;
 
+  --color-omni-bg: var(--omni-bg);
+  --color-omni-surface: var(--omni-surface);
+  --color-omni-panel: var(--omni-panel);
+  --color-omni-border: var(--omni-border);
+  --color-omni-text: var(--omni-text);
+  --color-omni-muted: var(--omni-muted);
+  --color-omni-accent: var(--omni-accent);
+  --color-omni-success: var(--omni-success);
+  --color-omni-warning: var(--omni-warning);
+  --color-omni-danger: var(--omni-danger);
+
   --color-cosmic-void: #060714;
   --color-cosmic-panel: #0d1024;
   --color-cosmic-card: #11142b;
@@ -27,6 +38,33 @@
   --background-image-panel-gradient: linear-gradient(135deg, rgba(27, 30, 61, 0.78), rgba(12, 15, 34, 0.7));
   --background-image-neon-stroke: linear-gradient(135deg, rgba(181,109,255,0.42), rgba(78,164,255,0.32), rgba(81,246,255,0.18));
 
+}
+
+:root,
+[data-omni-theme="dark"] {
+  --omni-bg: #0f1115;
+  --omni-surface: #151822;
+  --omni-panel: #1b1f2a;
+  --omni-border: #2a2f3a;
+  --omni-text: #f3f4f6;
+  --omni-muted: #9ca3af;
+  --omni-accent: #818cf8;
+  --omni-success: #16a34a;
+  --omni-warning: #d97706;
+  --omni-danger: #dc2626;
+}
+
+[data-omni-theme="light"] {
+  --omni-bg: #ffffff;
+  --omni-surface: #f7f7f8;
+  --omni-panel: #ffffff;
+  --omni-border: #e5e7eb;
+  --omni-text: #111827;
+  --omni-muted: #6b7280;
+  --omni-accent: #6366f1;
+  --omni-success: #16a34a;
+  --omni-warning: #d97706;
+  --omni-danger: #dc2626;
 }
 
 @layer base {

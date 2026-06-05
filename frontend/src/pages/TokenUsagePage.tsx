@@ -1,0 +1,109 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { View } from '../app/App'
+import { TokenUsageChart } from '../components/tokens/TokenUsageChart'
+import { TokenUsageOverview } from '../components/tokens/TokenUsageOverview'
+import { OmniShell } from '../components/shell/OmniShell'
+import { OmniSidebar } from '../components/shell/OmniSidebar'
+import { ErrorNotice } from '../components/ui/ErrorNotice'
+import { PageHero } from '../components/ui/PageHero'
+import { fetchTokenUsage } from '../lib/omniData'
+import type { ChatMode, ConversationSummary, TokenUsageSummary } from '../types'
+
+type TokenUsagePageProps = {
+  mode: ChatMode
+  onChangeMode: (mode: ChatMode) => void
+  onChangeView: (view: View) => void
+  view: View
+}
+
+export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: TokenUsagePageProps) {
+  const [summary, setSummary] = useState<TokenUsageSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError(null)
+
+    fetchTokenUsage()
+      .then((data) => {
+        if (!cancelled) {
+          setSummary(data)
+          setLoading(false)
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Falha ao carregar uso de tokens')
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const conversations: ConversationSummary[] = []
+
+  const content = useCallback(() => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-16 text-sm text-slate-400">
+          Carregando uso de tokens...
+        </div>
+      )
+    }
+
+    if (error) {
+      return <ErrorNotice message={error} className="mx-auto mt-8 max-w-lg" />
+    }
+
+    if (!summary) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <svg className="mb-4 h-12 w-12 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
+            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z" />
+            <path d="M12 6v6l4 2" />
+          </svg>
+          <p className="text-sm text-slate-400">Nenhum dado de uso disponível.</p>
+          <p className="mt-1 text-xs text-slate-500">O uso de tokens aparecerá após algumas requisições.</p>
+        </div>
+      )
+    }
+
+    return (
+      <>
+        <TokenUsageOverview summary={summary} className="mb-6" />
+        <TokenUsageChart summary={summary} />
+      </>
+    )
+  }, [loading, error, summary])
+
+  return (
+    <OmniShell
+      sidebar={(
+        <OmniSidebar
+          conversations={conversations}
+          mode={mode}
+          onChangeMode={onChangeMode}
+          onSelectView={onChangeView}
+          view={view}
+        />
+      )}
+    >
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
+        <PageHero
+          eyebrow="Monitoramento"
+          title="Uso de Tokens"
+          subtitle="Acompanhe o consumo de tokens por requisição e ao longo do tempo"
+          className="mb-6"
+        />
+
+        {content()}
+      </div>
+    </OmniShell>
+  )
+}
