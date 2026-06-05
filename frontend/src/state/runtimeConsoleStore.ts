@@ -11,6 +11,7 @@ export type SidebarItem =
   | 'provedores'
   | 'uso-tokens'
   | 'agentes'
+  | 'governanca'
   | 'memoria'
   | 'simulacoes'
   | 'brainstorm'
@@ -94,6 +95,7 @@ export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'provedores', label: 'Provedores', description: 'Gerenciar provedores de IA e credenciais.' },
   { id: 'uso-tokens', label: 'Uso de Tokens', description: 'Acompanhar consumo de tokens por requisição.' },
   { id: 'agentes', label: 'Agentes', description: 'Gerenciar agentes de IA e suas configurações.' },
+  { id: 'governanca', label: 'Governança', description: 'Visualizar decisões e políticas de governança.' },
   { id: 'memoria', label: 'Memória', description: 'Inspecionar contexto e retenção ativa.' },
   { id: 'simulacoes', label: 'Simulações', description: 'Comparar alternativas antes da execução.' },
 ]
@@ -137,6 +139,7 @@ const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   provedores: 'chat',
   'uso-tokens': 'chat',
   agentes: 'chat',
+  governanca: 'chat',
   memoria: 'memory',
   simulacoes: 'simulation',
   brainstorm: 'chat',

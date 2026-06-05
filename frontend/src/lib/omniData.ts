@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
+import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, GovernanceDecision, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -492,6 +492,48 @@ export async function fetchTokenUsage(): Promise<TokenUsageSummary> {
     }
   } catch {
     return empty
+  }
+}
+
+export async function fetchGovernanceDecisions(): Promise<GovernanceDecision[]> {
+  try {
+    const conversations = await fetchChatSessions()
+    const decisions: GovernanceDecision[] = []
+
+    for (const conv of conversations) {
+      const messages = await fetchChatMessages(conv.id)
+      for (const msg of messages) {
+        const inspection = msg.metadata?.cognitiveRuntimeInspection
+        if (!inspection || typeof inspection !== 'object') continue
+
+        const raw = (inspection as Record<string, unknown>).governance as Record<string, unknown> | undefined
+        if (!raw || typeof raw !== 'object') continue
+
+        const decision = String(raw.decision ?? '')
+        if (!['allowed', 'blocked', 'requires_approval', 'unknown'].includes(decision)) continue
+
+        const riskLevelRaw = String(raw.riskLevel ?? '')
+        const riskLevel = ['low', 'medium', 'high', 'critical'].includes(riskLevelRaw)
+          ? (riskLevelRaw as GovernanceDecision['riskLevel'])
+          : undefined
+
+        decisions.push({
+          id: `${conv.id}-${msg.id}`,
+          sessionId: conv.id,
+          decision: decision as GovernanceDecision['decision'],
+          category: String(raw.category ?? ''),
+          policy: String(raw.policy ?? ''),
+          reason: String(raw.reason ?? ''),
+          riskLevel,
+          timestamp: msg.createdAt,
+        })
+      }
+    }
+
+    decisions.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    return decisions
+  } catch {
+    return []
   }
 }
 

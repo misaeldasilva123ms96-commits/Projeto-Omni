@@ -201,6 +201,17 @@ export type Agent = {
   updatedAt: string
 }
 
+export type GovernanceDecision = {
+  id: string
+  sessionId: string
+  decision: 'allowed' | 'blocked' | 'requires_approval' | 'unknown'
+  category: string
+  policy: string
+  reason: string
+  riskLevel: 'low' | 'medium' | 'high' | 'critical' | undefined
+  timestamp: string
+}
+
 export type TokenUsageRecord = {
   date: string
   inputTokens: number

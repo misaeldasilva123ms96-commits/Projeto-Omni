@@ -7,6 +7,7 @@ import { ProjectsPage } from '../pages/ProjectsPage'
 import { ProviderCenterPage } from '../pages/ProviderCenterPage'
 import { TokenUsagePage } from '../pages/TokenUsagePage'
 import { AgentsPage } from '../pages/AgentsPage'
+import { GovernanceCenterPage } from '../pages/GovernanceCenterPage'
 import { SettingsView } from '../pages/SettingsPage'
 import {
   PUTER_DEV_ROUTE_PATH,
@@ -15,7 +16,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'projects' | 'provider-center' | 'token-usage' | 'agents' | 'governance' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -48,6 +49,9 @@ export function resolveViewFromPath(
   if (pathname === '/agents') {
     return 'agents'
   }
+  if (pathname === '/governance') {
+    return 'governance'
+  }
   return 'chat'
 }
 
@@ -75,6 +79,9 @@ function pathForView(view: View) {
   }
   if (view === 'agents') {
     return '/agents'
+  }
+  if (view === 'governance') {
+    return '/governance'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH
@@ -127,6 +134,13 @@ export default function App() {
         />
       ) : view === 'agents' ? (
         <AgentsPage
+          mode={mode}
+          onChangeMode={setMode}
+          onChangeView={handleChangeView}
+          view={view}
+        />
+      ) : view === 'governance' ? (
+        <GovernanceCenterPage
           mode={mode}
           onChangeMode={setMode}
           onChangeView={handleChangeView}

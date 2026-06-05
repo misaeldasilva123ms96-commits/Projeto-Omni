@@ -155,4 +155,16 @@ assert.match(store, /agentes/, 'runtime console store must expose agentes item')
 assert.match(app, /agents/, 'app must include agents route')
 assert.match(app, /AgentsPage/, 'app must render AgentsPage')
 
-console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents checks passed')
+const governancePage = read('src/pages/GovernanceCenterPage.tsx')
+const governanceDecisionsList = read('src/components/governance/GovernanceDecisionsList.tsx')
+
+assert.match(governancePage, /GovernanceDecisionsList/, 'governance page must render decisions list')
+assert.match(governancePage, /fetchGovernanceDecisions/, 'governance page must fetch decisions')
+assert.match(governancePage, /OmniCard/, 'governance page must use omni cards')
+assert.match(governanceDecisionsList, /OmniBadge/, 'governance decisions list must use badges')
+assert.match(sidebar, /governanca/, 'sidebar must include governanca icon')
+assert.match(store, /governanca/, 'runtime console store must expose governanca item')
+assert.match(app, /governance/, 'app must include governance route')
+assert.match(app, /GovernanceCenterPage/, 'app must render GovernanceCenterPage')
+
+console.log('runtime console wiring + history v2 + projects + provider-center + token-usage + agents + governance checks passed')
