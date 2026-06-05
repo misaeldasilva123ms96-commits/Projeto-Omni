@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .provider_credential_adapter import inject_credential_store_credentials
+
 __all__ = [
     "SecretError",
     "build_controlled_os_environ_base",
@@ -145,8 +147,17 @@ def build_controlled_os_environ_base() -> dict[str, str]:
     return env
 
 
-def merge_provider_credentials(env: dict[str, str]) -> dict[str, str]:
-    """Merge validated provider keys into env; skips missing/invalid without raising."""
+def merge_provider_credentials(
+    env: dict[str, str], user_id: str | None = None
+) -> dict[str, str]:
+    """Merge validated provider keys into env; skips missing/invalid without raising.
+
+    BYOK precedence:
+    - CredentialStore entries override the same env keys when ``user_id`` is
+      provided and the store is available.
+    - Otherwise, existing environment variables are used unchanged.
+    """
+    merged = inject_credential_store_credentials(user_id=user_id, env=env)
     for logical in (
         "groq",
         "groq_model",
@@ -175,11 +186,11 @@ def merge_provider_credentials(env: dict[str, str]) -> dict[str, str]:
         except SecretError:
             continue
         env_name = _mapping()[logical]
-        env[env_name] = val
+        merged[env_name] = val
     cid = os.environ.get("CHATGPT_ACCOUNT_ID")
     if cid is not None:
         s = str(cid).strip()
         upper = s.upper()
         if s and "YOUR_" not in s and "<<PASTE" not in upper:
-            env["CHATGPT_ACCOUNT_ID"] = s
-    return env
+            merged["CHATGPT_ACCOUNT_ID"] = s
+    return merged
