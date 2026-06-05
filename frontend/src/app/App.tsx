@@ -11,7 +11,7 @@ import {
 } from '../pages/PuterDevRoutePage'
 import type { ChatMode } from '../types'
 
-export type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev'
+export type View = 'chat' | 'dashboard' | 'history' | 'observability' | 'settings' | 'puter-dev'
 
 export function resolveViewFromPath(
   pathname: string,
@@ -29,6 +29,9 @@ export function resolveViewFromPath(
   if (pathname === '/dashboard') {
     return 'dashboard'
   }
+  if (pathname === '/history') {
+    return 'history'
+  }
   return 'chat'
 }
 
@@ -41,6 +44,9 @@ function pathForView(view: View) {
   }
   if (view === 'dashboard') {
     return '/dashboard'
+  }
+  if (view === 'history') {
+    return '/history'
   }
   if (view === 'puter-dev') {
     return PUTER_DEV_ROUTE_PATH

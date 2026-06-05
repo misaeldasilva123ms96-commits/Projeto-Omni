@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChatPanel } from '../components/chat/ChatPanel'
+import { HistoryPanel } from '../components/history/HistoryPanel'
 import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { RuntimePanel } from '../components/status/RuntimePanel'
@@ -8,8 +9,9 @@ import { publicStatusV1ToUiRuntimeStatus } from '../features/runtime'
 import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
 import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
-import { bootstrapOmniUser, syncChatSessionToSupabase } from '../lib/omniData'
+import { bootstrapOmniUser, fetchChatMessages, fetchChatSessions, syncChatSessionToSupabase } from '../lib/omniData'
 import { useRuntimeConsoleStore, type SidebarItem } from '../state/runtimeConsoleStore'
+import type { View } from '../app/App'
 import type {
   ChatMessage,
   ChatMode,
@@ -20,8 +22,6 @@ import type {
 } from '../types'
 import type { UiChatResponse } from '../types/ui/chat'
 import type { UiRuntimeStatus } from '../types/ui/runtime'
-
-type View = 'chat' | 'dashboard' | 'observability'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -194,6 +194,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
   const [telemetryTick, setTelemetryTick] = useState(0)
+  const [sessions, setSessions] = useState<ConversationSummary[]>([])
   const resetRuntimeConsoleConversation = useRuntimeConsoleStore((state) => state.resetConversation)
   const setConsoleCurrentMode = useRuntimeConsoleStore((state) => state.setCurrentMode)
   const setConsoleIsSending = useRuntimeConsoleStore((state) => state.setIsSending)
@@ -220,6 +221,10 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
       console.warn('Unable to bootstrap Omni user state in Supabase.', bootstrapError)
     })
   }, [])
+
+  useEffect(() => {
+    fetchChatSessions().then(setSessions).catch(() => {})
+  }, [sessionId])
 
   useEffect(() => {
     const snapshot: StoredChatState = {
@@ -266,13 +271,46 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
   const trimmedInput = input.trim()
   const canSend = Boolean(trimmedInput) && !isLoading
 
-  const conversations = useMemo<ConversationSummary[]>(() => [{
-    id: sessionId,
-    title: getConversationTitle(messages),
-    updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
-    messageCount: messages.length,
-    mode,
-  }], [messages, mode, sessionId])
+  const conversations = useMemo<ConversationSummary[]>(() => {
+    const active: ConversationSummary = {
+      id: sessionId,
+      title: getConversationTitle(messages),
+      updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
+      messageCount: messages.length,
+      mode,
+    }
+    const past = sessions.filter((s) => s.id !== sessionId)
+    return [active, ...past]
+  }, [messages, mode, sessionId, sessions])
+
+  const handleRestoreSession = useCallback((restoreSessionId: string) => {
+    if (restoreSessionId === sessionId) return
+    fetchChatMessages(restoreSessionId)
+      .then((loadedMessages) => {
+        const extended: ExtendedChatMessage[] = loadedMessages.map((msg) => ({
+          ...msg,
+          isLoading: false,
+          isNew: false,
+        }))
+        setMessages(extended)
+        setSessionId(restoreSessionId)
+        setLastMetadata(null)
+        setError(null)
+        setRequestState('idle')
+        setIsLoading(false)
+        setInput('')
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          input: '',
+          lastMetadata: null,
+          messages: extended,
+          requestState: 'idle',
+          sessionId: restoreSessionId,
+        } satisfies StoredChatState))
+      })
+      .catch(() => {
+        useRuntimeConsoleStore.getState().setUiNotice('Não foi possível restaurar esta sessão.')
+      })
+  }, [sessionId])
 
   const helperText = apiReady
     ? 'Rust → Python → Node/Bun → Python → Rust. Runtime truth and execution telemetry preserved.'
@@ -436,9 +474,34 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     }
   }
 
+  const mainContent = view === 'history' ? (
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
+      <HistoryPanel
+        sessions={conversations}
+        activeSessionId={sessionId}
+        onRestoreSession={handleRestoreSession}
+      />
+    </div>
+  ) : (
+    <ChatPanel
+      canSend={canSend}
+      error={error}
+      input={input}
+      lastMetadata={lastMetadata}
+      loading={isLoading}
+      messages={messages}
+      onChange={setInput}
+      onSubmit={() => {
+        void handleSubmit()
+      }}
+      requestState={requestState}
+      sessionId={sessionId}
+    />
+  )
+
   return (
     <OmniShell
-      showRightPanel={true}
+      showRightPanel={view !== 'history'}
       sidebar={(
         <OmniSidebar
           activeConversationId={sessionId}
@@ -446,12 +509,13 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
           mode={mode}
           onChangeMode={onChangeMode}
           onNewConversation={handleNewConversation}
+          onRestoreSession={handleRestoreSession}
           onSidebarItemSelected={handleSidebarItemSelected}
           onSelectView={onChangeView}
           view={view}
         />
       )}
-      rightPanel={(
+      rightPanel={view === 'history' ? undefined : (
         <RuntimePanel
           health={healthUi}
           lastMetadata={lastMetadata}
@@ -461,20 +525,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
         />
       )}
     >
-      <ChatPanel
-        canSend={canSend}
-        error={error}
-        input={input}
-        lastMetadata={lastMetadata}
-        loading={isLoading}
-        messages={messages}
-        onChange={setInput}
-        onSubmit={() => {
-          void handleSubmit()
-        }}
-        requestState={requestState}
-        sessionId={sessionId}
-      />
+      {mainContent}
     </OmniShell>
   )
 }

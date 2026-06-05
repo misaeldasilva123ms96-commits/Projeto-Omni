@@ -15,6 +15,7 @@ import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { MetricRow } from '../components/ui/MetricRow'
 import { PageHero } from '../components/ui/PageHero'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import type { View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
 import type {
   MilestonesResponse,
@@ -26,8 +27,6 @@ import type {
   SwarmLogResponse,
 } from '../types/api/wire'
 import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../types/ui/telemetry'
-
-type View = 'chat' | 'dashboard' | 'observability'
 
 type DashboardPageProps = {
   mode: ChatMode

@@ -13,9 +13,8 @@ import { SpecialistTraceViewer } from '../components/observability/SpecialistTra
 import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { useObservabilityStream } from '../hooks/useObservabilityStream'
 import { canUseApi } from '../lib/env'
+import type { View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
-
-type View = 'chat' | 'dashboard' | 'observability'
 
 type ObservabilityPageProps = {
   mode: ChatMode

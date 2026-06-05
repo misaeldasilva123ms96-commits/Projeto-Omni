@@ -1,5 +1,5 @@
+import type { ChatMessage, ChatMode, ConversationSummary, RuntimeMetadata } from '../types'
 import { supabase } from './supabase'
-import type { ChatMessage, ChatMode, RuntimeMetadata } from '../types'
 
 type AuthenticatedUser = {
   id: string
@@ -148,4 +148,75 @@ export async function syncChatSessionToSupabase(input: SyncChatSessionInput) {
   }
 
   return sessionRow.id as string
+}
+
+export async function fetchChatSessions(): Promise<ConversationSummary[]> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return []
+
+    const { data, error } = await supabase
+      .from('chat_sessions')
+      .select('external_session_id, title, mode, status, metadata, updated_at')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(50)
+
+    if (error) throw error
+    if (!data || data.length === 0) return []
+
+    return data.map((row: Record<string, unknown>) => {
+      const meta = (row.metadata as Record<string, unknown>) ?? {}
+      return {
+        id: String(row.external_session_id ?? ''),
+        title: String(row.title ?? ''),
+        updatedAt: String(row.updated_at ?? new Date().toISOString()),
+        messageCount: typeof meta.message_count === 'number' ? meta.message_count : 0,
+        mode: (['chat', 'pesquisa', 'codigo', 'agente'].includes(String(row.mode)) ? String(row.mode) : 'chat') as ConversationSummary['mode'],
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function fetchChatMessages(
+  externalSessionId: string,
+): Promise<ChatMessage[]> {
+  try {
+    const user = await getAuthenticatedUser()
+    if (!user) return []
+
+    const { data: sessionRow, error: sessionError } = await supabase
+      .from('chat_sessions')
+      .select('id')
+      .eq('external_session_id', externalSessionId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (sessionError || !sessionRow) return []
+
+    const { data: messages, error: messagesError } = await supabase
+      .from('chat_messages')
+      .select('external_message_id, role, content, metadata, created_at')
+      .eq('session_id', sessionRow.id)
+      .order('created_at', { ascending: true })
+
+    if (messagesError) throw messagesError
+    if (!messages || messages.length === 0) return []
+
+    return messages.map((row: Record<string, unknown>) => {
+      const meta = (row.metadata as Record<string, unknown>) ?? {}
+      return {
+        id: String(row.external_message_id ?? crypto.randomUUID()),
+        role: (['user', 'assistant', 'system'].includes(String(row.role)) ? String(row.role) : 'user') as ChatMessage['role'],
+        content: String(row.content ?? ''),
+        createdAt: String(row.created_at ?? new Date().toISOString()),
+        requestState: (meta.request_state as ChatMessage['requestState']) ?? undefined,
+        metadata: meta.runtime_metadata as RuntimeMetadata | undefined,
+      }
+    })
+  } catch {
+    return []
+  }
 }

@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import type { View } from '../../app/App'
 import type { ChatMode, ConversationSummary } from '../../types'
 import {
   CONVERSATION_ITEMS,
@@ -7,8 +8,7 @@ import {
   type SidebarItem,
 } from '../../state/runtimeConsoleStore'
 import { getGlowState } from '../../lib/ui/glow'
-
-type View = 'chat' | 'dashboard' | 'observability'
+import { HistorySessionCard } from '../history/HistorySessionCard'
 
 type SidebarProps = {
   activeConversationId?: string
@@ -16,6 +16,7 @@ type SidebarProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onNewConversation?: () => void
+  onRestoreSession?: (sessionId: string) => void
   onSelectView: (view: View) => void
   onSidebarItemSelected?: (item: SidebarItem) => void
   view: View
@@ -67,7 +68,7 @@ function handleItemSelection(
     return
   }
   if (item === 'historico') {
-    onSelectView('dashboard')
+    onSelectView('history')
     return
   }
   if (item === 'logs') {
@@ -83,12 +84,14 @@ export function Sidebar({
   mode,
   onChangeMode,
   onNewConversation,
+  onRestoreSession,
   onSelectView,
   onSidebarItemSelected,
 }: SidebarProps) {
   const activeSidebarItem = useRuntimeConsoleStore((state) => state.activeSidebarItem)
   const selectSidebarItem = useRuntimeConsoleStore((state) => state.selectSidebarItem)
   const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
+  const hasSessions = conversations.length > 0
 
   return (
     <motion.div
@@ -150,6 +153,22 @@ export function Sidebar({
             )
           })}
         </section>
+
+        {hasSessions ? (
+          <section className="space-y-2 border-t border-white/8 pt-5">
+            <h2 className="px-2 text-[15px] font-medium text-fuchsia-200">Sessões recentes</h2>
+            <div className="flex max-h-[200px] flex-col gap-1 overflow-y-auto pr-1">
+              {conversations.slice(0, 8).map((session) => (
+                <HistorySessionCard
+                  key={session.id}
+                  session={session}
+                  active={session.id === activeConversationId}
+                  onClick={() => onRestoreSession?.(session.id)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="space-y-2 border-t border-white/8 pt-5">
           <h2 className="px-2 text-[15px] font-medium text-fuchsia-200">Ferramentas</h2>

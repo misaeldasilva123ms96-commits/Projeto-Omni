@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import type { View } from '../../app/App'
 import type { ChatMode, ConversationSummary } from '../../types'
 import type { SidebarItem } from '../../state/runtimeConsoleStore'
 import { Sidebar } from '../layout/Sidebar'
@@ -9,9 +10,10 @@ type OmniSidebarProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onNewConversation?: () => void
-  onSelectView: (view: 'chat' | 'dashboard' | 'observability') => void
+  onRestoreSession?: (sessionId: string) => void
+  onSelectView: (view: View) => void
   onSidebarItemSelected?: (item: SidebarItem) => void
-  view: 'chat' | 'dashboard' | 'observability'
+  view: View
 }
 
 export function OmniSidebar(props: OmniSidebarProps) {
