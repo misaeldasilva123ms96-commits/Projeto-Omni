@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
-import { SettingsAuthGate } from '../features/settings/SettingsAuthGate'
 import { ChatPage } from '../pages/ChatPage'
 import { DashboardPage } from '../pages/DashboardPage'
 import {
@@ -48,7 +47,9 @@ function pathForView(view: View) {
 }
 
 export default function App() {
-  const [view, setView] = useState<View>(() => resolveViewFromPath(window.location.pathname))
+  const [view, setView] = useState<View>(() =>
+    resolveViewFromPath(window.location.pathname),
+  )
   const [mode, setMode] = useState<ChatMode>('chat')
 
   useEffect(() => {
@@ -79,17 +80,6 @@ export default function App() {
   if (view === 'observability') {
     return (
       <ObservabilityAuthGate
-        mode={mode}
-        onChangeMode={setMode}
-        onChangeView={handleChangeView}
-        view={view}
-      />
-    )
-  }
-
-  if (view === 'settings') {
-    return (
-      <SettingsAuthGate
         mode={mode}
         onChangeMode={setMode}
         onChangeView={handleChangeView}
