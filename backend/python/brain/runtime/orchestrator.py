@@ -31,6 +31,15 @@ from brain.memory.store import (
 )
 from brain.runtime.config import load_config
 from brain.runtime.language import normalize_input_to_oil_request, oil_summary, translate_to_oil_projection
+from brain.runtime.serializers import (
+    budget_to_dict,
+    bundle_to_dict,
+    evidence_to_dict,
+    history_limit_for_budget,
+    policy_result_to_dict,
+    retrieval_plan_to_dict,
+    summary_limit_for_budget,
+)
 from brain.runtime.node_runner import (
     build_node_subprocess_env,
     classify_node_subprocess_failure,
@@ -1025,7 +1034,7 @@ class BrainOrchestrator:
                     "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                     "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                     "routing_reason": control_result["routing_decision"].reasoning,
-                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                     "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                     "reason_code": control_result["blocked_reason_code"],
                     "allowed": False,
@@ -1095,7 +1104,7 @@ class BrainOrchestrator:
                 "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                 "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                 "routing_reason": control_result["routing_decision"].reasoning,
-                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                 "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                 "reason_code": "execution_allowed",
                 "allowed": True,
@@ -1734,53 +1743,10 @@ class BrainOrchestrator:
         }.get(task_type, "read")
 
     @staticmethod
-    def _policy_result_to_dict(result: PolicyResult) -> dict[str, Any]:
-        return {
-            "allowed": result.allowed,
-            "policy_name": result.policy_name,
-            "reason": result.reason,
-            "severity": result.severity,
-            "details": result.details,
-        }
-
-    @staticmethod
-    def _bundle_to_dict(bundle: PolicyBundleResult) -> dict[str, Any]:
-        return {
-            "allowed": bundle.allowed,
-            "results": [BrainOrchestrator._policy_result_to_dict(item) for item in bundle.results],
-            "blocking_results": [BrainOrchestrator._policy_result_to_dict(item) for item in bundle.blocking_results],
-        }
-
-    @staticmethod
-    def _evidence_to_dict(evidence: EvidenceGateResult) -> dict[str, Any]:
-        return {
-            "enough_evidence": evidence.enough_evidence,
-            "missing_evidence_types": evidence.missing_evidence_types,
-            "recommendation": evidence.recommendation,
-            "severity": evidence.severity,
-        }
-
-    @staticmethod
-    def _budget_to_dict(budget: ContextBudgetDecision) -> dict[str, Any]:
-        return budget.as_dict()
-
-    @staticmethod
-    def _retrieval_plan_to_dict(plan: RetrievalPlan) -> dict[str, Any]:
-        return plan.as_dict()
-
-    @staticmethod
-    def _history_limit_for_budget(budget_level: str) -> int:
-        return {"low": 2, "medium": 4, "high": 6}.get(budget_level, 4)
-
-    @staticmethod
-    def _summary_limit_for_budget(budget_level: str) -> int:
-        return {"low": 600, "medium": 1200, "high": 1800}.get(budget_level, 1200)
-
-    @staticmethod
     def _slice_history_for_budget(history: object, budget_level: str) -> list[dict[str, Any]]:
         if not isinstance(history, list):
             return []
-        limit = BrainOrchestrator._history_limit_for_budget(budget_level)
+        limit = history_limit_for_budget(budget_level)
         return [item for item in history[-limit:] if isinstance(item, dict)]
 
     @staticmethod
@@ -1967,14 +1933,14 @@ class BrainOrchestrator:
             session_id=session_id,
             task_id=task_id,
             run_id=run_id,
-            payload=self._budget_to_dict(budget),
+            payload=budget_to_dict(budget),
         )
         self._append_runtime_event(
             event_type="runtime.context.retrieval_plan",
             session_id=session_id,
             task_id=task_id,
             run_id=run_id,
-            payload=self._retrieval_plan_to_dict(retrieval_plan),
+            payload=retrieval_plan_to_dict(retrieval_plan),
         )
         retrieved_context = self._build_retrieved_context(
             session_id=session_id,
@@ -2010,7 +1976,7 @@ class BrainOrchestrator:
             if allowed
             else str(control_result["blocked_response"]),
             metadata={
-                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                 "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
             },
         )
@@ -2350,12 +2316,12 @@ class BrainOrchestrator:
         budget_level = str(context_budget.get("budget_level", "medium"))
         compact_history = self._compact_history_for_node(
             memory_store.get("history", []),
-            limit=self._history_limit_for_budget(budget_level),
+            limit=history_limit_for_budget(budget_level),
         )
         compact_session_payload = self._compact_session_payload_for_node(
             session_payload,
-            history_limit=self._history_limit_for_budget(budget_level),
-            summary_limit=self._summary_limit_for_budget(budget_level),
+            history_limit=history_limit_for_budget(budget_level),
+            summary_limit=summary_limit_for_budget(budget_level),
         )
 
         payload = json.dumps(
@@ -3563,8 +3529,8 @@ class BrainOrchestrator:
             )
         self._pending_policy_hint_json = self.policy_router.hint_to_env_json(hint)
 
-        budget_dict = self._budget_to_dict(context_budget)
-        retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
+        budget_dict = budget_to_dict(context_budget)
+        retrieval_dict = retrieval_plan_to_dict(retrieval_plan)
         pcache = phase39_tuning.get("performance_max_cache_entries")
         cache_override = None
         try:
@@ -4189,7 +4155,7 @@ class BrainOrchestrator:
                     "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                     "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                     "routing_reason": control_result["routing_decision"].reasoning,
-                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                     "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                     "reason_code": control_result["blocked_reason_code"],
                     "allowed": False,
@@ -4203,7 +4169,7 @@ class BrainOrchestrator:
                     "kind": "control_layer_block",
                     "message": str(control_result["blocked_response"]),
                     "reason_code": str(control_result["blocked_reason_code"]),
-                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                     "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                 },
                 "evaluation": {
@@ -4211,8 +4177,8 @@ class BrainOrchestrator:
                     "reason_code": str(control_result["blocked_reason_code"]),
                     "control_layer": {
                         "routing": control_result["routing_decision"].as_dict(),
-                        "evidence": self._evidence_to_dict(control_result["evidence_result"]),
-                        "policy": self._bundle_to_dict(control_result["policy_result"]),
+                        "evidence": evidence_to_dict(control_result["evidence_result"]),
+                        "policy": bundle_to_dict(control_result["policy_result"]),
                     },
                 },
             }
@@ -4287,7 +4253,7 @@ class BrainOrchestrator:
                 "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                 "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                 "routing_reason": control_result["routing_decision"].reasoning,
-                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                 "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                 "reason_code": "execution_allowed",
                 "allowed": True,
