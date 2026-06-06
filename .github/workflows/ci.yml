@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Python (early)
         uses: actions/setup-python@v6
@@ -66,6 +68,15 @@ jobs:
           npm run build
           npm run typecheck || true
 
+      - name: Secret Scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Node audit
+        run: |
+          npm audit --audit-level=moderate || true
+
       - name: Run security/validation scripts (light)
         run: npm run validate:public-demo || true
 
@@ -81,3 +92,8 @@ jobs:
       - name: Run cargo tests
         working-directory: backend/rust
         run: cargo test --locked --all
+
+      - name: Cargo audit
+        run: |
+          cargo install --locked cargo-audit || true
+          cd backend/rust && cargo audit || true

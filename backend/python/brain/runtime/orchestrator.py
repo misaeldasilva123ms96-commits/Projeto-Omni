@@ -1709,7 +1709,7 @@ class BrainOrchestrator:
 
     @staticmethod
     def _selected_runtime_mode() -> str:
-        configured = str(os.getenv("OMINI_RUNTIME_MODE", "live") or "live").strip().lower()
+        configured = str(os.getenv("OMNI_RUNTIME_MODE") or os.getenv("OMINI_RUNTIME_MODE", "live") or "live").strip().lower()
         if configured in {"fallback", "mock"}:
             return configured
         return "live"

@@ -59,7 +59,14 @@ cargo run --manifest-path backend/rust/Cargo.toml
 
 ## Opening a pull request
 
-Please keep PRs small and focused.
+Please keep PRs small and focused. Use the following branch naming convention:
+
+- `feat/p5e-*` — new features or phase items
+- `fix/p5e-*` — bug fixes
+- `refactor/p5e-*` — refactoring without feature changes
+- `chore/p5e-*` — CI, tooling, documentation
+
+Never push directly to `main`. Always open a pull request and wait for CI to pass.
 
 Recommended flow:
 
