@@ -66,6 +66,18 @@ jobs:
           npm run build
           npm run typecheck || true
 
+      - name: Secret Scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Node audit
+        run: |
+          npm audit --audit-level=moderate || true
+
+      - name: Cargo audit
+        run: |
+          cargo install --locked cargo-audit || true
+          cd backend/rust && cargo audit || true
+
       - name: Run security/validation scripts (light)
         run: npm run validate:public-demo || true
 
