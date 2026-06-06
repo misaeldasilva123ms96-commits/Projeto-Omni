@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from brain.registry import describe_agents
 from brain.swarm.base_agent import SwarmMessage
 from brain.swarm.critic_agent import CriticAgent
 from brain.swarm.executor_agent import ExecutorAgent
@@ -23,6 +22,15 @@ class SwarmOrchestrator:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.log_path.exists():
             self.log_path.write_text(json.dumps({"events": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _describe_agents(self) -> list[dict[str, str]]:
+        return [
+            {"name": "router_agent", "role": "intent_classification"},
+            {"name": "planner_agent", "role": "task_decomposition"},
+            {"name": "executor_agent", "role": "subtask_execution"},
+            {"name": "critic_agent", "role": "response_quality"},
+            {"name": "memory_agent", "role": "memory_extraction"},
+        ]
 
     async def run(
         self,
@@ -48,7 +56,7 @@ class SwarmOrchestrator:
             "history": history,
             "summary": summary,
             "capabilities": capabilities,
-            "agent_registry": describe_agents(),
+                "agent_registry": self._describe_agents(),
         }
 
         trace: list[dict[str, Any]] = []
@@ -101,7 +109,7 @@ class SwarmOrchestrator:
                 "intent": route["intent"],
                 "delegates": route["delegates"],
                 "plan": plan["subtasks"],
-                "agent_registry": describe_agents(),
+                "agent_registry": self._describe_agents(),
                 "trace": trace,
             }
         )

@@ -48,10 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
+        uses: dtolnay/rust-toolchain@stable
       - name: Run clippy
         working-directory: backend/rust
         run: cargo clippy --all-targets --all-features -- -D warnings || true

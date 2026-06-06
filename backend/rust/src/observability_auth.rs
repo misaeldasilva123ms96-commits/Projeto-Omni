@@ -25,12 +25,10 @@ pub(crate) struct SupabaseAuthConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[allow(dead_code)]
 struct SupabaseClaims {
     exp: usize,
     iss: String,
     sub: Option<String>,
-    aud: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

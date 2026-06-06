@@ -756,16 +756,11 @@ fn resolve_runtime_mode(mock_mode: bool) -> String {
     if mock_mode {
         return "mock".to_string();
     }
-    match env::var("OMINI_RUNTIME_MODE")
-        .unwrap_or_else(|_| "live".to_string())
+    let mode = read_env_alias_string("OMNI_RUNTIME_MODE", "OMINI_RUNTIME_MODE", "live")
         .trim()
-        .to_lowercase()
-        .as_str()
-    {
-        "fallback" | "mock" => env::var("OMINI_RUNTIME_MODE")
-            .unwrap_or_else(|_| "live".to_string())
-            .trim()
-            .to_lowercase(),
+        .to_lowercase();
+    match mode.as_str() {
+        "fallback" | "mock" => mode,
         _ => "live".to_string(),
     }
 }
