@@ -29,7 +29,47 @@ from brain.memory.store import (
     load_memory_store,
     save_memory_store,
 )
+from brain.runtime.config import load_config
 from brain.runtime.language import normalize_input_to_oil_request, oil_summary, translate_to_oil_projection
+from brain.runtime.session_helpers import (
+    DEFAULT_SESSION_ID,
+    SESSION_BYOK_ALLOWED_PROVIDERS,
+    SESSION_BYOK_CLOUD_PROVIDERS,
+    SESSION_BYOK_ENV_MAP,
+    SESSION_BYOK_MAX_API_KEY_CHARS,
+    SESSION_BYOK_MAX_MODEL_CHARS,
+    SESSION_BYOK_PUBLIC_RESPONSE,
+    extract_session_byok_bridge,
+    normalize_session_provider_id,
+    private_bridge_source,
+    safe_session_secret,
+    session_id,
+)
+from brain.runtime.serializers import (
+    budget_to_dict,
+    bundle_to_dict,
+    evidence_to_dict,
+    history_limit_for_budget,
+    policy_result_to_dict,
+    retrieval_plan_to_dict,
+    slice_history_for_budget,
+    summarize_decision_entries,
+    summarize_evidence_entries,
+    summary_limit_for_budget,
+)
+from brain.runtime.node_runner import (
+    build_node_subprocess_env,
+    classify_node_subprocess_failure,
+    compact_history_for_node,
+    compact_session_payload_for_node,
+    resolve_node_bin,
+    resolve_node_command_context,
+    runner_smoke_cwd_label,
+    runner_smoke_failure_class,
+    runner_smoke_scrub_provider_env,
+    runner_smoke_summary,
+    truncate_text,
+)
 from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
@@ -143,7 +183,6 @@ MOCK_RUNTIME_RESPONSE = (
 SUBPROCESS_TIMEOUT_SECONDS = 60
 MAX_JSONL_SANITIZE_BYTES = 10 * 1024 * 1024
 MAX_JSONL_ACTIVE_BYTES = 50 * 1024 * 1024
-DEFAULT_SESSION_ID = "python-session"
 CONTROL_LAYER_BLOCK_PREFIX = "Execucao bloqueada pela camada de controle"
 MUTATING_TOOLS = {
     "write_file",
@@ -180,146 +219,6 @@ TRUSTED_EXECUTION_KNOWN_TOOLS = (
         "none",
     }
 )
-
-SESSION_BYOK_ALLOWED_PROVIDERS = {
-    "groq",
-    "openrouter",
-    "openai",
-    "anthropic",
-    "gemini",
-    "ollama",
-    "lmstudio",
-}
-SESSION_BYOK_ENV_MAP = {
-    "groq": ("GROQ_API_KEY", "GROQ_MODEL"),
-    "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_MODEL"),
-    "openai": ("OPENAI_API_KEY", "OPENAI_MODEL"),
-    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
-    "gemini": ("GEMINI_API_KEY", "GEMINI_MODEL"),
-    "ollama": ("OLLAMA_API_KEY", "OLLAMA_MODEL"),
-    "lmstudio": ("LMSTUDIO_API_KEY", "LMSTUDIO_MODEL"),
-}
-SESSION_BYOK_MAX_API_KEY_CHARS = 4096
-SESSION_BYOK_MAX_MODEL_CHARS = 128
-SESSION_BYOK_CLOUD_PROVIDERS = {"groq", "openrouter", "openai", "anthropic", "gemini"}
-SESSION_BYOK_PUBLIC_RESPONSE = (
-    "[degraded:byok_session] Session BYOK credentials could not be used safely for this request."
-)
-
-
-def _normalize_session_provider_id(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().lower()
-    if not normalized or normalized not in SESSION_BYOK_ALLOWED_PROVIDERS:
-        return None
-    if any(ord(ch) < 32 for ch in normalized):
-        return None
-    return normalized
-
-
-def _private_bridge_source(bridge: dict[str, Any]) -> dict[str, Any]:
-    client_context = bridge.get("client_context")
-    if isinstance(client_context, dict):
-        return {**bridge, **client_context}
-    return dict(bridge)
-
-
-def _safe_session_secret(value: Any, *, max_chars: int) -> str | None:
-    if not isinstance(value, str):
-        return None
-    trimmed = value.strip()
-    if not trimmed or len(trimmed) > max_chars:
-        return None
-    if any(ord(ch) < 32 for ch in trimmed):
-        return None
-    return trimmed
-
-
-def _extract_session_byok_bridge(bridge: dict[str, Any]) -> dict[str, Any]:
-    source = _private_bridge_source(bridge)
-    raw_credentials = source.get("session_provider_credentials")
-    provider_preference_raw = source.get("provider_preference")
-    provider_preference = _normalize_session_provider_id(provider_preference_raw)
-    if not isinstance(raw_credentials, dict):
-        return {
-            "active": False,
-            "provider": provider_preference,
-            "env_overlay": {},
-            "error_reason": None,
-        }
-    if not raw_credentials:
-        return {
-            "active": False,
-            "provider": provider_preference,
-            "env_overlay": {},
-            "error_reason": None,
-        }
-    if isinstance(provider_preference_raw, str) and provider_preference_raw.strip() and not provider_preference:
-        return {
-            "active": True,
-            "provider": None,
-            "env_overlay": {},
-            "error_reason": "byok_provider_not_allowed",
-        }
-    if not provider_preference:
-        return {
-            "active": True,
-            "provider": None,
-            "env_overlay": {},
-            "error_reason": "byok_provider_preference_required",
-        }
-    if provider_preference not in raw_credentials:
-        return {
-            "active": True,
-            "provider": provider_preference,
-            "env_overlay": {},
-            "error_reason": "byok_credentials_missing_for_provider",
-        }
-
-    env_overlay: dict[str, str] = {}
-    raw_credential = raw_credentials.get(provider_preference)
-    if not isinstance(raw_credential, dict):
-        return {
-            "active": True,
-            "provider": provider_preference,
-            "env_overlay": {},
-            "error_reason": "byok_credentials_incomplete",
-        }
-
-    key_env, model_env = SESSION_BYOK_ENV_MAP[provider_preference]
-    api_key = _safe_session_secret(
-        raw_credential.get("api_key"),
-        max_chars=SESSION_BYOK_MAX_API_KEY_CHARS,
-    )
-    model = _safe_session_secret(
-        raw_credential.get("model"),
-        max_chars=SESSION_BYOK_MAX_MODEL_CHARS,
-    )
-    if provider_preference in SESSION_BYOK_CLOUD_PROVIDERS and not api_key:
-        return {
-            "active": True,
-            "provider": provider_preference,
-            "env_overlay": {},
-            "error_reason": "byok_credentials_incomplete",
-        }
-    if provider_preference not in SESSION_BYOK_CLOUD_PROVIDERS and not api_key and not model:
-        return {
-            "active": True,
-            "provider": provider_preference,
-            "env_overlay": {},
-            "error_reason": "byok_credentials_incomplete",
-        }
-    if api_key:
-        env_overlay[key_env] = api_key
-    if model:
-        env_overlay[model_env] = model
-    return {
-        "active": True,
-        "provider": provider_preference,
-        "env_overlay": env_overlay,
-        "error_reason": None,
-    }
 
 
 @dataclass
@@ -652,7 +551,7 @@ class BrainOrchestrator:
 
     def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
         self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
-        byok_state = _extract_session_byok_bridge(self._runtime_bridge)
+        byok_state = extract_session_byok_bridge(self._runtime_bridge)
         self._session_byok_active = bool(byok_state.get("active"))
         self._session_provider_preference = byok_state.get("provider") if isinstance(byok_state.get("provider"), str) else None
         self._session_provider_env_overlay = (
@@ -690,7 +589,7 @@ class BrainOrchestrator:
             }
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
-        session_id = self._session_id()
+        session_id = session_id()
 
         memory_store = load_memory_store(
             self.paths.memory_json,
@@ -1017,7 +916,7 @@ class BrainOrchestrator:
                     "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                     "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                     "routing_reason": control_result["routing_decision"].reasoning,
-                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                     "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                     "reason_code": control_result["blocked_reason_code"],
                     "allowed": False,
@@ -1087,7 +986,7 @@ class BrainOrchestrator:
                 "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                 "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                 "routing_reason": control_result["routing_decision"].reasoning,
-                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                 "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                 "reason_code": "execution_allowed",
                 "allowed": True,
@@ -1199,7 +1098,7 @@ class BrainOrchestrator:
             strategy_state,
         )
         predicted_intent = str(reasoning_handoff.get("intent", "")).strip() or self._predict_intent(runtime_message)
-        budgeted_history = self._slice_history_for_budget(
+        budgeted_history = slice_history_for_budget(
             memory_store.get("history", []),
             context_budget.budget_level,
         )
@@ -1697,16 +1596,6 @@ class BrainOrchestrator:
             extra_session=extra_session,
         )
 
-    def _session_id(self) -> str:
-        """Prefer explicit operator `AI_SESSION_ID`, then Rust bridge `OMNI_BRIDGE_CLIENT_SESSION_ID`."""
-        configured = os.getenv("AI_SESSION_ID", "").strip()
-        if configured:
-            return configured
-        bridge_sid = os.getenv("OMNI_BRIDGE_CLIENT_SESSION_ID", "").strip()
-        if bridge_sid:
-            return bridge_sid[:512]
-        return DEFAULT_SESSION_ID
-
     @staticmethod
     def _selected_runtime_mode() -> str:
         configured = str(os.getenv("OMNI_RUNTIME_MODE") or os.getenv("OMINI_RUNTIME_MODE", "live") or "live").strip().lower()
@@ -1726,78 +1615,6 @@ class BrainOrchestrator:
         }.get(task_type, "read")
 
     @staticmethod
-    def _policy_result_to_dict(result: PolicyResult) -> dict[str, Any]:
-        return {
-            "allowed": result.allowed,
-            "policy_name": result.policy_name,
-            "reason": result.reason,
-            "severity": result.severity,
-            "details": result.details,
-        }
-
-    @staticmethod
-    def _bundle_to_dict(bundle: PolicyBundleResult) -> dict[str, Any]:
-        return {
-            "allowed": bundle.allowed,
-            "results": [BrainOrchestrator._policy_result_to_dict(item) for item in bundle.results],
-            "blocking_results": [BrainOrchestrator._policy_result_to_dict(item) for item in bundle.blocking_results],
-        }
-
-    @staticmethod
-    def _evidence_to_dict(evidence: EvidenceGateResult) -> dict[str, Any]:
-        return {
-            "enough_evidence": evidence.enough_evidence,
-            "missing_evidence_types": evidence.missing_evidence_types,
-            "recommendation": evidence.recommendation,
-            "severity": evidence.severity,
-        }
-
-    @staticmethod
-    def _budget_to_dict(budget: ContextBudgetDecision) -> dict[str, Any]:
-        return budget.as_dict()
-
-    @staticmethod
-    def _retrieval_plan_to_dict(plan: RetrievalPlan) -> dict[str, Any]:
-        return plan.as_dict()
-
-    @staticmethod
-    def _history_limit_for_budget(budget_level: str) -> int:
-        return {"low": 2, "medium": 4, "high": 6}.get(budget_level, 4)
-
-    @staticmethod
-    def _summary_limit_for_budget(budget_level: str) -> int:
-        return {"low": 600, "medium": 1200, "high": 1800}.get(budget_level, 1200)
-
-    @staticmethod
-    def _slice_history_for_budget(history: object, budget_level: str) -> list[dict[str, Any]]:
-        if not isinstance(history, list):
-            return []
-        limit = BrainOrchestrator._history_limit_for_budget(budget_level)
-        return [item for item in history[-limit:] if isinstance(item, dict)]
-
-    @staticmethod
-    def _summarize_decision_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "count": len(entries),
-            "recent": [
-                {
-                    "decision_type": item.get("decision_type"),
-                    "task_type": item.get("task_type"),
-                    "reason_code": item.get("reason_code"),
-                    "reason": item.get("reason"),
-                }
-                for item in entries[:3]
-            ],
-        }
-
-    @staticmethod
-    def _summarize_evidence_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
-        latest = entries[0] if entries else {}
-        return {
-            "count": len(entries),
-            "latest": latest.get("evidence", {}) if isinstance(latest, dict) else {},
-        }
-
     def _build_context_budget(
         self,
         *,
@@ -1845,7 +1662,7 @@ class BrainOrchestrator:
                     limit=limit,
                 )
                 context[memory_type] = (
-                    self._summarize_decision_entries(decisions)
+                    summarize_decision_entries(decisions)
                     if memory_type in retrieval_plan.summarized_memory_types
                     else decisions
                 )
@@ -1856,7 +1673,7 @@ class BrainOrchestrator:
                     limit=limit,
                 )
                 context[memory_type] = (
-                    self._summarize_evidence_entries(evidence_entries)
+                    summarize_evidence_entries(evidence_entries)
                     if memory_type in retrieval_plan.summarized_memory_types
                     else evidence_entries
                 )
@@ -1959,14 +1776,14 @@ class BrainOrchestrator:
             session_id=session_id,
             task_id=task_id,
             run_id=run_id,
-            payload=self._budget_to_dict(budget),
+            payload=budget_to_dict(budget),
         )
         self._append_runtime_event(
             event_type="runtime.context.retrieval_plan",
             session_id=session_id,
             task_id=task_id,
             run_id=run_id,
-            payload=self._retrieval_plan_to_dict(retrieval_plan),
+            payload=retrieval_plan_to_dict(retrieval_plan),
         )
         retrieved_context = self._build_retrieved_context(
             session_id=session_id,
@@ -2002,7 +1819,7 @@ class BrainOrchestrator:
             if allowed
             else str(control_result["blocked_response"]),
             metadata={
-                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                 "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
             },
         )
@@ -2105,38 +1922,6 @@ class BrainOrchestrator:
         return combined
 
     @staticmethod
-    def _compact_history_for_node(history: object, limit: int = 6) -> list[dict[str, Any]]:
-        if not isinstance(history, list):
-            return []
-        compacted: list[dict[str, Any]] = []
-        for item in history[-limit:]:
-            if not isinstance(item, dict):
-                continue
-            compacted.append(
-                {
-                    "role": str(item.get("role", "")),
-                    "content": str(item.get("content", ""))[:600],
-                }
-            )
-        return compacted
-
-    def _compact_session_payload_for_node(
-        self,
-        session_payload: dict[str, Any],
-        *,
-        history_limit: int = 4,
-        summary_limit: int = 1200,
-    ) -> dict[str, Any]:
-        compact = dict(session_payload)
-        compact["history"] = self._compact_history_for_node(compact.get("history", []), limit=history_limit)
-        if isinstance(compact.get("summary"), str):
-            compact["summary"] = compact["summary"][:summary_limit]
-        if isinstance(compact.get("agent_registry"), list):
-            compact["agent_registry"] = compact["agent_registry"][:8]
-        if isinstance(compact.get("agent_trace"), list):
-            compact["agent_trace"] = compact["agent_trace"][-8:]
-        return compact
-
     def _evaluate_control_layer(
         self,
         *,
@@ -2223,189 +2008,49 @@ class BrainOrchestrator:
         }
 
     def _resolve_node_bin(self) -> str | None:
-        selection = self.js_runtime_adapter.select_runtime()
-        if selection.runtime_name == "node" and selection.node_available:
-            return selection.executable
-        configured = os.getenv("NODE_BIN", "").strip()
-        if configured:
-            return configured
-        return shutil.which("node")
+        return resolve_node_bin(self.js_runtime_adapter)
 
     def _build_node_subprocess_env(self) -> dict[str, str]:
-        env, selection = self.js_runtime_adapter.build_env()
-        session_overlay = getattr(self, "_session_provider_env_overlay", None)
-        if isinstance(session_overlay, dict) and session_overlay:
-            env.update({str(key): str(value) for key, value in session_overlay.items() if value})
-        if self._session_byok_active and self._session_provider_preference:
-            env["OMNI_BYOK_SESSION_MODE"] = "true"
-            env["OMNI_BYOK_PROVIDER"] = self._session_provider_preference
-            env["OMNI_BYOK_FAIL_CLOSED"] = "true"
-        env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
-        env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
-        hint_json = getattr(self, "_pending_policy_hint_json", None)
-        if self._session_byok_active and self._session_provider_preference:
-            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
-                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
-                ensure_ascii=False,
-            )
-        elif isinstance(hint_json, str) and hint_json.strip():
-            env["OMNI_POLICY_HINT_JSON"] = hint_json.strip()
-        elif self._session_provider_preference:
-            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
-                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
-                ensure_ascii=False,
-            )
+        env = build_node_subprocess_env(
+            self.js_runtime_adapter,
+            session_byok_active=self._session_byok_active,
+            session_provider_preference=self._session_provider_preference,
+            session_provider_env_overlay=self._session_provider_env_overlay,
+            pending_policy_hint_json=self._pending_policy_hint_json,
+        )
         self._pending_policy_hint_json = None
         return env
 
     def _resolve_node_command_context(self, payload: str) -> dict[str, Any]:
-        cwd_path = self.paths.root.resolve()
-        runner_path = self.paths.js_runner.resolve()
-        adapter_path = (self.paths.root / "src" / "queryEngineRunnerAdapter.js").resolve()
-        esm_adapter_path = (self.paths.root / "src" / "queryEngineRunnerAdapter.mjs").resolve()
-        fusion_brain_path = (self.paths.root / "core" / "brain" / "fusionBrain.js").resolve()
-        healthcheck_path = (self.paths.root / "js-runner" / "runtimeHealthcheck.js").resolve()
-        dist_query_engine_path = (self.paths.root / "dist" / "QueryEngine.js").resolve()
-        build_query_engine_path = (self.paths.root / "build" / "QueryEngine.js").resolve()
-        ts_candidates = [
-            (self.paths.root / "src" / "QueryEngine.ts").resolve(),
-            (self.paths.root / "runtime" / "node" / "QueryEngine.ts").resolve(),
-        ]
-        command, runtime_selection = self.js_runtime_adapter.build_command(script_path=runner_path, payload=payload)
-        env = self._build_node_subprocess_env()
-        node_bin = self._resolve_node_bin()
-        node_resolved = shutil.which(node_bin) if node_bin and not os.path.isabs(node_bin) else node_bin
-        missing_paths = []
-        if not runner_path.exists():
-            missing_paths.append(str(runner_path))
-        if not adapter_path.exists():
-            missing_paths.append(str(adapter_path))
-        if not fusion_brain_path.exists():
-            missing_paths.append(str(fusion_brain_path))
+        ctx = resolve_node_command_context(
+            self.paths,
+            self.js_runtime_adapter,
+            payload,
+            session_byok_active=self._session_byok_active,
+            session_provider_preference=self._session_provider_preference,
+            session_provider_env_overlay=self._session_provider_env_overlay,
+            pending_policy_hint_json=self._pending_policy_hint_json,
+        )
+        self._pending_policy_hint_json = None
+        return ctx
 
-        return {
-            "node_bin": node_bin,
-            "node_resolved": node_resolved,
-            "js_runtime": runtime_selection.as_dict(),
-            "cwd": str(cwd_path),
-            "cwd_exists": cwd_path.exists(),
-            "runner_path": str(runner_path),
-            "runner_exists": runner_path.exists(),
-            "adapter_path": str(adapter_path),
-            "adapter_exists": adapter_path.exists(),
-            "esm_adapter_path": str(esm_adapter_path),
-            "esm_adapter_exists": esm_adapter_path.exists(),
-            "fusion_brain_path": str(fusion_brain_path),
-            "fusion_brain_exists": fusion_brain_path.exists(),
-            "healthcheck_path": str(healthcheck_path),
-            "healthcheck_exists": healthcheck_path.exists(),
-            "dist_query_engine_path": str(dist_query_engine_path),
-            "dist_query_engine_exists": dist_query_engine_path.exists(),
-            "build_query_engine_path": str(build_query_engine_path),
-            "build_query_engine_exists": build_query_engine_path.exists(),
-            "typescript_candidate_paths": [str(candidate) for candidate in ts_candidates],
-            "typescript_candidates_exist": [str(candidate) for candidate in ts_candidates if candidate.exists()],
-            "command": command,
-            "command_preview": [command[0], command[1], f"<payload:{len(payload)} chars>"],
-            "typescript_direct_execution_detected": str(runner_path).endswith(".ts"),
-            "compiled_runner_artifact_exists": any(
-                path_exists
-                for path_exists in (
-                    adapter_path.exists(),
-                    esm_adapter_path.exists(),
-                    dist_query_engine_path.exists(),
-                    build_query_engine_path.exists(),
-                )
-            ),
-            "missing_paths": missing_paths,
-            "env_preview": {
-                "BASE_DIR": env.get("BASE_DIR", ""),
-                "NODE_RUNNER_BASE_DIR": env.get("NODE_RUNNER_BASE_DIR", ""),
-                "NODE_BIN": env.get("NODE_BIN", ""),
-                "OMINI_JS_RUNTIME": env.get("OMINI_JS_RUNTIME", ""),
-                "OMINI_JS_RUNTIME_BIN": env.get("OMINI_JS_RUNTIME_BIN", ""),
-                "PYTHON_BIN": env.get("PYTHON_BIN", ""),
-                "PATH_HEAD": env.get("PATH", "")[:400],
-            },
-            "subprocess_env": env,
-        }
 
-    @staticmethod
-    def _truncate_text(value: str, limit: int = 1200) -> str:
-        normalized = value.strip()
-        if len(normalized) <= limit:
-            return normalized
-        return normalized[:limit]
-
-    def _classify_node_subprocess_failure(
-        self,
-        *,
-        diagnostics: dict[str, Any],
-        returncode: int | None = None,
-        stdout: str = "",
-        stderr: str = "",
-        exception: Exception | None = None,
-        timed_out: bool = False,
-    ) -> tuple[str, dict[str, Any]]:
-        details = {
-            "runner_path": diagnostics["runner_path"],
-            "adapter_path": diagnostics["adapter_path"],
-            "fusion_brain_path": diagnostics["fusion_brain_path"],
-            "cwd": diagnostics["cwd"],
-            "command_preview": diagnostics["command_preview"],
-            "node_bin": diagnostics["node_bin"],
-            "node_resolved": diagnostics["node_resolved"],
-            "returncode": returncode,
-            "stdout": self._truncate_text(stdout),
-            "stderr": self._truncate_text(stderr),
-            "timed_out": timed_out,
-            "exception": repr(exception) if exception else "",
-            "typescript_direct_execution_detected": diagnostics["typescript_direct_execution_detected"],
-            "typescript_candidates_exist": diagnostics["typescript_candidates_exist"],
-            "compiled_runner_artifact_exists": diagnostics["compiled_runner_artifact_exists"],
-            "missing_paths": diagnostics["missing_paths"],
-            "env_preview": diagnostics["env_preview"],
-        }
-        combined = f"{stdout}\n{stderr}".lower()
-
-        if not diagnostics["node_resolved"]:
-            return "node_not_found", details
-        if not diagnostics["runner_exists"]:
-            return "runner_not_found", details
-        if not diagnostics["cwd_exists"]:
-            return "cwd_not_found", details
-        if diagnostics["missing_paths"]:
-            return "module_resolution_error", details
-        if timed_out:
-            return "timeout", details
-        if exception is not None:
-            return "subprocess_exception", details
-        if not stdout.strip() and not stderr.strip() and returncode == 0:
-            return "empty_stdout", details
-        if "err_module_not_found" in combined or "cannot find module" in combined or "module not found" in combined:
-            return "module_resolution_error", details
-        if "unknown file extension \".ts\"" in combined or "cannot use import statement outside a module" in combined:
-            details["typescript_direct_execution_detected"] = True
-            return "module_resolution_error", details
-        if returncode not in (None, 0):
-            return "node_subprocess_failed", details
-        return "invalid_json", details
 
     @staticmethod
     def _runtime_max_parallel_reads() -> int:
-        return max(1, int(os.getenv("OMINI_MAX_PARALLEL_READ_STEPS", "2") or "2"))
+        return load_config().max_parallel_read_steps
 
     @staticmethod
     def _runtime_stale_checkpoint_minutes() -> int:
-        return max(1, int(os.getenv("OMINI_STALE_CHECKPOINT_MINUTES", "120") or "120"))
+        return load_config().stale_checkpoint_minutes
 
     @staticmethod
     def _runtime_critic_enabled() -> bool:
-        return str(os.getenv("OMINI_ENABLE_CRITIC", "true")).strip().lower() != "false"
+        return load_config().enable_critic
 
     @staticmethod
     def _runtime_correction_depth() -> int:
-        return max(1, int(os.getenv("OMINI_MAX_CORRECTION_DEPTH", "1") or "1"))
+        return load_config().max_correction_depth
 
     @staticmethod
     def _plan_signature(actions: list[dict[str, Any]], plan_graph: dict[str, Any] | None = None) -> str:
@@ -2454,7 +2099,7 @@ class BrainOrchestrator:
 
         diagnostics = self._resolve_node_command_context(payload="")
         if not diagnostics["node_resolved"] or not diagnostics["runner_exists"] or not diagnostics["cwd_exists"]:
-            classified_reason, details = self._classify_node_subprocess_failure(
+            classified_reason, details = classify_node_subprocess_failure(
                 diagnostics=diagnostics,
             )
             self.last_runtime_mode = "fallback"
@@ -2480,14 +2125,14 @@ class BrainOrchestrator:
             session_payload.update(extra_session)
         context_budget = extra_session.get("context_budget", {}) if isinstance(extra_session, dict) else {}
         budget_level = str(context_budget.get("budget_level", "medium"))
-        compact_history = self._compact_history_for_node(
+        compact_history = compact_history_for_node(
             memory_store.get("history", []),
-            limit=self._history_limit_for_budget(budget_level),
+            limit=history_limit_for_budget(budget_level),
         )
-        compact_session_payload = self._compact_session_payload_for_node(
+        compact_session_payload = compact_session_payload_for_node(
             session_payload,
-            history_limit=self._history_limit_for_budget(budget_level),
-            summary_limit=self._summary_limit_for_budget(budget_level),
+            history_limit=history_limit_for_budget(budget_level),
+            summary_limit=summary_limit_for_budget(budget_level),
         )
 
         payload = json.dumps(
@@ -2518,7 +2163,7 @@ class BrainOrchestrator:
         )
 
         if diagnostics["missing_paths"]:
-            classified_reason, details = self._classify_node_subprocess_failure(
+            classified_reason, details = classify_node_subprocess_failure(
                 diagnostics=diagnostics,
             )
             self.last_runtime_mode = "fallback"
@@ -2651,64 +2296,6 @@ class BrainOrchestrator:
 
         return self._synthesize_runtime_response(step_results, semantic["response_text"])
 
-    @staticmethod
-    def _runner_smoke_cwd_label(cwd: str) -> str:
-        try:
-            name = Path(cwd).name.strip().lower()
-        except Exception:
-            return "unknown"
-        if name == "app":
-            return "app"
-        if name in {"project", "repo"}:
-            return "repo"
-        return "unknown"
-
-    @staticmethod
-    def _runner_smoke_scrub_provider_env(env: dict[str, str]) -> dict[str, str]:
-        scrubbed = dict(env)
-        for key in (
-            "GROQ_API_KEY",
-            "OPENROUTER_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GEMINI_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "OLLAMA_API_KEY",
-            "LMSTUDIO_API_KEY",
-            "OLLAMA_URL",
-            "LMSTUDIO_URL",
-            "OMNI_BYOK_SESSION_MODE",
-            "OMNI_BYOK_PROVIDER",
-            "OMNI_BYOK_FAIL_CLOSED",
-            "OMNI_POLICY_HINT_JSON",
-        ):
-            scrubbed.pop(key, None)
-        return scrubbed
-
-    @staticmethod
-    def _runner_smoke_failure_class(transport: dict[str, Any], parsed: Any) -> str | None:
-        reason = str(transport.get("reason_code", "") or "").strip()
-        if reason and reason != "success":
-            return reason
-        if isinstance(parsed, dict):
-            error = parsed.get("error")
-            if isinstance(error, dict):
-                failure_class = str(error.get("failure_class", "") or "").strip()
-                if failure_class:
-                    return failure_class
-            response = str(parsed.get("response", "") or "")
-            if response.startswith("[degraded:node_runner]"):
-                return "node_runner_degraded"
-        return None
-
-    @staticmethod
-    def _runner_smoke_summary(status: str, failure_class: str | None) -> str | None:
-        if status == "ok":
-            return "runner_smoke_ok"
-        if failure_class:
-            return f"runner_smoke_{failure_class}"
-        return "runner_smoke_failed"
-
     def build_runner_smoke_diagnostic(self, *, timeout_seconds: int = 6) -> dict[str, Any]:
         payload = json.dumps(
             {
@@ -2722,7 +2309,7 @@ class BrainOrchestrator:
             ensure_ascii=False,
         )
         diagnostics = self._resolve_node_command_context(payload=payload)
-        diagnostics["subprocess_env"] = self._runner_smoke_scrub_provider_env(
+        diagnostics["subprocess_env"] = runner_smoke_scrub_provider_env(
             diagnostics.get("subprocess_env", {})
         )
         transport = run_node_subprocess(
@@ -2733,7 +2320,7 @@ class BrainOrchestrator:
         parsed = transport.get("parsed") if isinstance(transport, dict) else None
         response_text = str(parsed.get("response", "") or "") if isinstance(parsed, dict) else ""
         result_degraded = response_text.startswith("[degraded:node_runner]")
-        failure_class = self._runner_smoke_failure_class(transport, parsed)
+        failure_class = runner_smoke_failure_class(transport, parsed)
         status = "ok" if transport.get("ok") and isinstance(parsed, dict) and not result_degraded else "degraded"
         if not transport.get("ok"):
             status = "error"
@@ -2745,7 +2332,7 @@ class BrainOrchestrator:
         return {
             "status": status,
             "selected_runtime": selected_runtime,
-            "cwd_label": self._runner_smoke_cwd_label(str(diagnostics.get("cwd", "") or "")),
+            "cwd_label": runner_smoke_cwd_label(str(diagnostics.get("cwd", "") or "")),
             "runner_exists": bool(diagnostics.get("runner_exists", False)),
             "adapter_exists": bool(diagnostics.get("adapter_exists", False)),
             "fusion_brain_exists": bool(diagnostics.get("fusion_brain_exists", False)),
@@ -2754,7 +2341,7 @@ class BrainOrchestrator:
             "stdout_json_valid": bool(transport.get("ok") and isinstance(parsed, dict)),
             "result_degraded": bool(result_degraded),
             "public_failure_class": failure_class,
-            "public_summary": self._runner_smoke_summary(status, failure_class),
+            "public_summary": runner_smoke_summary(status, failure_class),
         }
 
     def _record_runtime_mode_event(
@@ -3695,8 +3282,8 @@ class BrainOrchestrator:
             )
         self._pending_policy_hint_json = self.policy_router.hint_to_env_json(hint)
 
-        budget_dict = self._budget_to_dict(context_budget)
-        retrieval_dict = self._retrieval_plan_to_dict(retrieval_plan)
+        budget_dict = budget_to_dict(context_budget)
+        retrieval_dict = retrieval_plan_to_dict(retrieval_plan)
         pcache = phase39_tuning.get("performance_max_cache_entries")
         cache_override = None
         try:
@@ -4321,7 +3908,7 @@ class BrainOrchestrator:
                     "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                     "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                     "routing_reason": control_result["routing_decision"].reasoning,
-                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                     "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                     "reason_code": control_result["blocked_reason_code"],
                     "allowed": False,
@@ -4335,7 +3922,7 @@ class BrainOrchestrator:
                     "kind": "control_layer_block",
                     "message": str(control_result["blocked_response"]),
                     "reason_code": str(control_result["blocked_reason_code"]),
-                    "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                    "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                     "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                 },
                 "evaluation": {
@@ -4343,8 +3930,8 @@ class BrainOrchestrator:
                     "reason_code": str(control_result["blocked_reason_code"]),
                     "control_layer": {
                         "routing": control_result["routing_decision"].as_dict(),
-                        "evidence": self._evidence_to_dict(control_result["evidence_result"]),
-                        "policy": self._bundle_to_dict(control_result["policy_result"]),
+                        "evidence": evidence_to_dict(control_result["evidence_result"]),
+                        "policy": bundle_to_dict(control_result["policy_result"]),
                     },
                 },
             }
@@ -4419,7 +4006,7 @@ class BrainOrchestrator:
                 "recommended_specialists": control_result["routing_decision"].recommended_specialists,
                 "delegation_recommended": control_result["routing_decision"].specialist_delegation_recommended,
                 "routing_reason": control_result["routing_decision"].reasoning,
-                "policy_results": [self._policy_result_to_dict(item) for item in control_result["policy_result"].results],
+                "policy_results": [policy_result_to_dict(item) for item in control_result["policy_result"].results],
                 "missing_evidence_types": control_result["evidence_result"].missing_evidence_types,
                 "reason_code": "execution_allowed",
                 "allowed": True,
