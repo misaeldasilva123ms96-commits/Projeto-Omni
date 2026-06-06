@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.bridge_stdin import apply_bridge_env, read_bridge_stdin_dict, resolve_entry_message
+from brain.runtime.config import python_service_mode
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
 from brain.runtime.observability.public_runtime_payload import (
     build_public_cognitive_runtime_inspection,
@@ -387,6 +388,9 @@ def build_public_runner_smoke_payload() -> dict[str, Any]:
 
 
 def main() -> int:
+    if python_service_mode():
+        from brain_service import main as service_main
+        return service_main()
     bridge = read_bridge_stdin_dict()
     if bridge.get("diagnostic") == "runner_smoke":
         return emit_public_json(build_public_runner_smoke_payload())
