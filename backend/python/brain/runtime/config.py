@@ -15,6 +15,7 @@ LEGACY_ALIASES: dict[str, str] = {
     "OMNI_RUNTIME_MODE": "OMINI_RUNTIME_MODE",
     "OMNI_BASE_DIR": "BASE_DIR",
     "OMNI_PYTHON_BASE_DIR": "PYTHON_BASE_DIR",
+    "OMNI_PYTHON_MODE": "OMINI_PYTHON_MODE",
 }
 
 
@@ -67,6 +68,11 @@ class OmniConfig:
     node_bin: str = "node"
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+
+
+def python_service_mode() -> bool:
+    mode = str(os.getenv("OMINI_PYTHON_MODE") or os.getenv("OMNI_PYTHON_MODE", "subprocess")).strip().lower()
+    return mode == "service"
 
 
 def load_config() -> OmniConfig:
