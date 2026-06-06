@@ -68,8 +68,8 @@ jobs:
 
       - name: Secret Scan (Gitleaks)
         uses: gitleaks/gitleaks-action@v2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Node audit
         run: |
