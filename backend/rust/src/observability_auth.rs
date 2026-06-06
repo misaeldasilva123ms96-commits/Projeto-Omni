@@ -26,8 +26,11 @@ pub(crate) struct SupabaseAuthConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 struct SupabaseClaims {
+    #[expect(dead_code)]
     exp: usize,
+    #[expect(dead_code)]
     iss: String,
+    #[expect(dead_code)]
     sub: Option<String>,
 }
 
