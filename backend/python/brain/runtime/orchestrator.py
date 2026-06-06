@@ -29,7 +29,15 @@ from brain.memory.store import (
     load_memory_store,
     save_memory_store,
 )
+from brain.runtime.config import load_config
 from brain.runtime.language import normalize_input_to_oil_request, oil_summary, translate_to_oil_projection
+from brain.runtime.node_runner import (
+    build_node_subprocess_env,
+    classify_node_subprocess_failure,
+    resolve_node_bin,
+    resolve_node_command_context,
+    truncate_text,
+)
 from brain.memory.working_memory import WorkingMemoryStore
 from brain.registry import describe_agents, describe_capabilities, recommend_capabilities
 from brain.runtime.checkpoint_store import CheckpointStore
@@ -2223,189 +2231,49 @@ class BrainOrchestrator:
         }
 
     def _resolve_node_bin(self) -> str | None:
-        selection = self.js_runtime_adapter.select_runtime()
-        if selection.runtime_name == "node" and selection.node_available:
-            return selection.executable
-        configured = os.getenv("NODE_BIN", "").strip()
-        if configured:
-            return configured
-        return shutil.which("node")
+        return resolve_node_bin(self.js_runtime_adapter)
 
     def _build_node_subprocess_env(self) -> dict[str, str]:
-        env, selection = self.js_runtime_adapter.build_env()
-        session_overlay = getattr(self, "_session_provider_env_overlay", None)
-        if isinstance(session_overlay, dict) and session_overlay:
-            env.update({str(key): str(value) for key, value in session_overlay.items() if value})
-        if self._session_byok_active and self._session_provider_preference:
-            env["OMNI_BYOK_SESSION_MODE"] = "true"
-            env["OMNI_BYOK_PROVIDER"] = self._session_provider_preference
-            env["OMNI_BYOK_FAIL_CLOSED"] = "true"
-        env.setdefault("NODE_BIN", self._resolve_node_bin() or "node")
-        env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
-        hint_json = getattr(self, "_pending_policy_hint_json", None)
-        if self._session_byok_active and self._session_provider_preference:
-            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
-                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
-                ensure_ascii=False,
-            )
-        elif isinstance(hint_json, str) and hint_json.strip():
-            env["OMNI_POLICY_HINT_JSON"] = hint_json.strip()
-        elif self._session_provider_preference:
-            env["OMNI_POLICY_HINT_JSON"] = json.dumps(
-                {"recommended_provider": self._session_provider_preference, "shadow_only": False},
-                ensure_ascii=False,
-            )
+        env = build_node_subprocess_env(
+            self.js_runtime_adapter,
+            session_byok_active=self._session_byok_active,
+            session_provider_preference=self._session_provider_preference,
+            session_provider_env_overlay=self._session_provider_env_overlay,
+            pending_policy_hint_json=self._pending_policy_hint_json,
+        )
         self._pending_policy_hint_json = None
         return env
 
     def _resolve_node_command_context(self, payload: str) -> dict[str, Any]:
-        cwd_path = self.paths.root.resolve()
-        runner_path = self.paths.js_runner.resolve()
-        adapter_path = (self.paths.root / "src" / "queryEngineRunnerAdapter.js").resolve()
-        esm_adapter_path = (self.paths.root / "src" / "queryEngineRunnerAdapter.mjs").resolve()
-        fusion_brain_path = (self.paths.root / "core" / "brain" / "fusionBrain.js").resolve()
-        healthcheck_path = (self.paths.root / "js-runner" / "runtimeHealthcheck.js").resolve()
-        dist_query_engine_path = (self.paths.root / "dist" / "QueryEngine.js").resolve()
-        build_query_engine_path = (self.paths.root / "build" / "QueryEngine.js").resolve()
-        ts_candidates = [
-            (self.paths.root / "src" / "QueryEngine.ts").resolve(),
-            (self.paths.root / "runtime" / "node" / "QueryEngine.ts").resolve(),
-        ]
-        command, runtime_selection = self.js_runtime_adapter.build_command(script_path=runner_path, payload=payload)
-        env = self._build_node_subprocess_env()
-        node_bin = self._resolve_node_bin()
-        node_resolved = shutil.which(node_bin) if node_bin and not os.path.isabs(node_bin) else node_bin
-        missing_paths = []
-        if not runner_path.exists():
-            missing_paths.append(str(runner_path))
-        if not adapter_path.exists():
-            missing_paths.append(str(adapter_path))
-        if not fusion_brain_path.exists():
-            missing_paths.append(str(fusion_brain_path))
+        ctx = resolve_node_command_context(
+            self.paths,
+            self.js_runtime_adapter,
+            payload,
+            session_byok_active=self._session_byok_active,
+            session_provider_preference=self._session_provider_preference,
+            session_provider_env_overlay=self._session_provider_env_overlay,
+            pending_policy_hint_json=self._pending_policy_hint_json,
+        )
+        self._pending_policy_hint_json = None
+        return ctx
 
-        return {
-            "node_bin": node_bin,
-            "node_resolved": node_resolved,
-            "js_runtime": runtime_selection.as_dict(),
-            "cwd": str(cwd_path),
-            "cwd_exists": cwd_path.exists(),
-            "runner_path": str(runner_path),
-            "runner_exists": runner_path.exists(),
-            "adapter_path": str(adapter_path),
-            "adapter_exists": adapter_path.exists(),
-            "esm_adapter_path": str(esm_adapter_path),
-            "esm_adapter_exists": esm_adapter_path.exists(),
-            "fusion_brain_path": str(fusion_brain_path),
-            "fusion_brain_exists": fusion_brain_path.exists(),
-            "healthcheck_path": str(healthcheck_path),
-            "healthcheck_exists": healthcheck_path.exists(),
-            "dist_query_engine_path": str(dist_query_engine_path),
-            "dist_query_engine_exists": dist_query_engine_path.exists(),
-            "build_query_engine_path": str(build_query_engine_path),
-            "build_query_engine_exists": build_query_engine_path.exists(),
-            "typescript_candidate_paths": [str(candidate) for candidate in ts_candidates],
-            "typescript_candidates_exist": [str(candidate) for candidate in ts_candidates if candidate.exists()],
-            "command": command,
-            "command_preview": [command[0], command[1], f"<payload:{len(payload)} chars>"],
-            "typescript_direct_execution_detected": str(runner_path).endswith(".ts"),
-            "compiled_runner_artifact_exists": any(
-                path_exists
-                for path_exists in (
-                    adapter_path.exists(),
-                    esm_adapter_path.exists(),
-                    dist_query_engine_path.exists(),
-                    build_query_engine_path.exists(),
-                )
-            ),
-            "missing_paths": missing_paths,
-            "env_preview": {
-                "BASE_DIR": env.get("BASE_DIR", ""),
-                "NODE_RUNNER_BASE_DIR": env.get("NODE_RUNNER_BASE_DIR", ""),
-                "NODE_BIN": env.get("NODE_BIN", ""),
-                "OMINI_JS_RUNTIME": env.get("OMINI_JS_RUNTIME", ""),
-                "OMINI_JS_RUNTIME_BIN": env.get("OMINI_JS_RUNTIME_BIN", ""),
-                "PYTHON_BIN": env.get("PYTHON_BIN", ""),
-                "PATH_HEAD": env.get("PATH", "")[:400],
-            },
-            "subprocess_env": env,
-        }
 
-    @staticmethod
-    def _truncate_text(value: str, limit: int = 1200) -> str:
-        normalized = value.strip()
-        if len(normalized) <= limit:
-            return normalized
-        return normalized[:limit]
-
-    def _classify_node_subprocess_failure(
-        self,
-        *,
-        diagnostics: dict[str, Any],
-        returncode: int | None = None,
-        stdout: str = "",
-        stderr: str = "",
-        exception: Exception | None = None,
-        timed_out: bool = False,
-    ) -> tuple[str, dict[str, Any]]:
-        details = {
-            "runner_path": diagnostics["runner_path"],
-            "adapter_path": diagnostics["adapter_path"],
-            "fusion_brain_path": diagnostics["fusion_brain_path"],
-            "cwd": diagnostics["cwd"],
-            "command_preview": diagnostics["command_preview"],
-            "node_bin": diagnostics["node_bin"],
-            "node_resolved": diagnostics["node_resolved"],
-            "returncode": returncode,
-            "stdout": self._truncate_text(stdout),
-            "stderr": self._truncate_text(stderr),
-            "timed_out": timed_out,
-            "exception": repr(exception) if exception else "",
-            "typescript_direct_execution_detected": diagnostics["typescript_direct_execution_detected"],
-            "typescript_candidates_exist": diagnostics["typescript_candidates_exist"],
-            "compiled_runner_artifact_exists": diagnostics["compiled_runner_artifact_exists"],
-            "missing_paths": diagnostics["missing_paths"],
-            "env_preview": diagnostics["env_preview"],
-        }
-        combined = f"{stdout}\n{stderr}".lower()
-
-        if not diagnostics["node_resolved"]:
-            return "node_not_found", details
-        if not diagnostics["runner_exists"]:
-            return "runner_not_found", details
-        if not diagnostics["cwd_exists"]:
-            return "cwd_not_found", details
-        if diagnostics["missing_paths"]:
-            return "module_resolution_error", details
-        if timed_out:
-            return "timeout", details
-        if exception is not None:
-            return "subprocess_exception", details
-        if not stdout.strip() and not stderr.strip() and returncode == 0:
-            return "empty_stdout", details
-        if "err_module_not_found" in combined or "cannot find module" in combined or "module not found" in combined:
-            return "module_resolution_error", details
-        if "unknown file extension \".ts\"" in combined or "cannot use import statement outside a module" in combined:
-            details["typescript_direct_execution_detected"] = True
-            return "module_resolution_error", details
-        if returncode not in (None, 0):
-            return "node_subprocess_failed", details
-        return "invalid_json", details
 
     @staticmethod
     def _runtime_max_parallel_reads() -> int:
-        return max(1, int(os.getenv("OMINI_MAX_PARALLEL_READ_STEPS", "2") or "2"))
+        return load_config().max_parallel_read_steps
 
     @staticmethod
     def _runtime_stale_checkpoint_minutes() -> int:
-        return max(1, int(os.getenv("OMINI_STALE_CHECKPOINT_MINUTES", "120") or "120"))
+        return load_config().stale_checkpoint_minutes
 
     @staticmethod
     def _runtime_critic_enabled() -> bool:
-        return str(os.getenv("OMINI_ENABLE_CRITIC", "true")).strip().lower() != "false"
+        return load_config().enable_critic
 
     @staticmethod
     def _runtime_correction_depth() -> int:
-        return max(1, int(os.getenv("OMINI_MAX_CORRECTION_DEPTH", "1") or "1"))
+        return load_config().max_correction_depth
 
     @staticmethod
     def _plan_signature(actions: list[dict[str, Any]], plan_graph: dict[str, Any] | None = None) -> str:
@@ -2454,7 +2322,7 @@ class BrainOrchestrator:
 
         diagnostics = self._resolve_node_command_context(payload="")
         if not diagnostics["node_resolved"] or not diagnostics["runner_exists"] or not diagnostics["cwd_exists"]:
-            classified_reason, details = self._classify_node_subprocess_failure(
+            classified_reason, details = classify_node_subprocess_failure(
                 diagnostics=diagnostics,
             )
             self.last_runtime_mode = "fallback"
@@ -2518,7 +2386,7 @@ class BrainOrchestrator:
         )
 
         if diagnostics["missing_paths"]:
-            classified_reason, details = self._classify_node_subprocess_failure(
+            classified_reason, details = classify_node_subprocess_failure(
                 diagnostics=diagnostics,
             )
             self.last_runtime_mode = "fallback"
