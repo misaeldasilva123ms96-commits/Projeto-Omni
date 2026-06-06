@@ -52,6 +52,9 @@ from brain.runtime.serializers import (
     history_limit_for_budget,
     policy_result_to_dict,
     retrieval_plan_to_dict,
+    slice_history_for_budget,
+    summarize_decision_entries,
+    summarize_evidence_entries,
     summary_limit_for_budget,
 )
 from brain.runtime.node_runner import (
@@ -1093,7 +1096,7 @@ class BrainOrchestrator:
             strategy_state,
         )
         predicted_intent = str(reasoning_handoff.get("intent", "")).strip() or self._predict_intent(runtime_message)
-        budgeted_history = self._slice_history_for_budget(
+        budgeted_history = slice_history_for_budget(
             memory_store.get("history", []),
             context_budget.budget_level,
         )
@@ -1610,35 +1613,6 @@ class BrainOrchestrator:
         }.get(task_type, "read")
 
     @staticmethod
-    def _slice_history_for_budget(history: object, budget_level: str) -> list[dict[str, Any]]:
-        if not isinstance(history, list):
-            return []
-        limit = history_limit_for_budget(budget_level)
-        return [item for item in history[-limit:] if isinstance(item, dict)]
-
-    @staticmethod
-    def _summarize_decision_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "count": len(entries),
-            "recent": [
-                {
-                    "decision_type": item.get("decision_type"),
-                    "task_type": item.get("task_type"),
-                    "reason_code": item.get("reason_code"),
-                    "reason": item.get("reason"),
-                }
-                for item in entries[:3]
-            ],
-        }
-
-    @staticmethod
-    def _summarize_evidence_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
-        latest = entries[0] if entries else {}
-        return {
-            "count": len(entries),
-            "latest": latest.get("evidence", {}) if isinstance(latest, dict) else {},
-        }
-
     def _build_context_budget(
         self,
         *,
@@ -1686,7 +1660,7 @@ class BrainOrchestrator:
                     limit=limit,
                 )
                 context[memory_type] = (
-                    self._summarize_decision_entries(decisions)
+                    summarize_decision_entries(decisions)
                     if memory_type in retrieval_plan.summarized_memory_types
                     else decisions
                 )
@@ -1697,7 +1671,7 @@ class BrainOrchestrator:
                     limit=limit,
                 )
                 context[memory_type] = (
-                    self._summarize_evidence_entries(evidence_entries)
+                    summarize_evidence_entries(evidence_entries)
                     if memory_type in retrieval_plan.summarized_memory_types
                     else evidence_entries
                 )

@@ -46,5 +46,35 @@ def history_limit_for_budget(budget_level: str) -> int:
     return {"low": 2, "medium": 4, "high": 6}.get(budget_level, 4)
 
 
+def slice_history_for_budget(history: object, budget_level: str) -> list[dict[str, Any]]:
+    if not isinstance(history, list):
+        return []
+    limit = history_limit_for_budget(budget_level)
+    return [item for item in history[-limit:] if isinstance(item, dict)]
+
+
+def summarize_decision_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "count": len(entries),
+        "recent": [
+            {
+                "decision_type": item.get("decision_type"),
+                "task_type": item.get("task_type"),
+                "reason_code": item.get("reason_code"),
+                "reason": item.get("reason"),
+            }
+            for item in entries[:3]
+        ],
+    }
+
+
+def summarize_evidence_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    latest = entries[0] if entries else {}
+    return {
+        "count": len(entries),
+        "latest": latest.get("evidence", {}) if isinstance(latest, dict) else {},
+    }
+
+
 def summary_limit_for_budget(budget_level: str) -> int:
     return {"low": 600, "medium": 1200, "high": 1800}.get(budget_level, 1200)
