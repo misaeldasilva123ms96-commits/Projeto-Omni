@@ -59,6 +59,10 @@ from brain.runtime.node_runner import (
     classify_node_subprocess_failure,
     resolve_node_bin,
     resolve_node_command_context,
+    runner_smoke_cwd_label,
+    runner_smoke_failure_class,
+    runner_smoke_scrub_provider_env,
+    runner_smoke_summary,
     truncate_text,
 )
 from brain.memory.working_memory import WorkingMemoryStore
@@ -2348,64 +2352,6 @@ class BrainOrchestrator:
 
         return self._synthesize_runtime_response(step_results, semantic["response_text"])
 
-    @staticmethod
-    def _runner_smoke_cwd_label(cwd: str) -> str:
-        try:
-            name = Path(cwd).name.strip().lower()
-        except Exception:
-            return "unknown"
-        if name == "app":
-            return "app"
-        if name in {"project", "repo"}:
-            return "repo"
-        return "unknown"
-
-    @staticmethod
-    def _runner_smoke_scrub_provider_env(env: dict[str, str]) -> dict[str, str]:
-        scrubbed = dict(env)
-        for key in (
-            "GROQ_API_KEY",
-            "OPENROUTER_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GEMINI_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "OLLAMA_API_KEY",
-            "LMSTUDIO_API_KEY",
-            "OLLAMA_URL",
-            "LMSTUDIO_URL",
-            "OMNI_BYOK_SESSION_MODE",
-            "OMNI_BYOK_PROVIDER",
-            "OMNI_BYOK_FAIL_CLOSED",
-            "OMNI_POLICY_HINT_JSON",
-        ):
-            scrubbed.pop(key, None)
-        return scrubbed
-
-    @staticmethod
-    def _runner_smoke_failure_class(transport: dict[str, Any], parsed: Any) -> str | None:
-        reason = str(transport.get("reason_code", "") or "").strip()
-        if reason and reason != "success":
-            return reason
-        if isinstance(parsed, dict):
-            error = parsed.get("error")
-            if isinstance(error, dict):
-                failure_class = str(error.get("failure_class", "") or "").strip()
-                if failure_class:
-                    return failure_class
-            response = str(parsed.get("response", "") or "")
-            if response.startswith("[degraded:node_runner]"):
-                return "node_runner_degraded"
-        return None
-
-    @staticmethod
-    def _runner_smoke_summary(status: str, failure_class: str | None) -> str | None:
-        if status == "ok":
-            return "runner_smoke_ok"
-        if failure_class:
-            return f"runner_smoke_{failure_class}"
-        return "runner_smoke_failed"
-
     def build_runner_smoke_diagnostic(self, *, timeout_seconds: int = 6) -> dict[str, Any]:
         payload = json.dumps(
             {
@@ -2419,7 +2365,7 @@ class BrainOrchestrator:
             ensure_ascii=False,
         )
         diagnostics = self._resolve_node_command_context(payload=payload)
-        diagnostics["subprocess_env"] = self._runner_smoke_scrub_provider_env(
+        diagnostics["subprocess_env"] = runner_smoke_scrub_provider_env(
             diagnostics.get("subprocess_env", {})
         )
         transport = run_node_subprocess(
@@ -2430,7 +2376,7 @@ class BrainOrchestrator:
         parsed = transport.get("parsed") if isinstance(transport, dict) else None
         response_text = str(parsed.get("response", "") or "") if isinstance(parsed, dict) else ""
         result_degraded = response_text.startswith("[degraded:node_runner]")
-        failure_class = self._runner_smoke_failure_class(transport, parsed)
+        failure_class = runner_smoke_failure_class(transport, parsed)
         status = "ok" if transport.get("ok") and isinstance(parsed, dict) and not result_degraded else "degraded"
         if not transport.get("ok"):
             status = "error"
@@ -2442,7 +2388,7 @@ class BrainOrchestrator:
         return {
             "status": status,
             "selected_runtime": selected_runtime,
-            "cwd_label": self._runner_smoke_cwd_label(str(diagnostics.get("cwd", "") or "")),
+            "cwd_label": runner_smoke_cwd_label(str(diagnostics.get("cwd", "") or "")),
             "runner_exists": bool(diagnostics.get("runner_exists", False)),
             "adapter_exists": bool(diagnostics.get("adapter_exists", False)),
             "fusion_brain_exists": bool(diagnostics.get("fusion_brain_exists", False)),
@@ -2451,7 +2397,7 @@ class BrainOrchestrator:
             "stdout_json_valid": bool(transport.get("ok") and isinstance(parsed, dict)),
             "result_degraded": bool(result_degraded),
             "public_failure_class": failure_class,
-            "public_summary": self._runner_smoke_summary(status, failure_class),
+            "public_summary": runner_smoke_summary(status, failure_class),
         }
 
     def _record_runtime_mode_event(

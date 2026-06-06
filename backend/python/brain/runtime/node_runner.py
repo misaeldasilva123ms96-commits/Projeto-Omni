@@ -137,6 +137,64 @@ def resolve_node_command_context(
     }
 
 
+def runner_smoke_cwd_label(cwd: str) -> str:
+    try:
+        name = Path(cwd).name.strip().lower()
+    except Exception:
+        return "unknown"
+    if name == "app":
+        return "app"
+    if name in {"project", "repo"}:
+        return "repo"
+    return "unknown"
+
+
+def runner_smoke_scrub_provider_env(env: dict[str, str]) -> dict[str, str]:
+    scrubbed = dict(env)
+    for key in (
+        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OLLAMA_API_KEY",
+        "LMSTUDIO_API_KEY",
+        "OLLAMA_URL",
+        "LMSTUDIO_URL",
+        "OMNI_BYOK_SESSION_MODE",
+        "OMNI_BYOK_PROVIDER",
+        "OMNI_BYOK_FAIL_CLOSED",
+        "OMNI_POLICY_HINT_JSON",
+    ):
+        scrubbed.pop(key, None)
+    return scrubbed
+
+
+def runner_smoke_failure_class(transport: dict[str, Any], parsed: Any) -> str | None:
+    reason = str(transport.get("reason_code", "") or "").strip()
+    if reason and reason != "success":
+        return reason
+    if isinstance(parsed, dict):
+        error = parsed.get("error")
+        if isinstance(error, dict):
+            failure_class = str(error.get("failure_class", "") or "").strip()
+            if failure_class:
+                return failure_class
+        response = str(parsed.get("response", "") or "")
+        if response.startswith("[degraded:node_runner]"):
+            return "node_runner_degraded"
+    return None
+
+
+def runner_smoke_summary(status: str, failure_class: str | None) -> str | None:
+    if status == "ok":
+        return "runner_smoke_ok"
+    if failure_class:
+        return f"runner_smoke_{failure_class}"
+    return "runner_smoke_failed"
+
+
 def truncate_text(value: str, limit: int = 1200) -> str:
     normalized = value.strip()
     if len(normalized) <= limit:
