@@ -254,3 +254,36 @@ def classify_node_subprocess_failure(
     if returncode not in (None, 0):
         return "node_subprocess_failed", details
     return "invalid_json", details
+
+
+def compact_history_for_node(history: object, limit: int = 6) -> list[dict[str, Any]]:
+    if not isinstance(history, list):
+        return []
+    compacted: list[dict[str, Any]] = []
+    for item in history[-limit:]:
+        if not isinstance(item, dict):
+            continue
+        compacted.append(
+            {
+                "role": str(item.get("role", "")),
+                "content": str(item.get("content", ""))[:600],
+            }
+        )
+    return compacted
+
+
+def compact_session_payload_for_node(
+    session_payload: dict[str, Any],
+    *,
+    history_limit: int = 4,
+    summary_limit: int = 1200,
+) -> dict[str, Any]:
+    compact = dict(session_payload)
+    compact["history"] = compact_history_for_node(compact.get("history", []), limit=history_limit)
+    if isinstance(compact.get("summary"), str):
+        compact["summary"] = compact["summary"][:summary_limit]
+    if isinstance(compact.get("agent_registry"), list):
+        compact["agent_registry"] = compact["agent_registry"][:8]
+    if isinstance(compact.get("agent_trace"), list):
+        compact["agent_trace"] = compact["agent_trace"][-8:]
+    return compact

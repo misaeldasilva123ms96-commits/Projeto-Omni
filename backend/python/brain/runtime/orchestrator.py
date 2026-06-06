@@ -60,6 +60,8 @@ from brain.runtime.serializers import (
 from brain.runtime.node_runner import (
     build_node_subprocess_env,
     classify_node_subprocess_failure,
+    compact_history_for_node,
+    compact_session_payload_for_node,
     resolve_node_bin,
     resolve_node_command_context,
     runner_smoke_cwd_label,
@@ -1920,38 +1922,6 @@ class BrainOrchestrator:
         return combined
 
     @staticmethod
-    def _compact_history_for_node(history: object, limit: int = 6) -> list[dict[str, Any]]:
-        if not isinstance(history, list):
-            return []
-        compacted: list[dict[str, Any]] = []
-        for item in history[-limit:]:
-            if not isinstance(item, dict):
-                continue
-            compacted.append(
-                {
-                    "role": str(item.get("role", "")),
-                    "content": str(item.get("content", ""))[:600],
-                }
-            )
-        return compacted
-
-    def _compact_session_payload_for_node(
-        self,
-        session_payload: dict[str, Any],
-        *,
-        history_limit: int = 4,
-        summary_limit: int = 1200,
-    ) -> dict[str, Any]:
-        compact = dict(session_payload)
-        compact["history"] = self._compact_history_for_node(compact.get("history", []), limit=history_limit)
-        if isinstance(compact.get("summary"), str):
-            compact["summary"] = compact["summary"][:summary_limit]
-        if isinstance(compact.get("agent_registry"), list):
-            compact["agent_registry"] = compact["agent_registry"][:8]
-        if isinstance(compact.get("agent_trace"), list):
-            compact["agent_trace"] = compact["agent_trace"][-8:]
-        return compact
-
     def _evaluate_control_layer(
         self,
         *,
@@ -2155,11 +2125,11 @@ class BrainOrchestrator:
             session_payload.update(extra_session)
         context_budget = extra_session.get("context_budget", {}) if isinstance(extra_session, dict) else {}
         budget_level = str(context_budget.get("budget_level", "medium"))
-        compact_history = self._compact_history_for_node(
+        compact_history = compact_history_for_node(
             memory_store.get("history", []),
             limit=history_limit_for_budget(budget_level),
         )
-        compact_session_payload = self._compact_session_payload_for_node(
+        compact_session_payload = compact_session_payload_for_node(
             session_payload,
             history_limit=history_limit_for_budget(budget_level),
             summary_limit=summary_limit_for_budget(budget_level),
