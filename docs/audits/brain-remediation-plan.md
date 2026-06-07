@@ -2,7 +2,8 @@
 
 Date: 2026-04-22
 Phase: G — Surgical Remediation Plan
-Status: planning only; no code changes applied
+Status: Blocks 1-2 implemented; Block 3 in progress
+Last update: 2026-06-06 — Blocks 1-2 applied: lane classification consolidated, last_runtime_reason lane-specific, integration test added, compatibility_execution_active exposed in runtime_truth
 
 ## Executive summary
 

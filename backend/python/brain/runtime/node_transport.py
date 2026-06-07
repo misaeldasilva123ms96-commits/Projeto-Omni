@@ -2,7 +2,20 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass
+class NodeTransportResult:
+    ok: bool
+    stage: str
+    reason_code: str
+    details: dict[str, Any]
+    stdout: str
+    stderr: str
+    returncode: int | None
+    parsed: dict[str, Any] | None
 
 NODE_BRIDGE_EMPTY_STDOUT = "NODE_BRIDGE_EMPTY_STDOUT"
 NODE_BRIDGE_INVALID_JSON = "NODE_BRIDGE_INVALID_JSON"
@@ -184,3 +197,29 @@ def run_node_subprocess(
         "returncode": completed.returncode,
         "parsed": parsed,
     }
+
+
+def call_node_with_preflight(
+    *,
+    diagnostics: dict[str, Any],
+    payload: str,
+    timeout_seconds: int,
+) -> NodeTransportResult:
+    if not diagnostics.get("node_resolved") or not diagnostics.get("runner_exists") or not diagnostics.get("cwd_exists"):
+        reason_code, details = classify_node_subprocess_failure(diagnostics=diagnostics)
+        return NodeTransportResult(
+            ok=False, stage="preflight", reason_code=reason_code, details=details,
+            stdout="", stderr="", returncode=None, parsed=None,
+        )
+    if diagnostics.get("missing_paths"):
+        reason_code, details = classify_node_subprocess_failure(diagnostics=diagnostics)
+        return NodeTransportResult(
+            ok=False, stage="preflight", reason_code=reason_code, details=details,
+            stdout="", stderr="", returncode=None, parsed=None,
+        )
+    raw = run_node_subprocess(diagnostics=diagnostics, payload=payload, timeout_seconds=timeout_seconds)
+    return NodeTransportResult(
+        ok=raw["ok"], stage=raw["stage"], reason_code=raw["reason_code"],
+        details=raw["details"], stdout=raw["stdout"], stderr=raw["stderr"],
+        returncode=raw["returncode"], parsed=raw["parsed"],
+    )

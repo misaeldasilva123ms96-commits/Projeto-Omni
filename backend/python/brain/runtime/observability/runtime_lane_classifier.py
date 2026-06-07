@@ -231,10 +231,15 @@ def interpret_node_payload(
                 or "bridge" in hint_lane
                 else LANE_LOCAL_DIRECT_RESPONSE
             )
+            lane_reason_code = {
+                LANE_MATCHER_SHORTCUT: "matcher_shortcut",
+                LANE_BRIDGE_EXECUTION_REQUEST: "bridge_direct_response",
+                LANE_LOCAL_DIRECT_RESPONSE: "local_direct_response",
+            }.get(semantic_lane, "direct_node_response")
             return {
                 "fallback": False,
                 "response_text": normalized,
-                "reason_code": "direct_node_response",
+                "reason_code": lane_reason_code,
                 "semantic_lane": semantic_lane,
                 "node_cognitive_hint": node_cognitive_hint,
                 "node_result_envelope": node_result_envelope,
@@ -242,7 +247,7 @@ def interpret_node_payload(
                 "node_outcome": normalize_node_outcome(
                     transport_status=TRANSPORT_SUCCESS,
                     semantic_lane=semantic_lane,
-                    reason_code="direct_node_response",
+                    reason_code=lane_reason_code,
                     node_cognitive_hint=node_cognitive_hint,
                     node_result_envelope=node_result_envelope,
                     response_text=normalized,

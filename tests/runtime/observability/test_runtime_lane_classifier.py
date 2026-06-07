@@ -157,7 +157,7 @@ def test_interpret_node_payload_derives_matcher_from_metadata_provenance() -> No
     assert row["fallback"] is False
     assert row["semantic_lane"] == LANE_MATCHER_SHORTCUT
     assert row["node_cognitive_hint"] == {"lane": "matcher_shortcut"}
-    assert row["reason_code"] == "direct_node_response"
+    assert row["reason_code"] == "matcher_shortcut"
     assert row["node_outcome"]["provider_actual"] == ""
 
 
@@ -185,7 +185,7 @@ def test_interpret_node_payload_bridge_from_hint_without_execution_request() -> 
     )
     assert row["fallback"] is False
     assert row["semantic_lane"] == LANE_BRIDGE_EXECUTION_REQUEST
-    assert row["reason_code"] == "direct_node_response"
+    assert row["reason_code"] == "bridge_direct_response"
 
 
 def test_interpret_node_payload_action_execution() -> None:
