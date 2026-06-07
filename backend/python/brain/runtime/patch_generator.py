@@ -39,11 +39,11 @@ def apply_patch(*, workspace_root: Path, patch: dict[str, Any]) -> dict[str, Any
     current_content = target.read_text(encoding="utf-8") if target.exists() else ""
     current_hash = hashlib.sha256(current_content.encode("utf-8")).hexdigest()
     if current_hash != patch.get("original_content_hash"):
-      return {
-          "ok": False,
-          "error": "content_hash_mismatch",
-          "file_path": file_path,
-      }
+        return {
+            "ok": False,
+            "error": "content_hash_mismatch",
+            "file_path": file_path,
+        }
     target.write_text(str(patch.get("new_content", "")), encoding="utf-8")
     _refresh_python_artifacts(target)
     return {

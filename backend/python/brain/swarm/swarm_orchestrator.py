@@ -56,7 +56,7 @@ class SwarmOrchestrator:
             "history": history,
             "summary": summary,
             "capabilities": capabilities,
-                "agent_registry": self._describe_agents(),
+            "agent_registry": self._describe_agents(),
         }
 
         trace: list[dict[str, Any]] = []

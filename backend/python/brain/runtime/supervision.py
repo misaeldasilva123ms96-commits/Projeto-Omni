@@ -26,17 +26,17 @@ class CognitiveSupervisor:
         negotiation_turns = len(negotiation_summary.get("turns", [])) if isinstance(negotiation_summary, dict) and isinstance(negotiation_summary.get("turns"), list) else 0
 
         if node_count > self.max_nodes:
-          alerts.append({"kind": "tree_limit", "message": "Execution tree exceeded supervision node limit."})
-          stop = True
+            alerts.append({"kind": "tree_limit", "message": "Execution tree exceeded supervision node limit."})
+            stop = True
         if branch_count > self.max_branches:
-          alerts.append({"kind": "branch_limit", "message": "Branch count exceeded supervision limit."})
-          stop = True
+            alerts.append({"kind": "branch_limit", "message": "Branch count exceeded supervision limit."})
+            stop = True
         if negotiation_turns > self.max_negotiation_turns:
-          alerts.append({"kind": "negotiation_limit", "message": "Negotiation depth exceeded supervision limit."})
-          stop = True
+            alerts.append({"kind": "negotiation_limit", "message": "Negotiation depth exceeded supervision limit."})
+            stop = True
         if executed_steps > max_steps:
-          alerts.append({"kind": "step_limit", "message": "Execution exceeded configured step limit."})
-          stop = True
+            alerts.append({"kind": "step_limit", "message": "Execution exceeded configured step limit."})
+            stop = True
 
         return {
             "invoked": True,
