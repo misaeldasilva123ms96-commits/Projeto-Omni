@@ -68,15 +68,19 @@ def _compiled_bridge_path(project_root: Path) -> Path:
     system_name = platform.system().lower()
     if os.name == "nt":
         candidates = [
+            project_root / "backend" / "rust" / "target" / "release" / "executor_bridge.exe",
+            project_root / "backend" / "rust" / "target" / "x86_64-pc-windows-gnullvm" / "release" / "executor_bridge.exe",
             project_root / "backend" / "rust" / "target" / "x86_64-pc-windows-gnullvm" / "debug" / "executor_bridge.exe",
             project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge.exe",
         ]
     elif system_name == "linux":
         candidates = [
+            project_root / "backend" / "rust" / "target" / "release" / "executor_bridge",
             project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge",
         ]
     else:
         candidates = [
+            project_root / "backend" / "rust" / "target" / "release" / "executor_bridge",
             project_root / "backend" / "rust" / "target" / "debug" / "executor_bridge",
         ]
     for candidate in candidates:

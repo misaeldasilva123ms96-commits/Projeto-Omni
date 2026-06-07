@@ -38,6 +38,8 @@ class MilestoneTracker:
     def get_current_milestones_from_strategy(
         self, strategy_state: dict[str, Any]
     ) -> list[dict[str, Any]]:
+        if not isinstance(strategy_state, dict):
+            return []
         milestones = strategy_state.get("milestones", [])
         if isinstance(milestones, list):
             return [m for m in milestones if isinstance(m, dict)]
