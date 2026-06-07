@@ -383,6 +383,7 @@ def build_public_runner_smoke_payload() -> dict[str, Any]:
     project_root = python_root.parents[1]
     os.environ.setdefault("PYTHON_BASE_DIR", str(python_root))
     os.environ.setdefault("BASE_DIR", str(project_root))
+    _load_project_dotenv(project_root)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
     return orchestrator.build_runner_smoke_diagnostic()
 
