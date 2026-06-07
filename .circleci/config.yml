@@ -63,6 +63,7 @@ commands:
       - python/install-packages:
           cache-version: v1-python
           pkg-manager: pip
+          pip-dependency-file: backend/python/requirements.txt
 
   setup-rust:
     steps:
