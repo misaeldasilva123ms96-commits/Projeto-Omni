@@ -366,6 +366,139 @@ def test_decision_reasoning_signals_are_exposed() -> None:
     assert row["signals"]["decision_suggested_tools"] == ["read_file"]
 
 
+def test_all_six_lanes_are_preserved_through_inspection_pipeline() -> None:
+    scenarios = [
+        {
+            "label": "matcher_shortcut",
+            "override": dict(
+                response="ola",
+                last_runtime_reason="matcher_shortcut",
+                node_outcome={
+                    "semantic_lane": LANE_MATCHER_SHORTCUT,
+                    "transport_status": TRANSPORT_SUCCESS,
+                    "reason_code": "matcher_shortcut",
+                    "node_hint_lane": "matcher_shortcut",
+                },
+                node_cognitive_hint={"lane": "matcher_shortcut"},
+            ),
+            "expect_runtime_mode": RUNTIME_MODE_MATCHER,
+            "expect_semantic_lane": LANE_MATCHER_SHORTCUT,
+            "expect_coarse": RUNTIME_MODE_MATCHER,
+            "expect_source": "Matcher",
+        },
+        {
+            "label": "local_direct_response",
+            "override": dict(
+                response="Seu nome é Misael.",
+                last_runtime_reason="local_direct_response",
+                node_outcome={
+                    "semantic_lane": LANE_LOCAL_DIRECT_RESPONSE,
+                    "transport_status": TRANSPORT_SUCCESS,
+                    "reason_code": "local_direct_response",
+                    "node_hint_lane": "no_tool_local",
+                },
+                lora_payload={
+                    "strategy_dispatch_applied": True,
+                    "executor_used": "direct_response_executor",
+                    "execution_trace_summary": "Direct response executor used the compatibility runtime path.",
+                },
+            ),
+            "expect_runtime_mode": RUNTIME_MODE_LOCAL_DIRECT,
+            "expect_semantic_lane": LANE_LOCAL_DIRECT_RESPONSE,
+            "expect_coarse": RUNTIME_MODE_LOCAL_DIRECT,
+            "expect_source": "Node",
+        },
+        {
+            "label": "bridge_execution_request",
+            "override": dict(
+                response="[execução_python_requerida] plano pronto",
+                last_runtime_reason="node_response_without_actions",
+                node_outcome={
+                    "semantic_lane": LANE_BRIDGE_EXECUTION_REQUEST,
+                    "transport_status": TRANSPORT_SUCCESS,
+                    "reason_code": "node_response_without_actions",
+                    "node_hint_lane": "node_execution_graph",
+                    "has_execution_request": True,
+                    "has_actions": False,
+                },
+            ),
+            "expect_runtime_mode": RUNTIME_MODE_PARTIAL,
+            "expect_semantic_lane": LANE_BRIDGE_EXECUTION_REQUEST,
+            "expect_coarse": RUNTIME_MODE_PARTIAL,
+            "expect_source": "Node",
+        },
+        {
+            "label": "true_action_execution",
+            "override": dict(
+                response="ok",
+                last_runtime_reason="node_execution_request",
+                node_outcome={
+                    "semantic_lane": LANE_TRUE_ACTION_EXECUTION,
+                    "transport_status": TRANSPORT_SUCCESS,
+                    "reason_code": "node_execution_request",
+                    "has_execution_request": True,
+                    "has_actions": True,
+                },
+                lora_payload={
+                    "strategy_dispatch_applied": True,
+                    "executor_used": "tool_assisted_executor",
+                    "true_action_execution_active": True,
+                    "trace": {"execution_runtime_lane": LANE_TRUE_ACTION_EXECUTION},
+                },
+            ),
+            "expect_runtime_mode": RUNTIME_MODE_FULL,
+            "expect_semantic_lane": LANE_TRUE_ACTION_EXECUTION,
+            "expect_coarse": RUNTIME_MODE_NODE_OK,
+            "expect_source": "Node",
+        },
+        {
+            "label": "compatibility_execution",
+            "override": dict(
+                response="resposta via compat",
+                last_runtime_reason="direct_python_response",
+                node_outcome=None,
+                lora_payload={
+                    "strategy_dispatch_applied": True,
+                    "executor_used": "compatibility_path",
+                    "compatibility_execution_active": True,
+                    "execution_trace_summary": "Compatibility execution path was used.",
+                },
+            ),
+            "expect_runtime_mode": RUNTIME_MODE_COMPAT,
+            "expect_semantic_lane": LANE_COMPATIBILITY_EXECUTION,
+            "expect_coarse": RUNTIME_MODE_COMPAT,
+            "expect_source": "Node",
+        },
+        {
+            "label": "safe_degraded_fallback",
+            "override": dict(
+                response="SAFE",
+                last_runtime_mode="fallback",
+                last_runtime_reason="configured_fallback_mode",
+                node_outcome=None,
+            ),
+            "expect_runtime_mode": RUNTIME_MODE_SAFE_FB,
+            "expect_semantic_lane": LANE_SAFE_DEGRADED_FALLBACK,
+            "expect_coarse": RUNTIME_MODE_SAFE_FB,
+            "expect_source": "Fallback",
+        },
+    ]
+    for s in scenarios:
+        row = build_cognitive_runtime_inspection(**_base_kwargs(**s["override"]))
+        assert row["runtime_mode"] == s["expect_runtime_mode"], (
+            f"[{s['label']}] runtime_mode expected {s['expect_runtime_mode']}, got {row['runtime_mode']}"
+        )
+        assert row["signals"]["semantic_runtime_lane"] == s["expect_semantic_lane"], (
+            f"[{s['label']}] semantic_lane expected {s['expect_semantic_lane']}, got {row['signals']['semantic_runtime_lane']}"
+        )
+        assert row["signals"]["coarse_runtime_mode"] == s["expect_coarse"], (
+            f"[{s['label']}] coarse_runtime_mode expected {s['expect_coarse']}, got {row['signals']['coarse_runtime_mode']}"
+        )
+        assert row["source_of_truth"] == s["expect_source"], (
+            f"[{s['label']}] source_of_truth expected {s['expect_source']}, got {row['source_of_truth']}"
+        )
+
+
 def test_learning_debug_signals_are_exposed() -> None:
     row = build_cognitive_runtime_inspection(
         **_base_kwargs(

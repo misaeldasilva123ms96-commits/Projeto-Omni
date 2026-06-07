@@ -707,6 +707,8 @@ def build_cognitive_runtime_inspection(
         "retryable": bool(truth_public_error.get("retryable", False)),
         "internal_error_redacted": bool(truth_public_error.get("internal_error_redacted", True)),
         "public_summary": _truth_public_summary(truth_runtime_mode),
+        "compatibility_execution_active": bool(compatibility_execution_active),
+        "execution_runtime_lane": execution_runtime_lane or "",
     }
 
     provider_backed_compatibility = bool(

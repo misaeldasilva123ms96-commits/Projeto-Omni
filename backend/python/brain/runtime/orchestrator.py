@@ -144,7 +144,7 @@ from brain.runtime.telemetry.supabase_tool_events import (
     error_code_from_tool_result,
     record_runtime_tool_event,
 )
-from brain.runtime.node_transport import run_node_subprocess
+from brain.runtime.node_transport import call_node_with_preflight, run_node_subprocess
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.runtime.observability.runtime_lane_classifier import (
     LANE_BRIDGE_EXECUTION_REQUEST,
@@ -589,14 +589,14 @@ class BrainOrchestrator:
             return self.session_manager.build_byok_error_response()
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
-        session_id = session_id()
+        sid = session_id()
 
         memory_store = load_memory_store(
             self.paths.memory_json,
             history_limit=history_limit,
         )
         transcript_history = self.transcript_store.load_recent_history(
-            session_id,
+            sid,
             limit=history_limit,
         )
         memory_store["history"] = self._merge_recent_history(
@@ -629,7 +629,7 @@ class BrainOrchestrator:
 
         if self.last_runtime_mode == "mock":
             self._record_runtime_mode_event(
-                session_id=session_id,
+                session_id=sid,
                 mode="mock",
                 reason_code="mock_mode_configured",
                 details={"message_preview": message[:120]},
@@ -662,7 +662,7 @@ class BrainOrchestrator:
         try:
             reasoning_oil_request = normalize_input_to_oil_request(
                 message,
-                session_id=session_id,
+                session_id=sid,
                 run_id="",
                 metadata={
                     "source_component": "runtime.orchestrator",
@@ -670,7 +670,7 @@ class BrainOrchestrator:
                 },
             )
             memory_context = self.unified_memory.build_reasoning_context(
-                session_id=session_id,
+                session_id=sid,
                 run_id="",
                 query=message,
                 oil_request=reasoning_oil_request,
@@ -680,7 +680,7 @@ class BrainOrchestrator:
             memory_context_payload = memory_context.as_dict()
             self._append_runtime_event(
                 event_type="runtime.memory_intelligence.trace",
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 payload={
@@ -695,7 +695,7 @@ class BrainOrchestrator:
             preferred_reasoning_mode: str | None = None
             try:
                 strategy_decision = self.strategy_engine.select(
-                    session_id=session_id,
+                    session_id=sid,
                     run_id="",
                     message=message,
                     oil_request=reasoning_oil_request,
@@ -716,7 +716,7 @@ class BrainOrchestrator:
                 }
                 self._append_runtime_event(
                     event_type="runtime.strategy_adaptation.trace",
-                    session_id=session_id,
+                    session_id=sid,
                     task_id="",
                     run_id="",
                     payload={
@@ -732,7 +732,7 @@ class BrainOrchestrator:
                 strategy_payload = {"error": str(strat_exc), "degraded": True}
             reasoning_outcome = self.reasoning_engine.reason(
                 raw_input=message,
-                session_id=session_id,
+                session_id=sid,
                 run_id="",
                 source_component="runtime.orchestrator",
                 preferred_mode=preferred_reasoning_mode,
@@ -743,7 +743,7 @@ class BrainOrchestrator:
             reasoning_payload = reasoning_outcome.as_dict()
             self._append_runtime_event(
                 event_type="runtime.reasoning.trace",
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 payload={
@@ -784,7 +784,7 @@ class BrainOrchestrator:
             }
             self._append_runtime_event(
                 event_type="runtime.reasoning.trace",
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 payload={
@@ -815,7 +815,7 @@ class BrainOrchestrator:
         control_metadata["memory_intelligence"] = dict(memory_context_payload)
         control_metadata["strategy_adaptation"] = dict(strategy_payload)
         control_result = self._evaluate_control_layer(
-            session_id=session_id,
+            session_id=sid,
             message=runtime_message,
             task_id="",
             run_id="",
@@ -823,7 +823,7 @@ class BrainOrchestrator:
         )
         upgrade_artifacts = self._build_runtime_upgrade_artifacts(
             message=runtime_message,
-            session_id=session_id,
+            session_id=sid,
             run_id="",
             routing_decision=control_result["routing_decision"],
             strategy_payload=strategy_payload,
@@ -835,7 +835,7 @@ class BrainOrchestrator:
             ),
         )
         ranking_bundle = self._apply_decision_ranking(
-            session_id=session_id,
+            session_id=sid,
             message=runtime_message,
             routing_decision=control_result["routing_decision"],
             upgrade_artifacts=upgrade_artifacts,
@@ -859,7 +859,7 @@ class BrainOrchestrator:
             routing_decision=control_result["routing_decision"]
         )
         memory_context = self._update_structured_memory(
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             message=runtime_message,
@@ -870,14 +870,14 @@ class BrainOrchestrator:
             strategy_state=strategy_state if isinstance(strategy_state, dict) else None,
         )
         self._record_runtime_upgrade_events(
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             upgrade_artifacts=upgrade_artifacts,
         )
         self._emit_control_event(
             "runtime.control.routing_decision",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload={
@@ -895,7 +895,7 @@ class BrainOrchestrator:
         )
         if not control_result["allowed"]:
             self._record_control_outcome_memory(
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 control_result=control_result,
@@ -903,7 +903,7 @@ class BrainOrchestrator:
             )
             self._emit_control_event(
                 str(control_result["blocked_event_type"]),
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 payload={
@@ -925,11 +925,11 @@ class BrainOrchestrator:
             if can_transition(self.current_control_mode, RuntimeMode.REPORT):
                 self._emit_control_event(
                     "runtime.control.mode_transition",
-                    session_id=session_id,
+                    session_id=sid,
                     task_id="",
                     run_id="",
                     payload=build_mode_transition_event(
-                        session_id=session_id,
+                        session_id=sid,
                         from_mode=self.current_control_mode,
                         to_mode=RuntimeMode.REPORT,
                         reason_code="control_layer_block",
@@ -958,14 +958,14 @@ class BrainOrchestrator:
         if control_result["mode_transition"] is not None:
             self._emit_control_event(
                 "runtime.control.mode_transition",
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 payload=control_result["mode_transition"],
             )
             self.current_control_mode = control_result["target_mode"]
         self._record_control_outcome_memory(
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             control_result=control_result,
@@ -973,7 +973,7 @@ class BrainOrchestrator:
         )
         self._emit_control_event(
             "runtime.control.execution_allowed",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload={
@@ -997,7 +997,7 @@ class BrainOrchestrator:
         execution_plan, planning_trace = self.planning_engine.build_execution_plan(
             handoff=dict(reasoning_handoff),
             reasoning_trace=dict(reasoning_payload.get("trace") or {}),
-            session_id=session_id,
+            session_id=sid,
             run_id="",
             task_id="",
             normalized_input=str(runtime_message).strip(),
@@ -1014,7 +1014,7 @@ class BrainOrchestrator:
         }
         self._append_runtime_event(
             event_type="runtime.planning_intelligence.trace",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload=dict(planning_payload),
@@ -1055,7 +1055,7 @@ class BrainOrchestrator:
         if isinstance(td_payload, dict):
             self._append_runtime_event(
                 event_type="runtime.task_decomposition.trace",
-                session_id=session_id,
+                session_id=sid,
                 task_id="",
                 run_id="",
                 payload={
@@ -1108,7 +1108,7 @@ class BrainOrchestrator:
         coord_mode = "skipped_direct_memory" if direct_response else "full"
         try:
             coord_result = self.agent_coordinator.coordinate(
-                session_id=session_id,
+                session_id=sid,
                 run_id="",
                 planning_payload=planning_payload,
                 reasoning_handoff=reasoning_handoff,
@@ -1123,7 +1123,7 @@ class BrainOrchestrator:
             coordination_payload = {
                 "trace": {
                     "coordination_id": "",
-                    "session_id": session_id,
+                    "session_id": sid,
                     "run_id": "",
                     "coordination_mode": coord_mode,
                     "role_order": [],
@@ -1140,7 +1140,7 @@ class BrainOrchestrator:
             }
         self._append_runtime_event(
             event_type="runtime.multi_agent_coordination.trace",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload=dict(coordination_payload),
@@ -1151,14 +1151,14 @@ class BrainOrchestrator:
         # Phase 3 keeps the compatibility callback available, but only as an explicit fallback
         # after a primary execution branch is attempted.
         strategy_execution = self._dispatch_strategy_execution(
-            session_id=session_id,
+            session_id=sid,
             run_id="",
             routing_decision=control_result["routing_decision"],
             upgrade_artifacts=upgrade_artifacts,
             selected_tools=suggested_capabilities,
             direct_response=direct_response,
             node_execute=lambda: self._execute_primary_node_path(
-                session_id=session_id,
+                session_id=sid,
                 runtime_message=runtime_message,
                 predicted_intent=predicted_intent,
                 memory_store=memory_store,
@@ -1166,20 +1166,20 @@ class BrainOrchestrator:
                 extra_session={},
             ),
             local_tool_execute=lambda: self._execute_primary_local_tool_path(
-                session_id=session_id,
+                session_id=sid,
                 runtime_message=runtime_message,
                 predicted_intent=predicted_intent,
                 selected_tools=suggested_capabilities,
             ),
             planner_execute=lambda: self._execute_primary_planner_path(
-                session_id=session_id,
+                session_id=sid,
                 runtime_message=runtime_message,
                 predicted_intent=predicted_intent,
                 memory_store=memory_store,
                 available_capabilities=available_capabilities,
             ),
             compat_execute=lambda: self._execute_strategy_compatible_path(
-                session_id=session_id,
+                session_id=sid,
                 runtime_message=runtime_message,
                 predicted_intent=predicted_intent,
                 direct_response=direct_response,
@@ -1216,13 +1216,13 @@ class BrainOrchestrator:
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = "empty_swarm_response"
             self._record_runtime_mode_event(
-                session_id=session_id,
+                session_id=sid,
                 mode="fallback",
                 reason_code="empty_swarm_response",
                 details={"message_preview": message[:120]},
             )
         lora_decision = self._apply_lora_learning_integration(
-            session_id=session_id,
+            session_id=sid,
             message=message,
             base_response=response,
             routing_decision=control_result["routing_decision"],
@@ -1251,7 +1251,7 @@ class BrainOrchestrator:
         phase41_feedback_bundle = combine_feedback(fb_raw_turn, implicit_tags_turn)
 
         evaluation = self.evaluator.evaluate(
-            session_id=session_id,
+            session_id=sid,
             message=message,
             response=response,
             history=memory_store.get("history", []) if isinstance(memory_store.get("history", []), list) else [],
@@ -1259,7 +1259,7 @@ class BrainOrchestrator:
 
         duration_ms = max(0, int((time.monotonic() - run_started_monotonic) * 1000))
         learning_record, learning_trace = self.runtime_learning_engine.assess_chat_turn(
-            session_id=session_id,
+            session_id=sid,
             run_id="",
             message=message,
             response=response,
@@ -1282,7 +1282,7 @@ class BrainOrchestrator:
         }
         self._append_runtime_event(
             event_type="runtime.learning_intelligence.trace",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload=dict(learning_payload),
@@ -1320,7 +1320,7 @@ class BrainOrchestrator:
             latency_total_ms=duration_ms,
         )
         exp_rec = build_experience_record(
-            session_id=session_id,
+            session_id=sid,
             user_input=message,
             normalized_intent=str(swarm_result.get("intent", predicted_intent)),
             swarm_result=dict(swarm_result),
@@ -1340,7 +1340,7 @@ class BrainOrchestrator:
         self.performance_store.update_from_experience_row(exp_rec.as_dict())
         self._append_runtime_event(
             event_type="runtime.phase41.experience_record",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload={
@@ -1358,7 +1358,7 @@ class BrainOrchestrator:
         evidence_bundle: dict[str, Any] = {}
         try:
             evidence_bundle = {
-                "session_id": session_id,
+                "session_id": sid,
                 "learning_trace": dict(learning_trace.as_dict()),
                 "learning_record": dict(learning_record.as_dict()),
                 "performance": dict(performance_payload),
@@ -1385,14 +1385,14 @@ class BrainOrchestrator:
             }
             phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
             controlled_evolution_payload = self.evolution_controller.evaluate_turn(
-                session_id=session_id,
+                session_id=sid,
                 evidence=evidence_bundle,
                 skip_apply=phase40_enable,
             )
         except Exception as evo_exc:
             controlled_evolution_payload = {
                 "trace_id": "",
-                "session_id": session_id,
+                "session_id": sid,
                 "disabled": False,
                 "opportunity_count": 0,
                 "proposal_count": 0,
@@ -1409,7 +1409,7 @@ class BrainOrchestrator:
             }
         self._append_runtime_event(
             event_type="runtime.controlled_self_evolution.trace",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload={"trace": dict(controlled_evolution_payload)},
@@ -1417,14 +1417,14 @@ class BrainOrchestrator:
 
         try:
             self_improving_system_trace = self.improvement_orchestrator.run_cycle(
-                session_id=session_id,
+                session_id=sid,
                 ce_trace=dict(controlled_evolution_payload),
                 evidence=dict(evidence_bundle),
             )
         except Exception as sis_exc:
             self_improving_system_trace = {
                 "trace_id": "",
-                "session_id": session_id,
+                "session_id": sid,
                 "disabled": False,
                 "idle": True,
                 "cycle": None,
@@ -1438,7 +1438,7 @@ class BrainOrchestrator:
             }
         self._append_runtime_event(
             event_type="runtime.self_improving_system.trace",
-            session_id=session_id,
+            session_id=sid,
             task_id="",
             run_id="",
             payload={"trace": dict(self_improving_system_trace)},
@@ -1463,11 +1463,11 @@ class BrainOrchestrator:
             capabilities=suggested_capabilities,
         )
         self.hybrid_memory.record_evaluation(evaluation)
-        self.transcript_store.append_turn(session_id, message, response)
+        self.transcript_store.append_turn(sid, message, response)
 
         evolution_version = int(strategy_state.get("version", 0))
         session_payload = {
-            "session_id": session_id,
+            "session_id": sid,
             "history": safe_store.get("history", []),
             "user": safe_store.get("user", {}),
             "summary": self.summarize_history(safe_store.get("history", [])),
@@ -1497,7 +1497,7 @@ class BrainOrchestrator:
                 "last_experience_id": exp_rec.experience_id,
                 "feedback": phase41_feedback_bundle.as_dict(),
                 "policy_hint": self._last_phase41_policy_hint,
-                "experience_count_session": self.experience_store.session_record_count(session_id),
+                "experience_count_session": self.experience_store.session_record_count(sid),
             },
             "phase42": {
                 "provider_actual": prov_model.provider_actual,
@@ -1509,7 +1509,7 @@ class BrainOrchestrator:
                 "provenance_source": prov_model.provenance_source,
             },
         }
-        self.session_store.save(session_id, session_payload)
+        self.session_store.save(sid, session_payload)
         phase10_base_lora_payload = {
             **dict(self.last_decision_ranking or {}),
             **dict(self.last_strategy_execution or {}),
@@ -1518,6 +1518,16 @@ class BrainOrchestrator:
             "provider_failed": bool(getattr(prov_model, "provider_failed", False)),
             "failure_class": str(getattr(prov_model, "failure_class", "") or ""),
             "execution_provenance": prov_model.as_dict(),
+            "last_node_outcome": (
+                dict(self._last_node_outcome)
+                if isinstance(getattr(self, "_last_node_outcome", None), dict)
+                else None
+            ),
+            "last_node_cognitive_hint": (
+                dict(self._last_node_cognitive_hint)
+                if isinstance(getattr(self, "_last_node_cognitive_hint", None), dict)
+                else None
+            ),
         }
         response = self._emit_cognitive_runtime_inspection(
             response,
@@ -1544,7 +1554,7 @@ class BrainOrchestrator:
         )
         learning_payload["controlled_learning"] = dict(controlled_learning)
         session_payload["runtime_learning"] = dict(learning_payload)
-        self.session_store.save(session_id, session_payload)
+        self.session_store.save(sid, session_payload)
         learning_record_for_inspection = {
             **learning_record.as_dict(),
             "phase10_learning_record": dict(controlled_learning.get("record") or {}),
@@ -1614,7 +1624,6 @@ class BrainOrchestrator:
             "reporting": "generate_report",
         }.get(task_type, "read")
 
-    @staticmethod
     def _build_context_budget(
         self,
         *,
@@ -1919,7 +1928,6 @@ class BrainOrchestrator:
         }
         return combined
 
-    @staticmethod
     def _evaluate_control_layer(
         self,
         *,
@@ -2096,25 +2104,6 @@ class BrainOrchestrator:
             return NODE_FALLBACK_RESPONSE
 
         diagnostics = self._resolve_node_command_context(payload="")
-        if not diagnostics["node_resolved"] or not diagnostics["runner_exists"] or not diagnostics["cwd_exists"]:
-            classified_reason, details = classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-            )
-            self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = classified_reason
-            self._last_node_outcome = normalize_node_outcome(
-                transport_status=TRANSPORT_FALLBACK,
-                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
-                reason_code=classified_reason,
-            )
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
-                reason_code=classified_reason,
-                details=details,
-            )
-            return NODE_FALLBACK_RESPONSE
-
         session_payload = self.session_store.load(session_id)
         session_payload["executor_bridge"] = "python-rust"
         session_payload["runtime_mode"] = self.last_runtime_mode
@@ -2145,41 +2134,7 @@ class BrainOrchestrator:
             ensure_ascii=False,
         )
         diagnostics = self._resolve_node_command_context(payload=payload)
-        self._append_runtime_event(
-            event_type="runtime.node.subprocess_diagnostics",
-            session_id=session_id,
-            task_id="",
-            run_id="",
-            payload={
-                "stage": "preflight",
-                **{
-                    key: value
-                    for key, value in diagnostics.items()
-                    if key not in {"command", "subprocess_env"}
-                },
-            },
-        )
-
-        if diagnostics["missing_paths"]:
-            classified_reason, details = classify_node_subprocess_failure(
-                diagnostics=diagnostics,
-            )
-            self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = classified_reason
-            self._last_node_outcome = normalize_node_outcome(
-                transport_status=TRANSPORT_FALLBACK,
-                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
-                reason_code=classified_reason,
-            )
-            self._record_runtime_mode_event(
-                session_id=session_id,
-                mode="fallback",
-                reason_code=classified_reason,
-                details=details,
-            )
-            return NODE_FALLBACK_RESPONSE
-
-        transport = run_node_subprocess(
+        transport = call_node_with_preflight(
             diagnostics=diagnostics,
             payload=payload,
             timeout_seconds=SUBPROCESS_TIMEOUT_SECONDS,
@@ -2189,12 +2144,16 @@ class BrainOrchestrator:
             session_id=session_id,
             task_id="",
             run_id="",
-            payload={"stage": transport["stage"], "reason_code": transport["reason_code"], **transport["details"]},
+            payload={
+                "stage": transport.stage,
+                "reason_code": transport.reason_code,
+                **transport.details,
+            },
         )
-        if not transport["ok"]:
+        if not transport.ok:
             self._last_node_result_envelope = None
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = str(transport["reason_code"] or "subprocess_exception")
+            self.last_runtime_reason = str(transport.reason_code or "subprocess_exception")
             self._last_node_outcome = normalize_node_outcome(
                 transport_status=TRANSPORT_FALLBACK,
                 semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
@@ -2204,14 +2163,14 @@ class BrainOrchestrator:
                 session_id=session_id,
                 mode="fallback",
                 reason_code=self.last_runtime_reason,
-                details=transport["details"],
+                details=transport.details,
             )
             return NODE_FALLBACK_RESPONSE
 
-        parsed = transport["parsed"]
+        parsed = transport.parsed
         self._record_runtime_selection_event(parsed, runner="queryEngineRunner.js")
         self._record_engine_selection_event(parsed, session_id=session_id)
-        semantic = interpret_node_payload(parsed=parsed, stdout=transport["stdout"])
+        semantic = interpret_node_payload(parsed=parsed, stdout=transport.stdout)
         self._last_node_cognitive_hint = semantic["node_cognitive_hint"]
         self._last_node_result_envelope = semantic["node_result_envelope"]
         self._last_node_outcome = semantic["node_outcome"]
@@ -2233,6 +2192,23 @@ class BrainOrchestrator:
         if semantic["semantic_lane"] == LANE_BRIDGE_EXECUTION_REQUEST:
             return semantic["response_text"]
 
+        return self._execute_true_action_path(
+            execution_request=execution_request,
+            session_id=session_id,
+            message=message,
+            memory_store=memory_store,
+            fallback_response_text=semantic["response_text"],
+        )
+
+    def _execute_true_action_path(
+        self,
+        *,
+        execution_request: dict[str, Any],
+        session_id: str,
+        message: str,
+        memory_store: dict[str, Any],
+        fallback_response_text: str,
+    ) -> str:
         actions = execution_request.get("actions", [])
         task_id = str(execution_request.get("task_id", f"task-{session_id}"))
         run_id = coerce_runtime_run_id(
@@ -2275,6 +2251,7 @@ class BrainOrchestrator:
         if isinstance(self._last_node_outcome, dict):
             self._last_node_outcome["actions_executed"] = True
             self._last_node_outcome["execution_runtime_lane"] = LANE_TRUE_ACTION_EXECUTION
+        self.last_runtime_mode = LANE_TRUE_ACTION_EXECUTION
         if isinstance(execution_request.get("semantic_retrieval", []), list) and execution_request.get("semantic_retrieval", []):
             self._append_runtime_event(
                 event_type="runtime.vector.retrieval",
@@ -2292,7 +2269,7 @@ class BrainOrchestrator:
         self._sync_runtime_memory_store(session_id, memory_store, step_results)
         self._last_runtime_step_results = [dict(item) for item in step_results if isinstance(item, dict)]
 
-        return self._synthesize_runtime_response(step_results, semantic["response_text"])
+        return self._synthesize_runtime_response(step_results, fallback_response_text)
 
     def build_runner_smoke_diagnostic(self, *, timeout_seconds: int = 6) -> dict[str, Any]:
         payload = json.dumps(
@@ -2969,7 +2946,7 @@ class BrainOrchestrator:
             return "NODE_EXECUTION"
         if "tool" in step_kinds:
             return "LOCAL_TOOL_EXECUTION"
-        return "COMPATIBILITY_EXECUTION"
+        return "NODE_EXECUTION"
 
     def _build_primary_node_result(
         self,
