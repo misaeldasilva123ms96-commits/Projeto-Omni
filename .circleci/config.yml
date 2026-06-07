@@ -14,9 +14,9 @@ version: 2.1
 # Orbs — Reusable package configurations
 # ---------------------------------------------------------------------------
 orbs:
-  node: circleci/node@7.1
-  python: circleci/python@3.5
-  rust: circleci/rust@1.6
+  node: circleci/node@7.2.1
+  python: circleci/python@4.0.0
+  rust: circleci/rust@1.8.0
 
 # ---------------------------------------------------------------------------
 # Executors
