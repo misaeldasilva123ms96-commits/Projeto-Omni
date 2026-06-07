@@ -63,7 +63,20 @@ commands:
   setup-rust:
     steps:
       - rust/install
-      - rust/cargo-cache
+      - restore_cache:
+          name: Restore Cargo registry cache
+          keys:
+            - cargo-registry-{{ checksum "backend/rust/Cargo.lock" }}
+            - cargo-registry-
+      - run:
+          name: Rust version info
+          command: rustc --version && cargo --version
+      - save_cache:
+          name: Save Cargo registry cache
+          key: cargo-registry-{{ checksum "backend/rust/Cargo.lock" }}
+          paths:
+            - ~/.cargo/registry
+            - ~/.cargo/git
 
   notify-failure:
     steps:
