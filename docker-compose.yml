@@ -6,19 +6,22 @@ services:
     env_file:
       - .env
     working_dir: /app/backend/python
-    # Keep the Python entrypoint hot and continuously exercise the compat layer.
-    command: ["sh", "-c", "while true; do python main.py \"healthcheck\" >/tmp/python-brain.out 2>/tmp/python-brain.err; sleep 30; done"]
+    environment:
+      OMNI_PYTHON_MODE: service
+    command: ["python", "brain_service.py"]
     restart: always
+    ports:
+      - "7010:7010"
     volumes:
       - python_memory:/app/backend/python/memory
       - python_transcripts:/app/backend/python/transcripts
       - python_sessions:/app/backend/python/brain/runtime/sessions
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths; print('ok')\""]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7010/internal/brain/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
     networks:
       - omini_net
 
@@ -29,15 +32,14 @@ services:
     env_file:
       - .env
     working_dir: /app
-    # Keep the Node runner warm while exposing a tiny health probe command.
-    command: ["sh", "-c", "while true; do node js-runner/healthcheck.js >/tmp/node-runner.out 2>/tmp/node-runner.err; sleep 30; done"]
+    command: ["node", "js-runner/healthcheck.js", "--watch"]
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "node js-runner/healthcheck.js"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      test: ["CMD", "node", "js-runner/healthcheck.js"]
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
     networks:
       - omini_net
 
