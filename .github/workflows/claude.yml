@@ -1,0 +1,64 @@
+# =============================================================================
+# SECURITY: PR Merge is FORBIDDEN
+# - Manual merge is performed exclusively by the user after review.
+# - This action MUST NEVER have permission to merge.
+# - The main branch is protected by branch protection rules.
+# =============================================================================
+
+# =============================================================================
+# SECURITY: Main Branch is PROTECTED
+# - No workflow may push directly to main.
+# - All changes go through working branch -> PR -> review -> merge.
+# - The main branch has protection rules preventing direct pushes.
+# =============================================================================
+
+# =============================================================================
+# SECURITY: Secrets CANNOT be accessed
+# - This action operates with GITHUB_TOKEN, which has limited scope.
+# - Environment secrets (e.g. ANTHROPIC_API_KEY) are injected by GitHub
+#   Actions and are NEVER exposed in logs or outputs.
+# - GITHUB_TOKEN has no access to repository secrets.
+# =============================================================================
+
+name: Claude Code Action
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned, labeled]
+  pull_request_review:
+    types: [submitted]
+
+# PERMISSIONS — Least Privilege Principle
+# Allowed:    contents:write, pull-requests:write, issues:write, actions:read, id-token:write
+# Prohibited: administration:write, secrets:write, packages:write, workflows:write
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
+
+jobs:
+  claude-response:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Optional: customize trigger phrase (default: @claude)
+          # trigger_phrase: "/claude"
+
+          # Optional: activate by assignee on issues
+          # assignee_trigger: "claude"
+
+          # Optional: activate by label on issues
+          # label_trigger: "claude"
+
+          # Optional: advanced arguments for Claude CLI
+          # claude_args: |
+          #   --max-turns 10
+          #   --model claude-sonnet-4-20250514
