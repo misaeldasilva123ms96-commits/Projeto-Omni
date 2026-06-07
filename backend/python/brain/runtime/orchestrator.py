@@ -112,6 +112,7 @@ from brain.runtime.learning import (
 )
 from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.decomposition import TaskDecomposer
+from brain.runtime.evolution_controller import EvolutionController
 from brain.runtime.evolution import ControlledEvolutionEngine
 from brain.runtime.improvement import ImprovementOrchestrator
 from brain.runtime.performance import PerformanceEngine
@@ -421,6 +422,10 @@ class BrainOrchestrator:
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
         self.controlled_evolution_engine = ControlledEvolutionEngine(self.paths.root)
+        self.evolution_controller = EvolutionController(
+            evolution_executor=self.evolution_executor,
+            controlled_evolution_engine=self.controlled_evolution_engine,
+        )
         self.improvement_orchestrator = ImprovementOrchestrator(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
@@ -1013,7 +1018,7 @@ class BrainOrchestrator:
             payload=dict(planning_payload),
         )
 
-        phase39_tuning = self.controlled_evolution_engine.store.read()
+        phase39_tuning = self.evolution_controller.load_phase39_tuning()
         try:
             dresult = self.task_decomposer.decompose(
                 execution_plan=dict(planning_payload["execution_plan"]),
@@ -1377,7 +1382,7 @@ class BrainOrchestrator:
                 },
             }
             phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
-            controlled_evolution_payload = self.controlled_evolution_engine.evaluate_turn(
+            controlled_evolution_payload = self.evolution_controller.evaluate_turn(
                 session_id=session_id,
                 evidence=evidence_bundle,
                 skip_apply=phase40_enable,
@@ -4760,11 +4765,10 @@ class BrainOrchestrator:
             engineering_tool=supports_engineering_tool(str(action.get("selected_tool", ""))),
             primary_result=result,
         )
-        evolution_update = self.evolution_executor.evaluate(
+        evolution_update = self.evolution_controller.evaluate(
             learning_update=None,
             orchestration_update=orchestration_update,
             result=result,
-            continuation_payload=decision.as_dict(),
             goal=self.planning_executor.goal_for_plan(updated_plan),
         )
         learning_update = self.learning_executor.ingest_runtime_artifacts(
@@ -5581,7 +5585,7 @@ class BrainOrchestrator:
                 run_id=run_id,
                 payload=learning_update,
             )
-        evolution_update = self.evolution_executor.evaluate(
+        evolution_update = self.evolution_controller.evaluate(
             learning_update=learning_update,
             orchestration_update=pre_execution_orchestration,
             result=result,
