@@ -38,8 +38,6 @@ from brain.runtime.session_helpers import (
     SESSION_BYOK_ENV_MAP,
     SESSION_BYOK_MAX_API_KEY_CHARS,
     SESSION_BYOK_MAX_MODEL_CHARS,
-    SESSION_BYOK_PUBLIC_RESPONSE,
-    extract_session_byok_bridge,
     normalize_session_provider_id,
     private_bridge_source,
     safe_session_secret,
@@ -132,6 +130,7 @@ from brain.runtime.planning import PlanningEngine, PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
 from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
+from brain.runtime.session_manager import SessionManager
 from brain.runtime.session_store import SessionStore
 from brain.runtime.simulation import ActionSimulator, SimulationStore
 from brain.runtime.specialists import SpecialistCoordinator
@@ -303,6 +302,7 @@ class BrainOrchestrator:
 
     def __init__(self, paths: BrainPaths) -> None:
         self.paths = paths
+        self.session_manager = SessionManager(paths)
         self._closed = False
         self.hybrid_memory = HybridMemory(paths.memory_dir)
         memory_log_dir = paths.root / ".logs" / "fusion-runtime"
@@ -550,16 +550,12 @@ class BrainOrchestrator:
         return response
 
     def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
-        self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
-        byok_state = extract_session_byok_bridge(self._runtime_bridge)
-        self._session_byok_active = bool(byok_state.get("active"))
-        self._session_provider_preference = byok_state.get("provider") if isinstance(byok_state.get("provider"), str) else None
-        self._session_provider_env_overlay = (
-            dict(byok_state.get("env_overlay")) if isinstance(byok_state.get("env_overlay"), dict) else {}
-        )
-        self._session_byok_error_reason = (
-            str(byok_state.get("error_reason")) if byok_state.get("error_reason") else None
-        )
+        self.session_manager.initialize_from_bridge(bridge)
+        self._runtime_bridge = self.session_manager.get_bridge()
+        self._session_byok_active = self.session_manager.get_byok_active()
+        self._session_provider_preference = self.session_manager.get_provider_preference()
+        self._session_provider_env_overlay = self.session_manager.get_provider_env_overlay()
+        self._session_byok_error_reason = self.session_manager.get_byok_error_reason()
         self._pending_policy_hint_json = None
         self._last_phase41_policy_hint = None
         self._last_node_result_envelope = None
@@ -576,17 +572,7 @@ class BrainOrchestrator:
         if self._session_byok_error_reason:
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = self._session_byok_error_reason
-            return {
-                "response": SESSION_BYOK_PUBLIC_RESPONSE,
-                "stop_reason": self._session_byok_error_reason,
-                "error": {
-                    "failure_class": "BYOK_SESSION_INVALID",
-                    "message": "Session BYOK credentials are invalid or incomplete.",
-                    "reason": self._session_byok_error_reason,
-                },
-                "provider_failed": True,
-                "failure_class": "BYOK_SESSION_INVALID",
-            }
+            return self.session_manager.build_byok_error_response()
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
         session_id = session_id()
