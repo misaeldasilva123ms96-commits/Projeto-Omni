@@ -26,6 +26,10 @@ executors:
     docker:
       - image: cimg/base:2025.04
     resource_class: medium
+  python-executor:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
   docker-executor:
     docker:
       - image: cimg/base:2025.04
@@ -94,7 +98,7 @@ jobs:
   # Lint & Static Checks
   # -----------------------------------------------------------------------
   lint:
-    executor: omni-executor
+    executor: python-executor
     steps:
       - checkout
       - install-root-npm
@@ -143,7 +147,7 @@ jobs:
   # Python Tests with Coverage
   # -----------------------------------------------------------------------
   python-tests:
-    executor: omni-executor
+    executor: python-executor
     steps:
       - checkout
       - install-python-deps
@@ -212,7 +216,7 @@ jobs:
   # Security — Audit, Regression, Secret Scan
   # -----------------------------------------------------------------------
   security:
-    executor: omni-executor
+    executor: python-executor
     steps:
       - checkout
       - install-root-npm
@@ -237,9 +241,7 @@ jobs:
     executor: docker-executor
     steps:
       - checkout
-      - setup_remote_docker:
-          version: 24.0.9
-          docker_layer_caching: true
+      - setup_remote_docker
       - run:
           name: Build demo Docker image
           command: docker build -f Dockerfile.demo -t omni-demo:ci .
@@ -274,8 +276,8 @@ jobs:
       - run:
           name: Install Gitleaks
           command: |
-            wget -q https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -O /usr/local/bin/gitleaks
-            chmod +x /usr/local/bin/gitleaks
+            wget -q https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -O /tmp/gitleaks
+            sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
       - run:
           name: Run Gitleaks
           command: gitleaks detect --no-git --verbose || true
