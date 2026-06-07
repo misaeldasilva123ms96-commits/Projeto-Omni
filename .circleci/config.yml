@@ -276,7 +276,9 @@ jobs:
       - run:
           name: Install Gitleaks
           command: |
-            wget -q https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -O /tmp/gitleaks
+            GITLEAKS_VERSION=$(curl -fsSL "https://api.github.com/repos/gitleaks/gitleaks/releases/latest" | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+            wget -q "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -O /tmp/gitleaks.tar.gz
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
             sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
       - run:
           name: Run Gitleaks
