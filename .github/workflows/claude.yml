@@ -1,23 +1,23 @@
 # =============================================================================
-# SEGURANÇA: Merge de PR é PROIBIDO
-# - O merge manual é realizado exclusivamente pelo usuário após revisão.
-# - Esta action NUNCA deve ter permissão para fazer merge.
-# - A branch main é protegida por branch protection rules.
+# SECURITY: PR Merge is FORBIDDEN
+# - Manual merge is performed exclusively by the user after review.
+# - This action MUST NEVER have permission to merge.
+# - The main branch is protected by branch protection rules.
 # =============================================================================
 
 # =============================================================================
-# SEGURANÇA: Main é PROTEGIDA
-# - Nenhum workflow pode fazer push direto na main.
-# - Todas as alterações passam por branch de trabalho -> PR -> revisão -> merge.
-# - A branch main possui regras de proteção que impedem pushes diretos.
+# SECURITY: Main Branch is PROTECTED
+# - No workflow may push directly to main.
+# - All changes go through working branch -> PR -> review -> merge.
+# - The main branch has protection rules preventing direct pushes.
 # =============================================================================
 
 # =============================================================================
-# SEGURANÇA: Secrets NÃO podem ser acessados
-# - Esta action opera com GITHUB_TOKEN, que tem escopo limitado.
-# - Secrets de ambiente (ex: ANTHROPIC_API_KEY) são injetados pelo GitHub
-#   Actions e NUNCA são expostos em logs ou outputs.
-# - O GITHUB_TOKEN não tem acesso a secrets do repositório.
+# SECURITY: Secrets CANNOT be accessed
+# - This action operates with GITHUB_TOKEN, which has limited scope.
+# - Environment secrets (e.g. ANTHROPIC_API_KEY) are injected by GitHub
+#   Actions and are NEVER exposed in logs or outputs.
+# - GITHUB_TOKEN has no access to repository secrets.
 # =============================================================================
 
 name: Claude Code Action
@@ -29,19 +29,18 @@ on:
     types: [created]
   issues:
     types: [opened, assigned, labeled]
-  pull_request:
-    types: [opened, synchronize, ready_for_review]
   pull_request_review:
     types: [submitted]
 
-# PERMISSÕES — Princípio do Menor Privilégio
-# Permitidas:  contents:write, pull-requests:write, issues:write, actions:read
-# Proibidas:   administration:write, secrets:write, packages:write, workflows:write
+# PERMISSIONS — Least Privilege Principle
+# Allowed:    contents:write, pull-requests:write, issues:write, actions:read, id-token:write
+# Prohibited: administration:write, secrets:write, packages:write, workflows:write
 permissions:
   contents: write
   pull-requests: write
   issues: write
   actions: read
+  id-token: write
 
 jobs:
   claude-response:
@@ -50,16 +49,16 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Opcional: personalizar frase de gatilho (padrão: @claude)
+          # Optional: customize trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
 
-          # Opcional: ativar por assignee em issues
+          # Optional: activate by assignee on issues
           # assignee_trigger: "claude"
 
-          # Opcional: ativar por label em issues
+          # Optional: activate by label on issues
           # label_trigger: "claude"
 
-          # Opcional: argumentos avançados para o Claude CLI
+          # Optional: advanced arguments for Claude CLI
           # claude_args: |
           #   --max-turns 10
           #   --model claude-sonnet-4-20250514
