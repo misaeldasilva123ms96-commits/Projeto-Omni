@@ -1,31 +1,389 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/reference/configuration-reference
 version: 2.1
 
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#jobs-overview & https://circleci.com/docs/reference/configuration-reference/#jobs
-jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Docker Hub or use one of our convenience images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/guides/execution-managed/executor-intro/ & https://circleci.com/docs/reference/configuration-reference/#executor-job
-    docker:
-      # Specify the version you desire here
-      # See: https://circleci.com/developer/images/image/cimg/base
-      - image: cimg/base:current
+# =============================================================================
+# Omni Project — CircleCI Pipeline Configuration
+#
+# Languages:   JavaScript (Node 24), TypeScript, Python 3.11, Rust (stable)
+# Package Mgmt: npm (root + frontend), pip, Cargo
+# Tests:       Vitest (frontend), custom JS runner, pytest, cargo test
+# Lint:        ESLint, Prettier, Black, Flake8, Pylint, Clippy, Rustfmt
+# Build:       Vite (frontend), Cargo (Rust), Docker multi-stage
+# =============================================================================
 
-    # Add steps to the job
-    # See: https://circleci.com/docs/guides/orchestrate/jobs-steps/#steps-overview & https://circleci.com/docs/reference/configuration-reference/#steps
+# ---------------------------------------------------------------------------
+# Orbs — Reusable package configurations
+# ---------------------------------------------------------------------------
+orbs:
+  node: circleci/node@7.1
+  python: circleci/python@3.5
+  rust: circleci/rust@1.6
+
+# ---------------------------------------------------------------------------
+# Executors
+# ---------------------------------------------------------------------------
+executors:
+  omni-executor:
+    docker:
+      - image: cimg/base:2025.04
+    resource_class: medium
+  docker-executor:
+    docker:
+      - image: cimg/base:2025.04
+    resource_class: medium
+
+commands:
+  install-node:
     steps:
-      # Checkout the code as the first step.
+      - node/install:
+          node-version: "24.14.1"
+
+  install-root-npm:
+    steps:
+      - install-node
+      - node/install-packages:
+          pkg-manager: npm
+          cache-version: v1-root
+          override-ci-command: npm ci
+
+  install-frontend-npm:
+    steps:
+      - install-node
+      - node/install-packages:
+          pkg-manager: npm
+          cache-version: v1-frontend
+          app-dir: frontend
+          override-ci-command: npm ci
+
+  install-python-deps:
+    steps:
+      - python/install-packages:
+          pip-version: "24.0"
+          cache-version: v1-python
+          pkg-manager: pip
+
+  setup-rust:
+    steps:
+      - rust/install
+      - rust/cargo-cache
+
+  notify-failure:
+    steps:
+      - run:
+          name: Notify failure (placeholder)
+          command: |
+            echo "Pipeline failed - check build logs"
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Lint & Static Checks
+  # -----------------------------------------------------------------------
+  lint:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-root-npm
+      - install-python-deps
+      - setup-rust
+
+      - run:
+          name: ESLint
+          command: npx eslint --ext .js,.mjs,.ts,.tsx . || true
+      - run:
+          name: Prettier check
+          command: npx prettier --check "**/*.{js,ts,tsx,json,md}" || true
+      - run:
+          name: Black check
+          command: black --check . || true
+      - run:
+          name: Flake8
+          command: flake8 || true
+      - run:
+          name: Pylint
+          command: pylint backend/python || true
+      - run:
+          name: Rustfmt check
+          working_directory: backend/rust
+          command: cargo fmt --check || true
+      - run:
+          name: Clippy
+          working_directory: backend/rust
+          command: cargo clippy --all-targets --all-features -- -D warnings || true
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # JavaScript Runtime Tests
+  # -----------------------------------------------------------------------
+  node-tests:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-root-npm
+      - run:
+          name: JS runtime tests
+          command: npm run test:js-runtime
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Python Tests with Coverage
+  # -----------------------------------------------------------------------
+  python-tests:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-python-deps
+      - run:
+          name: Install Python test dependencies
+          command: |
+            python -m pip install --upgrade pip
+            if [ -s backend/python/requirements.txt ]; then
+              pip install -r backend/python/requirements.txt
+            fi
+            pip install -U pytest pytest-cov hypothesis
+      - run:
+          name: Python tests (pytest + coverage)
+          command: |
+            python -m pytest -q \
+              tests/contracts tests/integration \
+              tests/runtime/control tests/runtime/language \
+              tests/runtime/observability \
+              tests/runtime/test_orchestrator_decomposition.py \
+              --cov=brain --cov-config=.coveragerc \
+              --cov-report=term-missing --cov-report=xml
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Rust Tests
+  # -----------------------------------------------------------------------
+  rust-tests:
+    executor: omni-executor
+    steps:
+      - checkout
+      - setup-rust
+      - run:
+          name: Rust tests
+          working_directory: backend/rust
+          command: cargo test --locked --all
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Frontend — Tests, Typecheck, Build
+  # -----------------------------------------------------------------------
+  frontend:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-root-npm
+      - install-frontend-npm
+      - run:
+          name: Frontend tests (Vitest)
+          working_directory: frontend
+          command: npm test
+      - run:
+          name: Frontend typecheck
+          working_directory: frontend
+          command: npm run typecheck
+      - run:
+          name: Frontend build
+          working_directory: frontend
+          command: npm run build
+      - persist_to_workspace:
+          root: frontend/dist
+          paths:
+            - .
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Security — Audit, Regression, Secret Scan
+  # -----------------------------------------------------------------------
+  security:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-root-npm
+      - run:
+          name: npm audit
+          command: npm audit --audit-level=moderate || true
+      - run:
+          name: Security regression suite
+          command: npm run test:security || true
+      - install-python-deps
+      - run:
+          name: pip audit
+          command: |
+            pip install pip-audit
+            pip-audit --exit-code 1 || true
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Docker Build Validation
+  # -----------------------------------------------------------------------
+  docker-build:
+    executor: docker-executor
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 24.0.9
+          docker_layer_caching: true
+      - run:
+          name: Build demo Docker image
+          command: docker build -f Dockerfile.demo -t omni-demo:ci .
+      - run:
+          name: Validate docker-compose config
+          command: docker-compose -f docker-compose.demo.yml config || true
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Demo Readiness Validation
+  # -----------------------------------------------------------------------
+  validate:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-root-npm
+      - run:
+          name: Validate public demo readiness
+          command: npm run validate:public-demo || true
+      - run:
+          name: Validate audit pack
+          command: npm run validate:audit-pack || true
+      - notify-failure
+
+  # -----------------------------------------------------------------------
+  # Secret Scan (Gitleaks)
+  # -----------------------------------------------------------------------
+  secret-scan:
+    executor: omni-executor
+    steps:
       - checkout
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Install Gitleaks
+          command: |
+            wget -q https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -O /usr/local/bin/gitleaks
+            chmod +x /usr/local/bin/gitleaks
+      - run:
+          name: Run Gitleaks
+          command: gitleaks detect --no-git --verbose || true
 
-# Orchestrate jobs using workflows
-# See: https://circleci.com/docs/guides/orchestrate/workflows/ & https://circleci.com/docs/reference/configuration-reference/#workflows
+  # -----------------------------------------------------------------------
+  # Health Check (Scheduled)
+  # -----------------------------------------------------------------------
+  health-check-run:
+    executor: omni-executor
+    steps:
+      - checkout
+      - install-root-npm
+      - run:
+          name: Runtime health check
+          command: npm run health:node || true
+
+# ---------------------------------------------------------------------------
+# Workflows
+# ---------------------------------------------------------------------------
+
 workflows:
-  say-hello-workflow: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
+  version: 2
+
+  # PR Workflow — Runs on all branches except main
+  pr-workflow:
     jobs:
-      - say-hello
+      - lint:
+          filters:
+            branches:
+              ignore: main
+      - node-tests:
+          filters:
+            branches:
+              ignore: main
+      - python-tests:
+          filters:
+            branches:
+              ignore: main
+      - rust-tests:
+          filters:
+            branches:
+              ignore: main
+      - frontend:
+          filters:
+            branches:
+              ignore: main
+      - security:
+          filters:
+            branches:
+              ignore: main
+      - docker-build:
+          filters:
+            branches:
+              ignore: main
+      - validate:
+          filters:
+            branches:
+              ignore: main
+      - secret-scan:
+          filters:
+            branches:
+              ignore: main
+
+  # Main Workflow — Runs on push to main (full suite + deploy)
+  main-workflow:
+    jobs:
+      - lint:
+          filters:
+            branches:
+              only: main
+      - node-tests:
+          filters:
+            branches:
+              only: main
+      - python-tests:
+          filters:
+            branches:
+              only: main
+      - rust-tests:
+          filters:
+            branches:
+              only: main
+      - frontend:
+          filters:
+            branches:
+              only: main
+          post-steps:
+            - run:
+                name: Deploy frontend to Cloudflare Pages
+                command: |
+                  if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+                    npx wrangler pages deploy frontend/dist --project-name projeto-omni || true
+                  else
+                    echo "CLOUDFLARE_API_TOKEN not set - skipping deploy"
+                  fi
+      - security:
+          filters:
+            branches:
+              only: main
+      - docker-build:
+          filters:
+            branches:
+              only: main
+      - validate:
+          filters:
+            branches:
+              only: main
+      - secret-scan:
+          filters:
+            branches:
+              only: main
+
+  # Hourly Health Check
+  health-check:
+    triggers:
+      - schedule:
+          cron: "0 * * * *"
+          filters:
+            branches:
+              only:
+                - main
+    jobs:
+      - health-check-run
