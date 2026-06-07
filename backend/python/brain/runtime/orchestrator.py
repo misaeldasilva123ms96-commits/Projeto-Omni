@@ -2084,6 +2084,7 @@ class BrainOrchestrator:
         session_id: str,
         extra_session: dict[str, Any] | None = None,
     ) -> str:
+        self._load_dotenv_once()
         self._last_node_result_envelope = None
         self._last_node_cognitive_hint = None
         self._last_node_outcome = None
@@ -2171,6 +2172,22 @@ class BrainOrchestrator:
         self._record_runtime_selection_event(parsed, runner="queryEngineRunner.js")
         self._record_engine_selection_event(parsed, session_id=session_id)
         semantic = interpret_node_payload(parsed=parsed, stdout=transport.stdout)
+        self._append_runtime_event(
+            event_type="runtime.node.semantic_interpretation",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload={
+                "fallback": semantic.get("fallback", True),
+                "semantic_lane": str(semantic.get("semantic_lane", "") or ""),
+                "reason_code": str(semantic.get("reason_code", "") or ""),
+                "response_text_length": len(str(semantic.get("response_text", "") or "")),
+                "response_text_preview": str(semantic.get("response_text", "") or "")[:150],
+                "has_execution_request": isinstance(semantic.get("execution_request"), dict),
+                "has_actions": bool(semantic.get("execution_request", {}) if isinstance(semantic.get("execution_request"), dict) else {}).get("actions"),
+                "provider_actual": str(semantic.get("provider_actual", "") or ""),
+            },
+        )
         self._last_node_cognitive_hint = semantic["node_cognitive_hint"]
         self._last_node_result_envelope = semantic["node_result_envelope"]
         self._last_node_outcome = semantic["node_outcome"]
@@ -2318,6 +2335,29 @@ class BrainOrchestrator:
             "public_failure_class": failure_class,
             "public_summary": runner_smoke_summary(status, failure_class),
         }
+
+    _dotenv_loaded: bool = False
+
+    def _load_dotenv_once(self) -> None:
+        if BrainOrchestrator._dotenv_loaded:
+            return
+        BrainOrchestrator._dotenv_loaded = True
+        dotenv_path = self.paths.root / ".env"
+        if not dotenv_path.is_file():
+            return
+        try:
+            text = dotenv_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, val = stripped.split("=", 1)
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, val)
 
     def _record_runtime_mode_event(
         self,
