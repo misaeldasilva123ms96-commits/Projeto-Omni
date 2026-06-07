@@ -58,9 +58,9 @@ jobs:
       - name: Run JS runtime tests
         run: npm run test:node
 
-      - name: Run Python tests (pytest)
+      - name: Run Python tests (pytest) with coverage
         run: |
-          python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability tests/runtime/test_orchestrator_decomposition.py
+          python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability tests/runtime/test_orchestrator_decomposition.py --cov=brain --cov-report=term
 
       - name: Validate frontend build
         working-directory: frontend

@@ -4,10 +4,13 @@ import json
 import logging
 import os
 import sys
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from brain.runtime.config import python_service_mode
+from brain.runtime.bridge_stdin import read_bridge_stdin_dict, resolve_entry_message
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.observability.public_runtime_payload import sanitize_public_runtime_payload
 from main import build_public_chat_payload
@@ -16,6 +19,57 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7010
 MAX_SERVICE_BODY_BYTES = 65_536
+
+
+class DualModeBridge:
+    def __init__(self) -> None:
+        self._server: ThreadingHTTPServer | None = None
+        self._mode: str = "unknown"
+
+    def run(self) -> int:
+        if python_service_mode():
+            return self._run_service()
+        return self._run_subprocess()
+
+    def _run_service(self) -> int:
+        self._mode = "service"
+        config = get_service_config()
+        try:
+            self._server = create_server(config["host"], config["port"])
+            LOGGER.info("service mode listening on %s:%s", config["host"], config["port"])
+            self._server.serve_forever()
+        except Exception as exc:
+            LOGGER.warning("service mode failed, falling back to subprocess: %s", exc)
+            return self._run_subprocess()
+        finally:
+            if self._server:
+                self._server.server_close()
+        return 0
+
+    def _run_subprocess(self) -> int:
+        self._mode = "subprocess"
+        LOGGER.info("subprocess mode: reading from stdin")
+        bridge = read_bridge_stdin_dict()
+        message, bridge = resolve_entry_message(bridge)
+        if not message:
+            LOGGER.warning("no message received via stdin")
+            return 1
+
+        try:
+            result = build_public_chat_payload(message, bridge)
+            safe = sanitize_public_runtime_payload(result)
+            sys.stdout.write(json.dumps(safe, ensure_ascii=False))
+            sys.stdout.flush()
+        except Exception as exc:
+            LOGGER.error("subprocess run failed: %s", exc)
+            return 1
+        return 0
+
+    def get_mode(self) -> str:
+        return self._mode
+
+    def is_service_mode(self) -> bool:
+        return self._mode == "service"
 
 
 def _env_value(primary: str, legacy: str, default: str) -> str:
@@ -185,16 +239,8 @@ def create_server(host: str | None = None, port: int | None = None) -> Threading
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
-    config = get_service_config()
-    server = create_server(config["host"], config["port"])
-    LOGGER.info("python brain service listening on %s:%s", config["host"], config["port"])
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        return 0
-    finally:
-        server.server_close()
-    return 0
+    bridge = DualModeBridge()
+    return bridge.run()
 
 
 if __name__ == "__main__":

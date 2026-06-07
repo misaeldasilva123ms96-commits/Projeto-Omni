@@ -38,13 +38,12 @@ from brain.runtime.session_helpers import (
     SESSION_BYOK_ENV_MAP,
     SESSION_BYOK_MAX_API_KEY_CHARS,
     SESSION_BYOK_MAX_MODEL_CHARS,
-    SESSION_BYOK_PUBLIC_RESPONSE,
-    extract_session_byok_bridge,
     normalize_session_provider_id,
     private_bridge_source,
     safe_session_secret,
     session_id,
 )
+from brain.runtime.swarm_coordinator import SwarmCoordinator
 from brain.runtime.serializers import (
     budget_to_dict,
     bundle_to_dict,
@@ -113,6 +112,7 @@ from brain.runtime.learning import (
 )
 from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.decomposition import TaskDecomposer
+from brain.runtime.evolution_controller import EvolutionController
 from brain.runtime.evolution import ControlledEvolutionEngine
 from brain.runtime.improvement import ImprovementOrchestrator
 from brain.runtime.performance import PerformanceEngine
@@ -127,11 +127,13 @@ from brain.runtime.orchestrator_services import (
     SessionService,
 )
 from brain.runtime.reasoning import ReasoningEngine
+from brain.runtime.milestone_tracker import MilestoneTracker
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningEngine, PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
 from brain.runtime.self_repair import RepairStatus, SelfRepairLoop
 from brain.runtime.self_repair.repair_policy import RepairPolicyEngine
+from brain.runtime.session_manager import SessionManager
 from brain.runtime.session_store import SessionStore
 from brain.runtime.simulation import ActionSimulator, SimulationStore
 from brain.runtime.specialists import SpecialistCoordinator
@@ -303,6 +305,7 @@ class BrainOrchestrator:
 
     def __init__(self, paths: BrainPaths) -> None:
         self.paths = paths
+        self.session_manager = SessionManager(paths)
         self._closed = False
         self.hybrid_memory = HybridMemory(paths.memory_dir)
         memory_log_dir = paths.root / ".logs" / "fusion-runtime"
@@ -420,11 +423,22 @@ class BrainOrchestrator:
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
         self.controlled_evolution_engine = ControlledEvolutionEngine(self.paths.root)
+        self.evolution_controller = EvolutionController(
+            evolution_executor=self.evolution_executor,
+            controlled_evolution_engine=self.controlled_evolution_engine,
+        )
         self.improvement_orchestrator = ImprovementOrchestrator(self.paths.root)
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
         )
+        self.swarm_coordinator = SwarmCoordinator(
+            swarm_orchestrator=self.swarm_orchestrator,
+            performance_engine=self.performance_engine,
+            policy_router=self.policy_router,
+            experience_store=self.experience_store,
+        )
+        self.milestone_tracker = MilestoneTracker()
 
     def close(self) -> None:
         if self._closed:
@@ -550,16 +564,12 @@ class BrainOrchestrator:
         return response
 
     def run(self, message: str, *, bridge: dict[str, Any] | None = None) -> str:
-        self._runtime_bridge = dict(bridge) if isinstance(bridge, dict) else {}
-        byok_state = extract_session_byok_bridge(self._runtime_bridge)
-        self._session_byok_active = bool(byok_state.get("active"))
-        self._session_provider_preference = byok_state.get("provider") if isinstance(byok_state.get("provider"), str) else None
-        self._session_provider_env_overlay = (
-            dict(byok_state.get("env_overlay")) if isinstance(byok_state.get("env_overlay"), dict) else {}
-        )
-        self._session_byok_error_reason = (
-            str(byok_state.get("error_reason")) if byok_state.get("error_reason") else None
-        )
+        self.session_manager.initialize_from_bridge(bridge)
+        self._runtime_bridge = self.session_manager.get_bridge()
+        self._session_byok_active = self.session_manager.get_byok_active()
+        self._session_provider_preference = self.session_manager.get_provider_preference()
+        self._session_provider_env_overlay = self.session_manager.get_provider_env_overlay()
+        self._session_byok_error_reason = self.session_manager.get_byok_error_reason()
         self._pending_policy_hint_json = None
         self._last_phase41_policy_hint = None
         self._last_node_result_envelope = None
@@ -576,17 +586,7 @@ class BrainOrchestrator:
         if self._session_byok_error_reason:
             self.last_runtime_mode = "fallback"
             self.last_runtime_reason = self._session_byok_error_reason
-            return {
-                "response": SESSION_BYOK_PUBLIC_RESPONSE,
-                "stop_reason": self._session_byok_error_reason,
-                "error": {
-                    "failure_class": "BYOK_SESSION_INVALID",
-                    "message": "Session BYOK credentials are invalid or incomplete.",
-                    "reason": self._session_byok_error_reason,
-                },
-                "provider_failed": True,
-                "failure_class": "BYOK_SESSION_INVALID",
-            }
+            return self.session_manager.build_byok_error_response()
         strategy_state = self.strategy_updater.load_current_state()
         history_limit = int(strategy_state.get("memory_rules", {}).get("history_limit", DEFAULT_HISTORY_LIMIT))
         session_id = session_id()
@@ -1020,7 +1020,7 @@ class BrainOrchestrator:
             payload=dict(planning_payload),
         )
 
-        phase39_tuning = self.controlled_evolution_engine.store.read()
+        phase39_tuning = self.evolution_controller.load_phase39_tuning()
         try:
             dresult = self.task_decomposer.decompose(
                 execution_plan=dict(planning_payload["execution_plan"]),
@@ -1384,7 +1384,7 @@ class BrainOrchestrator:
                 },
             }
             phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
-            controlled_evolution_payload = self.controlled_evolution_engine.evaluate_turn(
+            controlled_evolution_payload = self.evolution_controller.evaluate_turn(
                 session_id=session_id,
                 evidence=evidence_bundle,
                 skip_apply=phase40_enable,
@@ -1704,10 +1704,8 @@ class BrainOrchestrator:
                 "current_mode": self.current_control_mode.value,
                 "current_execution_strategy": routing_decision.execution_strategy,
                 "active_target_files": active_target_files if isinstance(active_target_files, list) else [],
-                "current_milestones": (
-                    strategy_state.get("milestones", [])
-                    if isinstance(strategy_state, dict) and isinstance(strategy_state.get("milestones", []), list)
-                    else []
+                "current_milestones": self.milestone_tracker.get_current_milestones_from_strategy(
+                    strategy_state
                 ),
                 "context_budget_level": budget.budget_level,
             },
@@ -2269,7 +2267,7 @@ class BrainOrchestrator:
             repo_impact_analysis=execution_request.get("repo_impact_analysis"),
             verification_plan=execution_request.get("verification_plan"),
             verification_selection=execution_request.get("verification_selection"),
-            milestone_plan=execution_request.get("milestone_plan"),
+            milestone_plan=self.milestone_tracker.extract_milestone_plan(execution_request),
             engineering_review=execution_request.get("engineering_review"),
             engineering_workflow=execution_request.get("engineering_workflow"),
             operator_control_enabled=True,
@@ -3319,13 +3317,14 @@ class BrainOrchestrator:
         )
         self._last_strategy_performance_payload = dict(performance_payload)
         swarm_result = asyncio.run(
-            self.swarm_orchestrator.run(
+            self.swarm_coordinator.run(
                 message=runtime_message,
                 session_id=session_id,
                 memory_store=memory_store,
                 history=budgeted_history,
                 summary=summary,
                 capabilities=available_capabilities,
+                context_session=swarm_context,
                 executor=lambda payload: self._async_node_execution(
                     message=runtime_message,
                     memory_store=memory_store,
@@ -3725,7 +3724,7 @@ class BrainOrchestrator:
             "verification_plan": verification_plan or {},
             "verification_selection": verification_selection or {},
             "milestone_plan": milestone_plan or {},
-            "milestone_state": MilestoneManager(milestone_plan).initialize_state() if isinstance(milestone_plan, dict) else {},
+            "milestone_state": self.milestone_tracker.load_plan(milestone_plan),
             "engineering_review": engineering_review or {},
             "engineering_workflow": engineering_workflow or {},
             "workspace_state": {},
@@ -4766,11 +4765,10 @@ class BrainOrchestrator:
             engineering_tool=supports_engineering_tool(str(action.get("selected_tool", ""))),
             primary_result=result,
         )
-        evolution_update = self.evolution_executor.evaluate(
+        evolution_update = self.evolution_controller.evaluate(
             learning_update=None,
             orchestration_update=orchestration_update,
             result=result,
-            continuation_payload=decision.as_dict(),
             goal=self.planning_executor.goal_for_plan(updated_plan),
         )
         learning_update = self.learning_executor.ingest_runtime_artifacts(
@@ -5557,7 +5555,7 @@ class BrainOrchestrator:
         }
         result["selected_tool"] = current_action.get("selected_tool")
         result["selected_agent"] = current_action.get("selected_agent")
-        result["milestone_id"] = current_action.get("milestone_id")
+        result["milestone_id"] = self.milestone_tracker.extract_milestone_id(current_action)
         result["action"] = current_action
         result["evaluation"] = correction_events[-1] if correction_events else {
             "decision": "stop_failed",
@@ -5587,7 +5585,7 @@ class BrainOrchestrator:
                 run_id=run_id,
                 payload=learning_update,
             )
-        evolution_update = self.evolution_executor.evaluate(
+        evolution_update = self.evolution_controller.evaluate(
             learning_update=learning_update,
             orchestration_update=pre_execution_orchestration,
             result=result,

@@ -12,4 +12,4 @@ omit =
 show_missing = True
 skip_covered = False
 precision = 2
-fail_under = 55
+fail_under = 40

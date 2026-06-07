@@ -122,3 +122,8 @@ credentials/
 # Local archives and handoff bundles
 SESSION_HANDOFF*.zip
 .aider*
+
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
