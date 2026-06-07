@@ -26,6 +26,10 @@ executors:
     docker:
       - image: cimg/base:2025.04
     resource_class: medium
+  python-executor:
+    docker:
+      - image: cimg/python:3.11-node
+    resource_class: medium
   docker-executor:
     docker:
       - image: cimg/base:2025.04
@@ -59,6 +63,7 @@ commands:
       - python/install-packages:
           cache-version: v1-python
           pkg-manager: pip
+          pip-dependency-file: backend/python/requirements.txt
 
   setup-rust:
     steps:
@@ -94,7 +99,7 @@ jobs:
   # Lint & Static Checks
   # -----------------------------------------------------------------------
   lint:
-    executor: omni-executor
+    executor: python-executor
     steps:
       - checkout
       - install-root-npm
@@ -143,7 +148,7 @@ jobs:
   # Python Tests with Coverage
   # -----------------------------------------------------------------------
   python-tests:
-    executor: omni-executor
+    executor: python-executor
     steps:
       - checkout
       - install-python-deps
@@ -212,7 +217,7 @@ jobs:
   # Security — Audit, Regression, Secret Scan
   # -----------------------------------------------------------------------
   security:
-    executor: omni-executor
+    executor: python-executor
     steps:
       - checkout
       - install-root-npm
@@ -237,9 +242,7 @@ jobs:
     executor: docker-executor
     steps:
       - checkout
-      - setup_remote_docker:
-          version: 24.0.9
-          docker_layer_caching: true
+      - setup_remote_docker
       - run:
           name: Build demo Docker image
           command: docker build -f Dockerfile.demo -t omni-demo:ci .
@@ -274,8 +277,10 @@ jobs:
       - run:
           name: Install Gitleaks
           command: |
-            wget -q https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -O /usr/local/bin/gitleaks
-            chmod +x /usr/local/bin/gitleaks
+            GITLEAKS_VERSION=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+            wget -q "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -O /tmp/gitleaks.tar.gz
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+            sudo install -m 755 /tmp/gitleaks /usr/local/bin/gitleaks
       - run:
           name: Run Gitleaks
           command: gitleaks detect --no-git --verbose || true
