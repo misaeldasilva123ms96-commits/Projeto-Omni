@@ -35,7 +35,22 @@ class NodeRuntimeDelegationExecutor(StrategyExecutorBase):
                 reason=failure_reason or "node_runtime_callback_missing",
                 response_text=request.node_fallback_response,
             )
+        
+        # Check if synthesis is needed (Node returned bridge without actions)
+        orchestrator = getattr(request.context, 'orchestrator', None) if request.context else None
+        # We can't easily access orchestrator here, so check if raw_result indicates synthesis needed
+        # The orchestrator will handle synthesis in compat_execute if node_execute returns bridge without actions
+        
         response_text = str(raw_result.get("response", "") or "").strip() or request.node_fallback_response or request.fallback_response
+        
+        # Check if Node returned bridge execution request without actions (needs synthesis)
+        node_hint_lane = raw_result.get("cognitive_runtime_hint", {}).get("lane", "") if isinstance(raw_result, dict) else ""
+        execution_request = raw_result.get("execution_request", {}) if isinstance(raw_result, dict) else {}
+        needs_synthesis = (
+            node_hint_lane == "node_execution_graph" 
+            and (not execution_request or not execution_request.get("actions"))
+        )
+        
         trace = self.build_trace(
             request,
             status="success",
@@ -47,6 +62,7 @@ class NodeRuntimeDelegationExecutor(StrategyExecutorBase):
             metadata={
                 "delegation_path": "node_runtime_bridge",
                 "execution_path_used": execution_path_used or "compatibility_execution",
+                "fetch_synthesis": needs_synthesis,  # Signal to compat_execute
             },
         )
         return StrategyExecutionResult(

@@ -1163,6 +1163,7 @@ class BrainOrchestrator:
                 predicted_intent=predicted_intent,
                 memory_store=memory_store,
                 available_capabilities=available_capabilities,
+                suggested_tools=suggested_capabilities,
                 extra_session={},
             ),
             local_tool_execute=lambda: self._execute_primary_local_tool_path(
@@ -1178,7 +1179,7 @@ class BrainOrchestrator:
                 memory_store=memory_store,
                 available_capabilities=available_capabilities,
             ),
-            compat_execute=lambda: self._execute_strategy_compatible_path(
+            compat_execute=lambda: self._execute_compat_with_synthesis(
                 session_id=sid,
                 runtime_message=runtime_message,
                 predicted_intent=predicted_intent,
@@ -1196,6 +1197,7 @@ class BrainOrchestrator:
                 budgeted_history=budgeted_history,
                 summary=summary,
                 available_capabilities=available_capabilities,
+                suggested_tools=suggested_capabilities,
                 memory_store=memory_store,
                 coordination_payload=coordination_payload,
             ),
@@ -2184,7 +2186,7 @@ class BrainOrchestrator:
                 "response_text_length": len(str(semantic.get("response_text", "") or "")),
                 "response_text_preview": str(semantic.get("response_text", "") or "")[:150],
                 "has_execution_request": isinstance(semantic.get("execution_request"), dict),
-                "has_actions": bool(semantic.get("execution_request", {}) if isinstance(semantic.get("execution_request"), dict) else {}).get("actions"),
+                "has_actions": bool(semantic.get("execution_request", {}).get("actions")) if isinstance(semantic.get("execution_request"), dict) else False,
                 "provider_actual": str(semantic.get("provider_actual", "") or ""),
             },
         )
@@ -2207,6 +2209,7 @@ class BrainOrchestrator:
         if semantic["semantic_lane"] in {LANE_LOCAL_DIRECT_RESPONSE, "matcher_shortcut"}:
             return semantic["response_text"]
         if semantic["semantic_lane"] == LANE_BRIDGE_EXECUTION_REQUEST:
+            # Return response text; execution will be handled by StrategyDispatcher via _execute_primary_node_path
             return semantic["response_text"]
 
         return self._execute_true_action_path(
@@ -2216,6 +2219,126 @@ class BrainOrchestrator:
             memory_store=memory_store,
             fallback_response_text=semantic["response_text"],
         )
+
+    def _should_synthesize_execution_request(self, message: str, available_capabilities: list[dict[str, str]], suggested_tools: list[str] | None = None) -> bool:
+        """Determine if we should synthesize execution_request when Node fails but tools are needed."""
+        msg = str(message or "").strip().lower()
+        # Keywords that strongly indicate tool execution is needed
+        tool_keywords = (
+            "leia", "ler", "read", "escreva", "escrever", "write",
+            "analise", "analisar", "execute", "executar", "rode", "rodar",
+            "liste", "listar", "ls", "dir", "busque", "procurar", "grep",
+            "crie", "criar", "create", "delete", "apague", "remova",
+            "git", "commit", "push", "pull", "status", "diff",
+        )
+        if not any(kw in msg for kw in tool_keywords):
+            return False
+        # Check if there are actual tools available
+        tool_names = set()
+        if suggested_tools:
+            tool_names.update(str(t).strip() for t in suggested_tools if str(t).strip())
+        if available_capabilities:
+            tool_names.update(str(cap.get("name", "")).strip() for cap in available_capabilities if cap.get("name"))
+        # Known tool names
+        known_tools = {"read_file", "filesystem_read", "glob_search", "grep_search", "write_file", "filesystem_write", "shell_command", "git_status", "git_diff", "git_commit", "package_manager"}
+        return bool(tool_names & known_tools)
+
+    def _synthesize_execution_request(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        available_capabilities: list[dict[str, str]],
+        suggested_tools: list[str] | None = None,
+        memory_store: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Synthesize an execution_request for tool execution when Node fails."""
+        import uuid
+        task_id = f"task-{uuid.uuid4().hex[:12]}"
+        run_id = f"run-{uuid.uuid4().hex[:12]}"
+        # Determine intent from message
+        msg = str(message or "").strip().lower()
+        if any(kw in msg for kw in ("leia", "ler", "read")):
+            intent = "file_read"
+        elif any(kw in msg for kw in ("escreva", "escrever", "write")):
+            intent = "file_write"
+        elif any(kw in msg for kw in ("analise", "analisar")):
+            intent = "analysis"
+        elif any(kw in msg for kw in ("liste", "listar", "ls", "dir")):
+            intent = "list_files"
+        elif any(kw in msg for kw in ("busque", "procurar", "grep")):
+            intent = "search"
+        else:
+            intent = "execution"
+        # Build actions from available capabilities - simple heuristic
+        actions = []
+        for cap in available_capabilities:
+            name = str(cap.get("name", "")).strip()
+            if not name:
+                continue
+            if "leia" in msg or "ler" in msg or "read" in msg:
+                if name in ("read_file", "filesystem_read"):
+                    # Extract file path from message
+                    import re
+                    file_match = re.search(r'([a-zA-Z0-9_./\-]+\.(?:json|md|py|js|ts|tsx|rs|toml|yaml|yml|txt))', message)
+                    target_path = file_match.group(1) if file_match else "package.json"
+                    actions.append({
+                        "action_id": f"{task_id}:1",
+                        "step_id": f"{task_id}:step:read",
+                        "strategy": "file_read",
+                        "selected_tool": name,
+                        "selected_agent": "researcher_agent",
+                        "permission_requirement": "allow_read_only",
+                        "approval_state": "approved",
+                        "execution_context": {"session_id": session_id, "task_id": task_id, "run_id": run_id},
+                        "tool_arguments": {"path": target_path},
+                    })
+            elif "liste" in msg or "listar" in msg or "ls" in msg:
+                if name in ("glob_search", "filesystem_read", "directory_tree"):
+                    actions.append({
+                        "action_id": f"{task_id}:1",
+                        "step_id": f"{task_id}:step:list",
+                        "strategy": "list_files",
+                        "selected_tool": name,
+                        "selected_agent": "researcher_agent",
+                        "permission_requirement": "allow_read_only",
+                        "approval_state": "approved",
+                        "execution_context": {"session_id": session_id, "task_id": task_id, "run_id": run_id},
+                        "tool_arguments": {"pattern": "**/*", "path": "."},
+                    })
+            else:
+                # Default: read_file for analysis, glob_search for exploration
+                # Extract file path from message if possible
+                import re
+                file_match = re.search(r'([a-zA-Z0-9_./\-]+\.(?:json|md|py|js|ts|tsx|rs|toml|yaml|yml|txt))', message)
+                target_path = file_match.group(1) if file_match else "package.json"
+                if name in ("read_file", "glob_search"):
+                    actions.append({
+                        "action_id": f"{task_id}:1",
+                        "step_id": f"{task_id}:step:default",
+                        "strategy": "default",
+                        "selected_tool": name,
+                        "selected_agent": "researcher_agent",
+                        "permission_requirement": "allow_read_only",
+                        "approval_state": "approved",
+                        "execution_context": {"session_id": session_id, "task_id": task_id, "run_id": run_id},
+                        "tool_arguments": {"path": target_path} if name == "read_file" else {"pattern": "**/*", "path": "."},
+                    })
+            # Limit to 2 actions max
+            actions = actions[:2]
+        return {
+            "task_id": task_id,
+            "run_id": run_id,
+            "mode": "python-rust-packaged",
+            "fallback_mode": None,
+            "message": message,
+            "intent": intent,
+            "provider": {"name": "local-heuristic"},
+            "actions": actions,
+            "delegation": {},
+            "critic_review": {},
+            "plan_kind": "linear",
+        }
 
     def _execute_true_action_path(
         self,
@@ -2227,6 +2350,15 @@ class BrainOrchestrator:
         fallback_response_text: str,
     ) -> str:
         actions = execution_request.get("actions", [])
+        # Inject runtime_mode into each action's execution_context for fast Rust bridge execution
+        # Override Node's python-rust-cargo with faster python-rust-packaged when binary available
+        runtime_mode = str(os.getenv("OMINI_EXECUTION_MODE", "python-rust-packaged")).strip()
+        if runtime_mode:
+            for action in actions:
+                if isinstance(action, dict):
+                    ec = action.setdefault("execution_context", {})
+                    if isinstance(ec, dict):
+                        ec["runtime_mode"] = runtime_mode
         task_id = str(execution_request.get("task_id", f"task-{session_id}"))
         run_id = coerce_runtime_run_id(
             run_id=str(execution_request.get("run_id", "")),
@@ -3042,6 +3174,7 @@ class BrainOrchestrator:
         predicted_intent: str,
         memory_store: dict[str, Any],
         available_capabilities: list[dict[str, str]],
+        suggested_tools: list[str] | None = None,
         extra_session: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._append_runtime_event(
@@ -3063,6 +3196,43 @@ class BrainOrchestrator:
         ).strip()
         node_outcome = getattr(self, "_last_node_outcome", None)
         semantic_lane = str((node_outcome or {}).get("semantic_lane", "") or "").strip()
+        
+        # Handle synthesis for tool-capable prompts when Node returns fallback or bridge without actions
+        if (not response_text or semantic_lane == LANE_SAFE_DEGRADED_FALLBACK or 
+            semantic_lane == LANE_BRIDGE_EXECUTION_REQUEST) and self._should_synthesize_execution_request(runtime_message, available_capabilities, suggested_tools):
+            synth_request = self._synthesize_execution_request(
+                message=runtime_message,
+                session_id=session_id,
+                available_capabilities=available_capabilities,
+                suggested_tools=suggested_tools,
+                memory_store=memory_store,
+            )
+            # Execute via true action path directly (bypasses StrategyDispatcher loop)
+            result_text = self._execute_true_action_path(
+                execution_request=synth_request,
+                session_id=session_id,
+                message=runtime_message,
+                memory_store=memory_store,
+                fallback_response_text=response_text or NODE_FALLBACK_RESPONSE,
+            )
+            # Build result from true action execution
+            primary_result = self._build_primary_node_result(
+                response_text=result_text,
+                predicted_intent=predicted_intent,
+            )
+            self._append_runtime_event(
+                event_type="runtime.execution.primary_path",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "strategy_selected": "primary_node_execution_synthesized",
+                    "execution_path_used": "synthesized_true_action",
+                    "fallback_triggered": False,
+                },
+            )
+            return primary_result
+        
         if not response_text or semantic_lane == LANE_SAFE_DEGRADED_FALLBACK:
             self._append_runtime_event(
                 event_type="runtime.execution.primary_path",
@@ -3204,6 +3374,80 @@ class BrainOrchestrator:
             metadata["execution_path"] = "primary_planner_execution"
             primary_result["metadata"] = metadata
         return primary_result
+
+    def _execute_compat_with_synthesis(
+        self,
+        *,
+        session_id: str,
+        runtime_message: str,
+        predicted_intent: str,
+        direct_response: str,
+        strategy_payload: dict[str, Any] | None,
+        planning_payload: dict[str, Any],
+        reasoning_handoff: dict[str, Any],
+        reasoning_payload: dict[str, Any],
+        memory_context: dict[str, Any],
+        memory_context_payload: dict[str, Any],
+        control_execution_summary: dict[str, Any],
+        context_budget: Any,
+        retrieval_plan: Any,
+        phase39_tuning: dict[str, Any],
+        budgeted_history: list[dict[str, Any]],
+        summary: str,
+        available_capabilities: list[dict[str, str]],
+        suggested_tools: list[str] | None,
+        memory_store: dict[str, Any],
+        coordination_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute compatibility path with synthesis for tool-capable prompts when Node fails."""
+        # Check if we should synthesize execution_request for tool-capable prompts
+        if self._should_synthesize_execution_request(runtime_message, available_capabilities, suggested_tools):
+            synth_request = self._synthesize_execution_request(
+                message=runtime_message,
+                session_id=session_id,
+                available_capabilities=available_capabilities,
+                suggested_tools=suggested_tools,
+                memory_store=memory_store,
+            )
+            # Execute via true action path (Rust bridge)
+            result_text = self._execute_true_action_path(
+                execution_request=synth_request,
+                session_id=session_id,
+                message=runtime_message,
+                memory_store=memory_store,
+                fallback_response_text=direct_response or NODE_FALLBACK_RESPONSE,
+            )
+            # Build result from true action execution
+            compat_result = self._build_primary_node_result(
+                response_text=result_text,
+                predicted_intent=predicted_intent,
+            )
+            compat_result["metadata"] = compat_result.get("metadata", {})
+            compat_result["metadata"]["execution_path"] = "compat_synthesized_true_action"
+            return compat_result
+        
+        # Fall back to original compatibility path
+        return self._execute_strategy_compatible_path(
+            session_id=session_id,
+            runtime_message=runtime_message,
+            predicted_intent=predicted_intent,
+            direct_response=direct_response,
+            strategy_payload=strategy_payload,
+            planning_payload=planning_payload,
+            reasoning_handoff=reasoning_handoff,
+            reasoning_payload=reasoning_payload,
+            memory_context=memory_context,
+            memory_context_payload=memory_context_payload,
+            control_execution_summary=control_execution_summary,
+            context_budget=context_budget,
+            retrieval_plan=retrieval_plan,
+            phase39_tuning=phase39_tuning,
+            budgeted_history=budgeted_history,
+            summary=summary,
+            available_capabilities=available_capabilities,
+            memory_store=memory_store,
+            coordination_payload=coordination_payload,
+        )
 
     def _execute_strategy_compatible_path(
         self,
@@ -3424,10 +3668,22 @@ class BrainOrchestrator:
             run_id=run_id,
             payload=dispatch_payload,
         )
+        # Wrap compat_execute to handle synthesis when NodeRuntimeDelegation returns bridge without actions
+        original_compat = compat_execute
+        def compat_with_synthesis():
+            compat_result = original_compat() if original_compat else {}
+            # Check if NodeRuntimeDelegation returned bridge without actions (needs synthesis)
+            if (isinstance(compat_result, dict) and 
+                isinstance(compat_result.get("trace"), dict) and
+                compat_result.get("trace", {}).get("metadata", {}).get("fetch_synthesis", False)):
+                # Signal synthesis needed - return empty to trigger fallback to compat_with_synthesis
+                return {"fetch_synthesis": True}
+            return compat_result
+        
         try:
             result = self.strategy_dispatcher.dispatch(
                 request,
-                compat_execute=compat_execute,
+                compat_execute=compat_with_synthesis,
                 node_execute=node_execute,
                 local_tool_execute=local_tool_execute,
                 planner_execute=planner_execute,

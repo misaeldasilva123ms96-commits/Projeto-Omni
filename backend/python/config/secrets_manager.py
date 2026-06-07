@@ -103,12 +103,14 @@ def build_controlled_os_environ_base() -> dict[str, str]:
     Minimal inherited process environment for Node subprocesses.
 
     Does not copy the full parent environ (reduces accidental leak surface).
+    Includes essential Windows variables for Node.js crypto initialization.
     """
     env: dict[str, str] = {}
     path_val = os.environ.get("PATH") or os.environ.get("Path")
     if path_val:
         env["PATH"] = str(path_val)
-    for key in (
+    # Essential Windows variables for Node.js subprocesses (incl. crypto)
+    essential_keys = (
         "PATHEXT",
         "COMSPEC",
         "SystemRoot",
@@ -123,7 +125,35 @@ def build_controlled_os_environ_base() -> dict[str, str]:
         "PYTHONPATH",
         "NODE_PATH",
         "NODE_OPTIONS",
-    ):
+        # Additional Windows essentials for Node.js crypto
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "SYSTEMDRIVE",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+        "PROCESSOR_ARCHITECTURE",
+        "PROCESSOR_IDENTIFIER",
+        "PROCESSOR_LEVEL",
+        "PROCESSOR_REVISION",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "PROGRAMW6432",
+        "PUBLIC",
+        "ALLUSERSPROFILE",
+        "COMMONPROGRAMFILES",
+        "COMMONPROGRAMFILES(X86)",
+        "COMMONPROGRAMW6432",
+        "COMPUTERNAME",
+        "USERDOMAIN",
+        "USERDOMAIN_ROAMING_PROFILE",
+        "USERNAME",
+        "LOGONSERVER",
+        "SESSIONNAME",
+    )
+    for key in essential_keys:
         val = os.environ.get(key)
         if val is not None and str(val).strip():
             env[key] = str(val)
