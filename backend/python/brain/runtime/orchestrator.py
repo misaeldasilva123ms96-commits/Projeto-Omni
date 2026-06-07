@@ -43,6 +43,7 @@ from brain.runtime.session_helpers import (
     safe_session_secret,
     session_id,
 )
+from brain.runtime.swarm_coordinator import SwarmCoordinator
 from brain.runtime.serializers import (
     budget_to_dict,
     bundle_to_dict,
@@ -424,6 +425,12 @@ class BrainOrchestrator:
         self.self_repair_loop = SelfRepairLoop(
             workspace_root=self.paths.root,
             policy=self._self_repair_policy(),
+        )
+        self.swarm_coordinator = SwarmCoordinator(
+            swarm_orchestrator=self.swarm_orchestrator,
+            performance_engine=self.performance_engine,
+            policy_router=self.policy_router,
+            experience_store=self.experience_store,
         )
 
     def close(self) -> None:
@@ -3305,13 +3312,14 @@ class BrainOrchestrator:
         )
         self._last_strategy_performance_payload = dict(performance_payload)
         swarm_result = asyncio.run(
-            self.swarm_orchestrator.run(
+            self.swarm_coordinator.run(
                 message=runtime_message,
                 session_id=session_id,
                 memory_store=memory_store,
                 history=budgeted_history,
                 summary=summary,
                 capabilities=available_capabilities,
+                context_session=swarm_context,
                 executor=lambda payload: self._async_node_execution(
                     message=runtime_message,
                     memory_store=memory_store,
