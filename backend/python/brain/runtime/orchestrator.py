@@ -127,6 +127,7 @@ from brain.runtime.orchestrator_services import (
     SessionService,
 )
 from brain.runtime.reasoning import ReasoningEngine
+from brain.runtime.milestone_tracker import MilestoneTracker
 from brain.runtime.milestone_manager import MilestoneManager
 from brain.runtime.planning import PlanningEngine, PlanningExecutor
 from brain.runtime.pr_summary_generator import build_pr_summary
@@ -437,6 +438,7 @@ class BrainOrchestrator:
             policy_router=self.policy_router,
             experience_store=self.experience_store,
         )
+        self.milestone_tracker = MilestoneTracker()
 
     def close(self) -> None:
         if self._closed:
@@ -1702,10 +1704,8 @@ class BrainOrchestrator:
                 "current_mode": self.current_control_mode.value,
                 "current_execution_strategy": routing_decision.execution_strategy,
                 "active_target_files": active_target_files if isinstance(active_target_files, list) else [],
-                "current_milestones": (
-                    strategy_state.get("milestones", [])
-                    if isinstance(strategy_state, dict) and isinstance(strategy_state.get("milestones", []), list)
-                    else []
+                "current_milestones": self.milestone_tracker.get_current_milestones_from_strategy(
+                    strategy_state
                 ),
                 "context_budget_level": budget.budget_level,
             },
@@ -2267,7 +2267,7 @@ class BrainOrchestrator:
             repo_impact_analysis=execution_request.get("repo_impact_analysis"),
             verification_plan=execution_request.get("verification_plan"),
             verification_selection=execution_request.get("verification_selection"),
-            milestone_plan=execution_request.get("milestone_plan"),
+            milestone_plan=self.milestone_tracker.extract_milestone_plan(execution_request),
             engineering_review=execution_request.get("engineering_review"),
             engineering_workflow=execution_request.get("engineering_workflow"),
             operator_control_enabled=True,
@@ -3724,7 +3724,7 @@ class BrainOrchestrator:
             "verification_plan": verification_plan or {},
             "verification_selection": verification_selection or {},
             "milestone_plan": milestone_plan or {},
-            "milestone_state": MilestoneManager(milestone_plan).initialize_state() if isinstance(milestone_plan, dict) else {},
+            "milestone_state": self.milestone_tracker.load_plan(milestone_plan),
             "engineering_review": engineering_review or {},
             "engineering_workflow": engineering_workflow or {},
             "workspace_state": {},
@@ -5555,7 +5555,7 @@ class BrainOrchestrator:
         }
         result["selected_tool"] = current_action.get("selected_tool")
         result["selected_agent"] = current_action.get("selected_agent")
-        result["milestone_id"] = current_action.get("milestone_id")
+        result["milestone_id"] = self.milestone_tracker.extract_milestone_id(current_action)
         result["action"] = current_action
         result["evaluation"] = correction_events[-1] if correction_events else {
             "decision": "stop_failed",
