@@ -439,6 +439,17 @@ class BrainOrchestrator:
             experience_store=self.experience_store,
         )
         self.milestone_tracker = MilestoneTracker()
+        self._primary_path_metrics: dict[str, int] = {
+            "attempts": 0,
+            "successes": 0,
+            "fallbacks": 0,
+            "exit_A_configured_fallback": 0,
+            "exit_B_transport_failure": 0,
+            "exit_C_semantic_fallback": 0,
+            "exit_D_direct_success": 0,
+            "exit_D_bridge_success": 0,
+            "exit_D_action_success": 0,
+        }
 
     def close(self) -> None:
         if self._closed:
@@ -2086,6 +2097,7 @@ class BrainOrchestrator:
         session_id: str,
         extra_session: dict[str, Any] | None = None,
     ) -> str:
+        _call_start = time.monotonic()
         self._load_dotenv_once()
         self._last_node_result_envelope = None
         self._last_node_cognitive_hint = None
@@ -2104,6 +2116,15 @@ class BrainOrchestrator:
                 reason_code="configured_fallback_mode",
                 details={"message_preview": message[:120]},
             )
+            self._record_node_call_exit(
+                session_id=session_id,
+                exit_point="A",
+                fallback_reason="configured_fallback_mode",
+                call_start=_call_start,
+            )
+            self._primary_path_metrics["attempts"] += 1
+            self._primary_path_metrics["exit_A_configured_fallback"] += 1
+            self._primary_path_metrics["fallbacks"] += 1
             return NODE_FALLBACK_RESPONSE
 
         diagnostics = self._resolve_node_command_context(payload="")
@@ -2168,6 +2189,16 @@ class BrainOrchestrator:
                 reason_code=self.last_runtime_reason,
                 details=transport.details,
             )
+            self._record_node_call_exit(
+                session_id=session_id,
+                exit_point="B",
+                fallback_reason=str(transport.reason_code or "subprocess_exception"),
+                transport=transport,
+                call_start=_call_start,
+            )
+            self._primary_path_metrics["attempts"] += 1
+            self._primary_path_metrics["exit_B_transport_failure"] += 1
+            self._primary_path_metrics["fallbacks"] += 1
             return NODE_FALLBACK_RESPONSE
 
         parsed = transport.parsed
@@ -2202,22 +2233,124 @@ class BrainOrchestrator:
                 reason_code=self.last_runtime_reason,
                 details={},
             )
+            self._record_node_call_exit(
+                session_id=session_id,
+                exit_point="C",
+                fallback_reason=str(semantic.get("reason_code", "semantic_fallback")),
+                transport=transport,
+                semantic=semantic,
+                parsed=parsed,
+                call_start=_call_start,
+            )
+            self._primary_path_metrics["attempts"] += 1
+            self._primary_path_metrics["exit_C_semantic_fallback"] += 1
+            self._primary_path_metrics["fallbacks"] += 1
             return NODE_FALLBACK_RESPONSE
 
         self.last_runtime_mode = "live"
         execution_request = semantic["execution_request"]
         if semantic["semantic_lane"] in {LANE_LOCAL_DIRECT_RESPONSE, "matcher_shortcut"}:
-            return semantic["response_text"]
+            response_text = semantic["response_text"]
+            self._record_node_call_exit(
+                session_id=session_id,
+                exit_point="D_direct",
+                fallback_reason="",
+                transport=transport,
+                semantic=semantic,
+                parsed=parsed,
+                response_returned=response_text,
+                call_start=_call_start,
+            )
+            self._primary_path_metrics["attempts"] += 1
+            self._primary_path_metrics["exit_D_direct_success"] += 1
+            self._primary_path_metrics["successes"] += 1
+            return response_text
         if semantic["semantic_lane"] == LANE_BRIDGE_EXECUTION_REQUEST:
             # Return response text; execution will be handled by StrategyDispatcher via _execute_primary_node_path
-            return semantic["response_text"]
+            response_text = semantic["response_text"]
+            self._record_node_call_exit(
+                session_id=session_id,
+                exit_point="D_bridge",
+                fallback_reason="",
+                transport=transport,
+                semantic=semantic,
+                parsed=parsed,
+                response_returned=response_text,
+                call_start=_call_start,
+            )
+            self._primary_path_metrics["attempts"] += 1
+            self._primary_path_metrics["exit_D_bridge_success"] += 1
+            self._primary_path_metrics["successes"] += 1
+            return response_text
 
-        return self._execute_true_action_path(
+        result = self._execute_true_action_path(
             execution_request=execution_request,
             session_id=session_id,
             message=message,
             memory_store=memory_store,
             fallback_response_text=semantic["response_text"],
+        )
+        self._record_node_call_exit(
+            session_id=session_id,
+            exit_point="D_action",
+            fallback_reason="",
+            transport=transport,
+            semantic=semantic,
+            parsed=parsed,
+            response_returned=result,
+            call_start=_call_start,
+        )
+        self._primary_path_metrics["attempts"] += 1
+        self._primary_path_metrics["exit_D_action_success"] += 1
+        self._primary_path_metrics["successes"] += 1
+        return result
+
+    def _record_node_call_exit(
+        self,
+        session_id: str,
+        exit_point: str,
+        fallback_reason: str,
+        transport: Any = None,
+        semantic: dict[str, Any] | None = None,
+        parsed: dict[str, Any] | None = None,
+        response_returned: str = "",
+        call_start: float | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "exit_point": exit_point,
+            "fallback_reason": fallback_reason,
+        }
+        if call_start is not None:
+            payload["elapsed_seconds"] = round(time.monotonic() - call_start, 3)
+        if transport is not None:
+            payload["transport_ok"] = transport.ok
+            payload["transport_stage"] = transport.stage
+            payload["transport_reason_code"] = transport.reason_code
+        if isinstance(semantic, dict):
+            payload["semantic_fallback"] = bool(semantic.get("fallback", True))
+            payload["semantic_lane"] = str(semantic.get("semantic_lane", "") or "")
+            payload["semantic_reason_code"] = str(semantic.get("reason_code", "") or "")
+            payload["response_text_preview"] = str(semantic.get("response_text", "") or "")[:300]
+            payload["has_execution_request"] = isinstance(semantic.get("execution_request"), dict)
+            payload["has_actions"] = bool(
+                semantic.get("execution_request", {}).get("actions")
+                if isinstance(semantic.get("execution_request"), dict)
+                else False
+            )
+        if isinstance(parsed, dict):
+            payload["parsed_keys"] = [str(k) for k in parsed.keys()]
+            hint = parsed.get("cognitive_runtime_hint")
+            if isinstance(hint, dict):
+                payload["cognitive_hint_lane"] = str(hint.get("lane", "") or "")
+                payload["cognitive_hint_detail"] = str(hint.get("detail", "") or "")
+        if response_returned:
+            payload["response_returned_preview"] = response_returned[:300]
+        self._append_runtime_event(
+            event_type="runtime.node.call_exit",
+            session_id=session_id,
+            task_id="",
+            run_id="",
+            payload=payload,
         )
 
     def _should_synthesize_execution_request(self, message: str, available_capabilities: list[dict[str, str]], suggested_tools: list[str] | None = None) -> bool:
@@ -3263,6 +3396,16 @@ class BrainOrchestrator:
             },
         )
         return primary_result
+
+    def get_primary_path_success_rate(self) -> dict[str, Any]:
+        m = dict(self._primary_path_metrics)
+        attempts = m.get("attempts", 0)
+        successes = m.get("successes", 0)
+        fallbacks = m.get("fallbacks", 0)
+        m["fallback_rate_pct"] = round((fallbacks / attempts * 100) if attempts > 0 else 0.0, 1)
+        m["success_rate_pct"] = round((successes / attempts * 100) if attempts > 0 else 0.0, 1)
+        m["total_attempts"] = attempts
+        return m
 
     def _extract_local_tool_target(self, message: str) -> str:
         match = re.search(r"([A-Za-z0-9_./\\\\-]+\.(?:json|md|py|js|ts|tsx|rs|toml|yaml|yml))", str(message or ""))
