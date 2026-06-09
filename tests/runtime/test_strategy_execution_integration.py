@@ -17,6 +17,7 @@ from brain.runtime.observability.runtime_lane_classifier import (  # noqa: E402
     LANE_BRIDGE_EXECUTION_REQUEST,
     LANE_TRUE_ACTION_EXECUTION,
 )
+from brain.runtime.node_transport import NodeTransportResult  # noqa: E402
 
 
 class StrategyExecutionIntegrationTest(unittest.TestCase):
@@ -65,12 +66,15 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             os.environ["BASE_DIR"] = str(workspace_root)
             os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
             orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py"))
-            transport_payload = {
-                "ok": True,
-                "stage": "completed",
-                "reason_code": "success",
-                "stdout": '{"response":"ok"}',
-                "parsed": {
+            transport_payload = NodeTransportResult(
+                ok=True,
+                stage="completed",
+                reason_code="success",
+                stdout='{"response":"ok"}',
+                stderr="",
+                returncode=0,
+                details={},
+                parsed={
                     "response": "ok",
                     "execution_request": {
                         "task_id": "task-runtime-actions",
@@ -90,8 +94,7 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
                         }
                     },
                 },
-                "details": {},
-            }
+            )
             step_results = [
                 {
                     "ok": True,
@@ -106,7 +109,7 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             ]
             with (
                 patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
-                patch("brain.runtime.orchestrator.run_node_subprocess", return_value=transport_payload),
+                patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=transport_payload),
                 patch.object(BrainOrchestrator, "_execute_runtime_actions", return_value=step_results) as execute_actions,
             ):
                 response = orchestrator.run("analise o arquivo package.json")
@@ -127,12 +130,15 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             os.environ["BASE_DIR"] = str(workspace_root)
             os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
             orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py"))
-            transport_payload = {
-                "ok": True,
-                "stage": "completed",
-                "reason_code": "success",
-                "stdout": '{"response":"[execução_python_requerida] análise preparada"}',
-                "parsed": {
+            transport_payload = NodeTransportResult(
+                ok=True,
+                stage="completed",
+                reason_code="success",
+                stdout='{"response":"[execução_python_requerida] análise preparada"}',
+                stderr="",
+                returncode=0,
+                details={},
+                parsed={
                     "response": "[execução_python_requerida] análise preparada",
                     "execution_request": {"actions": []},
                     "metadata": {
@@ -141,11 +147,10 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
                         }
                     },
                 },
-                "details": {},
-            }
+            )
             with (
                 patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
-                patch("brain.runtime.orchestrator.run_node_subprocess", return_value=transport_payload),
+                patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=transport_payload),
                 patch.object(BrainOrchestrator, "_execute_runtime_actions") as execute_actions,
             ):
                 response = orchestrator.run("analise o arquivo package.json")

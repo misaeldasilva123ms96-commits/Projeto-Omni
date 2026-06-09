@@ -3270,6 +3270,8 @@ class BrainOrchestrator:
             return "NODE_EXECUTION"
         if selected_strategy == "MULTI_STEP_REASONING":
             return "PLANNER_EXECUTION"
+        if oil_intent in {"execute", "plan"} or output_mode == "structured":
+            return "NODE_EXECUTION"
         if selected_tools and "tool" in step_kinds and all(supports_engineering_tool(str(tool)) for tool in selected_tools):
             return "LOCAL_TOOL_EXECUTION"
         if len(step_plan) > 2 or str(getattr(routing_decision, "execution_strategy", "") or "").strip().lower() in {
@@ -3280,8 +3282,6 @@ class BrainOrchestrator:
             return "PLANNER_EXECUTION"
         if selected_strategy == "TOOL_ASSISTED" and selected_tools and "tool" in step_kinds:
             return "LOCAL_TOOL_EXECUTION" if all(supports_engineering_tool(str(tool)) for tool in selected_tools) else "NODE_EXECUTION"
-        if oil_intent in {"execute", "plan"} or output_mode == "structured":
-            return "NODE_EXECUTION"
         if "tool" in step_kinds:
             return "LOCAL_TOOL_EXECUTION"
         return "NODE_EXECUTION"
@@ -3363,9 +3363,12 @@ class BrainOrchestrator:
         node_outcome = getattr(self, "_last_node_outcome", None)
         semantic_lane = str((node_outcome or {}).get("semantic_lane", "") or "").strip()
         
-        # Handle synthesis for tool-capable prompts when Node returns fallback or bridge without actions
-        if (not response_text or semantic_lane == LANE_SAFE_DEGRADED_FALLBACK or 
-            semantic_lane == LANE_BRIDGE_EXECUTION_REQUEST) and self._should_synthesize_execution_request(runtime_message, available_capabilities, suggested_tools):
+        # Synthesize only when Node failed to produce a usable response. A successful
+        # bridge response without actions is runtime truth, not permission to execute.
+        if (
+            not response_text
+            or semantic_lane == LANE_SAFE_DEGRADED_FALLBACK
+        ) and self._should_synthesize_execution_request(runtime_message, available_capabilities, suggested_tools):
             synth_request = self._synthesize_execution_request(
                 message=runtime_message,
                 session_id=session_id,
@@ -3576,6 +3579,22 @@ class BrainOrchestrator:
         coordination_payload: dict[str, Any],
     ) -> dict[str, Any]:
         """Execute compatibility path with synthesis for tool-capable prompts when Node fails."""
+        node_outcome = getattr(self, "_last_node_outcome", None)
+        if (
+            isinstance(node_outcome, dict)
+            and str(node_outcome.get("semantic_lane", "") or "").strip() == LANE_BRIDGE_EXECUTION_REQUEST
+            and not bool(node_outcome.get("has_actions", False))
+        ):
+            node_envelope = getattr(self, "_last_node_result_envelope", None)
+            bridge_response = str(direct_response or "").strip()
+            if not bridge_response and isinstance(node_envelope, dict):
+                bridge_response = str(node_envelope.get("response", "") or "").strip()
+            bridge_response = bridge_response or str(node_outcome.get("response_text", "") or "").strip()
+            return self._build_primary_node_result(
+                response_text=bridge_response,
+                predicted_intent=predicted_intent,
+            )
+
         # Check if we should synthesize execution_request for tool-capable prompts
         if self._should_synthesize_execution_request(runtime_message, available_capabilities, suggested_tools):
             synth_request = self._synthesize_execution_request(
