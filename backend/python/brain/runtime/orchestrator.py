@@ -1213,6 +1213,39 @@ class BrainOrchestrator:
                 coordination_payload=coordination_payload,
             ),
         )
+        if not isinstance(self._last_strategy_performance_payload, dict) or not self._last_strategy_performance_payload:
+            perf_tid = "perf36-not-applied-" + hashlib.sha256(str(sid or "").encode("utf-8")).hexdigest()[:10]
+            performance_payload = {
+                "trace": {
+                    "trace_id": perf_tid,
+                    "session_id": sid,
+                    "cache_hit": False,
+                    "cache_key_fingerprint": "",
+                    "compression_applied": [],
+                    "estimated_bytes_before": 0,
+                    "estimated_bytes_after": 0,
+                    "estimated_bytes_saved": 0,
+                    "redundant_dict_copies_avoided": 0,
+                    "degraded": False,
+                    "error": "",
+                    "optimization_applied": False,
+                    "reason_code": "not_applied_primary_path",
+                },
+                "stats": {
+                    "steps_applied": [],
+                    "estimated_bytes_before": 0,
+                    "estimated_bytes_after": 0,
+                    "estimated_bytes_saved": 0,
+                },
+            }
+            self._append_runtime_event(
+                event_type="runtime.performance_optimization.trace",
+                session_id=sid,
+                task_id="",
+                run_id="",
+                payload=dict(performance_payload),
+            )
+            self._last_strategy_performance_payload = dict(performance_payload)
         control_metadata["strategy_execution"] = dict(strategy_execution)
         swarm_result = dict(strategy_execution.get("raw_result") or {})
         if not swarm_result:
