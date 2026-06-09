@@ -13,6 +13,7 @@ from brain.runtime.diagnostics.debug_node_primary_path import (
     _colorize,
     _detect_env,
     _import_or_fail,
+    _redact,
     print_debug_report,
 )
 
@@ -48,6 +49,16 @@ class TestDetectEnv:
         assert "NODE_BIN" in env
         assert "OMINI_RUNTIME_MODE" in env
         assert "_node_on_path" in env
+
+
+class TestRedaction:
+    def test_redacts_secret_named_values(self) -> None:
+        assert _redact("super-secret-value", key="OPENAI_API_KEY") == "<redacted>"
+
+    def test_redacts_common_token_patterns_in_verbose_text(self) -> None:
+        output = _redact("Authorization: Bearer abcdefghijklmnopqrstuvwxyz", key="stdout")
+        assert "abcdefghijklmnopqrstuvwxyz" not in output
+        assert "Bearer <redacted>" in output
 
 
 class TestImportOrFail:

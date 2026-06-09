@@ -1,8 +1,11 @@
+"""DEV-ONLY diagnostic; do not paste verbose output publicly without redaction."""
+
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +19,16 @@ sys.path.insert(0, str(_PROJECT_ROOT / "backend" / "python"))
 
 HEADER = "=" * 72
 SUBHEADER = "-" * 72
+SECRET_KEY_PATTERN = re.compile(
+    r"(token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth|bearer)",
+    re.IGNORECASE,
+)
+SECRET_VALUE_PATTERN = re.compile(
+    r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}|"
+    r"(sk-[A-Za-z0-9_-]{12,})|"
+    r"(gh[pousr]_[A-Za-z0-9_]{12,})|"
+    r"(xox[baprs]-[A-Za-z0-9-]{12,})"
+)
 
 
 def _colorize(label: str, status: str) -> str:
@@ -28,6 +41,15 @@ def _colorize(label: str, status: str) -> str:
     if status in ("true_action_execution",):
         return f"\033[93m{label}\033[0m"
     return label
+
+
+def _redact(value: Any, *, key: str = "") -> str:
+    text = str(value or "")
+    if not text:
+        return text
+    if SECRET_KEY_PATTERN.search(str(key or "")):
+        return "<redacted>"
+    return SECRET_VALUE_PATTERN.sub(lambda match: (match.group(1) or "") + "<redacted>", text)
 
 
 def _import_or_fail(module_path: str, name: str):
@@ -72,10 +94,10 @@ def _print_env(env: dict[str, Any]) -> None:
         if k.startswith("_"):
             continue
         if v:
-            print(f"    {k} = {v}")
+            print(f"    {k} = {_redact(v, key=k)}")
         else:
             print(f"    {k} = \033[90m<not set>\033[0m")
-    print(f"    Node on PATH: {env.get('_node_on_path', 'unknown')}")
+    print(f"    Node on PATH: {_redact(env.get('_node_on_path', 'unknown'), key='_node_on_path')}")
 
 
 def print_debug_report(
@@ -201,8 +223,8 @@ def print_debug_report(
     print(f"\n  {SUBHEADER}")
     print("  SUBPROCESS EXECUTION")
     print(f"  {SUBHEADER}")
-    print(f"    Command: {' '.join(str(x) for x in diagnostics.get('command', []))}")
-    print(f"    CWD: {diagnostics.get('cwd', '')}")
+    print(f"    Command: {_redact(' '.join(str(x) for x in diagnostics.get('command', [])), key='command')}")
+    print(f"    CWD: {_redact(diagnostics.get('cwd', ''), key='cwd')}")
     print(f"    Payload size: {len(payload)} chars")
 
     transport = run_node_subprocess(
@@ -223,15 +245,15 @@ def print_debug_report(
     stderr = str(transport.get("stderr", "") or "")
     if verbose:
         print(f"\n    STDOUT ({len(stdout)} chars):")
-        print(f"      {stdout[:2000]}")
+        print(f"      {_redact(stdout[:2000], key='stdout')}")
         if stderr:
             print(f"\n    STDERR ({len(stderr)} chars):")
-            print(f"      {stderr[:2000]}")
+            print(f"      {_redact(stderr[:2000], key='stderr')}")
     else:
         print(f"    stdout: {len(stdout)} chars (use --verbose para ver o conteudo)")
         if stderr:
             print(f"    stderr: {len(stderr)} chars")
-            print(f"    \033[93mstderr preview: {stderr[:300]}\033[0m")
+            print(f"    \033[93mstderr preview: {_redact(stderr[:300], key='stderr')}\033[0m")
 
     parsed = transport.get("parsed")
     print(f"\n  {SUBHEADER}")
@@ -243,15 +265,15 @@ def print_debug_report(
         for k in keys:
             v = parsed[k]
             if isinstance(v, str):
-                print(f"    {k}: \"{v[:200]}\"")
+                print(f"    {k}: \"{_redact(v[:200], key=str(k))}\"")
             elif isinstance(v, dict):
                 print(f"    {k}: <dict, {len(v)} keys>")
             elif isinstance(v, list):
                 print(f"    {k}: <list, {len(v)} items>")
             else:
-                print(f"    {k}: {v}")
+                print(f"    {k}: {_redact(v, key=str(k))}")
         response_text = str(parsed.get("response", "") or "")
-        print(f"\n    response: \"{response_text[:300]}\"" + ("..." if len(response_text) > 300 else ""))
+        print(f"\n    response: \"{_redact(response_text[:300], key='response')}\"" + ("..." if len(response_text) > 300 else ""))
         exec_req = parsed.get("execution_request")
         if isinstance(exec_req, dict):
             actions = exec_req.get("actions", [])
@@ -259,7 +281,7 @@ def print_debug_report(
         hint = parsed.get("cognitive_runtime_hint")
         if isinstance(hint, dict):
             print(f"    cognitive_runtime_hint.lane: {hint.get('lane', 'N/A')}")
-            print(f"    cognitive_runtime_hint.detail: {str(hint.get('detail', ''))[:200]}")
+            print(f"    cognitive_runtime_hint.detail: {_redact(str(hint.get('detail', ''))[:200], key='cognitive_runtime_hint.detail')}")
     else:
         print(f"    \033[91mNot a dict: {type(parsed).__name__}\033[0m")
 
@@ -273,8 +295,8 @@ def print_debug_report(
     response_text_sem = str(semantic.get("response_text", "") or "")
     print(f"    semantic_lane: {_colorize(semantic_lane, semantic_lane)}")
     print(f"    fallback: {_colorize(str(is_fallback), 'fallback' if is_fallback else 'success')}")
-    print(f"    reason_code: {reason_code}")
-    print(f"    response_text ({len(response_text_sem)} chars): \"{response_text_sem[:300]}\"")
+    print(f"    reason_code: {_redact(reason_code, key='reason_code')}")
+    print(f"    response_text ({len(response_text_sem)} chars): \"{_redact(response_text_sem[:300], key='response_text')}\"")
 
     outcome = semantic.get("node_outcome")
     if isinstance(outcome, dict):
@@ -307,10 +329,10 @@ def print_debug_report(
         print(f"  \033[93m  Verifique cognitive_runtime_hint, execution_request e response text.\033[0m")
     elif not transport_ok:
         print(f"  {_colorize('PRIMARY PATH FALHOU (TRANSPORTE)', 'fallback')} — Subprocesso Node falhou.")
-        print(f"  Stage: {transport_stage}, Motivo: {transport_reason}")
+        print(f"  Stage: {_redact(transport_stage, key='transport_stage')}, Motivo: {_redact(transport_reason, key='transport_reason')}")
         print(f"  \033[93m  Diagnostico: O Node nao produziu saida valida. Verifique ambiente, logs e stderr.\033[0m")
         if stderr:
-            print(f"  \033[93m  stderr: {stderr[:500]}\033[0m")
+            print(f"  \033[93m  stderr: {_redact(stderr[:500], key='stderr')}\033[0m")
     else:
         print(f"  {_colorize('PRIMARY PATH FALHOU (DESCONHECIDO)', 'fallback')} — Nao foi possivel determinar a causa.")
 
