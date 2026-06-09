@@ -28,7 +28,7 @@ def _load_python_main_module():
 
 class BridgePipelineTest(unittest.TestCase):
     def test_session_byok_bridge_extracts_private_overlay(self) -> None:
-        from brain.runtime.orchestrator import _extract_session_byok_bridge
+        from brain.runtime.session_helpers import extract_session_byok_bridge as _extract_session_byok_bridge
 
         state = _extract_session_byok_bridge(
             {
@@ -53,7 +53,7 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertIsNone(state["error_reason"])
 
     def test_session_byok_bridge_rejects_deepseek_and_control_chars(self) -> None:
-        from brain.runtime.orchestrator import _extract_session_byok_bridge
+        from brain.runtime.session_helpers import extract_session_byok_bridge as _extract_session_byok_bridge
 
         state = _extract_session_byok_bridge(
             {
@@ -70,7 +70,7 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(state["error_reason"], "byok_provider_not_allowed")
 
     def test_session_byok_requires_matching_provider_preference(self) -> None:
-        from brain.runtime.orchestrator import _extract_session_byok_bridge
+        from brain.runtime.session_helpers import extract_session_byok_bridge as _extract_session_byok_bridge
 
         missing_preference = _extract_session_byok_bridge(
             {"session_provider_credentials": {"openai": {"api_key": "test-byok-key"}}}
@@ -86,7 +86,7 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(mismatch["error_reason"], "byok_credentials_missing_for_provider")
 
     def test_session_byok_requires_cloud_api_key(self) -> None:
-        from brain.runtime.orchestrator import _extract_session_byok_bridge
+        from brain.runtime.session_helpers import extract_session_byok_bridge as _extract_session_byok_bridge
 
         state = _extract_session_byok_bridge(
             {
@@ -104,9 +104,9 @@ class BridgePipelineTest(unittest.TestCase):
 
         orchestrator = BrainOrchestrator.__new__(BrainOrchestrator)
         orchestrator.js_runtime_adapter = SimpleNamespace(
-            build_env=lambda: ({"BASE_DIR": "project"}, SimpleNamespace(runtime_name="node"))
+            build_env=lambda: ({"BASE_DIR": "project"}, SimpleNamespace(runtime_name="node")),
+            select_runtime=lambda: SimpleNamespace(runtime_name="node", node_available=True, executable="node"),
         )
-        orchestrator._resolve_node_bin = lambda: "node"
         orchestrator._pending_policy_hint_json = None
         orchestrator._session_byok_active = True
         orchestrator._session_provider_preference = "openai"
@@ -131,9 +131,9 @@ class BridgePipelineTest(unittest.TestCase):
 
         orchestrator = BrainOrchestrator.__new__(BrainOrchestrator)
         orchestrator.js_runtime_adapter = SimpleNamespace(
-            build_env=lambda: ({"BASE_DIR": "project", "OPENAI_API_KEY": "system-key"}, SimpleNamespace(runtime_name="node"))
+            build_env=lambda: ({"BASE_DIR": "project", "OPENAI_API_KEY": "system-key"}, SimpleNamespace(runtime_name="node")),
+            select_runtime=lambda: SimpleNamespace(runtime_name="node", node_available=True, executable="node"),
         )
-        orchestrator._resolve_node_bin = lambda: "node"
         orchestrator._pending_policy_hint_json = None
 
         orchestrator._session_byok_active = True
@@ -168,9 +168,9 @@ class BridgePipelineTest(unittest.TestCase):
                     "OPENAI_API_KEY": "test-system-openai-key",
                 },
                 SimpleNamespace(runtime_name="node"),
-            )
+            ),
+            select_runtime=lambda: SimpleNamespace(runtime_name="node", node_available=True, executable="node"),
         )
-        orchestrator._resolve_node_bin = lambda: "node"
         orchestrator._pending_policy_hint_json = None
         orchestrator._session_byok_active = True
         orchestrator._session_provider_preference = "openai"
@@ -191,7 +191,7 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(os.environ.get("GROQ_API_KEY"), original_groq)
 
     def test_session_byok_invalid_bridge_returns_public_safe_reason(self) -> None:
-        from brain.runtime.orchestrator import _extract_session_byok_bridge
+        from brain.runtime.session_helpers import extract_session_byok_bridge as _extract_session_byok_bridge
 
         state = _extract_session_byok_bridge(
             {
