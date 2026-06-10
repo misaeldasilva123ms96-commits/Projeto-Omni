@@ -49,6 +49,8 @@ cargo test
 
 Do not run install commands or modify lockfiles unless a separate task explicitly approves that scope.
 
+Phase 4 policy classification can be used to evaluate command text before any future sandbox execution workflow. Classification is not execution and does not grant permission to run a command by itself.
+
 ## Check The Branch
 
 Use:

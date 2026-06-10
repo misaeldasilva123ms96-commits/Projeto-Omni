@@ -16,6 +16,8 @@ tags:
 
 This policy defines the initial boundaries for the local governed sandbox. The sandbox is a future execution boundary for safe validation, but this phase adds only documentation and configuration scaffolding.
 
+Phase 4 adds a command policy classifier for future sandbox execution planning. The classifier evaluates command text only. It does not execute commands, call MCP, invoke agents, make network requests, or change runtime behavior.
+
 ## Allowed Categories
 
 Allowed categories are limited to reviewed local validation:
