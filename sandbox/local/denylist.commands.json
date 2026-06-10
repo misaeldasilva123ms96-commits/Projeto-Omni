@@ -1,0 +1,121 @@
+[
+  {
+    "pattern": "git push origin main",
+    "category": "git-main-mutation",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Direct push to main is forbidden."
+  },
+  {
+    "pattern": "git merge",
+    "category": "git-history-mutation",
+    "risk_level": "high",
+    "blocked": true,
+    "reason": "Merges require the approved review process."
+  },
+  {
+    "pattern": "gh pr merge",
+    "category": "pull-request-mutation",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "PR merge must not be performed from the sandbox."
+  },
+  {
+    "pattern": "git reset --hard",
+    "category": "destructive-git",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Hard resets can destroy local work."
+  },
+  {
+    "pattern": "rm -rf",
+    "category": "destructive-filesystem",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Recursive deletion is destructive."
+  },
+  {
+    "pattern": "del /s",
+    "category": "destructive-filesystem",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Recursive deletion is destructive."
+  },
+  {
+    "pattern": "cat .env",
+    "category": "secret-exposure",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Reading local environment files may expose secrets."
+  },
+  {
+    "pattern": "type .env",
+    "category": "secret-exposure",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Reading local environment files may expose secrets."
+  },
+  {
+    "pattern": "printenv",
+    "category": "secret-exposure",
+    "risk_level": "high",
+    "blocked": true,
+    "reason": "Environment dumps may expose credentials."
+  },
+  {
+    "pattern": "env",
+    "category": "secret-exposure",
+    "risk_level": "high",
+    "blocked": true,
+    "reason": "Environment dumps may expose credentials."
+  },
+  {
+    "pattern": "npm publish",
+    "category": "external-publication",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Publishing packages is outside sandbox scope."
+  },
+  {
+    "pattern": "docker system prune",
+    "category": "destructive-docker",
+    "risk_level": "high",
+    "blocked": true,
+    "reason": "Docker pruning can remove unrelated local resources."
+  },
+  {
+    "pattern": "ssh",
+    "category": "remote-access",
+    "risk_level": "high",
+    "blocked": true,
+    "reason": "Remote shell access is outside sandbox scope."
+  },
+  {
+    "pattern": "scp",
+    "category": "remote-transfer",
+    "risk_level": "high",
+    "blocked": true,
+    "reason": "Remote file transfer is outside sandbox scope."
+  },
+  {
+    "pattern": "curl -H \"Authorization: Bearer",
+    "category": "network-secret-exposure",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Token-bearing network calls are forbidden."
+  },
+  {
+    "pattern": "curl --header \"Authorization:",
+    "category": "network-secret-exposure",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Header-bearing credential calls are forbidden."
+  },
+  {
+    "pattern": "~/.ssh",
+    "category": "host-secret-access",
+    "risk_level": "critical",
+    "blocked": true,
+    "reason": "Host SSH material must never be mounted or read."
+  }
+]

@@ -1,0 +1,26 @@
+# Local Governed Sandbox compose scaffold.
+# Do not mount host secrets, ~/.ssh, ~/.gitconfig, or user home directories.
+# Do not use this file for production deployment.
+
+services:
+  local-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: projeto-omni-local-sandbox:scaffold
+    env_file:
+      - .env.example
+    network_mode: "none"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    command: ["/bin/sh"]
+    # No ports are exposed. Add reviewed port mappings only if a future task requires them.
+    # No host volumes are mounted by default to avoid accidentally exposing secrets.

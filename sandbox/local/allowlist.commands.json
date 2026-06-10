@@ -1,0 +1,65 @@
+[
+  {
+    "command": "git status",
+    "category": "git-inspection",
+    "risk_level": "low",
+    "requires_approval": false,
+    "reason": "Read-only working tree inspection."
+  },
+  {
+    "command": "git diff",
+    "category": "git-inspection",
+    "risk_level": "low",
+    "requires_approval": false,
+    "reason": "Read-only change inspection."
+  },
+  {
+    "command": "git diff --check",
+    "category": "static-validation",
+    "risk_level": "low",
+    "requires_approval": false,
+    "reason": "Whitespace and patch sanity validation."
+  },
+  {
+    "command": "npm test",
+    "category": "test",
+    "risk_level": "medium",
+    "requires_approval": true,
+    "reason": "Project test execution may run scripts and should be reviewed first."
+  },
+  {
+    "command": "npm run test:security",
+    "category": "security-validation",
+    "risk_level": "medium",
+    "requires_approval": true,
+    "reason": "Security checks are allowed when they do not require secrets or network access."
+  },
+  {
+    "command": "npm run test:js-runtime",
+    "category": "runtime-validation",
+    "risk_level": "medium",
+    "requires_approval": true,
+    "reason": "Runtime-adjacent tests require explicit approval and must not use real secrets."
+  },
+  {
+    "command": "python -m pytest",
+    "category": "test",
+    "risk_level": "medium",
+    "requires_approval": true,
+    "reason": "Python test execution is allowed after confirming no secret-dependent tests are required."
+  },
+  {
+    "command": "pytest",
+    "category": "test",
+    "risk_level": "medium",
+    "requires_approval": true,
+    "reason": "Python test execution is allowed after confirming no secret-dependent tests are required."
+  },
+  {
+    "command": "cargo test",
+    "category": "test",
+    "risk_level": "medium",
+    "requires_approval": true,
+    "reason": "Rust test execution is allowed after confirming it is local and non-destructive."
+  }
+]
