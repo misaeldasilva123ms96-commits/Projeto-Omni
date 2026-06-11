@@ -22,6 +22,14 @@ Describe allowed files, commands, and boundaries.
 
 List command categories or specific approved commands. Do not include secrets.
 
+## Policy Decision Evidence
+
+- Governance decision:
+- Policy category:
+- Policy risk level:
+- Execution attempted:
+- Command executed:
+
 ## Results
 
 Summarize results and evidence.

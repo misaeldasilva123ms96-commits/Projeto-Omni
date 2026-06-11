@@ -21,6 +21,15 @@ State the observed fact.
 - Collection method:
 - Redaction notes:
 
+## Policy Decision Evidence
+
+- Event type:
+- Governance decision:
+- Execution attempted:
+- Command executed:
+- Network used:
+- Secrets detected:
+
 ## Interpretation
 
 Explain what the evidence may mean. Keep interpretation separate from observed fact.
