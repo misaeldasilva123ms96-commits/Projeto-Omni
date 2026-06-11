@@ -51,6 +51,8 @@ Do not run install commands or modify lockfiles unless a separate task explicitl
 
 Phase 4 policy classification can be used to evaluate command text before any future sandbox execution workflow. Classification is not execution and does not grant permission to run a command by itself.
 
+Phase 5 can record those classification decisions as Runtime Truth evidence. Evidence records the policy result and governance decision only. It does not execute the command.
+
 ## Check The Branch
 
 Use:
@@ -107,6 +109,10 @@ The report should include:
 
 - Branch.
 - Date.
+- Policy decision evidence.
+- Governance decision.
+- Execution attempted.
+- Command executed.
 - Commands reviewed.
 - Commands run.
 - Evidence collected.
