@@ -59,6 +59,10 @@ Phase 6 can render Runtime Truth evidence into Markdown sandbox report content a
 renderer does not save files automatically. A human must review and intentionally save any report that becomes
 governed vault knowledge.
 
+Phase 7 can read reviewed Markdown notes from the vault for safe local context inspection. This is read-only
+classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
+providers, or connect to agent automation.
+
 ## Check The Branch
 
 Use:

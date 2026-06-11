@@ -36,5 +36,6 @@ The vault is not runtime code and must not contain real secrets, API keys, token
 - Separate facts, interpretations, and decisions.
 - Store redacted summaries instead of sensitive raw logs.
 - Do not store secrets.
+- Treat runtime vault access as read-only unless a separate governed write policy is approved.
 - Do not add runtime code during documentation-only phases.
 - Do not push or merge directly to `main`.

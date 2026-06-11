@@ -108,6 +108,19 @@ Blocked:
 - Copied code from external projects.
 - Instructions that bypass governance controls.
 
+## Phase 7 Read-Only Access Layer
+
+The Phase 7 Vault access layer is a local, read-only reader for governed Markdown notes. It can parse approved or reviewed vault notes for safe context preparation, but it does not write files, create indexes, call providers, use MCP, execute commands, or inject context into agents automatically.
+
+Only notes with trusted review status are eligible for context:
+
+- `approved`
+- `reviewed`
+
+Notes with `draft`, `review`, `deprecated`, `archived`, missing frontmatter, non-Markdown extensions, path traversal attempts, invalid UTF-8, or secret-like content are blocked from context by default.
+
+The reader returns structured metadata, body text, frontmatter, redaction status, and a blocked reason when applicable. It is an access classification boundary only; human review still governs whether any vault knowledge may be used in a runtime or agent workflow.
+
 ## Runtime Truth Evidence Model
 
 Runtime Truth records must distinguish observation from interpretation.
