@@ -14,13 +14,20 @@ tags:
 
 ## Purpose
 
-This policy defines the initial boundaries for the local governed sandbox. The sandbox is a future execution boundary for safe validation, but this phase adds only documentation and configuration scaffolding.
+This policy defines the initial boundaries for the local governed sandbox. The sandbox is a future execution
+boundary for safe validation, but this phase adds only documentation and configuration scaffolding.
 
-Phase 4 adds a command policy classifier for future sandbox execution planning. The classifier evaluates command text only. It does not execute commands, call MCP, invoke agents, make network requests, or change runtime behavior.
+Phase 4 adds a command policy classifier for future sandbox execution planning. The classifier evaluates command
+text only. It does not execute commands, call MCP, invoke agents, make network requests, or change runtime
+behavior.
 
 Phase 5 records sandbox policy decisions as Runtime Truth evidence. Evidence captures the command text,
 normalized command, policy decision, governance decision, and safety defaults. It still does not execute
 commands, call MCP, invoke agents, or enable runtime integration.
+
+Phase 6 renders Markdown sandbox reports from Runtime Truth evidence. Reports are returned as content plus a
+suggested vault path only. This phase does not automatically write reports to the vault, and human review is
+required before saving reports as governed knowledge.
 
 ## Allowed Categories
 
@@ -105,6 +112,9 @@ interpretations, and decisions. Reports must not contain secrets or unredacted s
 Phase 5 evidence is limited to policy classification records. `execution_attempted` and `command_executed`
 remain false because command execution is still future and blocked.
 
+Phase 6 report rendering uses those evidence records to produce Markdown for review. The suggested vault path is
+metadata, not an automatic write.
+
 ## Governance Future Integration
 
 Future governance integration must require proposal, approval, scoped execution, audit output, and human review before results are accepted.
@@ -125,7 +135,8 @@ No agent may bypass command allowlists, denylist rules, human approval, or the n
 
 ## Public Demo Restrictions
 
-Public demos must use sanitized examples only. Do not demo with real secrets, private logs, production services, or unreviewed provider accounts.
+Public demos must use sanitized examples only. Do not demo with real secrets, private logs, production services,
+or unreviewed provider accounts.
 
 Do not claim runtime enforcement, MCP support, or agent automation exists until those capabilities are implemented and approved.
 
