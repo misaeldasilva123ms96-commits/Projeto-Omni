@@ -22,6 +22,10 @@ Phase 5 records sandbox policy decisions as Runtime Truth evidence. Evidence cap
 normalized command, policy decision, governance decision, and safety defaults. It still does not execute
 commands, call MCP, invoke agents, or enable runtime integration.
 
+Phase 6 renders Markdown sandbox reports from Runtime Truth evidence. Reports are returned as content plus a
+suggested vault path only. This phase does not automatically write reports to the vault, and human review is
+required before saving reports as governed knowledge.
+
 ## Allowed Categories
 
 Allowed categories are limited to reviewed local validation:
@@ -104,6 +108,9 @@ interpretations, and decisions. Reports must not contain secrets or unredacted s
 
 Phase 5 evidence is limited to policy classification records. `execution_attempted` and `command_executed`
 remain false because command execution is still future and blocked.
+
+Phase 6 report rendering uses those evidence records to produce Markdown for review. The suggested vault path is
+metadata, not an automatic write.
 
 ## Governance Future Integration
 

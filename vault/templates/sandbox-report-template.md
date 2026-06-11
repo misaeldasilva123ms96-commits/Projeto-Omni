@@ -24,11 +24,14 @@ List command categories or specific approved commands. Do not include secrets.
 
 ## Policy Decision Evidence
 
+- Event type:
 - Governance decision:
 - Policy category:
 - Policy risk level:
 - Execution attempted:
 - Command executed:
+- Suggested vault path:
+- Evidence version:
 
 ## Results
 
