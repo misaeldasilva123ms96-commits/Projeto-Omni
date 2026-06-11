@@ -160,7 +160,8 @@ def _render_markdown(
         f"- Normalized command: `{normalized_command}`",
         f"- Policy allowed: `{str(bool(payload.get('policy_allowed', False))).lower()}`",
         f"- Policy blocked: `{str(bool(payload.get('policy_blocked', True))).lower()}`",
-        f"- Requires approval: `{str(bool(payload.get('policy_requires_approval', True))).lower()}`",
+        "- Requires approval: "
+        f"`{str(bool(payload.get('policy_requires_approval', True))).lower()}`",
         "",
         "## Governance Decision",
         "",
@@ -175,7 +176,8 @@ def _render_markdown(
         "",
         "## Risks",
         "",
-        "The report is generated from policy evidence only. It does not prove command execution.",
+        "The report is generated from policy evidence only. "
+        "It does not prove command execution.",
         "",
         "## Next Recommended Action",
         "",
@@ -193,7 +195,9 @@ def _evidence_payload(evidence: Any) -> Mapping[str, object]:
     elif isinstance(evidence, Mapping):
         payload = dict(evidence)
     else:
-        raise TypeError("Evidence must be a mapping, dataclass, or object with to_dict().")
+        raise TypeError(
+            "Evidence must be a mapping, dataclass, or object with to_dict()."
+        )
     return payload
 
 

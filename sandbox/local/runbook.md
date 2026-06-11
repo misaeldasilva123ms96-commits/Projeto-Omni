@@ -49,7 +49,8 @@ cargo test
 
 Do not run install commands or modify lockfiles unless a separate task explicitly approves that scope.
 
-Phase 4 policy classification can be used to evaluate command text before any future sandbox execution workflow. Classification is not execution and does not grant permission to run a command by itself.
+Phase 4 policy classification can be used to evaluate command text before any future sandbox execution workflow.
+Classification is not execution and does not grant permission to run a command by itself.
 
 Phase 5 can record those classification decisions as Runtime Truth evidence. Evidence records the policy result
 and governance decision only. It does not execute the command.
@@ -108,7 +109,8 @@ gh pr merge
 
 ## Produce A Sandbox Report Later
 
-When governed reporting is approved, create a report under the approved vault or sandbox report path using the sandbox report template.
+When governed reporting is approved, create a report under the approved vault or sandbox report path using the
+sandbox report template.
 
 Phase 6 report rendering may suggest a path under `vault/09_Sandbox_Reports/`, but that suggestion is metadata
 only until a human review approves saving the report.
