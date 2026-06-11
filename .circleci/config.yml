@@ -168,6 +168,7 @@ jobs:
               tests/runtime/control tests/runtime/language \
               tests/runtime/observability \
               tests/runtime/test_orchestrator_decomposition.py \
+              tests/runtime/test_vault_readonly_access.py \
               --cov=brain --cov-config=.coveragerc \
               --cov-report=term-missing --cov-report=xml
       - notify-failure

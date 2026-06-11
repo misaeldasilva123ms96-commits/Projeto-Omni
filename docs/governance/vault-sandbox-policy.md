@@ -58,6 +58,29 @@ The vault must not store:
 - Runtime implementation code during this phase.
 - Copied code from external projects.
 
+## Vault Read-Only Access Policy
+
+The Phase 7 Vault reader may read local Markdown files under `vault/` for approved context review only. It must not write, edit, delete, rename, move, or generate vault notes at runtime.
+
+Allowed read behavior:
+
+- Read `.md` files that remain inside the configured vault root.
+- Parse YAML-style frontmatter and Markdown body text.
+- Return notes with `approved` or `reviewed` status as context-eligible.
+- Return blocked decisions for untrusted, malformed, non-Markdown, outside-root, or secret-like notes.
+
+Blocked behavior:
+
+- Automatic vault writing.
+- MCP access.
+- Provider calls.
+- Agent automation.
+- Runtime orchestrator integration.
+- Command execution.
+- Reading real `.env` files or local credentials.
+
+Vault read access is not permission to expose all vault content. The default decision is to block anything that is not explicitly reviewed and safe.
+
 ## Frontmatter Policy
 
 Substantive records should include frontmatter with:
