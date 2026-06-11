@@ -18,7 +18,9 @@ This policy defines the initial boundaries for the local governed sandbox. The s
 
 Phase 4 adds a command policy classifier for future sandbox execution planning. The classifier evaluates command text only. It does not execute commands, call MCP, invoke agents, make network requests, or change runtime behavior.
 
-Phase 5 records sandbox policy decisions as Runtime Truth evidence. Evidence captures the command text, normalized command, policy decision, governance decision, and safety defaults. It still does not execute commands, call MCP, invoke agents, or enable runtime integration.
+Phase 5 records sandbox policy decisions as Runtime Truth evidence. Evidence captures the command text,
+normalized command, policy decision, governance decision, and safety defaults. It still does not execute
+commands, call MCP, invoke agents, or enable runtime integration.
 
 ## Allowed Categories
 
@@ -97,9 +99,11 @@ Future mounts must be reviewed and constrained. Do not mount:
 
 ## Runtime Truth Future Integration
 
-Future Runtime Truth integration may record evidence-backed sandbox reports. Reports must separate facts, interpretations, and decisions. Reports must not contain secrets or unredacted sensitive logs.
+Future Runtime Truth integration may record evidence-backed sandbox reports. Reports must separate facts,
+interpretations, and decisions. Reports must not contain secrets or unredacted sensitive logs.
 
-Phase 5 evidence is limited to policy classification records. `execution_attempted` and `command_executed` remain false because command execution is still future and blocked.
+Phase 5 evidence is limited to policy classification records. `execution_attempted` and `command_executed`
+remain false because command execution is still future and blocked.
 
 ## Governance Future Integration
 
