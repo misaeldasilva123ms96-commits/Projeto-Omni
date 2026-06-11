@@ -121,6 +121,12 @@ Notes with `draft`, `review`, `deprecated`, `archived`, missing frontmatter, non
 
 The reader returns structured metadata, body text, frontmatter, redaction status, and a blocked reason when applicable. It is an access classification boundary only; human review still governs whether any vault knowledge may be used in a runtime or agent workflow.
 
+## Phase 8 MCP Read-Only Policy
+
+Phase 8 defines policy decisions for a future MCP read-only adapter. MCP remains disabled by default. No MCP server, MCP SDK, MCP client, provider context integration, command execution, network call, or vault write behavior is implemented in this phase.
+
+The only future read-only operation names considered by policy are `list_notes`, `read_note`, `search_notes`, and `get_frontmatter`. Write, delete, execute, provider, and network operation names are blocked.
+
 ## Runtime Truth Evidence Model
 
 Runtime Truth records must distinguish observation from interpretation.
