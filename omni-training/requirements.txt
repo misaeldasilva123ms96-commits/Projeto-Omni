@@ -1,5 +1,5 @@
 datasets>=4.8.5
-huggingface_hub>=1.17.0
+huggingface_hub>=1.19.0
 transformers>=5.10.1
 peft>=0.19.1
 accelerate>=1.13.0
