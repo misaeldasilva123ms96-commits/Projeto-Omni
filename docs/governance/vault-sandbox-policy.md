@@ -108,6 +108,8 @@ Runtime Truth records must separate:
 
 Future MCP access must start read-only. Write tools, command execution, provider mutation, and filesystem mutation are blocked until a separate governed write policy is approved and implemented.
 
+Phase 8 adds only MCP vault policy classification. MCP vault access remains disabled by default, and no MCP server or client is integrated. Human approval is required before enabling any future MCP read-only adapter.
+
 ## Future Governed Write Policy
 
 Future governed writes require:

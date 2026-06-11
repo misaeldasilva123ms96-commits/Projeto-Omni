@@ -63,6 +63,10 @@ Phase 7 can read reviewed Markdown notes from the vault for safe local context i
 classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
 providers, or connect to agent automation.
 
+Phase 8 can classify future MCP vault operation names against a read-only policy. MCP remains disabled by
+default. The policy does not start MCP, connect to MCP, call providers, call network APIs, execute commands, or
+write vault files.
+
 ## Check The Branch
 
 Use:
