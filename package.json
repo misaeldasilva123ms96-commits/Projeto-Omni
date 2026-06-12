@@ -39,7 +39,7 @@
     "node": ">=24 <25"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.107.0",
+    "@supabase/supabase-js": "^2.108.1",
     "ajv": "^8.17.1"
   },
   "devDependencies": {
