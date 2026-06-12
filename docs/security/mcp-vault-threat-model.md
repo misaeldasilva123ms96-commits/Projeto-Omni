@@ -57,3 +57,16 @@ Before any future MCP adapter is enabled, a human review must approve:
 - Audit logging.
 - Public demo restrictions.
 - Rollback plan.
+
+## Phase 9 Draft Write Policy Boundary
+
+Phase 9 does not enable MCP writes or vault writes. It only classifies future draft-note proposal requests.
+
+The policy blocks:
+
+- Trusted status escalation to `approved` or `reviewed`.
+- Final status requests such as `deprecated` or `archived`.
+- ADR, governance-policy, security-policy, contract, secret, and credential note types.
+- Path traversal, non-Markdown targets, `docs/` targets, `vault/08_ADR/` targets, and paths outside governed vault draft directories.
+- Secret-like content previews.
+- Command, provider, and network operations.

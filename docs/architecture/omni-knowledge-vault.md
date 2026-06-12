@@ -127,6 +127,14 @@ Phase 8 defines policy decisions for a future MCP read-only adapter. MCP remains
 
 The only future read-only operation names considered by policy are `list_notes`, `read_note`, `search_notes`, and `get_frontmatter`. Write, delete, execute, provider, and network operation names are blocked.
 
+## Phase 9 Governed Draft Write Policy
+
+Phase 9 defines policy decisions for future governed vault writing of draft notes only. It does not create, edit, delete, rename, move, or write any vault file.
+
+Automation may only propose draft notes for sandbox reports, runtime reports, incidents, session summaries, provider evaluations, and agent prompts. Automation cannot approve notes, set `approved` or `reviewed` status, edit approved or reviewed notes, modify ADRs, or modify governance and security policies.
+
+Vault writing remains disabled by default. MCP write access remains disabled, and public demos must not enable or imply automatic vault writing.
+
 ## Runtime Truth Evidence Model
 
 Runtime Truth records must distinguish observation from interpretation.
