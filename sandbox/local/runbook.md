@@ -67,6 +67,10 @@ Phase 8 can classify future MCP vault operation names against a read-only policy
 default. The policy does not start MCP, connect to MCP, call providers, call network APIs, execute commands, or
 write vault files.
 
+Phase 9 can classify future governed vault draft-write proposals. It does not write files. It only allows draft
+proposal decisions in `draft_only` mode and keeps writing disabled by default. Automation cannot approve notes,
+edit approved or reviewed notes, modify ADRs, modify governance policies, or enable MCP write access.
+
 ## Check The Branch
 
 Use:

@@ -124,6 +124,10 @@ Future governed writes require:
 
 No governed write policy may authorize direct push or merge to `main`.
 
+Phase 9 defines policy validation for future draft-note proposals only. It does not implement vault writing. Automation may suggest `draft` status only and must not set `approved`, `reviewed`, `deprecated`, or `archived`.
+
+Automation must not approve notes, edit approved or reviewed notes, modify ADRs, modify governance policies, modify security policies, attach files, write secrets, execute commands, call providers, or fetch network content. Human review remains required before any note becomes `approved` or `reviewed`.
+
 ## Agent Role Policy
 
 Hermes coordinates context and routing.
