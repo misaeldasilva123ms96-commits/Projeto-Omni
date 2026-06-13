@@ -47,3 +47,9 @@ to `blocked`, `dry_run`, `timed_out`, `executed_success`, or
 
 Secret-like output is redacted and marks the evidence as secret-bearing so
 human intervention is required.
+
+## Phase 18 Orchestration
+
+The Autonomous Test Runner Loop consumes this runner as its only execution
+boundary. The loop does not parse commands into operating-system execution or
+start commands directly.
