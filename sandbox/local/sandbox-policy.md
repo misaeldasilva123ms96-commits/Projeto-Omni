@@ -133,6 +133,10 @@ Codex may inspect, document, and validate within approved boundaries.
 
 No agent may bypass command allowlists, denylist rules, human approval, or the no-main policy.
 
+Phase 10 defines the agent workflow policy boundary. Agents are policy identities only. Advisory actions may be classified as proposals, supervised sandbox actions may be classified as requests, and PR actions may be classified as proposals. The policy does not execute agents, run commands, edit files, push branches, merge PRs, call providers, call network APIs, write vault notes, or enable MCP writes.
+
+Push to `main`, merge to `main`, direct file edits, command execution, provider calls, network fetches, vault writes, MCP writes, test disabling, and CI threshold lowering are blocked.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized examples only. Do not demo with real secrets, private logs, production services,

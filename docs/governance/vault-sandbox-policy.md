@@ -140,6 +140,10 @@ Omni owns the governing knowledge model and ensures consistency between policy, 
 
 Agents must follow the same branch, secret, and review policies as humans.
 
+Phase 10 defines agent workflow policy only. Hermes, Aider, Codex, Claude, and Omni are policy identities, not executable agents in this phase. All execution, editing, testing, and PR activity remain proposal or request based.
+
+Direct merge to `main`, push to `main`, provider calls, network calls, MCP writes, vault writes, direct file edits, test disabling, and CI threshold lowering are blocked. Runtime Truth and human approval remain required for future supervised actions.
+
 ## Public Demo Policy
 
 Public demos must be sanitized, must not expose sensitive data, and must not imply that unimplemented sandbox enforcement exists.
@@ -158,6 +162,7 @@ Blocked:
 - Customer confidential data.
 - Direct write demonstrations against `main`.
 - Unapproved provider account access.
+- Agent execution demonstrations.
 
 ## Testing Checklist
 
