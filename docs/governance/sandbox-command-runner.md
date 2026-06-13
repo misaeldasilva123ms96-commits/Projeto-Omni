@@ -78,3 +78,9 @@ branch mutation remain false in this phase.
 Public demos must not enable unrestricted command execution. Demo flows may
 show dry-run decisions, blocked states, redaction, timeout handling, and
 Runtime Truth evidence.
+
+## Phase 18 Loop Boundary
+
+Phase 18 adds an Autonomous Test Runner Loop above this runner. The loop may
+orchestrate validations, but every command still goes through the Sandbox
+Command Runner and the Safe Command Execution Gate.

@@ -20,12 +20,24 @@ from .policy_engine import classify_command, normalize_command
 from .policy_types import PolicyDecision, PolicyInput
 from .reports import SandboxReport, redact_report_text, render_sandbox_policy_report
 from .runtime_truth import SandboxPolicyEvidence, build_sandbox_policy_evidence
+from .test_runner_loop import run_autonomous_test_loop
+from .test_runner_truth import (
+    AutonomousTestRunnerLoopEvidence,
+    build_test_runner_loop_evidence,
+)
+from .test_runner_types import (
+    AutonomousTestRunnerLoopRequest,
+    AutonomousTestRunnerLoopResult,
+)
 
 __all__ = [
     "AgentWorkflowPolicyDecision",
     "AgentWorkflowRequest",
     "AgentWorkflowEvidence",
     "AgentSandboxReport",
+    "AutonomousTestRunnerLoopEvidence",
+    "AutonomousTestRunnerLoopRequest",
+    "AutonomousTestRunnerLoopResult",
     "CommandGateDecision",
     "CommandGateRequest",
     "SandboxCommandExecutionEvidence",
@@ -38,6 +50,7 @@ __all__ = [
     "build_agent_workflow_evidence",
     "build_command_runner_evidence",
     "build_sandbox_policy_evidence",
+    "build_test_runner_loop_evidence",
     "classify_command",
     "evaluate_command_gate",
     "evaluate_agent_workflow_request",
@@ -46,5 +59,6 @@ __all__ = [
     "redact_report_text",
     "render_sandbox_policy_report",
     "render_agent_sandbox_report",
+    "run_autonomous_test_loop",
     "run_sandbox_command",
 ]
