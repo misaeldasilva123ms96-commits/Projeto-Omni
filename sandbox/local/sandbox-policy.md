@@ -141,6 +141,8 @@ Unsafe or inconsistent agent evidence must map to blocked. Push and merge to `ma
 
 Phase 12 renders Agent Runtime Truth evidence into Markdown report strings and suggested metadata only. The suggested vault path is metadata only. This phase does not write files, execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
 
+Phase 14 adds a Human Approval Gate for governed proposals. The gate only decides whether a proposal may be shown to a human reviewer. It does not approve automatically, write files, create vault notes, change note status, promote drafts, merge pull requests, push to `main`, execute commands, call providers, use MCP, or execute agents.
+
 Push to `main`, merge to `main`, direct file edits, command execution, provider calls, network fetches, vault writes, MCP writes, test disabling, and CI threshold lowering are blocked.
 
 ## Public Demo Restrictions

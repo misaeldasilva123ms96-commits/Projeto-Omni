@@ -43,5 +43,6 @@ The vault is not runtime code and must not contain real secrets, API keys, token
 - Treat Agent Runtime Truth records as evidence of policy decisions only. They do not prove that an agent, command, provider call, MCP operation, vault write, Git mutation, or PR action occurred.
 - Treat Agent Sandbox Reports as draft review content until a governed write process separately proposes and reviews a vault note. A suggested vault path is metadata only.
 - Treat governed draft proposals as in-memory review objects. They are not files, do not create vault notes, and still require human review.
+- Treat Human Approval Gate decisions as in-memory eligibility decisions only. They do not approve, write files, promote status, merge PRs, or push to `main`.
 - Do not add runtime code during documentation-only phases.
 - Do not push or merge directly to `main`.

@@ -150,6 +150,12 @@ No files are written in this phase. No agents are executed, no commands are exec
 
 Reports can later be proposed as draft notes through the governed write policy, but human review remains required.
 
+## Phase 14 Human Approval Gate
+
+Phase 14 adds a Human Approval Gate for governed in-memory proposals. It decides whether a proposal may be presented to a human reviewer.
+
+The gate does not approve automatically, write files, create vault notes, change note status, promote drafts to reviewed or approved, execute agents, execute commands, call providers, use MCP, mutate Git, merge pull requests, or push to `main`.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

@@ -135,6 +135,8 @@ Automation may only propose draft notes for sandbox reports, runtime reports, in
 
 The Phase 13 draft proposal pipeline validates rendered reports against the governed write policy and returns an in-memory proposal only. It does not write files, create vault notes, mutate the vault, or convert suggested paths into filesystem operations.
 
+The Phase 14 Human Approval Gate evaluates whether an in-memory proposal may be presented to a human reviewer. It does not approve proposals, write files, change vault note status, promote drafts, mutate the vault, merge pull requests, or push to `main`.
+
 Vault writing remains disabled by default. MCP write access remains disabled, and public demos must not enable or imply automatic vault writing.
 
 ## Runtime Truth Evidence Model
