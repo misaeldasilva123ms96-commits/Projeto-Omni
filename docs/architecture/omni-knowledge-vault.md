@@ -133,6 +133,8 @@ Phase 9 defines policy decisions for future governed vault writing of draft note
 
 Automation may only propose draft notes for sandbox reports, runtime reports, incidents, session summaries, provider evaluations, and agent prompts. Automation cannot approve notes, set `approved` or `reviewed` status, edit approved or reviewed notes, modify ADRs, or modify governance and security policies.
 
+The Phase 13 draft proposal pipeline validates rendered reports against the governed write policy and returns an in-memory proposal only. It does not write files, create vault notes, mutate the vault, or convert suggested paths into filesystem operations.
+
 Vault writing remains disabled by default. MCP write access remains disabled, and public demos must not enable or imply automatic vault writing.
 
 ## Runtime Truth Evidence Model

@@ -48,6 +48,13 @@ State the observed fact.
 - Suggested vault path metadata only:
 - Human review required:
 
+## Draft Proposal Review
+
+- Draft proposal object only:
+- Markdown SHA-256:
+- Suggested vault path metadata only:
+- Vault file created: no
+
 ## Interpretation
 
 Explain what the evidence may mean. Keep interpretation separate from observed fact.

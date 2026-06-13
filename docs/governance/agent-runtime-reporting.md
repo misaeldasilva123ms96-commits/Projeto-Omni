@@ -25,6 +25,10 @@ Reports are rendered in memory only. The renderer returns Markdown strings and s
 
 Reports can later be proposed as draft vault notes only through the governed vault write policy. Human review remains required before any report becomes governed knowledge.
 
+Phase 13 adds a governed draft proposal pipeline for rendered reports. It validates report metadata against the draft write policy and returns an in-memory proposal object only.
+
+The pipeline does not write files, create vault notes, mutate the vault, execute agents, execute commands, call providers, use MCP, or mutate Git.
+
 ## Unsafe Evidence
 
 Reports from unsafe or inconsistent evidence may be rendered for debugging, but they are not allowed for vault draft.

@@ -42,6 +42,14 @@ The suggested vault path is not a file operation. It is only metadata for later 
 
 This phase does not execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
 
+## Phase 13 Draft Proposals
+
+Phase 13 can validate a rendered agent sandbox report against the governed draft write policy and return an in-memory draft proposal.
+
+The proposal is not a vault note. It does not create files, mutate the vault, execute agents, execute commands, call providers, use MCP, mutate Git, create pull requests, or merge pull requests.
+
+Human review remains required before any draft proposal can become a real vault file.
+
 ## Future Flow
 
 Future supervised workflows must follow this shape:
@@ -52,7 +60,8 @@ Future supervised workflows must follow this shape:
 4. Allowed actions remain proposal or request records.
 5. Runtime Truth evidence records the policy decision.
 6. Agent sandbox reports may be rendered in memory for review.
-7. Human approval remains required before any later supervised action can proceed.
+7. Draft proposals may be built in memory for human review.
+8. Human approval remains required before any later supervised action can proceed.
 
 ## Branch Boundary
 

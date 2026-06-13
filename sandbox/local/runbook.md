@@ -64,6 +64,10 @@ metadata. The suggested vault path is metadata only. The renderer returns string
 write files, execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create
 pull requests, or merge pull requests.
 
+Phase 13 can validate rendered reports against the governed draft write policy and return in-memory draft
+proposal objects. It does not create vault notes, write files, mutate the vault, execute commands, call
+providers, use MCP, execute agents, mutate Git, create pull requests, or merge pull requests.
+
 Phase 7 can read reviewed Markdown notes from the vault for safe local context inspection. This is read-only
 classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
 providers, or connect to agent automation.
@@ -134,6 +138,9 @@ only until a human review approves saving the report.
 
 Phase 12 agent report rendering follows the same boundary. It may suggest a report path, but it does not create
 or save a vault note.
+
+Phase 13 draft proposals are still metadata and content in memory. Human review is required before any proposal
+becomes a real vault file.
 
 The report should include:
 

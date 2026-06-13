@@ -144,6 +144,16 @@ Phase 10 defines agent workflow policy only. Hermes, Aider, Codex, Claude, and O
 
 Direct merge to `main`, push to `main`, provider calls, network calls, MCP writes, vault writes, direct file edits, test disabling, and CI threshold lowering are blocked. Runtime Truth and human approval remain required for future supervised actions.
 
+## Governed Draft Proposal Pipeline
+
+Phase 13 connects rendered sandbox and agent reports to the governed draft write policy. The pipeline returns in-memory draft proposal objects only.
+
+It does not write files, create vault notes, mutate the vault, execute commands, execute agents, call providers, use MCP, mutate Git, create pull requests, or merge pull requests.
+
+`suggested_vault_path` remains metadata only. Human review is required before any draft becomes a real file.
+
+Automation cannot set `approved`, `reviewed`, `deprecated`, or `archived` statuses. ADR, governance policy, and security policy edits remain blocked.
+
 ## Public Demo Policy
 
 Public demos must be sanitized, must not expose sensitive data, and must not imply that unimplemented sandbox enforcement exists.
