@@ -51,3 +51,10 @@ push, merge commands, skipped tests, CI/security reduction, or unknown commands.
 
 Public demos must not enable unrestricted command execution. They may show
 classification results, blocked states, and future eligibility only.
+
+## Phase 17 Runner Boundary
+
+Phase 17 adds a separate Sandbox Command Runner. The Safe Command Execution
+Gate remains mandatory before that runner may execute any command. The runner is
+denied by default, runs only in `sandbox_readonly`, and executes only read-safe
+commands that the gate approves.

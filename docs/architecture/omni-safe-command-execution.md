@@ -31,3 +31,7 @@ No command is executed in this phase.
 Future execution must be implemented separately and must consume the gate
 decision, Runtime Truth contract, sandbox isolation, autonomy policy, and human
 exception gates.
+
+Phase 17 adds the Sandbox Command Runner as that separate implementation. It is
+denied by default, runs only in `sandbox_readonly`, uses `shell=False`, and
+executes only read-safe commands that the gate approves.
