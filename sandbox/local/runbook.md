@@ -68,6 +68,10 @@ Phase 13 can validate rendered reports against the governed draft write policy a
 proposal objects. It does not create vault notes, write files, mutate the vault, execute commands, call
 providers, use MCP, execute agents, mutate Git, create pull requests, or merge pull requests.
 
+Phase 14 can evaluate whether a governed proposal may be presented to a human reviewer. It does not approve
+automatically, write files, create vault notes, change note status, promote drafts, merge pull requests, push to
+`main`, execute commands, call providers, use MCP, or execute agents.
+
 Phase 7 can read reviewed Markdown notes from the vault for safe local context inspection. This is read-only
 classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
 providers, or connect to agent automation.
@@ -141,6 +145,9 @@ or save a vault note.
 
 Phase 13 draft proposals are still metadata and content in memory. Human review is required before any proposal
 becomes a real vault file.
+
+Phase 14 approval-gate decisions are also in memory only. A gate decision does not persist approval or write any
+vault file.
 
 The report should include:
 

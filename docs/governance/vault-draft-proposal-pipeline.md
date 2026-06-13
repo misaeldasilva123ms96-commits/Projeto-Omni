@@ -32,3 +32,9 @@ Automation cannot set `approved`, `reviewed`, `deprecated`, or `archived` status
 Human review is required before any draft proposal becomes a real vault file.
 
 Public demos must not enable vault writing. They may show proposal metadata, blocked states, and review flow only.
+
+## Human Approval Gate
+
+Phase 14 adds a Human Approval Gate for draft proposals. The gate only decides whether a proposal may be presented to a human reviewer.
+
+It does not approve automatically, write files, create vault notes, change note status, promote drafts to reviewed or approved, merge pull requests, push to `main`, or mutate Git.

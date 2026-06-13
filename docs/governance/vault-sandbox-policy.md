@@ -154,6 +154,14 @@ It does not write files, create vault notes, mutate the vault, execute commands,
 
 Automation cannot set `approved`, `reviewed`, `deprecated`, or `archived` statuses. ADR, governance policy, and security policy edits remain blocked.
 
+## Human Approval Gate
+
+Phase 14 adds a human approval gate for governed proposals. The gate returns review eligibility decisions only.
+
+It does not approve proposals automatically, write files, create vault notes, mutate the vault, change note status, promote drafts to `reviewed` or `approved`, merge pull requests, push to `main`, execute commands, execute agents, call providers, or use MCP.
+
+Human approval remains mandatory. Public demos must not enable auto-approval or vault writing.
+
 ## Public Demo Policy
 
 Public demos must be sanitized, must not expose sensitive data, and must not imply that unimplemented sandbox enforcement exists.
