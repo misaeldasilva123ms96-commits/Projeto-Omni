@@ -48,6 +48,13 @@ List command categories or specific approved commands. Do not include secrets.
 - Vault written: no
 - Git mutated: no
 
+## Agent Sandbox Report Rendering
+
+- Rendered in memory only: yes
+- Suggested vault path is metadata only: yes
+- Files written: no
+- Human review required: yes
+
 ## Results
 
 Summarize results and evidence.
