@@ -49,6 +49,10 @@ The gate blocks:
 
 Human approval remains mandatory. A positive gate decision means only that a proposal may be shown to a reviewer; it does not persist approval or write any vault file.
 
+## Autonomy Exception Boundary
+
+Phase 15 keeps human review focused on exceptions. Safe autonomous future actions may proceed only when all gates pass, while secret-like content, skipped tests, CI threshold changes, production impact, billing impact, destructive actions, security policy changes, governance policy changes, and explicit human decisions still require human intervention.
+
 ## Public Demo Boundary
 
 Public demos must not enable auto-approval, vault writing, note promotion, PR merge, or push to `main`. Demos may show review eligibility, blocked states, and policy reasoning only.
