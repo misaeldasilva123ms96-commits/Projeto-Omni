@@ -42,6 +42,12 @@ State the observed fact.
 - Git mutation performed: no
 - Vault write performed: no
 
+## Agent Report Rendering
+
+- Markdown rendered in memory only:
+- Suggested vault path metadata only:
+- Human review required:
+
 ## Interpretation
 
 Explain what the evidence may mean. Keep interpretation separate from observed fact.

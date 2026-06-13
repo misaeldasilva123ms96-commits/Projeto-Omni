@@ -142,6 +142,14 @@ This phase remains evidence-only. It does not execute agents, execute commands, 
 
 Unsafe or inconsistent evidence is blocked by default. Push and merge to `main` remain blocked, and human approval remains required for supervised actions.
 
+## Phase 12 Agent Sandbox Reports
+
+Phase 12 renders Agent Runtime Truth evidence as Markdown report content in memory. It returns suggested metadata only, including a safe filename and suggested vault path.
+
+No files are written in this phase. No agents are executed, no commands are executed, no providers are called, no MCP capability is used, no vault notes are written, and no Git state is mutated.
+
+Reports can later be proposed as draft notes through the governed write policy, but human review remains required.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

@@ -139,6 +139,8 @@ Phase 11 adds Agent Runtime Truth evidence for those agent workflow policy decis
 
 Unsafe or inconsistent agent evidence must map to blocked. Push and merge to `main` remain blocked, and human approval remains required for supervised actions.
 
+Phase 12 renders Agent Runtime Truth evidence into Markdown report strings and suggested metadata only. The suggested vault path is metadata only. This phase does not write files, execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
+
 Push to `main`, merge to `main`, direct file edits, command execution, provider calls, network fetches, vault writes, MCP writes, test disabling, and CI threshold lowering are blocked.
 
 ## Public Demo Restrictions

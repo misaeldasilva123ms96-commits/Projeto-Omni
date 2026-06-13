@@ -20,6 +20,8 @@ This phase does not execute agents, call providers, call MCP, run shell commands
 
 Phase 11 adds the Agent Runtime Truth Contract. It converts agent workflow policy decisions into structured evidence records only.
 
+Phase 12 adds the Agent Sandbox Report Renderer. It converts Agent Runtime Truth evidence into safe Markdown strings and suggested metadata only.
+
 ## Agent Identities
 
 Supported policy identities are plain values only:
@@ -69,6 +71,14 @@ The contract is evidence-only:
 Unsafe or inconsistent evidence maps to `blocked`. This includes any evidence that claims command execution, network access, provider calls, MCP writes, vault writes, merge permission, unprotected `main`, or direct modification of `main`.
 
 Human approval remains required for supervised actions, even when the policy allows a request or proposal.
+
+## Agent Sandbox Report Renderer
+
+Agent Sandbox Reports are rendered in memory only. The renderer may return Markdown content, a suggested filename, and a suggested vault path, but the suggested vault path is metadata only.
+
+The renderer does not write files, execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
+
+Reports may later be proposed as draft notes through the governed vault write policy. That later proposal still requires human review and must not bypass approval.
 
 ## Public Demo Boundary
 

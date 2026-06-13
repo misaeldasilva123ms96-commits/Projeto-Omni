@@ -34,6 +34,14 @@ The evidence contract preserves these boundaries:
 
 The governance decision is derived from the policy outcome. Blocked decisions stay blocked, allowed decisions that require approval become `requires_approval`, and unsafe or inconsistent evidence is forced to `blocked`.
 
+## Phase 12 Report Rendering
+
+Phase 12 renders Agent Runtime Truth evidence into Markdown report strings in memory. It also returns suggested report metadata, including a filename and suggested vault path.
+
+The suggested vault path is not a file operation. It is only metadata for later human review or a separately governed draft-note proposal.
+
+This phase does not execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
+
 ## Future Flow
 
 Future supervised workflows must follow this shape:
@@ -43,7 +51,8 @@ Future supervised workflows must follow this shape:
 3. Blocked actions stop immediately.
 4. Allowed actions remain proposal or request records.
 5. Runtime Truth evidence records the policy decision.
-6. Human approval remains required before any later supervised action can proceed.
+6. Agent sandbox reports may be rendered in memory for review.
+7. Human approval remains required before any later supervised action can proceed.
 
 ## Branch Boundary
 

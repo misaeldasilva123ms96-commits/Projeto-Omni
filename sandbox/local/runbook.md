@@ -59,6 +59,11 @@ Phase 6 can render Runtime Truth evidence into Markdown sandbox report content a
 renderer does not save files automatically. A human must review and intentionally save any report that becomes
 governed vault knowledge.
 
+Phase 12 can render Agent Runtime Truth evidence into Markdown agent sandbox report content and suggested
+metadata. The suggested vault path is metadata only. The renderer returns strings in memory only and does not
+write files, execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create
+pull requests, or merge pull requests.
+
 Phase 7 can read reviewed Markdown notes from the vault for safe local context inspection. This is read-only
 classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
 providers, or connect to agent automation.
@@ -126,6 +131,9 @@ sandbox report template.
 
 Phase 6 report rendering may suggest a path under `vault/09_Sandbox_Reports/`, but that suggestion is metadata
 only until a human review approves saving the report.
+
+Phase 12 agent report rendering follows the same boundary. It may suggest a report path, but it does not create
+or save a vault note.
 
 The report should include:
 
