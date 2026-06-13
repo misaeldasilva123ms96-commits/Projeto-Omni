@@ -172,7 +172,8 @@ jobs:
               tests/runtime/test_human_approval_gate.py \
               tests/runtime/test_autonomy_operating_model.py \
               tests/runtime/test_safe_command_execution_gate.py \
-              --cov=brain --cov-config=.coveragerc \
+              tests/runtime/test_sandbox_command_runner.py \
+              --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-config=.coveragerc \
               --cov-report=term-missing --cov-report=xml
       - notify-failure
 

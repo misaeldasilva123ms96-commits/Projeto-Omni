@@ -9,6 +9,12 @@ from .agent_reports import AgentSandboxReport, render_agent_sandbox_report
 from .agent_runtime_truth import AgentWorkflowEvidence, build_agent_workflow_evidence
 from .agent_types import AgentWorkflowPolicyDecision, AgentWorkflowRequest
 from .command_gate import evaluate_command_gate, normalize_gate_command
+from .command_runner import run_sandbox_command
+from .command_runner_truth import (
+    SandboxCommandExecutionEvidence,
+    build_command_runner_evidence,
+)
+from .command_runner_types import SandboxCommandRunnerRequest, SandboxCommandRunnerResult
 from .command_types import CommandGateDecision, CommandGateRequest
 from .policy_engine import classify_command, normalize_command
 from .policy_types import PolicyDecision, PolicyInput
@@ -22,11 +28,15 @@ __all__ = [
     "AgentSandboxReport",
     "CommandGateDecision",
     "CommandGateRequest",
+    "SandboxCommandExecutionEvidence",
+    "SandboxCommandRunnerRequest",
+    "SandboxCommandRunnerResult",
     "PolicyDecision",
     "PolicyInput",
     "SandboxReport",
     "SandboxPolicyEvidence",
     "build_agent_workflow_evidence",
+    "build_command_runner_evidence",
     "build_sandbox_policy_evidence",
     "classify_command",
     "evaluate_command_gate",
@@ -36,4 +46,5 @@ __all__ = [
     "redact_report_text",
     "render_sandbox_policy_report",
     "render_agent_sandbox_report",
+    "run_sandbox_command",
 ]

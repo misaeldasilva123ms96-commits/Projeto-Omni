@@ -5,6 +5,7 @@ source =
     backend/python/brain/runtime/control
     backend/python/brain/runtime/observability
     backend/python/brain/runtime/orchestrator_services
+    backend/python/brain/runtime/sandbox
 omit =
     */tests/*
 
