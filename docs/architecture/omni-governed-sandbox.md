@@ -156,6 +156,14 @@ Phase 14 adds a Human Approval Gate for governed in-memory proposals. It decides
 
 The gate does not approve automatically, write files, create vault notes, change note status, promote drafts to reviewed or approved, execute agents, execute commands, call providers, use MCP, mutate Git, merge pull requests, or push to `main`.
 
+## Phase 15 Autonomy Operating Model
+
+Phase 15 defines controlled full autonomy as a future operating model. It introduces autonomy levels from read-only inspection through full autonomous resolution, but it remains policy-only in this phase.
+
+The model allows future branch work, approved tests, scoped commits, branch pushes, PR opening, CI repair, and conditional PR merge only when all gates pass. Push to `main` remains blocked. Merge to `main` is only policy-defined through PR, with green checks and no exception triggers.
+
+Runtime Truth and reports are mandatory for autonomous future actions. Public demos must not enable unrestricted autonomy.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

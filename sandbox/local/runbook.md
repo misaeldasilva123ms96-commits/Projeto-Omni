@@ -72,6 +72,10 @@ Phase 14 can evaluate whether a governed proposal may be presented to a human re
 automatically, write files, create vault notes, change note status, promote drafts, merge pull requests, push to
 `main`, execute commands, call providers, use MCP, or execute agents.
 
+Phase 15 can classify future autonomy requests by level. It defines when agents may eventually branch, edit,
+test, commit, push a working branch, open a PR, repair CI, conditionally merge, report, and propose vault drafts.
+It is policy-only and does not perform any of those actions.
+
 Phase 7 can read reviewed Markdown notes from the vault for safe local context inspection. This is read-only
 classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
 providers, or connect to agent automation.
@@ -148,6 +152,9 @@ becomes a real vault file.
 
 Phase 14 approval-gate decisions are also in memory only. A gate decision does not persist approval or write any
 vault file.
+
+Phase 15 autonomy decisions are in memory only. A positive decision means only that a future capability would be
+allowed by policy if its implementation exists and all gates remain satisfied.
 
 The report should include:
 

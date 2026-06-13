@@ -72,6 +72,12 @@ Unsafe or inconsistent evidence maps to `blocked`. This includes any evidence th
 
 Human approval remains required for supervised actions, even when the policy allows a request or proposal.
 
+## Autonomy Operating Model
+
+Phase 15 defines autonomy levels for future agent work. The model permits advisory actions first, then branch-only proposals, test/commit/branch-push requests, PR opening, CI repair, conditional PR merge, supervised sandbox execution, and full autonomous resolution only when the matching level and all safety gates allow it.
+
+The model remains policy-only. It does not execute agents, run commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
+
 ## Agent Sandbox Report Renderer
 
 Agent Sandbox Reports are rendered in memory only. The renderer may return Markdown content, a suggested filename, and a suggested vault path, but the suggested vault path is metadata only.

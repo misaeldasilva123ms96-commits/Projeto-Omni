@@ -162,6 +162,20 @@ It does not approve proposals automatically, write files, create vault notes, mu
 
 Human approval remains mandatory. Public demos must not enable auto-approval or vault writing.
 
+## Autonomy Operating Model
+
+Phase 15 defines the controlled autonomy policy for future end-to-end task resolution. Agents may eventually
+analyze, plan, branch, edit, test, commit, push a working branch, open a PR, repair CI, conditionally merge, emit
+Runtime Truth, produce reports, and propose vault drafts only when the requested autonomy level and all safety
+gates allow it.
+
+This phase does not implement execution. Push to `main` remains blocked. Merge to `main` is policy-defined only
+through PR, green checks, no exception triggers, Runtime Truth, and reporting.
+
+Human intervention is required for secret-like content, skipped tests, CI threshold changes, security policy
+changes, governance policy changes, production impact, billing impact, destructive actions, or explicit human
+decision requirements.
+
 ## Public Demo Policy
 
 Public demos must be sanitized, must not expose sensitive data, and must not imply that unimplemented sandbox enforcement exists.

@@ -143,6 +143,10 @@ Phase 12 renders Agent Runtime Truth evidence into Markdown report strings and s
 
 Phase 14 adds a Human Approval Gate for governed proposals. The gate only decides whether a proposal may be shown to a human reviewer. It does not approve automatically, write files, create vault notes, change note status, promote drafts, merge pull requests, push to `main`, execute commands, call providers, use MCP, or execute agents.
 
+Phase 15 defines the Autonomy Operating Model. It classifies future autonomy actions by level and keeps human
+intervention focused on exception triggers. It does not execute agents, execute commands, write files, call
+providers, use MCP, mutate Git, create pull requests, merge pull requests, or write vault notes.
+
 Push to `main`, merge to `main`, direct file edits, command execution, provider calls, network fetches, vault writes, MCP writes, test disabling, and CI threshold lowering are blocked.
 
 ## Public Demo Restrictions

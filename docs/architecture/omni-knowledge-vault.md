@@ -18,6 +18,8 @@ The Omni Knowledge Vault is the governed knowledge workspace for Projeto Omni. I
 
 The vault is not a runtime source directory. It is a durable, reviewable knowledge base that can be opened in Obsidian or reviewed through Git.
 
+Phase 15 autonomy decisions may reference future vault draft proposals, but they do not write vault files. Any future autonomous vault draft remains metadata until governed write and human exception checks allow review.
+
 ## Vault Versus Docs
 
 `docs/` contains project-facing documentation intended to explain architecture, roadmap, governance, and security policies to maintainers and reviewers.
