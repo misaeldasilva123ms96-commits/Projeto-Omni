@@ -164,6 +164,17 @@ The model allows future branch work, approved tests, scoped commits, branch push
 
 Runtime Truth and reports are mandatory for autonomous future actions. Public demos must not enable unrestricted autonomy.
 
+## Phase 16 Safe Command Execution Gate
+
+Phase 16 adds command request classification for future sandbox execution. The
+gate can identify read-safe commands and branch-write commands that may become
+future eligible under `sandbox_allowed` mode.
+
+It does not execute commands, start processes, write files, mutate Git, call
+networks, call providers, use MCP, create PRs, or merge PRs. Push to `main`,
+force push, merge commands, network commands, secret access, production deploys,
+billing commands, and destructive commands remain blocked.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

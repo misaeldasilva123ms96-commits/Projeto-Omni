@@ -66,3 +66,10 @@ The autonomy policy may say a future action is allowed, but that is only a
 classification decision. No runtime execution, command execution, network call,
 provider call, MCP integration, Git mutation, PR mutation, or Vault write is
 implemented in this phase.
+
+## Phase 16 Command Gate
+
+Phase 16 adds a Safe Command Execution Gate below the autonomy model. The gate
+classifies command requests for future sandbox execution, but it still does not
+execute commands. Runtime Truth and sandbox isolation are mandatory before any
+future command execution can be considered.

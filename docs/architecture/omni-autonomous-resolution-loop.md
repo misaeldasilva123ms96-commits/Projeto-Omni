@@ -42,3 +42,7 @@ Phase 15 does not implement the loop. It defines the policy object, the decision
 object, safe flags, tests, and documentation needed before runtime execution can
 be designed. Command execution, agent execution, provider calls, MCP, Vault
 writes, Git mutation, PR creation, and auto-merge behavior remain unimplemented.
+
+Phase 16 adds the Safe Command Execution Gate as a policy-only step in the
+future loop. It can mark commands as future eligible, but command execution
+remains disabled until a separate governed runner exists.
