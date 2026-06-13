@@ -135,6 +135,10 @@ No agent may bypass command allowlists, denylist rules, human approval, or the n
 
 Phase 10 defines the agent workflow policy boundary. Agents are policy identities only. Advisory actions may be classified as proposals, supervised sandbox actions may be classified as requests, and PR actions may be classified as proposals. The policy does not execute agents, run commands, edit files, push branches, merge PRs, call providers, call network APIs, write vault notes, or enable MCP writes.
 
+Phase 11 adds Agent Runtime Truth evidence for those agent workflow policy decisions. The evidence records the decision only. It does not execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
+
+Unsafe or inconsistent agent evidence must map to blocked. Push and merge to `main` remain blocked, and human approval remains required for supervised actions.
+
 Push to `main`, merge to `main`, direct file edits, command execution, provider calls, network fetches, vault writes, MCP writes, test disabling, and CI threshold lowering are blocked.
 
 ## Public Demo Restrictions

@@ -30,6 +30,18 @@ State the observed fact.
 - Network used:
 - Secrets detected:
 
+## Agent Workflow Evidence
+
+- Event type:
+- Agent id:
+- Requested action:
+- Workflow mode:
+- Governance decision:
+- Human approval state:
+- Execution performed: no
+- Git mutation performed: no
+- Vault write performed: no
+
 ## Interpretation
 
 Explain what the evidence may mean. Keep interpretation separate from observed fact.
