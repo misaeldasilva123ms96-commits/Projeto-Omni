@@ -35,6 +35,19 @@ List command categories or specific approved commands. Do not include secrets.
 - Agent workflow involved:
 - Runtime Truth required:
 
+## Agent Runtime Truth
+
+- Agent policy decision:
+- Governance decision:
+- Human approval state:
+- Agent executed: no
+- Command executed: no
+- Network used: no
+- Provider called: no
+- MCP used: no
+- Vault written: no
+- Git mutated: no
+
 ## Results
 
 Summarize results and evidence.

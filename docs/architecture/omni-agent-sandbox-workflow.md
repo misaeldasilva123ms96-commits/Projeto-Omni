@@ -18,6 +18,22 @@ Phase 10 introduces policy-only classification for future agent workflows. Herme
 
 No agent is executed. No provider is called. No MCP server or client is integrated. No shell command runs. No file is edited. No pull request is opened by the policy layer.
 
+## Phase 11 Runtime Truth Contract
+
+Phase 11 adds Runtime Truth evidence generation for agent workflow policy decisions. It records what the policy decided; it does not perform the requested action.
+
+The evidence contract preserves these boundaries:
+
+- Agents are not executed.
+- Commands are not executed.
+- Providers are not called.
+- MCP is not used.
+- Vault notes are not written.
+- Git state is not mutated.
+- Pull requests are not created or merged.
+
+The governance decision is derived from the policy outcome. Blocked decisions stay blocked, allowed decisions that require approval become `requires_approval`, and unsafe or inconsistent evidence is forced to `blocked`.
+
 ## Future Flow
 
 Future supervised workflows must follow this shape:
@@ -26,8 +42,8 @@ Future supervised workflows must follow this shape:
 2. The policy classifies the agent identity, action, mode, and branch boundary.
 3. Blocked actions stop immediately.
 4. Allowed actions remain proposal or request records.
-5. Runtime Truth evidence is recorded before any later supervised action can proceed.
-6. Human approval remains required.
+5. Runtime Truth evidence records the policy decision.
+6. Human approval remains required before any later supervised action can proceed.
 
 ## Branch Boundary
 

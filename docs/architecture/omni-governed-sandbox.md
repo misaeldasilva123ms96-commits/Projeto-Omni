@@ -134,6 +134,14 @@ Agent workflow policy keeps execution, edits, tests, and PR actions as proposal 
 
 Runtime Truth is required for future supervised actions, and sandbox governance is required before any future execution request can proceed.
 
+## Phase 11 Agent Runtime Truth
+
+Phase 11 records agent workflow policy decisions as Runtime Truth evidence. The contract stores policy outcome fields, safety flags, branch protection state, and the governance decision.
+
+This phase remains evidence-only. It does not execute agents, execute commands, call providers, use MCP, write vault notes, mutate Git, create pull requests, or merge pull requests.
+
+Unsafe or inconsistent evidence is blocked by default. Push and merge to `main` remain blocked, and human approval remains required for supervised actions.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

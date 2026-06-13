@@ -18,6 +18,8 @@ Phase 10 defines policy and validation for future supervised agent workflows ins
 
 This phase does not execute agents, call providers, call MCP, run shell commands, edit files, write vault notes, open pull requests, or mutate Git state.
 
+Phase 11 adds the Agent Runtime Truth Contract. It converts agent workflow policy decisions into structured evidence records only.
+
 ## Agent Identities
 
 Supported policy identities are plain values only:
@@ -49,6 +51,24 @@ Supported policy identities are plain values only:
 - Runtime Truth is required for future supervised actions.
 - Sandbox governance is required before future supervised execution.
 - Human approval remains required.
+
+## Agent Runtime Truth Contract
+
+Agent Runtime Truth records policy decisions before any later supervised capability can be considered. The record captures the agent identity, requested action, workflow mode, branch boundary, policy outcome, governance decision, and safety flags.
+
+The contract is evidence-only:
+
+- It does not execute agents.
+- It does not execute commands.
+- It does not call providers.
+- It does not use MCP.
+- It does not write vault notes.
+- It does not mutate Git.
+- It does not create or merge pull requests.
+
+Unsafe or inconsistent evidence maps to `blocked`. This includes any evidence that claims command execution, network access, provider calls, MCP writes, vault writes, merge permission, unprotected `main`, or direct modification of `main`.
+
+Human approval remains required for supervised actions, even when the policy allows a request or proposal.
 
 ## Public Demo Boundary
 

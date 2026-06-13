@@ -40,5 +40,6 @@ The vault is not runtime code and must not contain real secrets, API keys, token
 - Treat MCP vault access as disabled by default until a separate human-reviewed enablement phase.
 - Treat automated vault writing as disabled by default; future automation may propose drafts only after review.
 - Treat agent workflows as policy decisions only until supervised execution is separately approved.
+- Treat Agent Runtime Truth records as evidence of policy decisions only. They do not prove that an agent, command, provider call, MCP operation, vault write, Git mutation, or PR action occurred.
 - Do not add runtime code during documentation-only phases.
 - Do not push or merge directly to `main`.
