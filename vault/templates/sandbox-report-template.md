@@ -55,6 +55,14 @@ List command categories or specific approved commands. Do not include secrets.
 - Files written: no
 - Human review required: yes
 
+## Governed Draft Proposal
+
+- Proposal created in memory only:
+- Write policy allowed:
+- Write policy blocked:
+- Human review required: yes
+- Vault file created: no
+
 ## Results
 
 Summarize results and evidence.
