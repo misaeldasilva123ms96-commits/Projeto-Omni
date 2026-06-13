@@ -27,6 +27,8 @@ Store only prompt text that contains no secrets, credentials, customer confident
 - Approved by:
 - Review date:
 - Scope:
+- Agent execution status: policy proposal only; no direct execution.
+- Human approval required:
 
 ## Restrictions
 

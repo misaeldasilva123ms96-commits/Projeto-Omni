@@ -32,6 +32,8 @@ List command categories or specific approved commands. Do not include secrets.
 - Command executed:
 - Suggested vault path:
 - Evidence version:
+- Agent workflow involved:
+- Runtime Truth required:
 
 ## Results
 

@@ -39,5 +39,6 @@ The vault is not runtime code and must not contain real secrets, API keys, token
 - Treat runtime vault access as read-only unless a separate governed write policy is approved.
 - Treat MCP vault access as disabled by default until a separate human-reviewed enablement phase.
 - Treat automated vault writing as disabled by default; future automation may propose drafts only after review.
+- Treat agent workflows as policy decisions only until supervised execution is separately approved.
 - Do not add runtime code during documentation-only phases.
 - Do not push or merge directly to `main`.

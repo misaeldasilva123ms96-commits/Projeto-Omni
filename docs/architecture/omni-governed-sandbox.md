@@ -126,6 +126,14 @@ Omni:
 - Represents the governed project system and decision framework.
 - Owns the consistency between vault knowledge, docs, policies, and runtime truth.
 
+## Phase 10 Agent Workflow Policy
+
+Phase 10 adds policy-only classification for future supervised agent workflows. It does not execute Hermes, Aider, Codex, Claude, Omni, or any external agent.
+
+Agent workflow policy keeps execution, edits, tests, and PR actions as proposal or request records. Direct command execution, direct file edits, provider calls, network calls, MCP writes, vault writes, push to `main`, and merge to `main` remain blocked.
+
+Runtime Truth is required for future supervised actions, and sandbox governance is required before any future execution request can proceed.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.
