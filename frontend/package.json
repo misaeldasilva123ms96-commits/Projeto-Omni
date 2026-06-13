@@ -31,7 +31,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.5.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.10",
     "@tailwindcss/postcss": "^4.3.0",
