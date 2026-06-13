@@ -45,5 +45,6 @@ The vault is not runtime code and must not contain real secrets, API keys, token
 - Treat governed draft proposals as in-memory review objects. They are not files, do not create vault notes, and still require human review.
 - Treat Human Approval Gate decisions as in-memory eligibility decisions only. They do not approve, write files, promote status, merge PRs, or push to `main`.
 - Treat Autonomy Operating Model decisions as policy-only future capability decisions. They do not execute agents, execute commands, call providers, use MCP, write the vault, mutate Git, create PRs, or merge PRs.
+- Treat Safe Command Execution Gate decisions as command classification only. They do not execute commands, mutate Git, write files, call networks, use MCP, or create PRs.
 - Do not add runtime code during documentation-only phases.
 - Do not push or merge directly to `main`.

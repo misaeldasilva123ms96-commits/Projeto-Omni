@@ -147,6 +147,11 @@ Phase 15 defines the Autonomy Operating Model. It classifies future autonomy act
 intervention focused on exception triggers. It does not execute agents, execute commands, write files, call
 providers, use MCP, mutate Git, create pull requests, merge pull requests, or write vault notes.
 
+Phase 16 defines the Safe Command Execution Gate. It classifies command text for future sandbox execution but
+does not execute commands. Runtime Truth and sandbox isolation are mandatory before future execution. Network
+commands, secret access, production deploys, billing commands, destructive commands, force push, push to `main`,
+and merge commands remain blocked.
+
 Push to `main`, merge to `main`, direct file edits, command execution, provider calls, network fetches, vault writes, MCP writes, test disabling, and CI threshold lowering are blocked.
 
 ## Public Demo Restrictions

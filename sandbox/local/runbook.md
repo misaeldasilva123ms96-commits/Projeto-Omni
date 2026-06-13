@@ -76,6 +76,9 @@ Phase 15 can classify future autonomy requests by level. It defines when agents 
 test, commit, push a working branch, open a PR, repair CI, conditionally merge, report, and propose vault drafts.
 It is policy-only and does not perform any of those actions.
 
+Phase 16 can classify command requests for future sandbox execution. It never runs the command. A future-eligible
+decision still requires Runtime Truth, sandbox isolation, and all exception gates to pass.
+
 Phase 7 can read reviewed Markdown notes from the vault for safe local context inspection. This is read-only
 classification and retrieval. It does not write vault files, create reports, call MCP, execute commands, contact
 providers, or connect to agent automation.
@@ -155,6 +158,8 @@ vault file.
 
 Phase 15 autonomy decisions are in memory only. A positive decision means only that a future capability would be
 allowed by policy if its implementation exists and all gates remain satisfied.
+
+Phase 16 command-gate decisions are also in memory only. `command_execution_allowed` remains false in this phase.
 
 The report should include:
 
