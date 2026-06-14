@@ -9,6 +9,9 @@ mutate Git, create branches, create commits, push, open pull requests, merge,
 call providers, call agents, use MCP, use network access, or write to the
 Vault.
 
+Phase 20 consumes repair plans from this phase and may produce scoped patch
+proposal metadata. Phase 20 still does not apply patches or edit files.
+
 ## Modes
 
 - `disabled`: default. Blocks repair planning.

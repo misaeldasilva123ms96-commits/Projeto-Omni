@@ -175,6 +175,7 @@ jobs:
               tests/runtime/test_sandbox_command_runner.py \
               tests/runtime/test_autonomous_test_runner_loop.py \
               tests/runtime/test_autonomous_repair_planner.py \
+              tests/runtime/test_scoped_patch_proposal_engine.py \
               --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-config=.coveragerc \
               --cov-report=term-missing --cov-report=xml
       - notify-failure
