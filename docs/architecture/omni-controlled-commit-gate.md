@@ -81,3 +81,5 @@ Secret-like content is redacted before it appears in output.
 ## Future Integration
 
 A future phase may consume `commit_eligible`, `commit_plan`, and `proposed_commit_message`. That future phase must implement its own human approval, Runtime Truth, and command execution controls before any real staging or commit operation is permitted.
+
+Phase 24 is that first commit execution layer. It consumes this gate evidence, verifies the non-main branch, stages explicit safe files, creates one commit, and still does not push, open PRs, merge, or rebase.
