@@ -31,3 +31,6 @@ runner, which still calls the Safe Command Execution Gate.
 
 Future phases may consume the classification output to propose repair plans,
 but this phase only reports validation state.
+
+Phase 19 is the first consumer of this output. It turns validation failure
+metadata into a governed repair plan without editing files.
