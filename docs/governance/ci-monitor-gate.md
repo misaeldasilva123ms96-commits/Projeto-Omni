@@ -4,6 +4,8 @@ Phase 29 adds the CI Monitor Gate for the Omni Governed Knowledge Sandbox.
 
 The gate decides whether a PR created by Phase 28 is eligible for a future CI/check monitoring phase. It is metadata-only: it does not monitor CI, call GitHub APIs, call CircleCI APIs, execute `gh`, download logs, retry workflows, trigger workflows, start repair loops, mutate Git, push, merge, rebase, update PRs, or approve PRs.
 
+Phase 30 consumes this gate evidence in the Controlled CI Monitor. That monitor may read bounded status snapshots through narrow injected clients, but it still cannot download logs, retry workflows, update PRs, merge, push, or start repair loops.
+
 ## Inputs
 
 The gate consumes provided evidence only:
