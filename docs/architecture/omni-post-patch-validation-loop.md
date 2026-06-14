@@ -69,3 +69,5 @@ Recommended next actions include:
 Runtime Truth includes child evidence from Phase 21 and Phase 18 so later governance can trace the patch from application to validation.
 
 This phase marks code editing, patch application, file writing, Git mutation, PR creation, PR merge, provider calls, agent calls, MCP use, Vault writing, and main modification false.
+
+Phase 23 consumes this evidence to produce a controlled commit eligibility decision. The decision is metadata only; commit execution remains outside Phase 22 and Phase 23.

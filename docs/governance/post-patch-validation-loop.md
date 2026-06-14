@@ -57,3 +57,5 @@ Evidence records patch application source evidence, validation commands, command
 Secrets, protected files, Git mutation evidence, main modification evidence, invalid patch evidence, unsafe commands, and blocked commands require human intervention.
 
 Public demos must not expose unrestricted validation loops or commit controls.
+
+Phase 23 consumes this validation evidence to decide whether a future commit phase may proceed. That commit decision remains metadata only and does not stage files or run Git.
