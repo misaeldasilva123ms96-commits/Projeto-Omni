@@ -99,3 +99,5 @@ Runtime Truth records eligibility, source evidence linkage, file counts, validat
 Human intervention is required for protected files, secrets, missing or unsafe evidence, failed validation, timed-out validation, Git mutation evidence, main modification evidence, PR creation evidence, PR merge evidence, network/provider/MCP/Vault activity, unsafe branches, and direct-main-edit metadata.
 
 Public demos must not enable unrestricted commit automation.
+
+Phase 24 consumes clean commit gate evidence to create one governed commit on a non-main branch. The commit gate remains metadata only; actual staging and commit behavior is isolated in the Controlled Commit Executor.

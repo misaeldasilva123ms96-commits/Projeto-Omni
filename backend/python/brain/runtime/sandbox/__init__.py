@@ -18,6 +18,15 @@ from .commit_gate_types import (
     ControlledCommitGateRequest,
     ControlledCommitGateResult,
 )
+from .commit_executor import execute_controlled_commit
+from .commit_executor_truth import (
+    ControlledCommitExecutorEvidence,
+    build_commit_executor_evidence,
+)
+from .commit_executor_types import (
+    ControlledCommitExecutorRequest,
+    ControlledCommitExecutorResult,
+)
 from .command_runner import run_sandbox_command
 from .command_runner_truth import (
     SandboxCommandExecutionEvidence,
@@ -91,6 +100,9 @@ __all__ = [
     "ControlledCommitGateEvidence",
     "ControlledCommitGateRequest",
     "ControlledCommitGateResult",
+    "ControlledCommitExecutorEvidence",
+    "ControlledCommitExecutorRequest",
+    "ControlledCommitExecutorResult",
     "ControlledPatchApplierEvidence",
     "ControlledPatchApplierRequest",
     "ControlledPatchApplierResult",
@@ -110,6 +122,7 @@ __all__ = [
     "apply_controlled_patch",
     "build_agent_workflow_evidence",
     "build_commit_gate_evidence",
+    "build_commit_executor_evidence",
     "build_command_runner_evidence",
     "build_patch_applier_evidence",
     "build_patch_proposal_evidence",
@@ -121,6 +134,7 @@ __all__ = [
     "evaluate_command_gate",
     "evaluate_commit_gate",
     "evaluate_agent_workflow_request",
+    "execute_controlled_commit",
     "normalize_gate_command",
     "normalize_command",
     "plan_autonomous_repair",
