@@ -19,6 +19,15 @@ from .command_types import CommandGateDecision, CommandGateRequest
 from .policy_engine import classify_command, normalize_command
 from .policy_types import PolicyDecision, PolicyInput
 from .reports import SandboxReport, redact_report_text, render_sandbox_policy_report
+from .repair_planner import plan_autonomous_repair
+from .repair_planner_truth import (
+    AutonomousRepairPlannerEvidence,
+    build_repair_planner_evidence,
+)
+from .repair_planner_types import (
+    AutonomousRepairPlannerRequest,
+    AutonomousRepairPlannerResult,
+)
 from .runtime_truth import SandboxPolicyEvidence, build_sandbox_policy_evidence
 from .test_runner_loop import run_autonomous_test_loop
 from .test_runner_truth import (
@@ -35,6 +44,9 @@ __all__ = [
     "AgentWorkflowRequest",
     "AgentWorkflowEvidence",
     "AgentSandboxReport",
+    "AutonomousRepairPlannerEvidence",
+    "AutonomousRepairPlannerRequest",
+    "AutonomousRepairPlannerResult",
     "AutonomousTestRunnerLoopEvidence",
     "AutonomousTestRunnerLoopRequest",
     "AutonomousTestRunnerLoopResult",
@@ -49,6 +61,7 @@ __all__ = [
     "SandboxPolicyEvidence",
     "build_agent_workflow_evidence",
     "build_command_runner_evidence",
+    "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
     "build_test_runner_loop_evidence",
     "classify_command",
@@ -56,6 +69,7 @@ __all__ = [
     "evaluate_agent_workflow_request",
     "normalize_gate_command",
     "normalize_command",
+    "plan_autonomous_repair",
     "redact_report_text",
     "render_sandbox_policy_report",
     "render_agent_sandbox_report",

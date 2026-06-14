@@ -53,3 +53,8 @@ code edits, PR creation, and PR merge remain false.
 Public demos must not enable unrestricted autonomous loops. Demo flows may show
 dry-run planning, blocked states, failure classification, redaction, and
 Runtime Truth evidence.
+
+## Phase 19 Repair Planning
+
+Phase 19 consumes this loop's failure classification and Runtime Truth to create
+structured repair-plan metadata. It does not edit code or execute repairs.
