@@ -185,6 +185,7 @@ jobs:
               tests/runtime/test_pr_creation_gate.py \
               tests/runtime/test_controlled_pr_creator.py \
               tests/runtime/test_ci_monitor_gate.py \
+              tests/runtime/test_controlled_ci_monitor.py \
               --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-config=.coveragerc \
               --cov-report=term-missing --cov-report=xml
       - notify-failure

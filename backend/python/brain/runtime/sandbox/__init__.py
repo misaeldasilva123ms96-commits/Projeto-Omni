@@ -12,6 +12,13 @@ from .command_gate import evaluate_command_gate, normalize_gate_command
 from .ci_monitor_gate import evaluate_ci_monitor_gate
 from .ci_monitor_gate_truth import CIMonitorGateEvidence, build_ci_monitor_gate_evidence
 from .ci_monitor_gate_types import CIMonitorGateRequest, CIMonitorGateResult
+from .ci_monitor import (
+    ControlledCircleCIClient,
+    ControlledGitHubActionsClient,
+    monitor_ci_status,
+)
+from .ci_monitor_truth import ControlledCIMonitorEvidence, build_ci_monitor_evidence
+from .ci_monitor_types import ControlledCIMonitorRequest, ControlledCIMonitorResult
 from .commit_gate import evaluate_commit_gate
 from .commit_gate_truth import (
     ControlledCommitGateEvidence,
@@ -124,6 +131,11 @@ __all__ = [
     "CIMonitorGateEvidence",
     "CIMonitorGateRequest",
     "CIMonitorGateResult",
+    "ControlledCircleCIClient",
+    "ControlledCIMonitorEvidence",
+    "ControlledCIMonitorRequest",
+    "ControlledCIMonitorResult",
+    "ControlledGitHubActionsClient",
     "ControlledCommitGateEvidence",
     "ControlledCommitGateRequest",
     "ControlledCommitGateResult",
@@ -162,6 +174,7 @@ __all__ = [
     "apply_controlled_patch",
     "build_agent_workflow_evidence",
     "build_ci_monitor_gate_evidence",
+    "build_ci_monitor_evidence",
     "build_commit_gate_evidence",
     "build_commit_executor_evidence",
     "build_command_runner_evidence",
@@ -178,6 +191,7 @@ __all__ = [
     "classify_command",
     "evaluate_command_gate",
     "evaluate_ci_monitor_gate",
+    "monitor_ci_status",
     "evaluate_commit_gate",
     "evaluate_agent_workflow_request",
     "execute_controlled_commit",
