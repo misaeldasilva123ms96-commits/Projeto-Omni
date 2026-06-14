@@ -53,3 +53,7 @@ Human intervention is required for:
 - remote mismatch or non-origin remotes
 
 Public demos must not enable unrestricted push automation.
+
+## Phase 27 Handoff
+
+Phase 27 introduces the PR Creation Gate. It consumes clean Phase 26 push evidence and decides whether a pushed non-main branch is eligible for future PR creation. Phase 26 does not create PRs, call GitHub APIs, execute `gh`, merge, or enable auto-merge.

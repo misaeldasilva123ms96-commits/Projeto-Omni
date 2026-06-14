@@ -48,3 +48,7 @@ Runtime Truth records:
 - child evidence from the push gate and commit executor
 
 The executor may set `push_executed`, `git_mutated`, and `network_used` true only after the controlled push succeeds. It must keep PR, merge, rebase, branch creation, checkout, provider, MCP, agent, Vault, and main mutation flags false.
+
+## Phase 27 Boundary
+
+The next layer is the PR Creation Gate. It reviews the pushed branch metadata and Runtime Truth from this executor, but remains metadata-only. Actual PR creation belongs to a later executor phase and must revalidate repository, branch, title, body, labels, reviewers, assignees, and secret safety before any GitHub mutation.
