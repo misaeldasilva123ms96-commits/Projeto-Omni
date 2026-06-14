@@ -38,3 +38,7 @@ The gate blocks missing push evidence, missing pushed refs, missing remotes, mis
 Human intervention is required for secret-like content, protected branches, duplicate PR risk, unsafe repositories, main source branches, or any upstream evidence showing PR creation, merge, rebase, checkout, branch creation, provider, MCP, agent, Vault, or main mutation activity.
 
 Public demos must not enable unrestricted PR automation.
+
+## Phase 28 Handoff
+
+Phase 28 introduces the Controlled PR Creator. It consumes clean Phase 27 evidence and may create a draft PR through a narrow injected GitHub client. Phase 27 remains metadata-only and never creates the PR itself.

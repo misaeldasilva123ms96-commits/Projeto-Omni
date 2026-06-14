@@ -82,6 +82,9 @@ from .pr_creation_gate_truth import (
     build_pr_creation_gate_evidence,
 )
 from .pr_creation_gate_types import PRCreationGateRequest, PRCreationGateResult
+from .pr_creator import ControlledGitHubPRClient, create_controlled_pr
+from .pr_creator_truth import ControlledPRCreatorEvidence, build_pr_creator_evidence
+from .pr_creator_types import ControlledPRCreatorRequest, ControlledPRCreatorResult
 from .repair_planner import plan_autonomous_repair
 from .repair_planner_truth import (
     AutonomousRepairPlannerEvidence,
@@ -133,6 +136,10 @@ __all__ = [
     "PRCreationGateEvidence",
     "PRCreationGateRequest",
     "PRCreationGateResult",
+    "ControlledGitHubPRClient",
+    "ControlledPRCreatorEvidence",
+    "ControlledPRCreatorRequest",
+    "ControlledPRCreatorResult",
     "SandboxCommandExecutionEvidence",
     "SandboxCommandRunnerRequest",
     "SandboxCommandRunnerResult",
@@ -157,6 +164,7 @@ __all__ = [
     "build_push_gate_evidence",
     "build_push_executor_evidence",
     "build_pr_creation_gate_evidence",
+    "build_pr_creator_evidence",
     "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
     "build_test_runner_loop_evidence",
@@ -168,6 +176,7 @@ __all__ = [
     "evaluate_push_gate",
     "execute_controlled_push",
     "evaluate_pr_creation_gate",
+    "create_controlled_pr",
     "normalize_gate_command",
     "normalize_command",
     "plan_autonomous_repair",

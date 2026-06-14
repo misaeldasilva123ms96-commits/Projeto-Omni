@@ -53,3 +53,7 @@ The result includes:
 - blocked and escalation reasons
 
 All PR creation, merge, auto-merge, push, force push, and command capability flags remain false.
+
+## Phase 28 Boundary
+
+The next layer is the Controlled PR Creator. It revalidates this gate evidence and may create a draft PR through a narrow injected GitHub client. Merge, auto-merge, approval, labels, reviewers, assignees, CI monitoring, and branch cleanup remain outside Phase 28.
