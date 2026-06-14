@@ -64,3 +64,5 @@ Successful commits record pre-commit head, post-commit head, commit SHA, attempt
 The Runtime Truth keeps `pushed`, `pr_created`, `pr_merged`, `branch_created`, `checkout_performed`, `rebase_performed`, `merge_performed`, `network_used`, `provider_called`, `agent_called`, `mcp_used`, `vault_written`, and `main_modified` false.
 
 Public demos must not enable unrestricted commit automation.
+
+Phase 25 consumes clean commit executor evidence to decide whether a future push phase may proceed. The push decision is metadata only and does not contact remotes or run `git push`.
