@@ -181,6 +181,7 @@ jobs:
               tests/runtime/test_controlled_commit_gate.py \
               tests/runtime/test_controlled_commit_executor.py \
               tests/runtime/test_controlled_push_gate.py \
+              tests/runtime/test_controlled_push_executor.py \
               --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-config=.coveragerc \
               --cov-report=term-missing --cov-report=xml
       - notify-failure

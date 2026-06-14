@@ -59,3 +59,5 @@ All execution capability flags remain false.
 ## Future Integration
 
 A future push executor may consume `push_eligible`, `push_plan`, and Runtime Truth from this gate. That future phase must implement its own fixed Git push allowlist, human approval boundaries, Runtime Truth, and CI/PR controls before any real remote mutation is permitted.
+
+Phase 26 is that executor boundary. It revalidates Phase 25 evidence and may perform only a fixed `origin` branch push on a non-main branch. PR creation, merge, rebase, branch creation, checkout, and force push stay outside this gate and outside the Phase 26 executor.

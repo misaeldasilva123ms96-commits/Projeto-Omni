@@ -67,6 +67,15 @@ from .reports import SandboxReport, redact_report_text, render_sandbox_policy_re
 from .push_gate import evaluate_push_gate
 from .push_gate_truth import ControlledPushGateEvidence, build_push_gate_evidence
 from .push_gate_types import ControlledPushGateRequest, ControlledPushGateResult
+from .push_executor import execute_controlled_push
+from .push_executor_truth import (
+    ControlledPushExecutorEvidence,
+    build_push_executor_evidence,
+)
+from .push_executor_types import (
+    ControlledPushExecutorRequest,
+    ControlledPushExecutorResult,
+)
 from .repair_planner import plan_autonomous_repair
 from .repair_planner_truth import (
     AutonomousRepairPlannerEvidence,
@@ -112,6 +121,9 @@ __all__ = [
     "ControlledPushGateEvidence",
     "ControlledPushGateRequest",
     "ControlledPushGateResult",
+    "ControlledPushExecutorEvidence",
+    "ControlledPushExecutorRequest",
+    "ControlledPushExecutorResult",
     "SandboxCommandExecutionEvidence",
     "SandboxCommandRunnerRequest",
     "SandboxCommandRunnerResult",
@@ -134,6 +146,7 @@ __all__ = [
     "build_patch_proposal_evidence",
     "build_post_patch_validation_evidence",
     "build_push_gate_evidence",
+    "build_push_executor_evidence",
     "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
     "build_test_runner_loop_evidence",
@@ -143,6 +156,7 @@ __all__ = [
     "evaluate_agent_workflow_request",
     "execute_controlled_commit",
     "evaluate_push_gate",
+    "execute_controlled_push",
     "normalize_gate_command",
     "normalize_command",
     "plan_autonomous_repair",
