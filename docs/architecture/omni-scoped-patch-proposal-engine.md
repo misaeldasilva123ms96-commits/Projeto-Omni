@@ -58,3 +58,5 @@ Validation commands are filtered to known safe families and are never executed b
 ## Public Demo Restriction
 
 Public demo surfaces may show proposal metadata after governance filtering. They must not expose patch application controls or unrestricted command execution.
+
+Phase 21 consumes the proposal output and performs controlled branch patch application only inside an explicit non-main workspace.

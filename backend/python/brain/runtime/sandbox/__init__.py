@@ -16,6 +16,15 @@ from .command_runner_truth import (
 )
 from .command_runner_types import SandboxCommandRunnerRequest, SandboxCommandRunnerResult
 from .command_types import CommandGateDecision, CommandGateRequest
+from .patch_applier import apply_controlled_patch
+from .patch_applier_truth import (
+    ControlledPatchApplierEvidence,
+    build_patch_applier_evidence,
+)
+from .patch_applier_types import (
+    ControlledPatchApplierRequest,
+    ControlledPatchApplierResult,
+)
 from .patch_proposal import propose_scoped_patch
 from .patch_proposal_truth import (
     ScopedPatchProposalEvidence,
@@ -61,6 +70,9 @@ __all__ = [
     "AutonomousTestRunnerLoopResult",
     "CommandGateDecision",
     "CommandGateRequest",
+    "ControlledPatchApplierEvidence",
+    "ControlledPatchApplierRequest",
+    "ControlledPatchApplierResult",
     "SandboxCommandExecutionEvidence",
     "SandboxCommandRunnerRequest",
     "SandboxCommandRunnerResult",
@@ -71,8 +83,10 @@ __all__ = [
     "ScopedPatchProposalResult",
     "SandboxReport",
     "SandboxPolicyEvidence",
+    "apply_controlled_patch",
     "build_agent_workflow_evidence",
     "build_command_runner_evidence",
+    "build_patch_applier_evidence",
     "build_patch_proposal_evidence",
     "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
