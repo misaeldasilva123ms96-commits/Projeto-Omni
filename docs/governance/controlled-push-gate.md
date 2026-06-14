@@ -64,3 +64,7 @@ Runtime Truth records push eligibility, commit evidence linkage, branch safety, 
 `push_executed`, `force_push_executed`, `main_pushed`, `command_executed`, `git_mutated`, `commit_executed`, `files_staged`, `code_edited`, `patch_applied`, `files_written`, `pr_created`, `pr_merged`, `branch_created`, `checkout_performed`, `rebase_performed`, `merge_performed`, `network_used`, `provider_called`, `agent_called`, `mcp_used`, `vault_written`, and `main_modified` remain false in Phase 25.
 
 Public demos must not enable unrestricted push automation.
+
+## Phase 26 Handoff
+
+Phase 26 introduces the Controlled Push Executor. It may consume clean Phase 25 evidence, but it must re-check branch, remote, Runtime Truth, and secret safety before any governed branch push. Phase 25 remains metadata-only and never performs the push itself.
