@@ -63,3 +63,5 @@ The result records:
 ## Follow-Up
 
 After a successful commit, `requires_push_phase` and `requires_pr_phase` become true. The executor itself cannot push or open a PR; those capabilities belong to later governed phases.
+
+Phase 25 is the first push eligibility layer. It consumes this commit evidence and produces a metadata-only push plan without mutating remotes.
