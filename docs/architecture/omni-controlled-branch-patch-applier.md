@@ -74,3 +74,5 @@ No backup files or patch files are written by this phase.
 Secret-like content is redacted and blocks application before writing. Protected scopes include `.env`, `.git`, ADR, governance, security, CI, production, deploy, billing, credential, private-key, and lockfile paths.
 
 Main branch mutation remains blocked. The applier requires non-main branch metadata and never pushes directly to `main`.
+
+Phase 22 consumes the applier result and validates the patch through the Phase 18 loop before any future commit phase.
