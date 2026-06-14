@@ -41,3 +41,7 @@ It defaults to draft PRs and never enables merge, auto-merge, approval, labels, 
 ## Runtime Truth
 
 Runtime Truth records PR URL, number, state, duplicate detection, GitHub operations attempted/completed/blocked, and child evidence. It keeps merge, auto-merge, approval, push, Git mutation, command execution, file write, provider, MCP, agent, Vault, and main mutation flags false.
+
+## Next Gate
+
+The next layer is the CI Monitor Gate. It revalidates the created PR metadata and Runtime Truth before any future CI/check monitoring executor is allowed to query checks. The gate itself does not monitor CI or call GitHub/CircleCI APIs.
