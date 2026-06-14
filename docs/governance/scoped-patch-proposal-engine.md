@@ -106,3 +106,5 @@ Runtime Truth records proposal mode, repair category, failure classification, pa
 Human intervention is mandatory for security, governance, ADR, production, billing, destructive, secret, policy-blocked, and main-branch patch scopes.
 
 Public demo mode must not enable patch application. It may display proposal metadata only when redaction and governance checks pass.
+
+Phase 21 may consume proposal metadata from this phase and apply explicit snippets only when workspace, branch, path, operation, hunk, and secret gates all pass.
