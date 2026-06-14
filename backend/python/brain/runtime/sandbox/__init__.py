@@ -76,6 +76,12 @@ from .push_executor_types import (
     ControlledPushExecutorRequest,
     ControlledPushExecutorResult,
 )
+from .pr_creation_gate import evaluate_pr_creation_gate
+from .pr_creation_gate_truth import (
+    PRCreationGateEvidence,
+    build_pr_creation_gate_evidence,
+)
+from .pr_creation_gate_types import PRCreationGateRequest, PRCreationGateResult
 from .repair_planner import plan_autonomous_repair
 from .repair_planner_truth import (
     AutonomousRepairPlannerEvidence,
@@ -124,6 +130,9 @@ __all__ = [
     "ControlledPushExecutorEvidence",
     "ControlledPushExecutorRequest",
     "ControlledPushExecutorResult",
+    "PRCreationGateEvidence",
+    "PRCreationGateRequest",
+    "PRCreationGateResult",
     "SandboxCommandExecutionEvidence",
     "SandboxCommandRunnerRequest",
     "SandboxCommandRunnerResult",
@@ -147,6 +156,7 @@ __all__ = [
     "build_post_patch_validation_evidence",
     "build_push_gate_evidence",
     "build_push_executor_evidence",
+    "build_pr_creation_gate_evidence",
     "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
     "build_test_runner_loop_evidence",
@@ -157,6 +167,7 @@ __all__ = [
     "execute_controlled_commit",
     "evaluate_push_gate",
     "execute_controlled_push",
+    "evaluate_pr_creation_gate",
     "normalize_gate_command",
     "normalize_command",
     "plan_autonomous_repair",
