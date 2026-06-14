@@ -72,3 +72,5 @@ The applier does not run tests. When a patch is applied, it marks follow-up vali
 ## Public Demo Boundary
 
 Public demo surfaces must not enable unrestricted patch application. Any demo control must remain denied by default and scoped to explicit, non-main, test-safe workspaces.
+
+Phase 22 consumes patch application evidence from this phase and validates it through the Phase 18 Autonomous Test Runner Loop.

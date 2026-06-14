@@ -36,6 +36,15 @@ from .patch_proposal_types import (
 )
 from .policy_engine import classify_command, normalize_command
 from .policy_types import PolicyDecision, PolicyInput
+from .post_patch_validator import validate_post_patch
+from .post_patch_validator_truth import (
+    PostPatchValidationEvidence,
+    build_post_patch_validation_evidence,
+)
+from .post_patch_validator_types import (
+    PostPatchValidationRequest,
+    PostPatchValidationResult,
+)
 from .reports import SandboxReport, redact_report_text, render_sandbox_policy_report
 from .repair_planner import plan_autonomous_repair
 from .repair_planner_truth import (
@@ -78,6 +87,9 @@ __all__ = [
     "SandboxCommandRunnerResult",
     "PolicyDecision",
     "PolicyInput",
+    "PostPatchValidationEvidence",
+    "PostPatchValidationRequest",
+    "PostPatchValidationResult",
     "ScopedPatchProposalEvidence",
     "ScopedPatchProposalRequest",
     "ScopedPatchProposalResult",
@@ -88,6 +100,7 @@ __all__ = [
     "build_command_runner_evidence",
     "build_patch_applier_evidence",
     "build_patch_proposal_evidence",
+    "build_post_patch_validation_evidence",
     "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
     "build_test_runner_loop_evidence",
@@ -103,4 +116,5 @@ __all__ = [
     "render_agent_sandbox_report",
     "run_autonomous_test_loop",
     "run_sandbox_command",
+    "validate_post_patch",
 ]
