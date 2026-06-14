@@ -178,6 +178,7 @@ jobs:
               tests/runtime/test_scoped_patch_proposal_engine.py \
               tests/runtime/test_controlled_branch_patch_applier.py \
               tests/runtime/test_post_patch_validation_loop.py \
+              tests/runtime/test_controlled_commit_gate.py \
               --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-config=.coveragerc \
               --cov-report=term-missing --cov-report=xml
       - notify-failure

@@ -9,6 +9,15 @@ from .agent_reports import AgentSandboxReport, render_agent_sandbox_report
 from .agent_runtime_truth import AgentWorkflowEvidence, build_agent_workflow_evidence
 from .agent_types import AgentWorkflowPolicyDecision, AgentWorkflowRequest
 from .command_gate import evaluate_command_gate, normalize_gate_command
+from .commit_gate import evaluate_commit_gate
+from .commit_gate_truth import (
+    ControlledCommitGateEvidence,
+    build_commit_gate_evidence,
+)
+from .commit_gate_types import (
+    ControlledCommitGateRequest,
+    ControlledCommitGateResult,
+)
 from .command_runner import run_sandbox_command
 from .command_runner_truth import (
     SandboxCommandExecutionEvidence,
@@ -79,6 +88,9 @@ __all__ = [
     "AutonomousTestRunnerLoopResult",
     "CommandGateDecision",
     "CommandGateRequest",
+    "ControlledCommitGateEvidence",
+    "ControlledCommitGateRequest",
+    "ControlledCommitGateResult",
     "ControlledPatchApplierEvidence",
     "ControlledPatchApplierRequest",
     "ControlledPatchApplierResult",
@@ -97,6 +109,7 @@ __all__ = [
     "SandboxPolicyEvidence",
     "apply_controlled_patch",
     "build_agent_workflow_evidence",
+    "build_commit_gate_evidence",
     "build_command_runner_evidence",
     "build_patch_applier_evidence",
     "build_patch_proposal_evidence",
@@ -106,6 +119,7 @@ __all__ = [
     "build_test_runner_loop_evidence",
     "classify_command",
     "evaluate_command_gate",
+    "evaluate_commit_gate",
     "evaluate_agent_workflow_request",
     "normalize_gate_command",
     "normalize_command",
