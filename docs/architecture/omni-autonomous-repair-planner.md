@@ -7,6 +7,9 @@ Phase 19 consumes Phase 18 loop results and creates structured repair metadata.
 It does not read or write project files and does not call command runners,
 providers, MCP, or agents.
 
+Phase 20 consumes this repair metadata and creates scoped patch proposal
+metadata before any future governed patch application phase.
+
 ## Flow
 
 1. Receive failure summary, classification, command results, or a Phase 18 loop

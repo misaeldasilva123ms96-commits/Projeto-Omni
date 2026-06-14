@@ -16,6 +16,15 @@ from .command_runner_truth import (
 )
 from .command_runner_types import SandboxCommandRunnerRequest, SandboxCommandRunnerResult
 from .command_types import CommandGateDecision, CommandGateRequest
+from .patch_proposal import propose_scoped_patch
+from .patch_proposal_truth import (
+    ScopedPatchProposalEvidence,
+    build_patch_proposal_evidence,
+)
+from .patch_proposal_types import (
+    ScopedPatchProposalRequest,
+    ScopedPatchProposalResult,
+)
 from .policy_engine import classify_command, normalize_command
 from .policy_types import PolicyDecision, PolicyInput
 from .reports import SandboxReport, redact_report_text, render_sandbox_policy_report
@@ -57,10 +66,14 @@ __all__ = [
     "SandboxCommandRunnerResult",
     "PolicyDecision",
     "PolicyInput",
+    "ScopedPatchProposalEvidence",
+    "ScopedPatchProposalRequest",
+    "ScopedPatchProposalResult",
     "SandboxReport",
     "SandboxPolicyEvidence",
     "build_agent_workflow_evidence",
     "build_command_runner_evidence",
+    "build_patch_proposal_evidence",
     "build_repair_planner_evidence",
     "build_sandbox_policy_evidence",
     "build_test_runner_loop_evidence",
@@ -70,6 +83,7 @@ __all__ = [
     "normalize_gate_command",
     "normalize_command",
     "plan_autonomous_repair",
+    "propose_scoped_patch",
     "redact_report_text",
     "render_sandbox_policy_report",
     "render_agent_sandbox_report",
