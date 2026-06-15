@@ -14,11 +14,12 @@ when every governance gate passes.
 6. Commit scoped changes.
 7. Push the working branch.
 8. Open a pull request.
-9. Monitor CI.
-10. Repair CI failures within scope.
-11. Merge only when conditional merge gates pass.
-12. Produce Runtime Truth and reports.
-13. Produce a governed Vault draft for audit, if policy allows.
+9. Monitor CI (Phases 29–30).
+10. Evaluate CI repair-loop eligibility (Phase 31).
+11. Repair CI failures within scope.
+12. Merge only when conditional merge gates pass.
+13. Produce Runtime Truth and reports.
+14. Produce a governed Vault draft for audit, if policy allows.
 
 ## Human Exception Model
 

@@ -175,6 +175,29 @@ networks, call providers, use MCP, create PRs, or merge PRs. Push to `main`,
 force push, merge commands, network commands, secret access, production deploys,
 billing commands, and destructive commands remain blocked.
 
+## Phase 31 CI Repair Loop Gate
+
+Phase 31 adds a CI Repair Loop Gate that decides whether a failed or
+inconclusive CI monitor result from Phase 30 is eligible for a future repair
+loop.
+
+The gate classifies CI failure categories into safe (test, typecheck, lint,
+format, build) and blocked (security, secret, deployment, billing, permission,
+unknown infrastructure). It enforces a repair attempt budget (default max 3)
+and validates PR/repository/branch/SHA safety.
+
+This phase does not start repair loops, download logs, retry or trigger
+workflows, call providers or agents, create patch proposals, apply patches,
+edit files, execute commands, mutate Git, commit, push, update PRs, merge,
+or auto-merge.
+
+When eligible, the gate routes to a future `ci_repair_planner` phase. When CI
+passes, it routes to `merge_gate`. When CI is pending, it routes to
+`wait_for_ci`. Blocked results require human review.
+
+Runtime Truth is generated with governance decision, failure categories,
+attempt budget, and child evidence references.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

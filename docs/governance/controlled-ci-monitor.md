@@ -18,7 +18,7 @@ The monitor requires clean Phase 29 CI Monitor Gate evidence, a created PR, an o
 - Normalize check status into `passed`, `failed`, `pending`, or `inconclusive`.
 - Produce Runtime Truth for every monitoring attempt.
 - Route passing CI to a future merge gate as metadata only.
-- Route failing CI to a future repair-loop gate as metadata only.
+- Route failing CI to the CI Repair Loop Gate (Phase 31) as metadata only.
 
 ## Blocked Behavior
 
