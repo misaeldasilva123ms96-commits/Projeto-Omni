@@ -27,6 +27,18 @@ from .ci_repair_planner_types import (
     CIRepairPlannerRequest,
     CIRepairPlannerResult,
 )
+from .scoped_ci_patch_proposal_engine import (
+    evaluate_scoped_ci_patch_proposal_engine,
+)
+from .scoped_ci_patch_proposal_engine_truth import (
+    SCOPED_CI_PATCH_PROPOSAL_ENGINE_EVIDENCE_VERSION,
+    ScopedCIPatchProposalEngineEvidence,
+    build_scoped_ci_patch_proposal_engine_evidence,
+)
+from .scoped_ci_patch_proposal_engine_types import (
+    ScopedCIPatchProposalEngineRequest,
+    ScopedCIPatchProposalEngineResult,
+)
 from .scoped_ci_patch_proposal_gate import evaluate_scoped_ci_patch_proposal_gate
 from .scoped_ci_patch_proposal_gate_truth import (
     ScopedCIPatchProposalGateEvidence,
@@ -163,6 +175,10 @@ __all__ = [
     "CIRepairPlannerEvidence",
     "CIRepairPlannerRequest",
     "CIRepairPlannerResult",
+    "SCOPED_CI_PATCH_PROPOSAL_ENGINE_EVIDENCE_VERSION",
+    "ScopedCIPatchProposalEngineEvidence",
+    "ScopedCIPatchProposalEngineRequest",
+    "ScopedCIPatchProposalEngineResult",
     "ScopedCIPatchProposalGateEvidence",
     "ScopedCIPatchProposalGateRequest",
     "ScopedCIPatchProposalGateResult",
@@ -228,7 +244,9 @@ __all__ = [
     "evaluate_ci_monitor_gate",
     "evaluate_ci_repair_loop_gate",
     "evaluate_ci_repair_planner",
+    "evaluate_scoped_ci_patch_proposal_engine",
     "evaluate_scoped_ci_patch_proposal_gate",
+    "build_scoped_ci_patch_proposal_engine_evidence",
     "build_scoped_ci_patch_proposal_gate_evidence",
     "monitor_ci_status",
     "evaluate_commit_gate",
