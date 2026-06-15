@@ -221,6 +221,35 @@ When CI is pending, it routes to `wait_for_ci`. Blocked results route to
 `human_review`. Runtime Truth is generated with governance decision, plan
 metadata, steps, and affected areas.
 
+## Phase 33 Scoped CI Patch Proposal Gate
+
+Phase 33 adds a Scoped CI Patch Proposal Gate that decides whether a safe
+Phase 32 CI repair plan is eligible for a future scoped CI patch proposal
+phase. It is a gate only — it does not create patch proposals, generate
+patch hunks, apply patches, inspect source files to infer edits, edit
+files, write source files, execute repair, download logs, retry or trigger
+workflows, call providers or agents, call MCP, execute commands, mutate
+Git, commit, push, update PRs, merge, or enable auto-merge.
+
+The gate operates in four modes: `disabled` (default), `dry_run`,
+`evaluate_patch_proposal`, and `blocked`. In `evaluate_patch_proposal`
+mode, it validates Phase 32 repair plan evidence, validates repair plan
+steps (allowed: propose_scoped_*, inspect_*, request_human_review),
+classifies candidate target areas and file roots, validates suggested
+validation commands as metadata only, enforces patch proposal scope limits
+(max files 1-10, max hunks 1-50, max per file 1-20), enforces repair
+attempt budget (max 1-10, default 3), and produces eligibility metadata.
+
+When eligible, `next_allowed_phase` routes to `scoped_ci_patch_proposal`.
+When CI passed, it routes to `merge_gate`. When CI is pending, it routes
+to `wait_for_ci`. Blocked results require human review.
+
+All action flags (`can_create_patch_proposal`, `can_generate_patch_hunks`,
+`can_apply_patch`, `can_write_files`, `can_commit`, `can_push`,
+`can_update_pr`, `can_merge`, `can_auto_merge`) remain false. Runtime
+Truth is generated with governance decision, validated steps, candidate
+areas, scope limits, and child evidence references.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.

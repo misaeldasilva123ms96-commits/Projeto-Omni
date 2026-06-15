@@ -34,6 +34,11 @@ CI monitor evidence and Phase 29 gate evidence when provided.
 - No subprocess, shell, eval, exec, gh, provider, agent, or MCP calls.
 - No file writes, patches, commits, pushes, PR updates, or merges.
 
+## Next Phase
+
+Phase 33 (Scoped CI Patch Proposal Gate) consumes the repair plan metadata
+produced here to decide eligibility for future scoped CI patch proposal.
+
 ## Governance Decisions
 
 - `ci_repair_plan_created` — ready for future patch proposal gate.
