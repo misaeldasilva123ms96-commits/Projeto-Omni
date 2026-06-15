@@ -3,7 +3,7 @@
 ## Purpose
 
 Decides whether a safe Phase 32 CI repair plan is eligible for a future
-scoped CI patch proposal phase. Gate only — no patch proposals, no hunk
+scoped CI patch proposal phase (Phase 34). Gate only — no patch proposals, no hunk
 generation, no patch application, no file editing.
 
 ## Behavior
