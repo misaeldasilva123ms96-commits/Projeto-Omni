@@ -18,6 +18,15 @@ from .ci_repair_loop_gate_truth import (
     build_ci_repair_loop_gate_evidence,
 )
 from .ci_repair_loop_gate_types import CIRepairLoopGateRequest, CIRepairLoopGateResult
+from .ci_repair_planner import evaluate_ci_repair_planner
+from .ci_repair_planner_truth import (
+    CIRepairPlannerEvidence,
+    build_ci_repair_planner_evidence,
+)
+from .ci_repair_planner_types import (
+    CIRepairPlannerRequest,
+    CIRepairPlannerResult,
+)
 from .ci_monitor import (
     ControlledCircleCIClient,
     ControlledGitHubActionsClient,
@@ -142,6 +151,9 @@ __all__ = [
     "CIRepairLoopGateEvidence",
     "CIRepairLoopGateRequest",
     "CIRepairLoopGateResult",
+    "CIRepairPlannerEvidence",
+    "CIRepairPlannerRequest",
+    "CIRepairPlannerResult",
     "ControlledCIMonitorRequest",
     "ControlledCIMonitorResult",
     "ControlledGitHubActionsClient",
@@ -185,6 +197,7 @@ __all__ = [
     "build_ci_monitor_gate_evidence",
     "build_ci_monitor_evidence",
     "build_ci_repair_loop_gate_evidence",
+    "build_ci_repair_planner_evidence",
     "build_commit_gate_evidence",
     "build_commit_executor_evidence",
     "build_command_runner_evidence",
@@ -202,6 +215,7 @@ __all__ = [
     "evaluate_command_gate",
     "evaluate_ci_monitor_gate",
     "evaluate_ci_repair_loop_gate",
+    "evaluate_ci_repair_planner",
     "monitor_ci_status",
     "evaluate_commit_gate",
     "evaluate_agent_workflow_request",

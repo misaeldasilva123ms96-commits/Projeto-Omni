@@ -16,7 +16,8 @@ when every governance gate passes.
 8. Open a pull request.
 9. Monitor CI (Phases 29–30).
 10. Evaluate CI repair-loop eligibility (Phase 31).
-11. Repair CI failures within scope.
+11. Plan CI repair (Phase 32).
+12. Repair CI failures within scope.
 12. Merge only when conditional merge gates pass.
 13. Produce Runtime Truth and reports.
 14. Produce a governed Vault draft for audit, if policy allows.
