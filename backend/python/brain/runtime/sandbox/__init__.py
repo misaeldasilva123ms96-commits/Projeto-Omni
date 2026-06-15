@@ -27,6 +27,15 @@ from .ci_repair_planner_types import (
     CIRepairPlannerRequest,
     CIRepairPlannerResult,
 )
+from .scoped_ci_patch_proposal_gate import evaluate_scoped_ci_patch_proposal_gate
+from .scoped_ci_patch_proposal_gate_truth import (
+    ScopedCIPatchProposalGateEvidence,
+    build_scoped_ci_patch_proposal_gate_evidence,
+)
+from .scoped_ci_patch_proposal_gate_types import (
+    ScopedCIPatchProposalGateRequest,
+    ScopedCIPatchProposalGateResult,
+)
 from .ci_monitor import (
     ControlledCircleCIClient,
     ControlledGitHubActionsClient,
@@ -154,6 +163,9 @@ __all__ = [
     "CIRepairPlannerEvidence",
     "CIRepairPlannerRequest",
     "CIRepairPlannerResult",
+    "ScopedCIPatchProposalGateEvidence",
+    "ScopedCIPatchProposalGateRequest",
+    "ScopedCIPatchProposalGateResult",
     "ControlledCIMonitorRequest",
     "ControlledCIMonitorResult",
     "ControlledGitHubActionsClient",
@@ -216,6 +228,8 @@ __all__ = [
     "evaluate_ci_monitor_gate",
     "evaluate_ci_repair_loop_gate",
     "evaluate_ci_repair_planner",
+    "evaluate_scoped_ci_patch_proposal_gate",
+    "build_scoped_ci_patch_proposal_gate_evidence",
     "monitor_ci_status",
     "evaluate_commit_gate",
     "evaluate_agent_workflow_request",
