@@ -70,7 +70,7 @@ This phase **does**:
 
 | CI State | Next Phase |
 |----------|------------|
-| Failed (safe categories) | `ci_repair_planner` |
+| Failed (safe categories) | `ci_repair_planner` (Phase 32) |
 | Pending | `wait_for_ci` |
 | Passed | `merge_gate` |
 | Blocked / human required | `human_review` |

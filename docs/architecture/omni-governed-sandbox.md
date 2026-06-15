@@ -198,6 +198,29 @@ passes, it routes to `merge_gate`. When CI is pending, it routes to
 Runtime Truth is generated with governance decision, failure categories,
 attempt budget, and child evidence references.
 
+## Phase 32 CI Repair Planner
+
+Phase 32 adds a CI Repair Planner that creates structured repair plan metadata
+from safe Phase 31 CI Repair Loop Gate evidence. It is the bridge between CI
+failure detection and future automated patch proposal — it plans *what* to fix
+without fixing anything.
+
+The planner operates in four modes: `disabled` (default), `dry_run`,
+`plan_repair`, and `blocked`. In `plan_repair` mode, it classifies failure
+categories (test, typecheck, lint, format, build), enforces the repair attempt
+budget (default max 3), detects secrets in check names, and builds repair plan
+steps with suggested validation commands and affected area metadata.
+
+This phase does **not** execute repair, edit files, apply patches, download
+logs, retry or trigger workflows, call providers or agents, commit, push,
+update PRs, merge, or use subprocess/shell/gh.
+
+When the repair plan is ready, `next_allowed_phase` routes to
+`scoped_ci_patch_proposal_gate`. When CI passed, it routes to `merge_gate`.
+When CI is pending, it routes to `wait_for_ci`. Blocked results route to
+`human_review`. Runtime Truth is generated with governance decision, plan
+metadata, steps, and affected areas.
+
 ## Public Demo Restrictions
 
 Public demos must use sanitized data only.
