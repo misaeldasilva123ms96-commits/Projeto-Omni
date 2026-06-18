@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChatPanel } from '../components/chat/ChatPanel'
 import { HistoryPanel } from '../components/history/HistoryPanel'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { RuntimePanel } from '../components/status/RuntimePanel'
 import { chatApiResponseToUi, sendOmniMessage } from '../features/chat'
@@ -11,7 +10,7 @@ import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, fetchChatMessages, fetchChatSessions, syncChatSessionToSupabase } from '../lib/omniData'
 import { useRuntimeConsoleStore, type SidebarItem } from '../state/runtimeConsoleStore'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import type {
   ChatMessage,
   ChatMode,
@@ -27,6 +26,7 @@ type ChatPageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
@@ -185,7 +185,7 @@ const SIDEBAR_PROMPTS: Partial<Record<SidebarItem, { mode: ChatMode; prompt: str
   },
 }
 
-export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPageProps) {
+export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }: ChatPageProps) {
   const [messages, setMessages] = useState<ExtendedChatMessage[]>([])
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -499,33 +499,29 @@ export function ChatPage({ mode, onChangeMode, onChangeView, view }: ChatPagePro
     />
   )
 
-  return (
-    <OmniShell
-      showRightPanel={view !== 'history'}
-      sidebar={(
-        <OmniSidebar
-          activeConversationId={sessionId}
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onNewConversation={handleNewConversation}
-          onRestoreSession={handleRestoreSession}
-          onSidebarItemSelected={handleSidebarItemSelected}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-      rightPanel={view === 'history' ? undefined : (
-        <RuntimePanel
-          health={healthUi}
-          lastMetadata={lastMetadata}
-          modeLabel={MODE_LABELS[mode]}
-          requestState={requestState}
-          sessionId={sessionId}
-        />
-      )}
-    >
-      {mainContent}
-    </OmniShell>
-  )
+  return renderShell(mainContent, {
+    showRightPanel: view !== 'history',
+    sidebar: (
+      <OmniSidebar
+        activeConversationId={sessionId}
+        conversations={conversations}
+        mode={mode}
+        onChangeMode={onChangeMode}
+        onNewConversation={handleNewConversation}
+        onRestoreSession={handleRestoreSession}
+        onSidebarItemSelected={handleSidebarItemSelected}
+        onSelectView={onChangeView}
+        view={view}
+      />
+    ),
+    rightPanel: view === 'history' ? undefined : (
+      <RuntimePanel
+        health={healthUi}
+        lastMetadata={lastMetadata}
+        modeLabel={MODE_LABELS[mode]}
+        requestState={requestState}
+        sessionId={sessionId}
+      />
+    ),
+  })
 }

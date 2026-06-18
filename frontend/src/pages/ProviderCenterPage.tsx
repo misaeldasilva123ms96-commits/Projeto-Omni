@@ -1,8 +1,7 @@
 import { useCallback, useState } from 'react'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import { ProviderCenterOverview } from '../components/providers/ProviderCenterOverview'
 import { ProviderHealthCard } from '../components/providers/ProviderHealthCard'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { OmniButton } from '../components/ui/OmniButton'
@@ -22,10 +21,11 @@ type ProviderCenterPageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
-export function ProviderCenterPage({ mode, onChangeMode, onChangeView, view }: ProviderCenterPageProps) {
+export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShell, view }: ProviderCenterPageProps) {
   const {
     actionError, clearActionError, createProvider, editProvider,
     lastTestResult, loading, providers, removeProvider,
@@ -46,19 +46,17 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, view }: P
   }, [])
 
   const conversations: ConversationSummary[] = []
+  const sidebar = (
+    <OmniSidebar
+      conversations={conversations}
+      mode={mode}
+      onChangeMode={onChangeMode}
+      onSelectView={onChangeView}
+      view={view}
+    />
+  )
 
-  return (
-    <OmniShell
-      sidebar={(
-        <OmniSidebar
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-    >
+  return renderShell(
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
         <PageHero
           eyebrow="Integrações"
@@ -111,7 +109,7 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, view }: P
             ))}
           </div>
         )}
-      </div>
-    </OmniShell>
+      </div>,
+    { sidebar },
   )
 }

@@ -1,7 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
 import { MetricCard } from '../components/dashboard/MetricCard'
 import { SignalList } from '../components/dashboard/SignalList'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import {
   loadCognitiveTelemetryBundle,
@@ -15,7 +14,7 @@ import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { MetricRow } from '../components/ui/MetricRow'
 import { PageHero } from '../components/ui/PageHero'
 import { StatusBadge } from '../components/ui/StatusBadge'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
 import type {
   MilestonesResponse,
@@ -32,6 +31,7 @@ type DashboardPageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
@@ -69,6 +69,7 @@ export function DashboardPage({
   mode,
   onChangeMode,
   onChangeView,
+  renderShell,
   view,
 }: DashboardPageProps) {
   const [data, setData] = useState<DashboardState>(EMPTY_STATE)
@@ -76,6 +77,15 @@ export function DashboardPage({
   const [error, setError] = useState<string | null>(null)
   const apiReady = canUseApi()
   const conversations: ConversationSummary[] = []
+  const sidebar = (
+    <OmniSidebar
+      conversations={conversations}
+      mode={mode}
+      onChangeMode={onChangeMode}
+      onSelectView={onChangeView}
+      view={view}
+    />
+  )
 
   useEffect(() => {
     if (!apiReady) {
@@ -129,18 +139,7 @@ export function DashboardPage({
   const recentChanges = data.strategyState?.recent_changes ?? []
   const recentSwarmEvents = data.swarmLog?.events ?? []
   const recentPrSummaries = data.prSummaries?.summaries ?? []
-  return (
-    <OmniShell
-      sidebar={(
-        <OmniSidebar
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-    >
+  return renderShell(
       <section className="dashboard-page omni-dashboard">
         <PageHero
           eyebrow="Runtime observability"
@@ -266,8 +265,8 @@ export function DashboardPage({
             title="OIL / memory contract"
           />
         </section>
-      </section>
-    </OmniShell>
+      </section>,
+    { sidebar },
   )
 }
 

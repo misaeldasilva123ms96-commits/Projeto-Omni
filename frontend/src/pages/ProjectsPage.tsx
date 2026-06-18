@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import { ProjectsList } from '../components/projects/ProjectsList'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { PageHero } from '../components/ui/PageHero'
 import { createProject, deleteProject, fetchProjects, updateProject } from '../lib/omniData'
@@ -12,10 +11,11 @@ type ProjectsPageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
-export function ProjectsPage({ mode, onChangeMode, onChangeView, view }: ProjectsPageProps) {
+export function ProjectsPage({ mode, onChangeMode, onChangeView, renderShell, view }: ProjectsPageProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
@@ -76,19 +76,17 @@ export function ProjectsPage({ mode, onChangeMode, onChangeView, view }: Project
   }, [projects, setUiNotice])
 
   const conversations: ConversationSummary[] = []
+  const sidebar = (
+    <OmniSidebar
+      conversations={conversations}
+      mode={mode}
+      onChangeMode={onChangeMode}
+      onSelectView={onChangeView}
+      view={view}
+    />
+  )
 
-  return (
-    <OmniShell
-      sidebar={(
-        <OmniSidebar
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-    >
+  return renderShell(
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
         <PageHero
           eyebrow="Gerenciamento"
@@ -104,7 +102,7 @@ export function ProjectsPage({ mode, onChangeMode, onChangeView, view }: Project
           onDelete={handleDelete}
           onArchive={handleArchive}
         />
-      </div>
-    </OmniShell>
+      </div>,
+    { sidebar },
   )
 }

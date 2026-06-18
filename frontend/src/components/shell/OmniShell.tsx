@@ -3,17 +3,17 @@ import { useCallback, useState } from 'react'
 import type { ReactNode } from 'react'
 import { OmniTopbar } from './OmniTopbar'
 import { OmniMobileNav } from './OmniMobileNav'
+import { OmniSidebarToggle } from './OmniSidebar'
 
 type MobilePanel = 'sidebar' | 'content' | 'inspector'
 
-type OmniShellProps = {
+export type OmniShellProps = {
   sidebar?: ReactNode
   rightPanel?: ReactNode
   topbar?: ReactNode
   children: ReactNode
   showSidebar?: boolean
   showRightPanel?: boolean
-  onToggleRightPanel?: () => void
 }
 
 function Backdrop({ onClose }: { onClose: () => void }) {
@@ -37,7 +37,6 @@ export function OmniShell({
   children,
   showSidebar = true,
   showRightPanel = false,
-  onToggleRightPanel,
 }: OmniShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('content')
@@ -110,27 +109,18 @@ export function OmniShell({
                   sidebarCollapsed ? 'w-16' : ''
                 }`}
               >
+                {/* OmniSidebarToggle provides aria-label="Expand sidebar" and aria-label="Collapse sidebar"; this shell owns the state. */}
                 {sidebarCollapsed ? (
-                  <button
-                    aria-label="Expand sidebar"
-                    className="flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-slate-300 transition hover:text-white"
-                    onClick={() => setSidebarCollapsed(false)}
-                    type="button"
-                    title="Expand sidebar"
-                  >
-                    <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
-                  </button>
+                  <OmniSidebarToggle
+                    collapsed
+                    onToggle={() => setSidebarCollapsed(false)}
+                  />
                 ) : (
                   <div className="relative h-full">
-                    <button
-                      aria-label="Collapse sidebar"
-                      className="absolute -right-3 top-4 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[rgba(11,13,29,0.9)] text-slate-400 transition hover:text-white lg:flex"
-                      onClick={() => setSidebarCollapsed(true)}
-                      type="button"
-                      title="Collapse sidebar"
-                    >
-                      <svg aria-hidden="true" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></svg>
-                    </button>
+                    <OmniSidebarToggle
+                      collapsed={false}
+                      onToggle={() => setSidebarCollapsed(true)}
+                    />
                     {sidebar}
                   </div>
                 )}

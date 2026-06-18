@@ -3,13 +3,14 @@ import { ObservabilityPage } from '../pages/ObservabilityPage'
 import { PUBLIC_APP_URL, canUseSupabase } from '../lib/env'
 import { supabase } from '../lib/supabase'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import type { ChatMode } from '../types'
 
 type ObservabilityAuthGateProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
@@ -33,7 +34,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
   }
 
   if (loading) {
-    return (
+    return props.renderShell(
       <section className="dashboard-page">
         <section className="panel-card hero-card dashboard-hero">
           <div>
@@ -45,12 +46,12 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
             <span className="status-pill">Loading</span>
           </div>
         </section>
-      </section>
+      </section>,
     )
   }
 
   if (!session) {
-    return (
+    return props.renderShell(
       <section className="dashboard-page">
         <section className="panel-card hero-card dashboard-hero">
           <div>
@@ -74,7 +75,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
             {authError ? <span className="status-pill danger">{authError}</span> : null}
           </div>
         </section>
-      </section>
+      </section>,
     )
   }
 
