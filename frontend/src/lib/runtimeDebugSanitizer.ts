@@ -1,6 +1,5 @@
 const DANGEROUS_KEY_FRAGMENTS = [
   'stack',
-  'trace',
   'traceback',
   'env',
   'api_key',
@@ -27,6 +26,15 @@ const DANGEROUS_KEY_FRAGMENTS = [
   'tool_raw_result',
 ] as const
 
+const SAFE_TOKEN_COUNT_KEYS = new Set([
+  'tokens_in',
+  'tokens_out',
+  'input_tokens',
+  'output_tokens',
+])
+
+const REDACTED = '[REDACTED]'
+
 const UNIX_PATH_PATTERN = /(?<!\w)\/(?:home|root|tmp|var|usr|etc)(?:\/[^\s"'`{}[\],;:]+)+/g
 const WINDOWS_PATH_PATTERN = /(?:[A-Z]:\\(?:Users|Windows|Program Files|Program Files \(x86\))(?:\\[^\s"'`{}[\],;:]+)+)/gi
 const OPENAI_KEY_PATTERN = /\bsk-(?:proj-)?[A-Za-z0-9_-]{12,}\b/g
@@ -42,19 +50,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isDangerousKey(key: string): boolean {
   const normalized = key.trim().toLowerCase()
+  if (SAFE_TOKEN_COUNT_KEYS.has(normalized)) {
+    return false
+  }
   return DANGEROUS_KEY_FRAGMENTS.some((fragment) => normalized.includes(fragment))
 }
 
 function redactString(value: string): string {
   return value
-    .replace(UNIX_PATH_PATTERN, '[redacted_location]')
-    .replace(WINDOWS_PATH_PATTERN, '[redacted_location]')
-    .replace(OPENAI_KEY_PATTERN, '[redacted_secret]')
-    .replace(BEARER_PATTERN, 'Bearer [redacted_secret]')
-    .replace(JWT_PATTERN, '[redacted_jwt]')
-    .replace(SUPABASE_URL_PATTERN, '[redacted_supabase_url]')
-    .replace(EMAIL_PATTERN, '[redacted_email]')
-    .replace(PHONE_PATTERN, '[redacted_phone]')
+    .replace(UNIX_PATH_PATTERN, REDACTED)
+    .replace(WINDOWS_PATH_PATTERN, REDACTED)
+    .replace(OPENAI_KEY_PATTERN, REDACTED)
+    .replace(BEARER_PATTERN, REDACTED)
+    .replace(JWT_PATTERN, REDACTED)
+    .replace(SUPABASE_URL_PATTERN, REDACTED)
+    .replace(EMAIL_PATTERN, REDACTED)
+    .replace(PHONE_PATTERN, REDACTED)
+}
+
+export function redactRuntimeDebugText(value: string): string {
+  return redactString(value)
 }
 
 function sanitizeValue(input: unknown): unknown {
@@ -65,6 +80,7 @@ function sanitizeValue(input: unknown): unknown {
   if (isRecord(input)) {
     return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
       if (isDangerousKey(key)) {
+        acc[REDACTED] = REDACTED
         return acc
       }
       acc[key] = sanitizeValue(value)

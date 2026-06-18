@@ -6,9 +6,10 @@ function text(value: unknown) {
 }
 
 describe('sanitizeRuntimeDebugPayload', () => {
-  it('removes dangerous debug keys recursively', () => {
+  it('replaces dangerous debug values recursively with the visual redaction marker', () => {
     const sanitized = sanitizeRuntimeDebugPayload({
       runtime_mode: 'SAFE_FALLBACK',
+      trace_id: 'trace-safe-1',
       stack: 'stack',
       trace: 'trace',
       traceback: 'traceback',
@@ -38,17 +39,13 @@ describe('sanitizeRuntimeDebugPayload', () => {
     const payload = text(sanitized)
     for (const fragment of [
       'stack',
-      'trace',
       'traceback',
       'command',
       'args',
       'stdout',
       'stderr',
       'env',
-      'OPENAI_API_KEY',
       'token',
-      'secret-token',
-      'hidden',
       'password',
       'api_key',
       'jwt',
@@ -60,11 +57,16 @@ describe('sanitizeRuntimeDebugPayload', () => {
       'raw_response',
       'tool_raw_result',
       'memory_content',
+      'secret-token',
+      'hidden',
     ]) {
       expect(payload).not.toContain(fragment)
     }
     expect(sanitized.runtime_mode).toBe('SAFE_FALLBACK')
+    expect(sanitized.trace_id).toBe('trace-safe-1')
+    expect(sanitized['[REDACTED]']).toBe('[REDACTED]')
     expect((sanitized.nested as Record<string, unknown>).safe).toBe('kept')
+    expect((sanitized.nested as Record<string, unknown>)['[REDACTED]']).toBe('[REDACTED]')
   })
 
   it('redacts sensitive debug string values', () => {
@@ -92,10 +94,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
     expect(payload).not.toContain('project.supabase.co')
     expect(payload).not.toContain('user@example.com')
     expect(payload).not.toContain('+55 11 99999-9999')
-    expect(payload).toContain('[redacted_location]')
-    expect(payload).toContain('[redacted_secret]')
-    expect(payload).toContain('[redacted_email]')
-    expect(payload).toContain('[redacted_phone]')
+    expect(payload).toContain('[REDACTED]')
   })
 
   it('preserves public runtime, provider, and tool fields', () => {
@@ -144,7 +143,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
     const sanitized = sanitizeRuntimeDebugPayload(original)
 
     expect(original).toEqual(before)
-    expect(text(sanitized)).not.toContain('stderr')
+    expect((sanitized.nested as Record<string, unknown>)['[REDACTED]']).toBe('[REDACTED]')
     expect(sanitizeRuntimeDebugPayload(null)).toEqual({})
     expect(sanitizeRuntimeDebugPayload('debug')).toEqual({})
   })
