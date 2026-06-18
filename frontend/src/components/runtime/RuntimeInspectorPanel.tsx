@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ChatRequestState, RuntimeMetadata } from '../../types'
+import { normalizeRuntimeInspectorData } from '../../lib/runtimeTypes'
 import { OmniTabs } from '../ui/OmniTabs'
 import { RuntimeSummaryTab } from './RuntimeSummaryTab'
 import { RuntimeGovernanceTab } from './RuntimeGovernanceTab'
@@ -25,8 +26,9 @@ const TABS = [
   { id: 'logs', label: 'Logs' },
 ]
 
-export function RuntimeInspectorPanel({ metadata, sessionId, requestState }: RuntimeInspectorPanelProps) {
+export function RuntimeInspectorPanel({ metadata, requestState }: RuntimeInspectorPanelProps) {
   const [activeTab, setActiveTab] = useState('summary')
+  const data = useMemo(() => normalizeRuntimeInspectorData(metadata), [metadata])
 
   return (
     <div className="flex h-full flex-col">
@@ -38,19 +40,24 @@ export function RuntimeInspectorPanel({ metadata, sessionId, requestState }: Run
       />
       <div className="flex-1 overflow-y-auto pr-1">
         {activeTab === 'summary' ? (
-          <RuntimeSummaryTab metadata={metadata} sessionId={sessionId} requestState={requestState} />
+          <RuntimeSummaryTab
+            data={data.summary}
+            provider={data.provider}
+            requestState={requestState}
+            hasMetadata={Boolean(metadata)}
+          />
         ) : activeTab === 'governance' ? (
-          <RuntimeGovernanceTab metadata={metadata} />
+          <RuntimeGovernanceTab data={data.governance} />
         ) : activeTab === 'tools' ? (
-          <RuntimeToolsTab metadata={metadata} />
+          <RuntimeToolsTab data={data.tools} />
         ) : activeTab === 'provider' ? (
-          <RuntimeProviderTab metadata={metadata} />
+          <RuntimeProviderTab data={data.providers} />
         ) : activeTab === 'memory' ? (
-          <RuntimeMemoryTab metadata={metadata} />
+          <RuntimeMemoryTab data={data.memory} />
         ) : activeTab === 'oil' ? (
-          <RuntimeOilTab metadata={metadata} />
+          <RuntimeOilTab data={data.oil} />
         ) : activeTab === 'logs' ? (
-          <RuntimeLogsTab metadata={metadata} sessionId={sessionId} />
+          <RuntimeLogsTab data={data.logs} />
         ) : null}
       </div>
     </div>

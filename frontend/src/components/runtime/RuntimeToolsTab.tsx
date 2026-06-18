@@ -1,7 +1,7 @@
-import type { RuntimeMetadata, ToolExecutionDiagnostic } from '../../types'
+import type { ToolExecutionDiagnostic } from '../../types'
 
 type RuntimeToolsTabProps = {
-  metadata: RuntimeMetadata | null
+  data: ToolExecutionDiagnostic[]
 }
 
 function ToolCard({ tool }: { tool: ToolExecutionDiagnostic }) {
@@ -45,16 +45,14 @@ function ToolCard({ tool }: { tool: ToolExecutionDiagnostic }) {
   )
 }
 
-export function RuntimeToolsTab({ metadata }: RuntimeToolsTabProps) {
-  const tools = metadata?.toolDiagnostics ?? (metadata?.toolExecution ? [metadata.toolExecution] : [])
-
-  if (!tools.length) {
+export function RuntimeToolsTab({ data }: RuntimeToolsTabProps) {
+  if (!data.length) {
     return <p className="text-sm text-slate-400">não disponível</p>
   }
 
   return (
     <div className="space-y-3">
-      {tools.map((tool, index) => (
+      {data.map((tool, index) => (
         <ToolCard key={index} tool={tool} />
       ))}
     </div>
