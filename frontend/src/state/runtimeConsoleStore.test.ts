@@ -10,6 +10,7 @@ describe('runtimeConsoleStore', () => {
       currentMode: 'chat',
       isSending: false,
       lastError: null,
+      lastRuntimeInspectorData: null,
       lastRuntimeMetadata: null,
       panelView: 'chat',
       selectedTool: null,
@@ -42,5 +43,38 @@ describe('runtimeConsoleStore', () => {
     expect(useRuntimeConsoleStore.getState().lastRuntimeMetadata).toBeNull()
     expect(useRuntimeConsoleStore.getState().activeSidebarItem).toBe('nova-conversa')
     expect(useRuntimeConsoleStore.getState().uiNotice).toContain('Nova conversa')
+  })
+
+  it('stores the latest normalized runtime inspector snapshot', () => {
+    const snapshot = {
+      summary: {
+        runtime_mode: 'FULL_COGNITIVE_RUNTIME' as const,
+        runtime_reason: 'node_execution',
+        provider_attempted: true,
+        provider_succeeded: true,
+        fallback_triggered: false,
+        tool_invoked: false,
+        governance_decision: null,
+        tokens_in: 10,
+        tokens_out: 5,
+        latency_ms: 30,
+        request_id: 'req-store-1',
+        trace_id: null,
+        created_at: null,
+      },
+      governance: null,
+      tools: [],
+      provider: null,
+      providers: [],
+      memory: null,
+      oil: null,
+      logs: null,
+    }
+
+    useRuntimeConsoleStore.setState({ lastRuntimeInspectorData: snapshot })
+
+    expect(useRuntimeConsoleStore.getState().lastRuntimeInspectorData).toEqual(snapshot)
+    useRuntimeConsoleStore.getState().resetConversation()
+    expect(useRuntimeConsoleStore.getState().lastRuntimeInspectorData).toBeNull()
   })
 })

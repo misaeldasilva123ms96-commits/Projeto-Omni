@@ -6,10 +6,9 @@ import { ProviderStatusBadge } from './ProviderStatusBadge'
 import { TokenUsageMeter } from './TokenUsageMeter'
 
 type RuntimeSummaryTabProps = {
-  data: RuntimeSummaryContract
+  data: RuntimeSummaryContract | null
   provider: RuntimeProviderStatus | null
   requestState: ChatRequestState
-  hasMetadata: boolean
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -21,11 +20,27 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function RuntimeSummaryTab({ data, provider, requestState, hasMetadata }: RuntimeSummaryTabProps) {
+export function RuntimeSummaryTab({ data, provider, requestState }: RuntimeSummaryTabProps) {
   const isLoading = requestState === 'loading'
 
-  if (!hasMetadata && !isLoading) {
+  if (!data && !isLoading) {
     return <p className="text-sm text-slate-400">não disponível</p>
+  }
+
+  const summary = data ?? {
+    runtime_mode: 'UNKNOWN' as const,
+    runtime_reason: null,
+    provider_attempted: null,
+    provider_succeeded: null,
+    fallback_triggered: null,
+    tool_invoked: null,
+    governance_decision: null,
+    tokens_in: null,
+    tokens_out: null,
+    latency_ms: null,
+    request_id: null,
+    trace_id: null,
+    created_at: null,
   }
 
   return (
@@ -34,14 +49,14 @@ export function RuntimeSummaryTab({ data, provider, requestState, hasMetadata }:
         <h4 className="mb-3 text-sm font-medium text-white">Runtime</h4>
         <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5">
           <span className="text-sm text-slate-300/70">Mode</span>
-          <RuntimeStatusBadge mode={data.runtime_mode} fallback={data.fallback_triggered === true} />
+          <RuntimeStatusBadge mode={summary.runtime_mode} fallback={summary.fallback_triggered === true} />
         </div>
-        {data.runtime_reason ? (
-          <SummaryRow label="Reason" value={data.runtime_reason} />
+        {summary.runtime_reason ? (
+          <SummaryRow label="Reason" value={summary.runtime_reason} />
         ) : null}
-        <SummaryRow label="Request ID" value={data.request_id ?? 'não disponível'} />
-        <SummaryRow label="Trace ID" value={data.trace_id ?? 'não disponível'} />
-        <SummaryRow label="Created" value={data.created_at ?? 'não disponível'} />
+        <SummaryRow label="Request ID" value={summary.request_id ?? 'não disponível'} />
+        <SummaryRow label="Trace ID" value={summary.trace_id ?? 'não disponível'} />
+        <SummaryRow label="Created" value={summary.created_at ?? 'não disponível'} />
       </section>
 
       <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
@@ -50,10 +65,10 @@ export function RuntimeSummaryTab({ data, provider, requestState, hasMetadata }:
           <span className="text-sm text-slate-300/70">Provider</span>
           <ProviderStatusBadge provider={provider?.provider_name ?? null} />
         </div>
-        <SummaryRow label="Latency" value={data.latency_ms != null ? `${data.latency_ms}ms` : 'não disponível'} />
+        <SummaryRow label="Latency" value={summary.latency_ms != null ? `${summary.latency_ms}ms` : 'não disponível'} />
         <SummaryRow
           label="Governance"
-          value={data.governance_decision ?? 'não disponível'}
+          value={summary.governance_decision ?? 'não disponível'}
         />
       </section>
 
@@ -62,16 +77,16 @@ export function RuntimeSummaryTab({ data, provider, requestState, hasMetadata }:
         <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5">
           <span className="text-sm text-slate-300/70">Tokens</span>
           <TokenUsageMeter
-            usage={data.tokens_in === null && data.tokens_out === null
+            usage={summary.tokens_in === null && summary.tokens_out === null
               ? null
               : {
-                  input_tokens: data.tokens_in ?? undefined,
-                  output_tokens: data.tokens_out ?? undefined,
+                  input_tokens: summary.tokens_in ?? undefined,
+                  output_tokens: summary.tokens_out ?? undefined,
                 }}
           />
         </div>
-        <SummaryRow label="Input" value={data.tokens_in?.toLocaleString() ?? 'não disponível'} />
-        <SummaryRow label="Output" value={data.tokens_out?.toLocaleString() ?? 'não disponível'} />
+        <SummaryRow label="Input" value={summary.tokens_in?.toLocaleString() ?? 'não disponível'} />
+        <SummaryRow label="Output" value={summary.tokens_out?.toLocaleString() ?? 'não disponível'} />
       </section>
     </div>
   )

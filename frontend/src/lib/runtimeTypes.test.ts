@@ -110,4 +110,64 @@ describe('runtime inspector contracts', () => {
     expect(normalized.provider?.provider_name).toBe('openai')
     expect(normalized.providers).toHaveLength(1)
   })
+
+  it('maps public live runtime truth aliases from cognitive runtime inspection', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      usage: { input_tokens: 31, output_tokens: 17 },
+      cognitiveRuntimeInspection: {
+        runtime_mode: 'FULL_COGNITIVE_RUNTIME',
+        runtime_reason: 'node_execution',
+        llm_provider_attempted: true,
+        llm_provider_succeeded: true,
+        tool_invoked: true,
+        fallback_triggered: false,
+        provider_actual: 'openai',
+        latency_ms: 84,
+        request_id: 'req-live-1',
+      },
+    })
+
+    expect(normalized.summary).toMatchObject({
+      runtime_mode: 'FULL_COGNITIVE_RUNTIME',
+      runtime_reason: 'node_execution',
+      provider_attempted: true,
+      provider_succeeded: true,
+      tool_invoked: true,
+      fallback_triggered: false,
+      tokens_in: 31,
+      tokens_out: 17,
+      latency_ms: 84,
+      request_id: 'req-live-1',
+    })
+    expect(normalized.provider?.provider_name).toBe('openai')
+  })
+
+  it('maps governance scalar fields when a nested governance object is unavailable', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_mode: 'PARTIAL_COGNITIVE',
+        governance_decision: 'requires_approval',
+        risk_level: 'high',
+        blocked: false,
+        reason: 'review required',
+        policy: 'tool-policy',
+        tool_category: 'filesystem',
+        requires_approval: true,
+      },
+    })
+
+    expect(normalized.governance).toMatchObject({
+      decision: 'requires_approval',
+      risk_level: 'high',
+      blocked: false,
+      reason: 'review required',
+      policy: 'tool-policy',
+      tool_category: 'filesystem',
+      requires_approval: true,
+    })
+  })
 })

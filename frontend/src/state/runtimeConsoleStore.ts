@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { ChatMode, RuntimeMetadata } from '../types'
+import type { RuntimeInspectorData } from '../lib/runtimeTypes'
+import { normalizeStoredRuntimeMetadata } from '../lib/runtimeNormalizer'
 
 export type ConsoleAction = 'pesquisa' | 'pensar' | 'executar' | 'objetivos'
 export type ConsoleTab = 'plano' | 'simulacao' | 'raciocinio'
@@ -58,6 +60,7 @@ type RuntimeConsoleState = {
   currentMode: ChatMode
   isSending: boolean
   lastError: string | null
+  lastRuntimeInspectorData: RuntimeInspectorData | null
   lastRuntimeMetadata: RuntimeMetadata | null
   panelView: ConsolePanelView
   selectedTool: SidebarItem | null
@@ -165,6 +168,7 @@ export const useRuntimeConsoleStore = create<RuntimeConsoleState>((set) => ({
   currentMode: 'chat',
   isSending: false,
   lastError: null,
+  lastRuntimeInspectorData: null,
   lastRuntimeMetadata: null,
   panelView: 'chat',
   selectedTool: null,
@@ -173,6 +177,7 @@ export const useRuntimeConsoleStore = create<RuntimeConsoleState>((set) => ({
   resetConversation: () => set({
     activeSidebarItem: 'nova-conversa',
     lastError: null,
+    lastRuntimeInspectorData: null,
     lastRuntimeMetadata: null,
     panelView: 'chat',
     selectedTool: null,
@@ -200,6 +205,9 @@ export const useRuntimeConsoleStore = create<RuntimeConsoleState>((set) => ({
   setCurrentMode: (currentMode) => set({ currentMode }),
   setIsSending: (isSending) => set({ isSending }),
   setLastError: (lastError) => set({ lastError }),
-  setRuntimeMetadata: (lastRuntimeMetadata) => set({ lastRuntimeMetadata }),
+  setRuntimeMetadata: (lastRuntimeMetadata) => set({
+    lastRuntimeMetadata,
+    lastRuntimeInspectorData: normalizeStoredRuntimeMetadata(lastRuntimeMetadata),
+  }),
   setUiNotice: (uiNotice) => set({ uiNotice }),
 }))

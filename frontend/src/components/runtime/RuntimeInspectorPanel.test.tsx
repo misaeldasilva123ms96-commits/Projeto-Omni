@@ -2,15 +2,15 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeMetadata } from '../../types'
+import { normalizeStoredRuntimeMetadata } from '../../lib/runtimeNormalizer'
 import { RuntimeInspectorPanel } from './RuntimeInspectorPanel'
 
 describe('RuntimeInspectorPanel', () => {
   it('renders a safe empty state for every tab when runtime data is missing', async () => {
     render(
       <RuntimeInspectorPanel
-        metadata={null}
+        data={null}
         requestState="idle"
-        sessionId=""
       />,
     )
 
@@ -37,9 +37,8 @@ describe('RuntimeInspectorPanel', () => {
 
     render(
       <RuntimeInspectorPanel
-        metadata={metadata}
+        data={normalizeStoredRuntimeMetadata(metadata)}
         requestState="idle"
-        sessionId="session-safe"
       />,
     )
 
@@ -67,9 +66,8 @@ describe('RuntimeInspectorPanel', () => {
 
     render(
       <RuntimeInspectorPanel
-        metadata={metadata}
+        data={normalizeStoredRuntimeMetadata(metadata)}
         requestState="idle"
-        sessionId="session-safe"
       />,
     )
 

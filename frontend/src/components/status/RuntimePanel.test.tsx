@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeMetadata } from '../../types'
+import { normalizeStoredRuntimeMetadata } from '../../lib/runtimeNormalizer'
 import { RuntimePanel } from './RuntimePanel'
 
 describe('RuntimePanel', () => {
@@ -9,6 +10,7 @@ describe('RuntimePanel', () => {
     render(
       <RuntimePanel
         health={null}
+        inspectorData={null}
         lastMetadata={null}
         modeLabel="Chat"
         requestState="idle"
@@ -43,6 +45,7 @@ describe('RuntimePanel', () => {
     render(
       <RuntimePanel
         health={null}
+        inspectorData={normalizeStoredRuntimeMetadata(metadata)}
         lastMetadata={metadata}
         modeLabel="Chat"
         requestState="idle"

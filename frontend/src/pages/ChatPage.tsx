@@ -9,6 +9,10 @@ import { useCognitiveTelemetry } from '../hooks/useCognitiveTelemetry'
 import { ChatRequestError } from '../lib/api/chat'
 import { API_CONFIGURATION_ERROR, canUseApi } from '../lib/env'
 import { bootstrapOmniUser, fetchChatMessages, fetchChatSessions, syncChatSessionToSupabase } from '../lib/omniData'
+import {
+  normalizeStoredRuntimeMetadata,
+  normalizeUiChatRuntime,
+} from '../lib/runtimeNormalizer'
 import { useRuntimeConsoleStore, type SidebarItem } from '../state/runtimeConsoleStore'
 import type { RenderOmniShell, View } from '../app/App'
 import type {
@@ -21,6 +25,7 @@ import type {
 } from '../types'
 import type { UiChatResponse } from '../types/ui/chat'
 import type { UiRuntimeStatus } from '../types/ui/runtime'
+import type { RuntimeInspectorData } from '../lib/runtimeTypes'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -70,46 +75,6 @@ function createMessage(
     isNew: options?.isNew,
     metadata: options?.metadata,
     requestState: options?.requestState,
-  }
-}
-
-function normalizeMetadata(ui: UiChatResponse, previousSessionId: string): RuntimeMetadata {
-  return {
-    sessionId: ui.sessionId ?? previousSessionId,
-    source: ui.source,
-    matchedCommands: ui.commands,
-    matchedTools: ui.tools,
-    stopReason: ui.stopReason,
-    executionTier: ui.executionTier,
-    wireHealth: ui.wireHealth,
-    runtimeSessionVersion: ui.runtimeSessionVersion,
-    conversationId: ui.conversationId,
-    chatApiVersion: ui.chatApiVersion,
-    usage: ui.usage
-      ? {
-        input_tokens: ui.usage.inputTokens,
-        output_tokens: ui.usage.outputTokens,
-      }
-      : undefined,
-    runtimeMode: ui.runtimeMode,
-    runtimeReason: ui.runtimeReason,
-    cognitiveRuntimeInspection: ui.cognitiveRuntimeInspection,
-    signals: ui.signals,
-    executionPathUsed: ui.executionPathUsed,
-    fallbackTriggered: ui.fallbackTriggered,
-    compatibilityExecutionActive: ui.compatibilityExecutionActive,
-    providerActual: ui.providerActual,
-    providerFailed: ui.providerFailed,
-    failureClass: ui.failureClass,
-    failureReason: ui.failureReason,
-    executionProvenance: ui.executionProvenance,
-    providers: ui.providers,
-    providerDiagnostics: ui.providerDiagnostics,
-    providerFallbackOccurred: ui.providerFallbackOccurred,
-    noProviderAvailable: ui.noProviderAvailable,
-    toolExecution: ui.toolExecution,
-    toolDiagnostics: ui.toolDiagnostics,
-    error: ui.error,
   }
 }
 
@@ -193,6 +158,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState(buildSessionId)
   const [lastMetadata, setLastMetadata] = useState<RuntimeMetadata | null>(null)
+  const [lastInspectorData, setLastInspectorData] = useState<RuntimeInspectorData | null>(null)
   const [telemetryTick, setTelemetryTick] = useState(0)
   const [sessions, setSessions] = useState<ConversationSummary[]>([])
   const resetRuntimeConsoleConversation = useRuntimeConsoleStore((state) => state.resetConversation)
@@ -211,10 +177,13 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     const stored = loadStoredState()
     setInput(stored.input)
     setLastMetadata(stored.lastMetadata)
+    const storedInspectorData = normalizeStoredRuntimeMetadata(stored.lastMetadata)
+    setLastInspectorData(storedInspectorData)
+    setConsoleRuntimeMetadata(stored.lastMetadata)
     setMessages(stored.messages)
     setRequestState(stored.requestState)
     setSessionId(stored.sessionId)
-  }, [])
+  }, [setConsoleRuntimeMetadata])
 
   useEffect(() => {
     void bootstrapOmniUser().catch((bootstrapError) => {
@@ -294,14 +263,18 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
         }))
         setMessages(extended)
         setSessionId(restoreSessionId)
-        setLastMetadata(null)
+        const restoredMetadata = [...extended].reverse().find((message) => message.metadata)?.metadata ?? null
+        const restoredInspectorData = normalizeStoredRuntimeMetadata(restoredMetadata)
+        setLastMetadata(restoredMetadata)
+        setLastInspectorData(restoredInspectorData)
+        setConsoleRuntimeMetadata(restoredMetadata)
         setError(null)
         setRequestState('idle')
         setIsLoading(false)
         setInput('')
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
           input: '',
-          lastMetadata: null,
+          lastMetadata: restoredMetadata,
           messages: extended,
           requestState: 'idle',
           sessionId: restoreSessionId,
@@ -310,7 +283,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
       .catch(() => {
         useRuntimeConsoleStore.getState().setUiNotice('Não foi possível restaurar esta sessão.')
       })
-  }, [sessionId])
+  }, [sessionId, setConsoleRuntimeMetadata])
 
   const helperText = apiReady
     ? 'Rust → Python → Node/Bun → Python → Rust. Runtime truth and execution telemetry preserved.'
@@ -392,15 +365,16 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
 
     try {
       const data = await sendWithRetry(prompt, { sessionId })
-      console.debug('[omni:raw]', data)
       const ui = chatApiResponseToUi(data)
-      const metadata = normalizeMetadata(ui, sessionId)
+      const snapshot = normalizeUiChatRuntime(ui, sessionId)
+      const metadata = snapshot.metadata
       const displayText = ui.text.trim() || '...'
       const assistantOutcome = ui.wireHealth === 'degraded' ? ('degraded' as const) : ('completed' as const)
 
       await sleep(420)
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
+      setLastInspectorData(snapshot.inspectorData)
       setConsoleRuntimeMetadata(metadata)
       await streamAssistantMessage(loadingMessageId, displayText, metadata, assistantOutcome)
       setRequestState('idle')
@@ -410,10 +384,12 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
       setRequestState('error')
       const chatErrorPayload = err instanceof ChatRequestError ? err.payload : undefined
       const failedUi = chatErrorPayload ? chatApiResponseToUi(chatErrorPayload) : undefined
-      const failedMetadata = failedUi ? normalizeMetadata(failedUi, sessionId) : null
+      const failedSnapshot = failedUi ? normalizeUiChatRuntime(failedUi, sessionId) : null
+      const failedMetadata = failedSnapshot?.metadata ?? null
       if (failedMetadata) {
         setSessionId(failedMetadata.sessionId ?? sessionId)
         setLastMetadata(failedMetadata)
+        setLastInspectorData(failedSnapshot?.inspectorData ?? null)
         setConsoleRuntimeMetadata(failedMetadata)
       }
       const safeError =
@@ -446,6 +422,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     setInput('')
     setError(null)
     setLastMetadata(null)
+    setLastInspectorData(null)
     setRequestState('idle')
     setIsLoading(false)
     setSessionId(nextSessionId)
@@ -517,6 +494,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     rightPanel: view === 'history' ? undefined : (
       <RuntimePanel
         health={healthUi}
+        inspectorData={lastInspectorData}
         lastMetadata={lastMetadata}
         modeLabel={MODE_LABELS[mode]}
         requestState={requestState}

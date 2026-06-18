@@ -22,6 +22,7 @@ export type RuntimeErrorPayload = {
 
 export type ProviderDiagnostic = {
   provider?: string
+  model?: string | null
   configured?: boolean
   available?: boolean
   selected?: boolean
@@ -31,6 +32,8 @@ export type ProviderDiagnostic = {
   failure_class?: string | null
   failure_reason?: string | null
   latency_ms?: number | null
+  tokens_in?: number | null
+  tokens_out?: number | null
 }
 
 export type ToolExecutionDiagnostic = {

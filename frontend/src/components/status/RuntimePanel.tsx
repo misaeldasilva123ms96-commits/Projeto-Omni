@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import type { ChatRequestState, RuntimeMetadata } from '../../types'
+import type { RuntimeInspectorData } from '../../lib/runtimeTypes'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
 import { TOP_ACTIONS, useRuntimeConsoleStore } from '../../state/runtimeConsoleStore'
 import { useLiveRuntimeMetrics } from '../../hooks/useLiveRuntimeMetrics'
@@ -8,13 +9,14 @@ import { RuntimeInspectorPanel } from '../runtime/RuntimeInspectorPanel'
 
 type RuntimePanelProps = {
   health: UiRuntimeStatus | null
+  inspectorData: RuntimeInspectorData | null
   lastMetadata: RuntimeMetadata | null
   modeLabel: string
   requestState: ChatRequestState
   sessionId: string
 }
 
-export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, sessionId }: RuntimePanelProps) {
+export function RuntimePanel({ inspectorData, lastMetadata, requestState }: RuntimePanelProps) {
   const activeAction = useRuntimeConsoleStore((state) => state.activeAction)
   const selectTopAction = useRuntimeConsoleStore((state) => state.selectTopAction)
   const setUiNotice = useRuntimeConsoleStore((state) => state.setUiNotice)
@@ -65,8 +67,7 @@ export function RuntimePanel({ health, lastMetadata, modeLabel, requestState, se
       </div>
 
       <RuntimeInspectorPanel
-        metadata={lastMetadata}
-        sessionId={sessionId}
+        data={inspectorData}
         requestState={requestState}
       />
     </motion.div>
