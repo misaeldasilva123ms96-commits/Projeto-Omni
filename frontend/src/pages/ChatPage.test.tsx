@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { OmniShell } from '../components/shell/OmniShell'
+import type { RenderOmniShell } from '../app/App'
 import { ChatPage } from './ChatPage'
 
 const mocks = vi.hoisted(() => ({
@@ -57,6 +59,10 @@ vi.mock('../lib/omniData', () => ({
 }))
 
 describe('ChatPage runtime chat integration', () => {
+  const renderShell: RenderOmniShell = (content, options) => (
+    <OmniShell {...options}>{content}</OmniShell>
+  )
+
   beforeEach(() => {
     localStorage.clear()
     mocks.sendOmniMessage.mockReset()
@@ -71,7 +77,15 @@ describe('ChatPage runtime chat integration', () => {
       provider_actual: 'openai',
     })
 
-    render(<ChatPage mode="chat" onChangeMode={vi.fn()} onChangeView={vi.fn()} view="chat" />)
+    render(
+      <ChatPage
+        mode="chat"
+        onChangeMode={vi.fn()}
+        onChangeView={vi.fn()}
+        renderShell={renderShell}
+        view="chat"
+      />,
+    )
 
     await userEvent.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Olá Omni')
     await userEvent.click(screen.getByRole('button', { name: /Enviar/i }))
@@ -84,7 +98,15 @@ describe('ChatPage runtime chat integration', () => {
   it('handles API error safely', async () => {
     mocks.sendOmniMessage.mockRejectedValue(new Error('backend offline'))
 
-    render(<ChatPage mode="chat" onChangeMode={vi.fn()} onChangeView={vi.fn()} view="chat" />)
+    render(
+      <ChatPage
+        mode="chat"
+        onChangeMode={vi.fn()}
+        onChangeView={vi.fn()}
+        renderShell={renderShell}
+        view="chat"
+      />,
+    )
 
     await userEvent.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Falhe com segurança')
     await userEvent.click(screen.getByRole('button', { name: /Enviar/i }))

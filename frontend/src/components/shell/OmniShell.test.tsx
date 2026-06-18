@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { OmniShell } from './OmniShell'
 
@@ -42,6 +43,14 @@ describe('OmniShell', () => {
   it('renders sidebar with navigation role when present', () => {
     render(<OmniShell sidebar={<div>Sidebar</div>}><div>Content</div></OmniShell>)
     expect(screen.getByRole('navigation', { name: /sidebar/i })).toBeInTheDocument()
+  })
+
+  it('owns the sidebar collapse state', async () => {
+    render(<OmniShell sidebar={<div>Sidebar</div>}><div>Content</div></OmniShell>)
+
+    await userEvent.click(screen.getByRole('button', { name: /collapse sidebar/i }))
+    expect(screen.getByRole('button', { name: /expand sidebar/i })).toBeInTheDocument()
+    expect(screen.queryByText('Sidebar')).not.toBeInTheDocument()
   })
 
   it('renders inspector with region role when present', () => {

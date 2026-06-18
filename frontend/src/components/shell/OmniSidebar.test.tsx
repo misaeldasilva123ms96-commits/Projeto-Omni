@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { OmniSidebar } from './OmniSidebar'
+import { OmniSidebar, OmniSidebarToggle } from './OmniSidebar'
 
 const defaultProps = {
   activeConversationId: undefined,
@@ -16,22 +16,22 @@ const defaultProps = {
 }
 
 describe('OmniSidebar', () => {
-  it('renders Sidebar by default', () => {
+  it('renders the shared Sidebar content', () => {
     render(<OmniSidebar {...defaultProps} />)
     expect(screen.getByText('IA Console')).toBeInTheDocument()
   })
 
-  it('renders expand button when collapsed', async () => {
+  it('does not own a second collapse control', () => {
     render(<OmniSidebar {...defaultProps} />)
-    const collapseBtn = screen.getByRole('button', { name: /collapse sidebar/i })
-    await userEvent.click(collapseBtn)
-    expect(screen.getByRole('button', { name: /expand sidebar/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /collapse sidebar/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /expand sidebar/i })).not.toBeInTheDocument()
   })
 
-  it('expands when expand button is clicked after collapse', async () => {
-    render(<OmniSidebar {...defaultProps} />)
+  it('exposes a stateless collapse toggle for the shell owner', async () => {
+    const onToggle = vi.fn()
+    render(<OmniSidebarToggle collapsed={false} onToggle={onToggle} />)
+
     await userEvent.click(screen.getByRole('button', { name: /collapse sidebar/i }))
-    await userEvent.click(screen.getByRole('button', { name: /expand sidebar/i }))
-    expect(screen.getByText('IA Console')).toBeInTheDocument()
+    expect(onToggle).toHaveBeenCalledOnce()
   })
 })

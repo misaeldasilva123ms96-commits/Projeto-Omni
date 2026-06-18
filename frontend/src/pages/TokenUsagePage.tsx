@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import { TokenUsageChart } from '../components/tokens/TokenUsageChart'
 import { TokenUsageOverview } from '../components/tokens/TokenUsageOverview'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { PageHero } from '../components/ui/PageHero'
@@ -13,10 +12,11 @@ type TokenUsagePageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
-export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: TokenUsagePageProps) {
+export function TokenUsagePage({ mode, onChangeMode, onChangeView, renderShell, view }: TokenUsagePageProps) {
   const [summary, setSummary] = useState<TokenUsageSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +47,15 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: Token
   }, [])
 
   const conversations: ConversationSummary[] = []
+  const sidebar = (
+    <OmniSidebar
+      conversations={conversations}
+      mode={mode}
+      onChangeMode={onChangeMode}
+      onSelectView={onChangeView}
+      view={view}
+    />
+  )
 
   const content = useCallback(() => {
     if (loading) {
@@ -82,18 +91,7 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: Token
     )
   }, [loading, error, summary])
 
-  return (
-    <OmniShell
-      sidebar={(
-        <OmniSidebar
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-    >
+  return renderShell(
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
         <PageHero
           eyebrow="Monitoramento"
@@ -103,7 +101,7 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, view }: Token
         />
 
         {content()}
-      </div>
-    </OmniShell>
+      </div>,
+    { sidebar },
   )
 }

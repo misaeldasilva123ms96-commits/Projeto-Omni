@@ -1,9 +1,6 @@
 import { useProviders } from '../features/settings/hooks/useProviders';
 import ProviderCard from '../features/settings/ProviderCard';
 import type { ProviderRecord } from '../features/settings/types';
-import type { ChatMode } from '../types';
-
-type View = 'chat' | 'dashboard' | 'observability' | 'settings' | 'puter-dev';
 
 const DEFAULT_PROVIDERS: ProviderRecord[] = [
   { provider: 'openai', configured: false, updated_at: null },
@@ -13,14 +10,7 @@ const DEFAULT_PROVIDERS: ProviderRecord[] = [
   { provider: 'groq', configured: false, updated_at: null },
 ];
 
-type SettingsViewProps = {
-  mode: ChatMode;
-  onChangeMode: (mode: ChatMode) => void;
-  onChangeView: (view: View) => void;
-  view: View;
-};
-
-export function SettingsView({ mode, onChangeMode, onChangeView, view }: SettingsViewProps) {
+export function SettingsView() {
   const {
     actionError,
     clearActionError,

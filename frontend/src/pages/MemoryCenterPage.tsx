@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import { MemoryList } from '../components/memory/MemoryList'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { OmniCard } from '../components/ui/OmniCard'
 import { PageHero } from '../components/ui/PageHero'
@@ -12,10 +11,11 @@ type MemoryCenterPageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
-export function MemoryCenterPage({ mode, onChangeMode, onChangeView, view }: MemoryCenterPageProps) {
+export function MemoryCenterPage({ mode, onChangeMode, onChangeView, renderShell, view }: MemoryCenterPageProps) {
   const [entries, setEntries] = useState<MemoryEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -65,19 +65,17 @@ export function MemoryCenterPage({ mode, onChangeMode, onChangeView, view }: Mem
   }, [])
 
   const conversations: ConversationSummary[] = []
+  const sidebar = (
+    <OmniSidebar
+      conversations={conversations}
+      mode={mode}
+      onChangeMode={onChangeMode}
+      onSelectView={onChangeView}
+      view={view}
+    />
+  )
 
-  return (
-    <OmniShell
-      sidebar={(
-        <OmniSidebar
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-    >
+  return renderShell(
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-2 py-5">
         <PageHero
           eyebrow="Memória do Runtime"
@@ -115,7 +113,7 @@ export function MemoryCenterPage({ mode, onChangeMode, onChangeView, view }: Mem
           onDelete={handleDelete}
           onTogglePin={handleTogglePin}
         />
-      </div>
-    </OmniShell>
+      </div>,
+    { sidebar },
   )
 }

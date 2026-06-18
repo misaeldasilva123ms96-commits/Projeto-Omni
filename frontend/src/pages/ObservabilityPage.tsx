@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { OmniShell } from '../components/shell/OmniShell'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { DataScopeBadge } from '../components/ui/DataScopeBadge'
 import { PageHero } from '../components/ui/PageHero'
@@ -13,13 +12,14 @@ import { SpecialistTraceViewer } from '../components/observability/SpecialistTra
 import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { useObservabilityStream } from '../hooks/useObservabilityStream'
 import { canUseApi } from '../lib/env'
-import type { View } from '../app/App'
+import type { RenderOmniShell, View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
 
 type ObservabilityPageProps = {
   mode: ChatMode
   onChangeMode: (mode: ChatMode) => void
   onChangeView: (view: View) => void
+  renderShell: RenderOmniShell
   view: View
 }
 
@@ -27,6 +27,7 @@ export function ObservabilityPage({
   mode,
   onChangeMode,
   onChangeView,
+  renderShell,
   view,
 }: ObservabilityPageProps) {
   const apiReady = canUseApi()
@@ -38,20 +39,18 @@ export function ObservabilityPage({
     [snapshot],
   )
   const conversations: ConversationSummary[] = []
+  const sidebar = (
+    <OmniSidebar
+      conversations={conversations}
+      mode={mode}
+      onChangeMode={onChangeMode}
+      onSelectView={onChangeView}
+      view={view}
+    />
+  )
   const connectionLabel = status === 'live' ? 'Live' : status === 'reconnecting' ? 'Reconnecting' : status === 'error' ? 'Error' : 'Idle'
 
-  return (
-    <OmniShell
-      sidebar={(
-        <OmniSidebar
-          conversations={conversations}
-          mode={mode}
-          onChangeMode={onChangeMode}
-          onSelectView={onChangeView}
-          view={view}
-        />
-      )}
-    >
+  return renderShell(
       <section className="dashboard-page omni-observability">
         <PageHero
           eyebrow="Cognitive observability"
@@ -106,7 +105,7 @@ export function ObservabilityPage({
             />
           </div>
         )}
-      </section>
-    </OmniShell>
+      </section>,
+    { sidebar },
   )
 }
