@@ -77,4 +77,26 @@ describe('chat API provider diagnostics compatibility', () => {
     expect(ui.providerDiagnostics?.length).toBe(1)
     expect(ui.providerDiagnostics?.find((row) => row.provider === 'openai')?.failed).toBe(true)
   })
+
+  it('preserves optional provider model and token telemetry when present', () => {
+    const wire = parseWireChatPayload({
+      response: 'ok',
+      provider_diagnostics: [{
+        provider: 'openai',
+        model: 'gpt-runtime',
+        attempted: true,
+        succeeded: true,
+        latency_ms: 55,
+        tokens_in: 18,
+        tokens_out: 7,
+      }],
+    })
+
+    expect(wire.provider_diagnostics?.[0]).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-runtime',
+      tokens_in: 18,
+      tokens_out: 7,
+    })
+  })
 })

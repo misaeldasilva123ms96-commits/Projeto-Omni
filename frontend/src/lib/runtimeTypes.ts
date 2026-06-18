@@ -99,12 +99,13 @@ function firstBoolean(...values: unknown[]): boolean | null {
 
 function normalizeOil(value: unknown): RuntimeOilSkeleton | null {
   if (!isRecord(value)) return null
+  const safe = sanitizeRuntimeDebugPayload(value)
   return {
-    input: value.input ?? null,
-    decision: value.decision ?? null,
-    execution: value.execution ?? null,
-    observation: value.observation ?? null,
-    evaluation: value.evaluation ?? null,
+    input: safe.input ?? null,
+    decision: safe.decision ?? null,
+    execution: safe.execution ?? null,
+    observation: safe.observation ?? null,
+    evaluation: safe.evaluation ?? null,
   }
 }
 
@@ -120,12 +121,53 @@ export function normalizeRuntimeInspectorData(
   const inspection = isRecord(metadata?.cognitiveRuntimeInspection)
     ? metadata.cognitiveRuntimeInspection
     : {}
-  const governance = normalizeGovernanceStatus(inspection.governance)
+  const runtimeTruth = isRecord(inspection.runtime_truth)
+    ? inspection.runtime_truth
+    : {}
+  const governanceSource = inspection.governance
+    ?? (inspection.governance_decision
+      || inspection.risk_level
+      || typeof inspection.blocked === 'boolean'
+      || inspection.reason
+      || inspection.policy
+      || inspection.tool_category
+      || typeof inspection.requires_approval === 'boolean'
+      ? {
+          decision: inspection.governance_decision,
+          risk_level: inspection.risk_level,
+          blocked: inspection.blocked,
+          reason: inspection.reason,
+          policy: inspection.policy,
+          tool_category: inspection.tool_category,
+          requires_approval: inspection.requires_approval,
+        }
+      : null)
+  const governance = normalizeGovernanceStatus(governanceSource)
   const selectedProvider = metadata?.providerDiagnostics?.find((provider) => provider.selected)
     ?? metadata?.providerDiagnostics?.[0]
     ?? null
   const providerSource = inspection.provider
-    ?? (metadata?.providerActual ? { provider_name: metadata.providerActual } : null)
+    ?? (metadata?.providerActual || inspection.provider_actual || inspection.provider_public_name
+      ? {
+          provider_name:
+            metadata?.providerActual
+            ?? inspection.provider_actual
+            ?? inspection.provider_public_name,
+          attempted:
+            inspection.provider_attempted
+            ?? inspection.llm_provider_attempted
+            ?? runtimeTruth.provider_attempted
+            ?? runtimeTruth.llm_provider_attempted,
+          succeeded:
+            inspection.provider_succeeded
+            ?? inspection.llm_provider_succeeded
+            ?? runtimeTruth.provider_succeeded
+            ?? runtimeTruth.llm_provider_succeeded,
+          latency_ms: inspection.latency_ms,
+          tokens_in: inspection.tokens_in,
+          tokens_out: inspection.tokens_out,
+        }
+      : null)
   const provider = normalizeProviderStatus(providerSource, selectedProvider)
   const providers = (metadata?.providerDiagnostics ?? [])
     .map((item) => normalizeProviderStatus(item, item))
@@ -155,21 +197,33 @@ export function normalizeRuntimeInspectorData(
   return {
     summary: {
       runtime_mode: normalizeRuntimeMode(metadata?.runtimeMode ?? inspection.runtime_mode),
-      runtime_reason: optionalString(metadata?.runtimeReason ?? inspection.runtime_reason),
+      runtime_reason: optionalString(
+        metadata?.runtimeReason
+        ?? inspection.runtime_reason
+        ?? runtimeTruth.runtime_reason,
+      ),
       provider_attempted: firstBoolean(
         inspection.provider_attempted,
+        inspection.llm_provider_attempted,
+        runtimeTruth.provider_attempted,
+        runtimeTruth.llm_provider_attempted,
         provider?.attempted,
       ),
       provider_succeeded: firstBoolean(
         inspection.provider_succeeded,
+        inspection.llm_provider_succeeded,
+        runtimeTruth.provider_succeeded,
+        runtimeTruth.llm_provider_succeeded,
         provider?.succeeded,
       ),
       fallback_triggered: firstBoolean(
         metadata?.fallbackTriggered,
         inspection.fallback_triggered,
+        runtimeTruth.fallback_triggered,
       ),
       tool_invoked: firstBoolean(
         inspection.tool_invoked,
+        runtimeTruth.tool_invoked,
         metadata?.toolExecution?.tool_attempted,
       ),
       governance_decision: governanceDecision,
@@ -195,7 +249,7 @@ export function normalizeRuntimeInspectorData(
     memory: memoryStatus || matchedTools.length || matchedCommands.length
       ? {
           status: memoryStatus,
-          matched_tools: matchedTools,
+          matched_tools: matchedTools.map(redactRuntimeDebugText),
           matched_commands: matchedCommands.map(() => '[REDACTED]'),
         }
       : null,

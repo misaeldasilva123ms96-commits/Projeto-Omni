@@ -243,6 +243,7 @@ function adaptProviderDiagnostics(value: unknown): ChatApiResponse['provider_dia
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
     .map((item) => ({
       provider: readString(item.provider),
+      model: readString(item.model) ?? null,
       configured: readBoolean(item.configured),
       available: readBoolean(item.available),
       selected: readBoolean(item.selected),
@@ -252,6 +253,8 @@ function adaptProviderDiagnostics(value: unknown): ChatApiResponse['provider_dia
       failure_class: readString(item.failure_class) ?? null,
       failure_reason: readString(item.failure_reason) ?? null,
       latency_ms: typeof item.latency_ms === 'number' ? item.latency_ms : null,
+      tokens_in: typeof item.tokens_in === 'number' ? item.tokens_in : null,
+      tokens_out: typeof item.tokens_out === 'number' ? item.tokens_out : null,
     }))
 }
 

@@ -37,12 +37,12 @@ export function normalizeProviderStatus(
 
   return {
     provider_name: optionalString(record?.provider_name ?? record?.provider ?? fallback?.provider),
-    model: optionalString(record?.model),
+    model: optionalString(record?.model ?? fallback?.model),
     attempted: optionalBoolean(record?.attempted ?? fallback?.attempted),
     succeeded: optionalBoolean(record?.succeeded ?? fallback?.succeeded),
     failure_reason: optionalString(record?.failure_reason ?? fallback?.failure_reason),
     latency_ms: optionalNumber(record?.latency_ms ?? fallback?.latency_ms),
-    tokens_in: optionalNumber(record?.tokens_in),
-    tokens_out: optionalNumber(record?.tokens_out),
+    tokens_in: optionalNumber(record?.tokens_in ?? fallback?.tokens_in),
+    tokens_out: optionalNumber(record?.tokens_out ?? fallback?.tokens_out),
   }
 }
