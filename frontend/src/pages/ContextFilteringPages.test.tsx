@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { GovernanceCenterPage } from './GovernanceCenterPage'
 import { ObservabilityPage } from './ObservabilityPage'
 import { ProviderCenterPage } from './ProviderCenterPage'
+import { saveObservabilityContextHistory } from '../lib/observabilityContextHistory'
 
 const mocks = vi.hoisted(() => ({
   fetchGovernanceDecisions: vi.fn(),
@@ -77,6 +78,7 @@ const commonProps = {
 describe('destination context filtering', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/')
+    window.sessionStorage.clear()
     mocks.fetchGovernanceDecisions.mockReset()
     mocks.fetchGovernanceDecisions.mockResolvedValue([])
   })
@@ -130,11 +132,17 @@ describe('destination context filtering', () => {
   })
 
   it('preserves Provider Center behavior without query context', () => {
+    saveObservabilityContextHistory(
+      '/observability',
+      { trace_id: 'trace-recent' },
+      window.sessionStorage,
+    )
     window.history.replaceState({}, '', '/provider-center')
 
     render(<ProviderCenterPage {...commonProps} view="provider-center" />)
 
     expect(screen.queryByText('Contexto do Runtime Inspector')).not.toBeInTheDocument()
+    expect(screen.getByText('Contextos recentes')).toBeInTheDocument()
     expect(screen.getByText('OpenAI')).toBeInTheDocument()
   })
 })
