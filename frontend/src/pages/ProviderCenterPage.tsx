@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import type { RenderOmniShell, View } from '../app/App'
 import { ProviderCenterOverview } from '../components/providers/ProviderCenterOverview'
 import { ProviderHealthCard } from '../components/providers/ProviderHealthCard'
-import { ObservabilityContextBanner } from '../components/observability/ObservabilityContextBanner'
+import { ContextFilterControls } from '../components/observability/ContextFilterControls'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { OmniButton } from '../components/ui/OmniButton'
@@ -78,7 +78,7 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
           className="mb-6"
         />
 
-        <ObservabilityContextBanner context={context} />
+        <ContextFilterControls context={context} overviewPath="/provider-center" />
 
         <ProviderCenterOverview
           providers={visibleProviders}
@@ -99,7 +99,10 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
           <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando provedores...</div>
         ) : hasContext && visibleProviders.length === 0 ? (
           <div className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-8 text-center text-sm text-slate-400">
-            Contexto recebido, mas não há dados disponíveis para este filtro.
+            <p>Contexto recebido, mas não há dados disponíveis para este filtro.</p>
+            <p className="mt-2">
+              O contexto foi recebido com segurança, mas nenhum registro correspondente foi encontrado nos dados disponíveis.
+            </p>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

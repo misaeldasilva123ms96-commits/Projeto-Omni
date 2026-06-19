@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { RenderOmniShell, View } from '../app/App'
 import { GovernanceDecisionsList } from '../components/governance/GovernanceDecisionsList'
-import { ObservabilityContextBanner } from '../components/observability/ObservabilityContextBanner'
+import { ContextFilterControls } from '../components/observability/ContextFilterControls'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { OmniButton } from '../components/ui/OmniButton'
 import { OmniCard } from '../components/ui/OmniCard'
@@ -82,7 +82,7 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, renderS
           className="mb-6"
         />
 
-        <ObservabilityContextBanner context={context} />
+        <ContextFilterControls context={context} overviewPath="/governance" />
 
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OmniCard variant="panel">
@@ -127,7 +127,10 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, renderS
           </div>
         ) : hasContext && visibleDecisions.length === 0 ? (
           <div className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-8 text-center text-sm text-slate-400">
-            Contexto recebido, mas não há dados disponíveis para este filtro.
+            <p>Contexto recebido, mas não há dados disponíveis para este filtro.</p>
+            <p className="mt-2">
+              O contexto foi recebido com segurança, mas nenhum registro correspondente foi encontrado nos dados disponíveis.
+            </p>
           </div>
         ) : (
           <GovernanceDecisionsList decisions={visibleDecisions} />

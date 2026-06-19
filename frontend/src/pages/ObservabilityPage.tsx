@@ -9,7 +9,7 @@ import { LearningSignalsPanel } from '../components/observability/LearningSignal
 import { OperationalTimeline } from '../components/observability/OperationalTimeline'
 import { SimulationMemoryPanel } from '../components/observability/SimulationMemoryPanel'
 import { SpecialistTraceViewer } from '../components/observability/SpecialistTraceViewer'
-import { ObservabilityContextBanner } from '../components/observability/ObservabilityContextBanner'
+import { ContextFilterControls } from '../components/observability/ContextFilterControls'
 import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { useObservabilityStream } from '../hooks/useObservabilityStream'
 import { canUseApi } from '../lib/env'
@@ -90,7 +90,7 @@ export function ObservabilityPage({
           </span>
         </div>
 
-        <ObservabilityContextBanner context={context} />
+        <ContextFilterControls context={context} overviewPath="/observability" />
 
         {!apiReady ? (
           <PanelCard className="metric-card observability-card">
@@ -106,6 +106,9 @@ export function ObservabilityPage({
                 ? 'Nenhum registro correspondente encontrado.'
                 : 'Contexto recebido, mas não há dados disponíveis para este filtro.'}
             </h3>
+            <p className="muted-copy">
+              O contexto foi recebido com segurança, mas nenhum registro correspondente foi encontrado nos dados disponíveis.
+            </p>
           </PanelCard>
         ) : (
           <div className="dashboard-grid observability-grid">
