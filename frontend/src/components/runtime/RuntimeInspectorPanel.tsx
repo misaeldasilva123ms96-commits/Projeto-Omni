@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChatRequestState } from '../../types'
 import type { RuntimeInspectorData } from '../../lib/runtimeTypes'
+import { buildRuntimeInspectorLinks } from '../../lib/runtimeLinks'
 import { OmniTabs } from '../ui/OmniTabs'
 import { RuntimeSummaryTab } from './RuntimeSummaryTab'
 import { RuntimeGovernanceTab } from './RuntimeGovernanceTab'
@@ -27,6 +28,7 @@ const TABS = [
 
 export function RuntimeInspectorPanel({ data, requestState }: RuntimeInspectorPanelProps) {
   const [activeTab, setActiveTab] = useState('summary')
+  const links = buildRuntimeInspectorLinks(data)
 
   return (
     <div className="flex h-full flex-col">
@@ -42,19 +44,23 @@ export function RuntimeInspectorPanel({ data, requestState }: RuntimeInspectorPa
             data={data?.summary ?? null}
             provider={data?.provider ?? null}
             requestState={requestState}
+            observabilityHref={links.observability}
           />
         ) : activeTab === 'governance' ? (
-          <RuntimeGovernanceTab data={data?.governance ?? null} />
+          <RuntimeGovernanceTab
+            data={data?.governance ?? null}
+            governanceHref={links.governance}
+          />
         ) : activeTab === 'tools' ? (
-          <RuntimeToolsTab data={data?.tools ?? []} />
+          <RuntimeToolsTab data={data?.tools ?? []} executionHref={links.tool} />
         ) : activeTab === 'provider' ? (
-          <RuntimeProviderTab data={data?.providers ?? []} />
+          <RuntimeProviderTab data={data?.providers ?? []} providerHref={links.provider} />
         ) : activeTab === 'memory' ? (
           <RuntimeMemoryTab data={data?.memory ?? null} />
         ) : activeTab === 'oil' ? (
           <RuntimeOilTab data={data?.oil ?? null} />
         ) : activeTab === 'logs' ? (
-          <RuntimeLogsTab data={data?.logs ?? null} />
+          <RuntimeLogsTab data={data?.logs ?? null} logsHref={links.logs} />
         ) : null}
       </div>
     </div>

@@ -74,4 +74,77 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getByText('[REDACTED]')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('should-not-render')
   })
+
+  it('renders safe navigation links for available runtime references', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: ['read_file'],
+      runtimeMode: 'FULL_COGNITIVE_RUNTIME',
+      providerActual: 'openai',
+      cognitiveRuntimeInspection: {
+        request_id: 'req-link-1',
+        trace_id: 'trace-link-1',
+        governance: { decision: 'allowed' },
+      },
+      toolExecution: {
+        tool_selected: 'read_file',
+        tool_attempted: true,
+        tool_succeeded: true,
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Abrir em Observabilidade' })).toHaveAttribute(
+      'href',
+      '/observability?request_id=req-link-1&trace_id=trace-link-1&runtime_mode=FULL_COGNITIVE_RUNTIME',
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Tools' }))
+    expect(screen.getByRole('link', { name: 'Ver execução' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('tool=read_file'),
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+    expect(screen.getByRole('link', { name: 'Ver provider' })).toHaveAttribute(
+      'href',
+      '/provider-center?provider=openai',
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Governance' }))
+    expect(screen.getByRole('link', { name: 'Ver decisão' })).toHaveAttribute(
+      'href',
+      '/governance?decision=allowed',
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Logs' }))
+    expect(screen.getByRole('link', { name: 'Ver logs seguros' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('request_id=req-link-1'),
+    )
+  })
+
+  it('renders disabled navigation states when references are unavailable', async () => {
+    render(
+      <RuntimeInspectorPanel
+        data={null}
+        requestState="idle"
+      />,
+    )
+
+    expect(screen.getByText('sem referência disponível')).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Tools' }))
+    expect(screen.getByText('observabilidade indisponível')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Logs' }))
+    expect(screen.getByText('logs seguros indisponíveis')).toBeInTheDocument()
+  })
 })
