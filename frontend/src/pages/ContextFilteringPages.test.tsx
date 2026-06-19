@@ -88,6 +88,9 @@ describe('destination context filtering', () => {
 
     expect(screen.getByText('Contexto do Runtime Inspector')).toBeInTheDocument()
     expect(screen.getByText('Nenhum registro correspondente encontrado.')).toBeInTheDocument()
+    expect(screen.getByText(
+      'O contexto foi recebido com segurança, mas nenhum registro correspondente foi encontrado nos dados disponíveis.',
+    )).toBeInTheDocument()
   })
 
   it('filters Provider Center by provider context', () => {
@@ -96,6 +99,9 @@ describe('destination context filtering', () => {
     render(<ProviderCenterPage {...commonProps} view="provider-center" />)
 
     expect(screen.getByText('Contexto recebido, mas não há dados disponíveis para este filtro.')).toBeInTheDocument()
+    expect(screen.getByText(
+      'O contexto foi recebido com segurança, mas nenhum registro correspondente foi encontrado nos dados disponíveis.',
+    )).toBeInTheDocument()
     expect(screen.queryByText('OpenAI')).not.toBeInTheDocument()
   })
 
@@ -116,6 +122,9 @@ describe('destination context filtering', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Contexto recebido, mas não há dados disponíveis para este filtro.')).toBeInTheDocument()
+      expect(screen.getByText(
+        'O contexto foi recebido com segurança, mas nenhum registro correspondente foi encontrado nos dados disponíveis.',
+      )).toBeInTheDocument()
     })
     expect(screen.queryByText('Allowed')).not.toBeInTheDocument()
   })
