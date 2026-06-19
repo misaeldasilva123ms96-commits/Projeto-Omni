@@ -4,11 +4,13 @@ import type { RuntimeProviderStatus } from '../../lib/providerTypes'
 import { RuntimeStatusBadge } from './RuntimeStatusBadge'
 import { ProviderStatusBadge } from './ProviderStatusBadge'
 import { TokenUsageMeter } from './TokenUsageMeter'
+import { RuntimeLinkAction } from './RuntimeLinkAction'
 
 type RuntimeSummaryTabProps = {
   data: RuntimeSummaryContract | null
   provider: RuntimeProviderStatus | null
   requestState: ChatRequestState
+  observabilityHref: string | null
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -20,11 +22,25 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function RuntimeSummaryTab({ data, provider, requestState }: RuntimeSummaryTabProps) {
+export function RuntimeSummaryTab({
+  data,
+  provider,
+  requestState,
+  observabilityHref,
+}: RuntimeSummaryTabProps) {
   const isLoading = requestState === 'loading'
 
   if (!data && !isLoading) {
-    return <p className="text-sm text-slate-400">não disponível</p>
+    return (
+      <div>
+        <p className="text-sm text-slate-400">não disponível</p>
+        <RuntimeLinkAction
+          href={observabilityHref}
+          label="Abrir em Observabilidade"
+          unavailableLabel="sem referência disponível"
+        />
+      </div>
+    )
   }
 
   const summary = data ?? {
@@ -88,6 +104,12 @@ export function RuntimeSummaryTab({ data, provider, requestState }: RuntimeSumma
         <SummaryRow label="Input" value={summary.tokens_in?.toLocaleString() ?? 'não disponível'} />
         <SummaryRow label="Output" value={summary.tokens_out?.toLocaleString() ?? 'não disponível'} />
       </section>
+
+      <RuntimeLinkAction
+        href={observabilityHref}
+        label="Abrir em Observabilidade"
+        unavailableLabel="sem referência disponível"
+      />
     </div>
   )
 }

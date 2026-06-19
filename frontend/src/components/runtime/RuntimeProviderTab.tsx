@@ -1,7 +1,9 @@
 import type { RuntimeProviderStatus } from '../../lib/providerTypes'
+import { RuntimeLinkAction } from './RuntimeLinkAction'
 
 type RuntimeProviderTabProps = {
   data: RuntimeProviderStatus[]
+  providerHref: string | null
 }
 
 function ProviderCard({ provider }: { provider: RuntimeProviderStatus }) {
@@ -47,9 +49,18 @@ function ProviderCard({ provider }: { provider: RuntimeProviderStatus }) {
   )
 }
 
-export function RuntimeProviderTab({ data }: RuntimeProviderTabProps) {
+export function RuntimeProviderTab({ data, providerHref }: RuntimeProviderTabProps) {
   if (!data.length) {
-    return <p className="text-sm text-slate-400">não disponível</p>
+    return (
+      <div>
+        <p className="text-sm text-slate-400">não disponível</p>
+        <RuntimeLinkAction
+          href={providerHref}
+          label="Ver provider"
+          unavailableLabel="sem referência disponível"
+        />
+      </div>
+    )
   }
 
   return (
@@ -57,6 +68,11 @@ export function RuntimeProviderTab({ data }: RuntimeProviderTabProps) {
       {data.map((provider, index) => (
         <ProviderCard key={index} provider={provider} />
       ))}
+      <RuntimeLinkAction
+        href={providerHref}
+        label="Ver provider"
+        unavailableLabel="sem referência disponível"
+      />
     </div>
   )
 }

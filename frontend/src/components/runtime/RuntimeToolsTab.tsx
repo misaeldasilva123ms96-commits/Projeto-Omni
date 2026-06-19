@@ -1,7 +1,9 @@
 import type { ToolExecutionDiagnostic } from '../../types'
+import { RuntimeLinkAction } from './RuntimeLinkAction'
 
 type RuntimeToolsTabProps = {
   data: ToolExecutionDiagnostic[]
+  executionHref: string | null
 }
 
 function ToolCard({ tool }: { tool: ToolExecutionDiagnostic }) {
@@ -45,9 +47,18 @@ function ToolCard({ tool }: { tool: ToolExecutionDiagnostic }) {
   )
 }
 
-export function RuntimeToolsTab({ data }: RuntimeToolsTabProps) {
+export function RuntimeToolsTab({ data, executionHref }: RuntimeToolsTabProps) {
   if (!data.length) {
-    return <p className="text-sm text-slate-400">não disponível</p>
+    return (
+      <div>
+        <p className="text-sm text-slate-400">não disponível</p>
+        <RuntimeLinkAction
+          href={executionHref}
+          label="Ver execução"
+          unavailableLabel="observabilidade indisponível"
+        />
+      </div>
+    )
   }
 
   return (
@@ -55,6 +66,11 @@ export function RuntimeToolsTab({ data }: RuntimeToolsTabProps) {
       {data.map((tool, index) => (
         <ToolCard key={index} tool={tool} />
       ))}
+      <RuntimeLinkAction
+        href={executionHref}
+        label="Ver execução"
+        unavailableLabel="observabilidade indisponível"
+      />
     </div>
   )
 }

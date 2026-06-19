@@ -1,8 +1,10 @@
 import type { RuntimeGovernanceStatus } from '../../lib/governanceTypes'
 import { GovernanceBadge } from './GovernanceBadge'
+import { RuntimeLinkAction } from './RuntimeLinkAction'
 
 type RuntimeGovernanceTabProps = {
   data: RuntimeGovernanceStatus | null
+  governanceHref: string | null
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -14,9 +16,18 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function RuntimeGovernanceTab({ data }: RuntimeGovernanceTabProps) {
+export function RuntimeGovernanceTab({ data, governanceHref }: RuntimeGovernanceTabProps) {
   if (!data) {
-    return <p className="text-sm text-slate-400">não disponível</p>
+    return (
+      <div>
+        <p className="text-sm text-slate-400">não disponível</p>
+        <RuntimeLinkAction
+          href={governanceHref}
+          label="Ver decisão"
+          unavailableLabel="sem referência disponível"
+        />
+      </div>
+    )
   }
 
   return (
@@ -46,6 +57,11 @@ export function RuntimeGovernanceTab({ data }: RuntimeGovernanceTabProps) {
           </div>
         ) : null}
       </section>
+      <RuntimeLinkAction
+        href={governanceHref}
+        label="Ver decisão"
+        unavailableLabel="sem referência disponível"
+      />
     </div>
   )
 }
