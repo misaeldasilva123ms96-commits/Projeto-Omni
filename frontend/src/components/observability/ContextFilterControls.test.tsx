@@ -8,6 +8,7 @@ describe('ContextFilterControls', () => {
 
   beforeEach(() => {
     window.history.replaceState({}, '', '/observability')
+    window.sessionStorage.clear()
     writeText.mockReset()
     writeText.mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
@@ -114,5 +115,44 @@ describe('ContextFilterControls', () => {
     )
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('saves the active context and renders a safe recent-context link', async () => {
+    const navigate = vi.fn()
+    render(
+      <ContextFilterControls
+        context={{
+          trace_id: 'trace-safe',
+          token: 'secret',
+        } as ObservabilityContext}
+        navigate={navigate}
+        overviewPath="/observability"
+      />,
+    )
+
+    expect(await screen.findByText('Contextos recentes')).toBeInTheDocument()
+    const recent = screen.getByRole('button', { name: 'trace_id: trace-safe' })
+    fireEvent.click(recent)
+
+    expect(navigate).toHaveBeenCalledWith(
+      '/observability?trace_id=trace-safe',
+      false,
+    )
+    expect(screen.queryByText(/secret|token/i)).not.toBeInTheDocument()
+  })
+
+  it('clears recent context history', async () => {
+    render(
+      <ContextFilterControls
+        context={{ trace_id: 'trace-safe' }}
+        overviewPath="/observability"
+      />,
+    )
+
+    expect(await screen.findByText('Contextos recentes')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar histórico' }))
+
+    expect(screen.queryByText('Contextos recentes')).not.toBeInTheDocument()
+    expect(window.sessionStorage.length).toBe(0)
   })
 })

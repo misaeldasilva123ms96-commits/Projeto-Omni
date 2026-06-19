@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   OBSERVABILITY_CONTEXT_KEYS,
   hasObservabilityContext,
@@ -6,6 +6,12 @@ import {
   serializeObservabilityContext,
   type ObservabilityContext,
 } from '../../lib/observabilityContext'
+import {
+  clearObservabilityContextHistory,
+  loadObservabilityContextHistory,
+  saveObservabilityContextHistory,
+  type ObservabilityContextHistoryEntry,
+} from '../../lib/observabilityContextHistory'
 
 type ContextFilterControlsProps = {
   context: ObservabilityContext
@@ -30,10 +36,20 @@ export function ContextFilterControls({
   const safeContext = parseObservabilityContext(
     serializeObservabilityContext(context),
   )
+  const safeQuery = serializeObservabilityContext(safeContext)
+  const hasContext = hasObservabilityContext(safeContext)
+  const [history, setHistory] = useState<ObservabilityContextHistoryEntry[]>(
+    () => loadObservabilityContextHistory(),
+  )
+  const safeReference = `${overviewPath}${safeQuery}`
 
-  if (!hasObservabilityContext(safeContext)) return null
-
-  const safeReference = `${overviewPath}${serializeObservabilityContext(safeContext)}`
+  useEffect(() => {
+    if (!hasContext) return
+    setHistory(saveObservabilityContextHistory(
+      overviewPath,
+      parseObservabilityContext(safeQuery),
+    ))
+  }, [hasContext, overviewPath, safeQuery])
 
   const copyReference = () => {
     if (!navigator.clipboard?.writeText) {
@@ -45,52 +61,97 @@ export function ContextFilterControls({
       .catch(() => setCopied(false))
   }
 
+  if (!hasContext && history.length === 0) return null
+
   return (
-    <div
-      className="mb-4 rounded-[22px] border border-neon-cyan/20 bg-neon-cyan/[0.06] px-4 py-3"
-      role="note"
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-neon-cyan">
-        Contexto do Runtime Inspector
-      </p>
-      <p className="mt-1 text-xs text-slate-400">
-        Filtros ativos aplicados somente aos dados disponíveis nesta página.
-      </p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {OBSERVABILITY_CONTEXT_KEYS.map((key) =>
-          safeContext[key] ? (
-            <span
-              className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-slate-200"
-              key={key}
+    <>
+      {hasContext ? (
+        <div
+          className="mb-4 rounded-[22px] border border-neon-cyan/20 bg-neon-cyan/[0.06] px-4 py-3"
+          role="note"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-neon-cyan">
+            Contexto do Runtime Inspector
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Filtros ativos aplicados somente aos dados disponíveis nesta página.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {OBSERVABILITY_CONTEXT_KEYS.map((key) =>
+              safeContext[key] ? (
+                <span
+                  className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-slate-200"
+                  key={key}
+                >
+                  {key}: {safeContext[key]}
+                </span>
+              ) : null,
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              className="ghost-button status-pill"
+              onClick={() => navigate(overviewPath, true)}
+              type="button"
             >
-              {key}: {safeContext[key]}
-            </span>
-          ) : null,
-        )}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          className="ghost-button status-pill"
-          onClick={() => navigate(overviewPath, true)}
-          type="button"
-        >
-          Limpar filtros
-        </button>
-        <button
-          className="ghost-button status-pill"
-          onClick={copyReference}
-          type="button"
-        >
-          {copied ? 'Referência copiada' : 'Copiar referência'}
-        </button>
-        <button
-          className="ghost-button status-pill"
-          onClick={() => navigate(overviewPath, false)}
-          type="button"
-        >
-          Voltar para visão geral
-        </button>
-      </div>
-    </div>
+              Limpar filtros
+            </button>
+            <button
+              className="ghost-button status-pill"
+              onClick={copyReference}
+              type="button"
+            >
+              {copied ? 'Referência copiada' : 'Copiar referência'}
+            </button>
+            <button
+              className="ghost-button status-pill"
+              onClick={() => navigate(overviewPath, false)}
+              type="button"
+            >
+              Voltar para visão geral
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {history.length > 0 ? (
+        <section className="mb-4 rounded-[22px] border border-white/10 bg-black/15 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
+              Contextos recentes
+            </p>
+            <button
+              className="ghost-button status-pill"
+              onClick={() => {
+                clearObservabilityContextHistory()
+                setHistory([])
+              }}
+              type="button"
+            >
+              Limpar histórico
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {history.map((entry) => {
+              const query = serializeObservabilityContext(entry.context)
+              const label = OBSERVABILITY_CONTEXT_KEYS
+                .filter((key) => entry.context[key])
+                .map((key) => `${key}: ${entry.context[key]}`)
+                .join(' · ')
+              return (
+                <button
+                  className="ghost-button status-pill"
+                  key={`${entry.path}${query}`}
+                  onClick={() => navigate(`${entry.path}${query}`, false)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ) : null}
+    </>
   )
 }
