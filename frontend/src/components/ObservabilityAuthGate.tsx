@@ -5,6 +5,11 @@ import { supabase } from '../lib/supabase'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import type { RenderOmniShell, View } from '../app/App'
 import type { ChatMode } from '../types'
+import {
+  parseObservabilityContext,
+  pickObservabilityContext,
+  serializeObservabilityContext,
+} from '../lib/observabilityContext'
 
 type ObservabilityAuthGateProps = {
   mode: ChatMode
@@ -20,7 +25,11 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
 
   const handleSignIn = async () => {
     setAuthError(null)
-    const redirectTo = `${PUBLIC_APP_URL}/observability`
+    const context = pickObservabilityContext(
+      parseObservabilityContext(window.location.search),
+      ['request_id', 'trace_id', 'runtime_mode', 'tool'],
+    )
+    const redirectTo = `${PUBLIC_APP_URL}/observability${serializeObservabilityContext(context)}`
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {

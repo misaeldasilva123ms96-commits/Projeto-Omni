@@ -2,12 +2,19 @@ import { useCallback, useState } from 'react'
 import type { RenderOmniShell, View } from '../app/App'
 import { ProviderCenterOverview } from '../components/providers/ProviderCenterOverview'
 import { ProviderHealthCard } from '../components/providers/ProviderHealthCard'
+import { ObservabilityContextBanner } from '../components/observability/ObservabilityContextBanner'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { OmniButton } from '../components/ui/OmniButton'
 import { PageHero } from '../components/ui/PageHero'
 import { useProviders } from '../features/settings/hooks/useProviders'
 import type { ChatMode, ConversationSummary } from '../types'
+import {
+  filterProvidersByContext,
+  hasObservabilityContext,
+  parseObservabilityContext,
+  pickObservabilityContext,
+} from '../lib/observabilityContext'
 
 const DEFAULT_PROVIDERS = [
   { provider: 'openai', configured: false, updated_at: null },
@@ -40,6 +47,12 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
         return match ?? defaultProvider
       })
     : DEFAULT_PROVIDERS
+  const context = pickObservabilityContext(
+    parseObservabilityContext(window.location.search),
+    ['provider', 'request_id', 'trace_id'],
+  )
+  const hasContext = hasObservabilityContext(context)
+  const visibleProviders = filterProvidersByContext(resolvedProviders, context)
 
   const handleApiKeyChange = useCallback((provider: string, value: string) => {
     setApiKeys((prev) => ({ ...prev, [provider]: value }))
@@ -65,8 +78,10 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
           className="mb-6"
         />
 
+        <ObservabilityContextBanner context={context} />
+
         <ProviderCenterOverview
-          providers={resolvedProviders}
+          providers={visibleProviders}
           lastTestResult={lastTestResult}
           className="mb-6"
         />
@@ -82,9 +97,13 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
 
         {loading ? (
           <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando provedores...</div>
+        ) : hasContext && visibleProviders.length === 0 ? (
+          <div className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-8 text-center text-sm text-slate-400">
+            Contexto recebido, mas não há dados disponíveis para este filtro.
+          </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {resolvedProviders.map((item) => (
+            {visibleProviders.map((item) => (
               <ProviderHealthCard
                 key={item.provider}
                 provider={item}

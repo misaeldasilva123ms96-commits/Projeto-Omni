@@ -9,11 +9,18 @@ import { LearningSignalsPanel } from '../components/observability/LearningSignal
 import { OperationalTimeline } from '../components/observability/OperationalTimeline'
 import { SimulationMemoryPanel } from '../components/observability/SimulationMemoryPanel'
 import { SpecialistTraceViewer } from '../components/observability/SpecialistTraceViewer'
+import { ObservabilityContextBanner } from '../components/observability/ObservabilityContextBanner'
 import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
 import { useObservabilityStream } from '../hooks/useObservabilityStream'
 import { canUseApi } from '../lib/env'
 import type { RenderOmniShell, View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
+import {
+  filterObservabilitySnapshotByContext,
+  hasObservabilityContext,
+  parseObservabilityContext,
+  pickObservabilityContext,
+} from '../lib/observabilityContext'
 
 type ObservabilityPageProps = {
   mode: ChatMode
@@ -34,9 +41,16 @@ export function ObservabilityPage({
   const { snapshot: initialSnapshot, loading, error: snapshotError } = useObservabilitySnapshot(apiReady)
   const { snapshot: liveSnapshot, status, error: streamError } = useObservabilityStream(apiReady)
   const snapshot = liveSnapshot ?? initialSnapshot
+  const context = pickObservabilityContext(
+    parseObservabilityContext(window.location.search),
+    ['request_id', 'trace_id', 'runtime_mode', 'tool'],
+  )
+  const hasContext = hasObservabilityContext(context)
+  const contextual = filterObservabilitySnapshotByContext(snapshot, context)
+  const visibleSnapshot = hasContext ? contextual.snapshot : snapshot
   const semanticReinforcements = useMemo(
-    () => (snapshot?.semantic_facts ?? []).slice(0, 5),
-    [snapshot],
+    () => (visibleSnapshot?.semantic_facts ?? []).slice(0, 5),
+    [visibleSnapshot],
   )
   const conversations: ConversationSummary[] = []
   const sidebar = (
@@ -76,31 +90,42 @@ export function ObservabilityPage({
           </span>
         </div>
 
+        <ObservabilityContextBanner context={context} />
+
         {!apiReady ? (
           <PanelCard className="metric-card observability-card">
             <p className="card-eyebrow">Configuration</p>
             <h3>Observability API unavailable</h3>
             <p className="muted-copy">Configure VITE_OMNI_API_URL so the panel can consume the Rust observability endpoints.</p>
           </PanelCard>
+        ) : hasContext && !contextual.matched ? (
+          <PanelCard className="metric-card observability-card">
+            <p className="card-eyebrow">Filtro contextual</p>
+            <h3>
+              {snapshot
+                ? 'Nenhum registro correspondente encontrado.'
+                : 'Contexto recebido, mas não há dados disponíveis para este filtro.'}
+            </h3>
+          </PanelCard>
         ) : (
           <div className="dashboard-grid observability-grid">
-            <GoalStatePanel goal={snapshot?.goal ?? null} />
-            <OperationalTimeline events={snapshot?.timeline ?? []} />
+            <GoalStatePanel goal={visibleSnapshot?.goal ?? null} />
+            <OperationalTimeline events={visibleSnapshot?.timeline ?? []} />
             <SpecialistTraceViewer
-              latestTrace={snapshot?.latest_trace ?? null}
-              recentTraces={snapshot?.recent_traces ?? []}
+              latestTrace={visibleSnapshot?.latest_trace ?? null}
+              recentTraces={visibleSnapshot?.recent_traces ?? []}
             />
             <SimulationMemoryPanel
-              episodes={snapshot?.recent_episodes ?? []}
-              proceduralPattern={snapshot?.active_procedural_pattern ?? null}
-              semanticFacts={snapshot?.semantic_facts ?? []}
-              simulation={snapshot?.latest_simulation ?? null}
+              episodes={visibleSnapshot?.recent_episodes ?? []}
+              proceduralPattern={visibleSnapshot?.active_procedural_pattern ?? null}
+              semanticFacts={visibleSnapshot?.semantic_facts ?? []}
+              simulation={visibleSnapshot?.latest_simulation ?? null}
             />
             <LearningSignalsPanel
-              pendingEvolutionProposalCount={snapshot?.pending_evolution_proposal_count ?? 0}
-              recentEvolutionProposals={snapshot?.recent_evolution_proposals ?? []}
-              recentLearningSignals={snapshot?.recent_learning_signals ?? []}
-              recentProceduralUpdates={snapshot?.recent_procedural_updates ?? []}
+              pendingEvolutionProposalCount={visibleSnapshot?.pending_evolution_proposal_count ?? 0}
+              recentEvolutionProposals={visibleSnapshot?.recent_evolution_proposals ?? []}
+              recentLearningSignals={visibleSnapshot?.recent_learning_signals ?? []}
+              recentProceduralUpdates={visibleSnapshot?.recent_procedural_updates ?? []}
               recentSemanticFacts={semanticReinforcements}
             />
           </div>

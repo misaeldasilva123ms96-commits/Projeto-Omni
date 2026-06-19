@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { RenderOmniShell, View } from '../app/App'
 import { GovernanceDecisionsList } from '../components/governance/GovernanceDecisionsList'
+import { ObservabilityContextBanner } from '../components/observability/ObservabilityContextBanner'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { OmniButton } from '../components/ui/OmniButton'
 import { OmniCard } from '../components/ui/OmniCard'
 import { PageHero } from '../components/ui/PageHero'
 import { fetchGovernanceDecisions } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, GovernanceDecision } from '../types'
+import {
+  filterGovernanceDecisionsByContext,
+  hasObservabilityContext,
+  parseObservabilityContext,
+  pickObservabilityContext,
+} from '../lib/observabilityContext'
 
 type GovernanceCenterPageProps = {
   mode: ChatMode
@@ -39,15 +46,21 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, renderS
   const refresh = useCallback(() => {
     fetchGovernanceDecisions().then(setDecisions).catch(() => {})
   }, [])
+  const context = pickObservabilityContext(
+    parseObservabilityContext(window.location.search),
+    ['decision', 'request_id', 'trace_id', 'runtime_mode'],
+  )
+  const hasContext = hasObservabilityContext(context)
+  const visibleDecisions = filterGovernanceDecisionsByContext(decisions, context)
 
   const stats = useMemo(() => {
-    const total = decisions.length
-    const allowed = decisions.filter((d) => d.decision === 'allowed').length
-    const blocked = decisions.filter((d) => d.decision === 'blocked').length
-    const pendingApproval = decisions.filter((d) => d.decision === 'requires_approval').length
-    const highRisk = decisions.filter((d) => d.riskLevel === 'high' || d.riskLevel === 'critical').length
+    const total = visibleDecisions.length
+    const allowed = visibleDecisions.filter((d) => d.decision === 'allowed').length
+    const blocked = visibleDecisions.filter((d) => d.decision === 'blocked').length
+    const pendingApproval = visibleDecisions.filter((d) => d.decision === 'requires_approval').length
+    const highRisk = visibleDecisions.filter((d) => d.riskLevel === 'high' || d.riskLevel === 'critical').length
     return { total, allowed, blocked, pendingApproval, highRisk }
-  }, [decisions])
+  }, [visibleDecisions])
 
   const conversations: ConversationSummary[] = []
   const sidebar = (
@@ -68,6 +81,8 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, renderS
           subtitle="Visualize decisões de governança, políticas e regras aplicadas pelo runtime"
           className="mb-6"
         />
+
+        <ObservabilityContextBanner context={context} />
 
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OmniCard variant="panel">
@@ -110,8 +125,12 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, renderS
           <div className="flex items-center justify-center py-16 text-sm text-slate-400">
             Carregando decisões de governança...
           </div>
+        ) : hasContext && visibleDecisions.length === 0 ? (
+          <div className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-8 text-center text-sm text-slate-400">
+            Contexto recebido, mas não há dados disponíveis para este filtro.
+          </div>
         ) : (
-          <GovernanceDecisionsList decisions={decisions} />
+          <GovernanceDecisionsList decisions={visibleDecisions} />
         )}
       </div>,
     { sidebar },
