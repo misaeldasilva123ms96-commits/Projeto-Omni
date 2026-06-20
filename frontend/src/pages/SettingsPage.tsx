@@ -1,6 +1,7 @@
 import { useProviders } from '../features/settings/hooks/useProviders';
 import ProviderCard from '../features/settings/ProviderCard';
 import type { ProviderRecord } from '../features/settings/types';
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer';
 
 const DEFAULT_PROVIDERS: ProviderRecord[] = [
   { provider: 'openai', configured: false, updated_at: null },
@@ -70,7 +71,7 @@ export function SettingsView() {
 
       {actionError ? (
         <div className="panel-card status-card error" role="alert">
-          <p>{actionError}</p>
+          <p>{redactRuntimeDebugText(actionError)}</p>
           <button type="button" className="ghost-button" onClick={clearActionError}>
             Fechar
           </button>

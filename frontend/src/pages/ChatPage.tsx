@@ -26,6 +26,7 @@ import type {
 import type { UiChatResponse } from '../types/ui/chat'
 import type { UiRuntimeStatus } from '../types/ui/runtime'
 import type { RuntimeInspectorData } from '../lib/runtimeTypes'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -394,7 +395,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
       }
       const safeError =
         err instanceof Error
-          ? err.message
+          ? redactRuntimeDebugText(err.message)
           : 'Falha inesperada ao consultar o runtime.'
       setError(safeError)
       setConsoleLastError(safeError)
@@ -402,7 +403,9 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
         message.id === loadingMessageId
           ? {
             ...message,
-            content: failedUi?.text?.trim() || 'Não consegui processar sua mensagem. Tente novamente.',
+            content: failedUi?.text?.trim()
+              ? redactRuntimeDebugText(failedUi.text.trim())
+              : 'Não consegui processar sua mensagem. Tente novamente.',
             isLoading: false,
             isNew: true,
             requestState: 'failed' as const,

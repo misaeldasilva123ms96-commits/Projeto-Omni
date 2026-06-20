@@ -1,5 +1,6 @@
 import type { ProviderRecord, ProviderTestResult } from '../../features/settings/types'
 import { OmniCard } from '../ui/OmniCard'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type ProviderCenterOverviewProps = {
   providers: ProviderRecord[]
@@ -41,7 +42,7 @@ export function ProviderCenterOverview({ providers, lastTestResult, className = 
             </p>
             <p className="mt-0.5 text-xs text-slate-400 truncate">
               {lastTestResult.provider}
-              {lastTestResult.error ? `: ${lastTestResult.error}` : ''}
+              {lastTestResult.error ? `: ${redactRuntimeDebugText(lastTestResult.error)}` : ''}
             </p>
           </div>
         ) : (

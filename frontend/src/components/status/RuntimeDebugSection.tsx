@@ -95,13 +95,13 @@ export function RuntimeDebugSection({ metadata }: RuntimeDebugSectionProps) {
         <MetricRow label="Providers count" value={String(providersCount)} />
         <MetricRow label="Provider diagnostics rows" value={String(providerDiagnostics.length)} />
         <MetricRow label="Tool requested" value={boolLabel(toolExecution?.tool_requested)} />
-        <MetricRow label="Tool selected" value={toolExecution?.tool_selected ?? 'n/a'} />
+        <MetricRow label="Tool selected" value={safeString(toolExecution?.tool_selected)} />
         <MetricRow label="Tool available" value={boolLabel(toolExecution?.tool_available)} />
         <MetricRow label="Tool attempted" value={boolLabel(toolExecution?.tool_attempted)} />
         <MetricRow label="Tool succeeded" value={boolLabel(toolExecution?.tool_succeeded)} />
         <MetricRow label="Tool failed" value={boolLabel(toolExecution?.tool_failed)} />
         <MetricRow label="Tool denied" value={boolLabel(toolExecution?.tool_denied)} />
-        <MetricRow label="Tool failure class" value={toolExecution?.tool_failure_class ?? 'n/a'} />
+        <MetricRow label="Tool failure class" value={safeString(toolExecution?.tool_failure_class)} />
         <MetricRow label="Tool latency (ms)" value={String(toolExecution?.tool_latency_ms ?? 'n/a')} />
         <MetricRow label="Tool diagnostics rows" value={String(toolDiagnostics.length)} />
       </div>

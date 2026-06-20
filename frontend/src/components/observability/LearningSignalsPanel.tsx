@@ -11,6 +11,8 @@ type LearningSignalsPanelProps = {
   recentSemanticFacts: SemanticFactSnapshot[]
 }
 
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
+
 export function LearningSignalsPanel({
   pendingEvolutionProposalCount,
   recentEvolutionProposals,
@@ -34,8 +36,8 @@ export function LearningSignalsPanel({
           <ul className="observability-list">
             {recentLearningSignals.slice(0, 5).map((signal, index) => (
               <li key={`${String(signal.signal_id ?? index)}`}>
-                <span>{String(signal.signal_type ?? 'signal')}</span>
-                <em>{String(signal.recommendation ?? 'no recommendation')}</em>
+                <span>{redactRuntimeDebugText(String(signal.signal_type ?? 'signal'))}</span>
+                <em>{redactRuntimeDebugText(String(signal.recommendation ?? 'no recommendation'))}</em>
               </li>
             ))}
           </ul>
@@ -48,7 +50,7 @@ export function LearningSignalsPanel({
           <ul className="observability-list">
             {recentSemanticFacts.slice(0, 5).map((fact) => (
               <li key={fact.fact_id}>
-                <span>{fact.subject} {fact.predicate}</span>
+                <span>{redactRuntimeDebugText(fact.subject)} {redactRuntimeDebugText(fact.predicate)}</span>
                 <em>{Math.round(fact.confidence * 100)}%</em>
               </li>
             ))}
@@ -62,8 +64,8 @@ export function LearningSignalsPanel({
           <ul className="observability-list">
             {recentProceduralUpdates.map((pattern) => (
               <li key={pattern.pattern_id}>
-                <span>{pattern.name}</span>
-                <em>{pattern.recommended_route}</em>
+                <span>{redactRuntimeDebugText(pattern.name)}</span>
+                <em>{redactRuntimeDebugText(pattern.recommended_route)}</em>
               </li>
             ))}
           </ul>
@@ -76,8 +78,8 @@ export function LearningSignalsPanel({
           <ul className="observability-list">
             {recentEvolutionProposals.slice(0, 5).map((proposal, index) => (
               <li key={`${String(proposal.proposal_id ?? index)}`}>
-                <span>{String(proposal.title ?? proposal.target_subsystem ?? 'proposal')}</span>
-                <em>{String(proposal.risk_level ?? 'unknown')}</em>
+                <span>{redactRuntimeDebugText(String(proposal.title ?? proposal.target_subsystem ?? 'proposal'))}</span>
+                <em>{redactRuntimeDebugText(String(proposal.risk_level ?? 'unknown'))}</em>
               </li>
             ))}
           </ul>

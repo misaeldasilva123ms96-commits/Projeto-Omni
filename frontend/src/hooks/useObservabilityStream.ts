@@ -4,6 +4,7 @@ import { API_BASE_URL } from '../lib/env'
 import { supabase } from '../lib/supabase'
 import type { ObservabilityApiResponse, ObservabilityConnectionState } from '../types/observability'
 import type { UiObservabilitySnapshot } from '../types/ui/observability'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 export function useObservabilityStream(enabled: boolean) {
   const [snapshot, setSnapshot] = useState<UiObservabilitySnapshot | null>(null)
@@ -71,7 +72,7 @@ export function useObservabilityStream(enabled: boolean) {
       }
       if (sessionError) {
         setStatus('error')
-        setError(sessionError.message)
+        setError(redactRuntimeDebugText(sessionError.message))
         return
       }
       if (!data.session?.access_token) {

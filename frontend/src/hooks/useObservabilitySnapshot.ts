@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchObservabilitySnapshot, observabilityApiEnvelopeToUi } from '../features/observability'
 import type { UiObservabilitySnapshot } from '../types/ui/observability'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 export function useObservabilitySnapshot(enabled: boolean) {
   const [snapshot, setSnapshot] = useState<UiObservabilitySnapshot | null>(null)
@@ -29,7 +30,9 @@ export function useObservabilitySnapshot(enabled: boolean) {
       })
       .catch((reason) => {
         if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : 'Failed to load observability snapshot.')
+          setError(reason instanceof Error
+            ? redactRuntimeDebugText(reason.message)
+            : 'Failed to load observability snapshot.')
         }
       })
       .finally(() => {

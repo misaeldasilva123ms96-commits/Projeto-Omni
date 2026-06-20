@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import type { LabConfig, LabTest } from '../../types'
 import { OmniButton } from '../ui/OmniButton'
 import { OmniCard } from '../ui/OmniCard'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 const MODEL_OPTIONS = [
   { id: 'gpt-4o', label: 'GPT-4o' },
@@ -79,24 +80,30 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
       const res = await sendOmniMessage(prompt.trim(), {})
 
       const latencyMs = Date.now() - startTime.current
+      const safeResponse = redactRuntimeDebugText(res.response)
 
       const test: LabTest = {
         id: crypto.randomUUID(),
-        config: { ...config },
-        prompt: prompt.trim(),
-        response: res.response,
+        config: {
+          ...config,
+          systemPrompt: redactRuntimeDebugText(config.systemPrompt),
+        },
+        prompt: redactRuntimeDebugText(prompt.trim()),
+        response: safeResponse,
         latencyMs,
         timestamp: new Date().toISOString(),
       }
 
-      setResponse(res.response)
+      setResponse(safeResponse)
       setHistory((prev) => {
         const updated = [test, ...prev]
         saveHistory(updated)
         return updated
       })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao processar requisição'
+      const msg = err instanceof Error
+        ? redactRuntimeDebugText(err.message)
+        : 'Erro ao processar requisição'
       setError(msg)
     } finally {
       setSending(false)
@@ -245,7 +252,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
 
         {error ? (
           <OmniCard variant="panel">
-            <p className="text-sm text-red-300">{error}</p>
+            <p className="text-sm text-red-300">{redactRuntimeDebugText(error)}</p>
           </OmniCard>
         ) : null}
 

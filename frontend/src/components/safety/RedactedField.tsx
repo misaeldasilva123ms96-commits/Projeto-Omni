@@ -6,6 +6,12 @@ type RedactedFieldProps = {
 
 export function RedactedField({ label, value, className = '' }: RedactedFieldProps) {
   const isRedacted = value === undefined || value === null || value === '[REDACTED]'
+  const safeValue = typeof value === 'string'
+    ? redactRuntimeDebugText(value)
+    : sanitizeRuntimeDebugPayload({ value }).value
+  const displayValue = typeof safeValue === 'string'
+    ? safeValue
+    : JSON.stringify(safeValue)
 
   return (
     <div className={`flex items-center justify-between gap-4 border-b border-white/8 py-2.5 last:border-b-0 ${className}`.trim()}>
@@ -16,9 +22,13 @@ export function RedactedField({ label, value, className = '' }: RedactedFieldPro
         </span>
       ) : (
         <span className="text-right text-sm font-medium text-white">
-          {typeof value === 'string' ? value : JSON.stringify(value)}
+          {displayValue}
         </span>
       )}
     </div>
   )
 }
+import {
+  redactRuntimeDebugText,
+  sanitizeRuntimeDebugPayload,
+} from '../../lib/runtimeDebugSanitizer'

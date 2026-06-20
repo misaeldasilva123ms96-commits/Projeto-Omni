@@ -1,5 +1,6 @@
 import type { RuntimeProviderStatus } from '../../lib/providerTypes'
 import { RuntimeLinkAction } from './RuntimeLinkAction'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type RuntimeProviderTabProps = {
   data: RuntimeProviderStatus[]
@@ -26,7 +27,7 @@ function ProviderCard({ provider }: { provider: RuntimeProviderStatus }) {
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-sm font-medium text-white">
-            {provider.provider_name || 'Unknown'}
+            {redactRuntimeDebugText(provider.provider_name ?? '') || 'Unknown'}
           </div>
           <div className={`mt-1 text-xs ${statusColor}`}>
             {status}
@@ -37,10 +38,14 @@ function ProviderCard({ provider }: { provider: RuntimeProviderStatus }) {
         ) : null}
       </div>
       {provider.failure_reason ? (
-        <p className="mt-2 text-xs text-red-200/80">{provider.failure_reason}</p>
+        <p className="mt-2 text-xs text-red-200/80">
+          {redactRuntimeDebugText(provider.failure_reason)}
+        </p>
       ) : null}
       {provider.model ? (
-        <p className="mt-1 text-xs text-slate-300/70">{provider.model}</p>
+        <p className="mt-1 text-xs text-slate-300/70">
+          {redactRuntimeDebugText(provider.model)}
+        </p>
       ) : null}
       <p className="mt-1 text-xs text-slate-400">
         Tokens: {provider.tokens_in ?? 'não disponível'} in / {provider.tokens_out ?? 'não disponível'} out

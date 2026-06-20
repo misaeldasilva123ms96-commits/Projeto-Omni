@@ -1,4 +1,5 @@
 import type { ProviderRecord, ProviderTestResult } from '../../features/settings/types';
+import { redactRuntimeDebugText } from '../runtimeDebugSanitizer';
 import { API_BASE_URL, getSupabaseAuthHeaders } from './client';
 
 async function buildHeaders(): Promise<Record<string, string>> {
@@ -18,7 +19,7 @@ export async function listProviders(): Promise<ProviderRecord[]> {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error ?? 'Unable to load providers');
+    throw new Error(redactRuntimeDebugText(String(payload?.error ?? 'Unable to load providers')));
   }
 
   const providers: ProviderRecord[] = Array.isArray(payload?.providers)
@@ -49,7 +50,7 @@ export async function saveProvider(payload: { provider: string; api_key: string 
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error ?? 'Unable to save provider');
+    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to save provider')));
   }
 
   return {
@@ -75,7 +76,7 @@ export async function updateProvider(provider: string, payload: { api_key: strin
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error ?? 'Unable to update provider');
+    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to update provider')));
   }
 
   return {
@@ -100,7 +101,7 @@ export async function deleteProvider(provider: string): Promise<ProviderRecord> 
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error ?? 'Unable to remove provider');
+    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to remove provider')));
   }
 
   return {
@@ -126,7 +127,7 @@ export async function testProvider(provider: string, apiKey: string): Promise<Pr
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error ?? 'Unable to test provider');
+    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to test provider')));
   }
 
   return {

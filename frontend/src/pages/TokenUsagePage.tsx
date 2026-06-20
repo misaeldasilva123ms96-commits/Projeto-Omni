@@ -7,6 +7,7 @@ import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { PageHero } from '../components/ui/PageHero'
 import { fetchTokenUsage } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, TokenUsageSummary } from '../types'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 type TokenUsagePageProps = {
   mode: ChatMode
@@ -36,7 +37,9 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, renderShell, 
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Falha ao carregar uso de tokens')
+          setError(err instanceof Error
+            ? redactRuntimeDebugText(err.message)
+            : 'Falha ao carregar uso de tokens')
           setLoading(false)
         }
       })

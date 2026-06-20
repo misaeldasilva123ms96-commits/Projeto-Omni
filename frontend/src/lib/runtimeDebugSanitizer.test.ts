@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeRuntimeDebugPayload } from './runtimeDebugSanitizer'
+import {
+  redactRuntimeDebugText,
+  sanitizeRuntimeDebugPayload,
+} from './runtimeDebugSanitizer'
 
 function text(value: unknown) {
   return JSON.stringify(value)
@@ -146,5 +149,87 @@ describe('sanitizeRuntimeDebugPayload', () => {
     expect((sanitized.nested as Record<string, unknown>)['[REDACTED]']).toBe('[REDACTED]')
     expect(sanitizeRuntimeDebugPayload(null)).toEqual({})
     expect(sanitizeRuntimeDebugPayload('debug')).toEqual({})
+  })
+
+  it('redacts expanded sensitive keys recursively', () => {
+    const sanitized = sanitizeRuntimeDebugPayload({
+      headers: { 'x-api-key': 'value' },
+      cookie: 'session=value',
+      set_cookie: 'session=value',
+      passphrase: 'value',
+      private_key: 'value',
+      access_key: 'value',
+      refresh_token: 'value',
+      dotenv: 'value',
+      shell: 'value',
+      nested: [{ apikey: 'value', x_auth_token: 'value' }],
+    })
+
+    const payload = text(sanitized)
+    for (const fragment of [
+      'headers',
+      'x-api-key',
+      'cookie',
+      'passphrase',
+      'private_key',
+      'access_key',
+      'refresh_token',
+      'dotenv',
+      'shell',
+      'apikey',
+      'x_auth_token',
+      'session=value',
+    ]) {
+      expect(payload).not.toContain(fragment)
+    }
+    expect(payload).toContain('[REDACTED]')
+  })
+
+  it('redacts common credential value patterns', () => {
+    const sanitized = sanitizeRuntimeDebugPayload({
+      values: [
+        'sk_proj_abcdefghijklmnop',
+        'ghp_abcdefghijklmnopqrstuvwxyz123456',
+        'github_pat_abcdefghijklmnopqrstuvwxyz',
+        'glpat-abcdefghijklmnop',
+        'xoxb-1234567890-abcdefghijkl',
+        'xoxp-1234567890-abcdefghijkl',
+        `${String.fromCharCode(65, 75, 73, 65)}ABCDEFGHIJKLMNOP`,
+        '-----BEGIN PRIVATE KEY-----',
+        'SUPABASE_SERVICE_ROLE=service-secret',
+        'OPENAI_API_KEY=provider-secret',
+        'ANTHROPIC_API_KEY=provider-secret',
+        'OPENROUTER_API_KEY=provider-secret',
+      ],
+    })
+
+    const payload = text(sanitized)
+    expect(payload).not.toMatch(/sk_proj|ghp_|github_pat_|glpat-|xox[ bp]-|AKIA|BEGIN PRIVATE KEY|SERVICE_ROLE|API_KEY/)
+    expect(payload).toContain('[REDACTED]')
+  })
+
+  it('handles cycles and throwing getters without crashing', () => {
+    const cyclic: Record<string, unknown> = { safe: 'kept' }
+    cyclic.self = cyclic
+    Object.defineProperty(cyclic, 'broken', {
+      enumerable: true,
+      get() {
+        throw new Error('getter secret')
+      },
+    })
+
+    expect(() => sanitizeRuntimeDebugPayload(cyclic)).not.toThrow()
+    const payload = text(sanitizeRuntimeDebugPayload(cyclic))
+    expect(payload).toContain('kept')
+    expect(payload).toContain('[REDACTED]')
+    expect(payload).not.toContain('getter secret')
+  })
+
+  it('truncates long safe strings after redaction', () => {
+    const value = 'safe'.repeat(2000)
+    const redacted = redactRuntimeDebugText(value)
+
+    expect(redacted.length).toBeLessThan(value.length)
+    expect(redacted).toContain('[TRUNCATED]')
   })
 })

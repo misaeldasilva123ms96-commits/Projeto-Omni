@@ -89,4 +89,20 @@ describe('ProviderHealthCard', () => {
     render(<ProviderHealthCard {...defaultProps} apiKey="" />)
     expect(screen.getByRole('button', { name: /testar conexão/i })).toBeDisabled()
   })
+
+  it('does not render raw provider test errors', () => {
+    render(
+      <ProviderHealthCard
+        {...defaultProps}
+        testResult={{
+          provider: 'openai',
+          success: false,
+          error: 'headers authorization Bearer abcdefghijklmnopqrstuvwxyz',
+        }}
+      />,
+    )
+
+    expect(document.body.textContent).toContain('[REDACTED]')
+    expect(document.body.textContent).not.toContain('abcdefghijklmnopqrstuvwxyz')
+  })
 })

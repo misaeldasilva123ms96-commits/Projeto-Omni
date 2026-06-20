@@ -11,6 +11,7 @@ import {
   fetchWithTimeout,
   getSupabaseAuthHeaders,
 } from './client'
+import { redactRuntimeDebugText } from '../runtimeDebugSanitizer'
 
 export async function fetchObservabilitySnapshot() {
   if (!API_BASE_URL) {
@@ -22,7 +23,7 @@ export async function fetchObservabilitySnapshot() {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API error ${res.status}: ${text}`)
+    throw new Error(redactRuntimeDebugText(`API error ${res.status}: ${text}`))
   }
   return res.json() as Promise<ObservabilityApiResponse>
 }
@@ -37,7 +38,7 @@ export async function fetchObservabilityTraces(limit = 10) {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API error ${res.status}: ${text}`)
+    throw new Error(redactRuntimeDebugText(`API error ${res.status}: ${text}`))
   }
   return res.json() as Promise<ObservabilityTracesResponse>
 }

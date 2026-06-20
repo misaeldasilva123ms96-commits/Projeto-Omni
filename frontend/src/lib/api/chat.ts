@@ -12,6 +12,7 @@ import {
   fetchWithTimeout,
   parseResponseBody,
 } from './client'
+import { redactRuntimeDebugText } from '../runtimeDebugSanitizer'
 
 const CHAT_V1_PATH = '/api/v1/chat'
 const CHAT_LEGACY_PATH = '/chat'
@@ -52,7 +53,7 @@ async function postChatJson(path: string, body: unknown): Promise<Response> {
 }
 
 function chatHttpErrorMessage(status: number, bodyText: string): string {
-  const trimmed = bodyText.trim()
+  const trimmed = redactRuntimeDebugText(bodyText.trim())
   return trimmed
     ? `Omni request failed (${status}): ${trimmed}`
     : `Omni request failed with status ${status}.`
@@ -62,10 +63,11 @@ async function buildChatRequestError(res: Response): Promise<ChatRequestError> {
   const payload = await parseResponseBody(res)
   try {
     const parsed = parseWireChatPayload(payload)
-    const message =
+    const message = redactRuntimeDebugText(
       parsed.error?.message
       ?? parsed.response
       ?? `Omni request failed with status ${res.status}.`
+    )
     return new ChatRequestError(message, {
       status: res.status,
       payload: parsed,
@@ -74,7 +76,7 @@ async function buildChatRequestError(res: Response): Promise<ChatRequestError> {
     const bodyText =
       typeof payload === 'string'
         ? payload
-        : JSON.stringify(payload)
+        : 'Omni returned an unsafe error payload.'
     return new ChatRequestError(chatHttpErrorMessage(res.status, bodyText), {
       status: res.status,
     })

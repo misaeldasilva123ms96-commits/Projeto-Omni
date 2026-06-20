@@ -21,6 +21,11 @@ import {
   parseObservabilityContext,
   pickObservabilityContext,
 } from '../lib/observabilityContext'
+import {
+  redactRuntimeDebugText,
+  sanitizeRuntimeDebugPayload,
+} from '../lib/runtimeDebugSanitizer'
+import type { UiObservabilitySnapshot } from '../types/ui/observability'
 
 type ObservabilityPageProps = {
   mode: ChatMode
@@ -40,7 +45,10 @@ export function ObservabilityPage({
   const apiReady = canUseApi()
   const { snapshot: initialSnapshot, loading, error: snapshotError } = useObservabilitySnapshot(apiReady)
   const { snapshot: liveSnapshot, status, error: streamError } = useObservabilityStream(apiReady)
-  const snapshot = liveSnapshot ?? initialSnapshot
+  const receivedSnapshot = liveSnapshot ?? initialSnapshot
+  const snapshot = receivedSnapshot
+    ? sanitizeRuntimeDebugPayload(receivedSnapshot) as unknown as UiObservabilitySnapshot
+    : null
   const context = pickObservabilityContext(
     parseObservabilityContext(window.location.search),
     ['request_id', 'trace_id', 'runtime_mode', 'tool'],
@@ -74,7 +82,9 @@ export function ObservabilityPage({
                 {loading ? 'Loading' : connectionLabel}
               </StatusBadge>
               {snapshotError || streamError ? (
-                <StatusBadge tone="danger">{streamError || snapshotError}</StatusBadge>
+                <StatusBadge tone="danger">
+                  {redactRuntimeDebugText(streamError || snapshotError || '')}
+                </StatusBadge>
               ) : null}
             </>
           )}
