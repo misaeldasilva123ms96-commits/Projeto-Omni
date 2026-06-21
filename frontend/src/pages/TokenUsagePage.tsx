@@ -5,6 +5,7 @@ import { TokenUsageOverview } from '../components/tokens/TokenUsageOverview'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { OmniEmptyState } from '../components/ui/OmniEmptyState'
+import { OmniLoadingState } from '../components/ui/OmniLoadingState'
 import { PageHero } from '../components/ui/PageHero'
 import { fetchTokenUsage } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, TokenUsageSummary } from '../types'
@@ -63,11 +64,7 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, renderShell, 
 
   const content = useCallback(() => {
     if (loading) {
-      return (
-        <div className="flex items-center justify-center py-16 text-sm text-slate-400">
-          Carregando uso de tokens...
-        </div>
-      )
+      return <OmniLoadingState label="Carregando uso de tokens..." skeletonRows={2} />
     }
 
     if (error) {

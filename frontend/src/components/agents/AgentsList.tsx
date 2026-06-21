@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Agent } from '../../types'
 import { OmniButton } from '../ui/OmniButton'
 import { OmniEmptyState } from '../ui/OmniEmptyState'
+import { OmniLoadingState } from '../ui/OmniLoadingState'
 import { AgentCard } from './AgentCard'
 import { AgentForm } from './AgentForm'
 
@@ -69,7 +70,7 @@ export function AgentsList({ agents, loading, onCreate, onUpdate, onDelete, onTo
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando agentes...</div>
+        <OmniLoadingState label="Carregando agentes..." skeletonRows={3} />
       ) : agents.length === 0 ? (
         <OmniEmptyState
           actionLabel="Criar Agente"
