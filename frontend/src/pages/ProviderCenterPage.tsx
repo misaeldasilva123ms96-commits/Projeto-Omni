@@ -4,8 +4,7 @@ import { ProviderCenterOverview } from '../components/providers/ProviderCenterOv
 import { ProviderHealthCard } from '../components/providers/ProviderHealthCard'
 import { ContextFilterControls } from '../components/observability/ContextFilterControls'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
-import { ErrorNotice } from '../components/ui/ErrorNotice'
-import { OmniButton } from '../components/ui/OmniButton'
+import { OmniErrorState } from '../components/ui/OmniErrorState'
 import { OmniLoadingState } from '../components/ui/OmniLoadingState'
 import { PageHero } from '../components/ui/PageHero'
 import { useProviders } from '../features/settings/hooks/useProviders'
@@ -88,12 +87,13 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
         />
 
         {actionError ? (
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <ErrorNotice message={actionError} className="flex-1" />
-            <OmniButton variant="ghost" onClick={clearActionError}>
-              OK
-            </OmniButton>
-          </div>
+          <OmniErrorState
+            actionLabel="OK"
+            className="mb-4"
+            description={actionError}
+            onAction={clearActionError}
+            size="compact"
+          />
         ) : null}
 
         {loading ? (

@@ -1,7 +1,7 @@
 import { useProviders } from '../features/settings/hooks/useProviders';
 import ProviderCard from '../features/settings/ProviderCard';
 import type { ProviderRecord } from '../features/settings/types';
-import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer';
+import { OmniErrorState } from '../components/ui/OmniErrorState';
 
 const DEFAULT_PROVIDERS: ProviderRecord[] = [
   { provider: 'openai', configured: false, updated_at: null },
@@ -70,12 +70,13 @@ export function SettingsView() {
       </header>
 
       {actionError ? (
-        <div className="panel-card status-card error" role="alert">
-          <p>{redactRuntimeDebugText(actionError)}</p>
-          <button type="button" className="ghost-button" onClick={clearActionError}>
-            Fechar
-          </button>
-        </div>
+        <OmniErrorState
+          actionLabel="Fechar"
+          className="status-card error"
+          description={actionError}
+          onAction={clearActionError}
+          size="compact"
+        />
       ) : null}
 
       {loading ? (
