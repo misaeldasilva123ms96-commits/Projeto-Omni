@@ -2,6 +2,7 @@ import { useProviders } from '../features/settings/hooks/useProviders';
 import ProviderCard from '../features/settings/ProviderCard';
 import type { ProviderRecord } from '../features/settings/types';
 import { OmniErrorState } from '../components/ui/OmniErrorState';
+import { OmniLoadingState } from '../components/ui/OmniLoadingState';
 
 const DEFAULT_PROVIDERS: ProviderRecord[] = [
   { provider: 'openai', configured: false, updated_at: null },
@@ -80,9 +81,7 @@ export function SettingsView() {
       ) : null}
 
       {loading ? (
-        <div className="panel-card" aria-busy="true">
-          <p>Carregando configurações...</p>
-        </div>
+        <OmniLoadingState label="Carregando provedores..." skeletonRows={3} />
       ) : (
         <div className="providers-grid">
           {resolvedProviders.map((item) => (

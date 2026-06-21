@@ -1,5 +1,7 @@
 import type { ProviderRecord, ProviderTestResult } from '../../features/settings/types'
+import { OmniBadge } from '../ui/OmniBadge'
 import { OmniCard } from '../ui/OmniCard'
+import { OmniStatusDot } from '../ui/OmniStatusDot'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type ProviderCenterOverviewProps = {
@@ -36,11 +38,12 @@ export function ProviderCenterOverview({ providers, lastTestResult, className = 
       <OmniCard variant="panel">
         <p className="text-xs uppercase tracking-[0.25em] text-violet-200/70">Último teste</p>
         {lastTestResult ? (
-          <div className="mt-2">
-            <p className={`text-lg font-semibold ${lastTestResult.success ? 'text-emerald-300' : 'text-red-300'}`}>
-              {lastTestResult.success ? 'Sucesso' : 'Falha'}
-            </p>
-            <p className="mt-0.5 text-xs text-slate-400 truncate">
+          <div className="mt-2 space-y-2">
+            <OmniBadge tone={lastTestResult.success ? 'success' : 'danger'}>
+              <OmniStatusDot tone={lastTestResult.success ? 'success' : 'danger'} />
+              <span>{lastTestResult.success ? 'Sucesso' : 'Falha'}</span>
+            </OmniBadge>
+            <p className="text-xs text-slate-400 truncate">
               {lastTestResult.provider}
               {lastTestResult.error ? `: ${redactRuntimeDebugText(lastTestResult.error)}` : ''}
             </p>
