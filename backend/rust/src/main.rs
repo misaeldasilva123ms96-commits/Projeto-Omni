@@ -24,7 +24,10 @@ use axum::{
     Json, Router,
 };
 use error::AppError;
-use observability_auth::{require_supabase_auth, sanitize_uri_for_logs, SupabaseAuthConfig};
+use observability_auth::{
+    issue_observability_stream_ticket, require_observability_stream_ticket, require_supabase_auth,
+    sanitize_uri_for_logs, ObservabilityStreamTicketStore, SupabaseAuthConfig,
+};
 use runtime::Session;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -53,6 +56,7 @@ struct AppState {
     node_bin: String,
     python_health: Arc<RwLock<DependencyStatus>>,
     supabase_auth: Arc<SupabaseAuthConfig>,
+    observability_stream_tickets: ObservabilityStreamTicketStore,
     chat_security: Arc<ChatSecurityState>,
 }
 
@@ -540,14 +544,24 @@ async fn main() -> Result<(), AppError> {
             last_checked_ms: None,
         })),
         supabase_auth,
+        observability_stream_tickets: ObservabilityStreamTicketStore::default(),
         chat_security: default_chat_security_state(),
     };
 
     let protected_observability = Router::new()
         .route("/api/observability/snapshot", get(observability::snapshot))
-        .route("/api/observability/stream", get(observability::stream))
         .route("/api/observability/traces", get(observability::traces))
+        .route(
+            "/api/observability/stream-ticket",
+            post(issue_observability_stream_ticket),
+        )
         .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
+    let protected_observability_stream = Router::new()
+        .route("/api/observability/stream", get(observability::stream))
+        .route_layer(from_fn_with_state(
+            state.clone(),
+            require_observability_stream_ticket,
+        ));
     let protected_operator = Router::new()
         .route(
             "/api/v1/operator/runtime/signals",
@@ -636,6 +650,7 @@ async fn main() -> Result<(), AppError> {
         .route("/internal/milestones", get(milestones))
         .route("/internal/pr-summaries", get(pr_summaries))
         .merge(protected_observability)
+        .merge(protected_observability_stream)
         .merge(protected_operator)
         .merge(protected_control)
         .merge(protected_settings)
@@ -3675,6 +3690,7 @@ mod tests {
                 jwt_secret: "test-secret".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
+            observability_stream_tickets: ObservabilityStreamTicketStore::default(),
             chat_security: Arc::new(ChatSecurityState::with_config(ChatSecurityConfig {
                 max_message_chars: 8_000,
                 max_body_bytes: 65_536,
