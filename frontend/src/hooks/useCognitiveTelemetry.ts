@@ -15,6 +15,7 @@ import type {
   SwarmLogResponse,
 } from '../types/api/wire'
 import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../types/ui/telemetry'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 export type CognitiveTelemetryState = {
   /** Preferred product-safe runtime snapshot (`GET /api/v1/status`). */
@@ -98,7 +99,9 @@ export function useCognitiveTelemetry(apiReady: boolean, refreshToken: number | 
           setState({
             ...EMPTY,
             loading: false,
-            error: err instanceof Error ? err.message : 'Telemetry failed to load.',
+            error: err instanceof Error
+              ? redactRuntimeDebugText(err.message)
+              : 'Telemetry failed to load.',
           })
         }
       })

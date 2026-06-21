@@ -1,4 +1,5 @@
 import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, GovernanceDecision, MemoryEntry, MemoryType, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
+import { redactRuntimeDebugText } from './runtimeDebugSanitizer'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -521,9 +522,9 @@ export async function fetchGovernanceDecisions(): Promise<GovernanceDecision[]> 
           id: `${conv.id}-${msg.id}`,
           sessionId: conv.id,
           decision: decision as GovernanceDecision['decision'],
-          category: String(raw.category ?? ''),
-          policy: String(raw.policy ?? ''),
-          reason: String(raw.reason ?? ''),
+          category: redactRuntimeDebugText(String(raw.category ?? '')),
+          policy: redactRuntimeDebugText(String(raw.policy ?? '')),
+          reason: redactRuntimeDebugText(String(raw.reason ?? '')),
           riskLevel,
           timestamp: msg.createdAt,
         })

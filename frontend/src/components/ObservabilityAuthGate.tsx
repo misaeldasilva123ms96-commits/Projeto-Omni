@@ -10,6 +10,7 @@ import {
   pickObservabilityContext,
   serializeObservabilityContext,
 } from '../lib/observabilityContext'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 type ObservabilityAuthGateProps = {
   mode: ChatMode
@@ -38,7 +39,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
     })
 
     if (error) {
-      setAuthError(error.message)
+      setAuthError(redactRuntimeDebugText(error.message))
     }
   }
 
@@ -81,7 +82,11 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
             >
               Sign in with Google
             </button>
-            {authError ? <span className="status-pill danger">{authError}</span> : null}
+            {authError ? (
+              <span className="status-pill danger">
+                {redactRuntimeDebugText(authError)}
+              </span>
+            ) : null}
           </div>
         </section>
       </section>,

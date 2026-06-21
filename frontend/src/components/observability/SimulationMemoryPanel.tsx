@@ -12,6 +12,8 @@ type SimulationMemoryPanelProps = {
   simulation: SimulationSnapshot | null
 }
 
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
+
 export function SimulationMemoryPanel({
   episodes,
   proceduralPattern,
@@ -27,11 +29,11 @@ export function SimulationMemoryPanel({
         <strong>Latest simulation</strong>
         {!simulation ? <p className="muted-copy">No simulation artifact available.</p> : (
           <>
-            <div className="metric-row"><span>Recommended route</span><strong>{simulation.recommended_route}</strong></div>
+            <div className="metric-row"><span>Recommended route</span><strong>{redactRuntimeDebugText(simulation.recommended_route)}</strong></div>
             <ul className="observability-list">
               {simulation.routes.map((route) => (
                 <li key={route.route}>
-                  <span>{route.route}</span>
+                  <span>{redactRuntimeDebugText(route.route)}</span>
                   <em>{Math.round(route.estimated_success_rate * 100)}% success</em>
                 </li>
               ))}
@@ -46,7 +48,7 @@ export function SimulationMemoryPanel({
           <ul className="observability-list">
             {episodes.map((episode) => (
               <li key={episode.episode_id}>
-                <span>{episode.event_type}: {episode.outcome}</span>
+                <span>{redactRuntimeDebugText(episode.event_type)}: {redactRuntimeDebugText(episode.outcome)}</span>
                 <em>{Math.round(episode.progress_at_end * 100)}%</em>
               </li>
             ))}
@@ -60,7 +62,7 @@ export function SimulationMemoryPanel({
           <ul className="observability-list">
             {semanticFacts.map((fact) => (
               <li key={fact.fact_id}>
-                <span>{fact.subject} {fact.predicate} {fact.object}</span>
+                <span>{redactRuntimeDebugText(fact.subject)} {redactRuntimeDebugText(fact.predicate)} {redactRuntimeDebugText(fact.object)}</span>
                 <em>{Math.round(fact.confidence * 100)}%</em>
               </li>
             ))}
@@ -73,8 +75,8 @@ export function SimulationMemoryPanel({
         {!proceduralPattern ? <p className="muted-copy">No active procedural recommendation.</p> : (
           <ul className="observability-list">
             <li>
-              <span>{proceduralPattern.name}</span>
-              <em>{proceduralPattern.recommended_route}</em>
+              <span>{redactRuntimeDebugText(proceduralPattern.name)}</span>
+              <em>{redactRuntimeDebugText(proceduralPattern.recommended_route)}</em>
             </li>
           </ul>
         )}

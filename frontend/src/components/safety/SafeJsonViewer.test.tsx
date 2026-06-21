@@ -20,4 +20,20 @@ describe('SafeJsonViewer', () => {
     expect(document.body.textContent).not.toContain('authorization')
     expect(document.body.textContent).not.toContain('api_key')
   })
+
+  it('does not crash on cyclic or malformed payloads', () => {
+    const cyclic: Record<string, unknown> = { trace_id: 'trace-safe' }
+    cyclic.self = cyclic
+    Object.defineProperty(cyclic, 'headers', {
+      enumerable: true,
+      get() {
+        throw new Error('Bearer should-not-render')
+      },
+    })
+
+    expect(() => render(<SafeJsonViewer data={cyclic} />)).not.toThrow()
+    expect(document.body.textContent).toContain('trace-safe')
+    expect(document.body.textContent).toContain('[REDACTED]')
+    expect(document.body.textContent).not.toContain('should-not-render')
+  })
 })

@@ -16,6 +16,7 @@ import { PageHero } from '../components/ui/PageHero'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import type { RenderOmniShell, View } from '../app/App'
 import type { ChatMode, ConversationSummary } from '../types'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 import type {
   MilestonesResponse,
   PrSummariesResponse,
@@ -119,7 +120,9 @@ export function DashboardPage({
         })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load dashboard data.')
+          setError(err instanceof Error
+            ? redactRuntimeDebugText(err.message)
+            : 'Failed to load dashboard data.')
         }
       })
       .finally(() => {
@@ -148,7 +151,9 @@ export function DashboardPage({
               <StatusBadge tone={loading ? 'active' : 'default'}>
                 {loading ? 'Refreshing' : 'Live snapshot'}
               </StatusBadge>
-              {error ? <StatusBadge tone="danger">{error}</StatusBadge> : null}
+              {error ? (
+                <StatusBadge tone="danger">{redactRuntimeDebugText(error)}</StatusBadge>
+              ) : null}
             </>
           )}
           subtitle="Read-only telemetry for operators and engineering users. No mutation controls are exposed here."

@@ -1,5 +1,6 @@
 import type { ToolExecutionDiagnostic } from '../../types'
 import { RuntimeLinkAction } from './RuntimeLinkAction'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type RuntimeToolsTabProps = {
   data: ToolExecutionDiagnostic[]
@@ -30,7 +31,7 @@ function ToolCard({ tool }: { tool: ToolExecutionDiagnostic }) {
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-sm font-medium text-white">
-            {tool.tool_selected || 'Unknown tool'}
+            {redactRuntimeDebugText(tool.tool_selected ?? '') || 'Unknown tool'}
           </div>
           <div className={`mt-1 text-xs ${statusColor}`}>
             {statusLabel}
@@ -41,7 +42,9 @@ function ToolCard({ tool }: { tool: ToolExecutionDiagnostic }) {
         ) : null}
       </div>
       {tool.tool_failure_reason ? (
-        <p className="mt-2 text-xs text-red-200/80">{tool.tool_failure_reason}</p>
+        <p className="mt-2 text-xs text-red-200/80">
+          {redactRuntimeDebugText(tool.tool_failure_reason)}
+        </p>
       ) : null}
     </div>
   )

@@ -2,6 +2,7 @@ import type { ProviderRecord, ProviderTestResult } from '../../features/settings
 import { OmniBadge } from '../ui/OmniBadge'
 import { OmniButton } from '../ui/OmniButton'
 import { OmniCard } from '../ui/OmniCard'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type ProviderHealthCardProps = {
   provider: ProviderRecord
@@ -36,7 +37,8 @@ const PROVIDER_ICONS: Record<string, string> = {
 export function ProviderHealthCard({
   provider, testResult, submitting, testing, onSave, onUpdate, onRemove, onTest, className = '', apiKey, onApiKeyChange,
 }: ProviderHealthCardProps) {
-  const displayName = DISPLAY_NAMES[provider.provider] ?? provider.provider
+  const safeProviderName = redactRuntimeDebugText(provider.provider)
+  const displayName = DISPLAY_NAMES[provider.provider] ?? safeProviderName
   const iconColor = PROVIDER_ICONS[provider.provider] ?? 'bg-slate-500'
   const isConfigured = provider.configured
   const canSubmit = apiKey.trim().length > 0
@@ -58,7 +60,7 @@ export function ProviderHealthCard({
             <h3 className="truncate text-base font-semibold text-white">{displayName}</h3>
             <div className="mt-0.5 flex items-center gap-2">
               {statusBadge}
-              <span className="text-[11px] text-slate-500">{provider.provider}</span>
+              <span className="text-[11px] text-slate-500">{safeProviderName}</span>
             </div>
           </div>
         </div>
@@ -81,7 +83,9 @@ export function ProviderHealthCard({
 
         {testResult ? (
           <div className={`rounded-2xl border px-3 py-2 text-xs ${testResult.success ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-red-400/20 bg-red-400/10 text-red-200'}`}>
-            {testResult.success ? 'Conexão bem-sucedida' : `Falha: ${testResult.error ?? 'erro desconhecido'}`}
+            {testResult.success
+              ? 'Conexão bem-sucedida'
+              : `Falha: ${redactRuntimeDebugText(testResult.error ?? 'erro desconhecido')}`}
           </div>
         ) : null}
 

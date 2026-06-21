@@ -1,6 +1,7 @@
 import type { RuntimeGovernanceStatus } from '../../lib/governanceTypes'
 import { GovernanceBadge } from './GovernanceBadge'
 import { RuntimeLinkAction } from './RuntimeLinkAction'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type RuntimeGovernanceTabProps = {
   data: RuntimeGovernanceStatus | null
@@ -11,7 +12,9 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5 last:border-b-0">
       <span className="text-sm text-slate-300/70">{label}</span>
-      <span className="text-right text-sm font-medium text-white">{value || '—'}</span>
+      <span className="text-right text-sm font-medium text-white">
+        {redactRuntimeDebugText(value) || '—'}
+      </span>
     </div>
   )
 }
@@ -53,7 +56,9 @@ export function RuntimeGovernanceTab({ data, governanceHref }: RuntimeGovernance
         {data.reason ? (
           <div className="py-2.5">
             <span className="text-sm text-slate-300/70">Reason</span>
-            <p className="mt-1 text-sm text-white">{data.reason}</p>
+            <p className="mt-1 text-sm text-white">
+              {redactRuntimeDebugText(data.reason)}
+            </p>
           </div>
         ) : null}
       </section>

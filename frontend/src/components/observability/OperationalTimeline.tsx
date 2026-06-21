@@ -4,6 +4,8 @@ type OperationalTimelineProps = {
   events: TimelineEvent[]
 }
 
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
+
 export function OperationalTimeline({ events }: OperationalTimelineProps) {
   return (
     <section className="panel-card metric-card observability-card">
@@ -14,12 +16,12 @@ export function OperationalTimeline({ events }: OperationalTimelineProps) {
           {events.map((event) => (
             <article className="timeline-item" key={event.event_id}>
               <div className="timeline-item-header">
-                <strong>{event.event_type}</strong>
+                <strong>{redactRuntimeDebugText(event.event_type)}</strong>
                 <span>{new Date(event.timestamp).toLocaleString('pt-BR')}</span>
               </div>
-              <p>{event.description}</p>
+              <p>{redactRuntimeDebugText(event.description)}</p>
               <div className="timeline-item-meta">
-                <span>Outcome: {event.outcome || 'n/a'}</span>
+                <span>Outcome: {redactRuntimeDebugText(event.outcome) || 'n/a'}</span>
                 <span>Progress: {Math.round(event.progress_score * 100)}%</span>
               </div>
             </article>

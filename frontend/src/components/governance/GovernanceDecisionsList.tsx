@@ -1,4 +1,5 @@
 import type { GovernanceDecision } from '../../types'
+import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 import { OmniBadge } from '../ui/OmniBadge'
 
 type GovernanceDecisionsListProps = {
@@ -73,19 +74,23 @@ export function GovernanceDecisionsList({ decisions, className = '' }: Governanc
                   </OmniBadge>
                 ) : null}
                 {d.category ? (
-                  <span className="text-xs text-slate-400">{d.category}</span>
+                  <span className="text-xs text-slate-400">
+                    {redactRuntimeDebugText(d.category)}
+                  </span>
                 ) : null}
               </div>
 
               {d.policy ? (
                 <p className="mt-1.5 text-sm text-slate-300/80">
                   <span className="text-xs text-slate-500">Policy: </span>
-                  {d.policy}
+                  {redactRuntimeDebugText(d.policy)}
                 </p>
               ) : null}
 
               {d.reason ? (
-                <p className="mt-1 text-xs text-slate-400 line-clamp-2">{d.reason}</p>
+                <p className="mt-1 text-xs text-slate-400 line-clamp-2">
+                  {redactRuntimeDebugText(d.reason)}
+                </p>
               ) : null}
             </div>
 

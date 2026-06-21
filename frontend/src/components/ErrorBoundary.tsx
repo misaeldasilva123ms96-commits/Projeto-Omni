@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 
 type ErrorBoundaryProps = {
   children: ReactNode
@@ -18,7 +19,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[omni:error-boundary]', error, info.componentStack)
+    console.error('[omni:error-boundary]', {
+      name: redactRuntimeDebugText(error.name),
+      message: redactRuntimeDebugText(error.message),
+      componentStack: info.componentStack ? '[REDACTED]' : undefined,
+    })
   }
 
   render() {
@@ -29,11 +34,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="mb-2 text-xs uppercase tracking-[0.3em] text-rose-200/80">Runtime UI boundary</p>
             <h1 className="mb-3 text-2xl font-semibold">A interface encontrou um erro seguro.</h1>
             <p className="text-sm leading-6 text-slate-200/80">
-              O runtime visual foi interrompido para evitar uma tela quebrada. Recarregue a página ou confira o console
-              para o stack técnico.
+              O runtime visual foi interrompido para evitar uma tela quebrada. Recarregue a página e tente novamente.
             </p>
             <pre className="mt-4 max-h-48 overflow-auto rounded-2xl border border-white/10 bg-black/30 p-3 text-xs text-rose-100/80">
-              {this.state.error.message}
+              {redactRuntimeDebugText(this.state.error.message) || 'Erro não disponível.'}
             </pre>
           </section>
         </main>

@@ -7,6 +7,7 @@ import {
   testProvider,
   updateProvider,
 } from '../../../lib/api/settings';
+import { redactRuntimeDebugText } from '../../../lib/runtimeDebugSanitizer';
 
 export function useProviders() {
   const [providers, setProviders] = useState<ProviderRecord[]>([]);
@@ -24,7 +25,7 @@ export function useProviders() {
       const records = await listProviders();
       setProviders(records);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to load providers';
+      const message = err instanceof Error ? redactRuntimeDebugText(err.message) : 'Unable to load providers';
       setError(message);
     } finally {
       setLoading(false);
@@ -46,7 +47,7 @@ export function useProviders() {
         return [...filtered, record];
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to save provider';
+      const message = err instanceof Error ? redactRuntimeDebugText(err.message) : 'Unable to save provider';
       setActionError(message);
       throw err;
     } finally {
@@ -65,7 +66,7 @@ export function useProviders() {
         return [...filtered, record];
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to update provider';
+      const message = err instanceof Error ? redactRuntimeDebugText(err.message) : 'Unable to update provider';
       setActionError(message);
       throw err;
     } finally {
@@ -87,7 +88,7 @@ export function useProviders() {
         return filtered;
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to remove provider';
+      const message = err instanceof Error ? redactRuntimeDebugText(err.message) : 'Unable to remove provider';
       setActionError(message);
       throw err;
     } finally {
@@ -125,7 +126,7 @@ export function useProviders() {
       const fallbackResult: ProviderTestResult = {
         provider,
         success: false,
-        error: err instanceof Error ? err.message : 'Unable to test provider',
+        error: err instanceof Error ? redactRuntimeDebugText(err.message) : 'Unable to test provider',
       };
       setLastTestResult(fallbackResult);
       const message = fallbackResult.error ?? 'Unable to test provider';

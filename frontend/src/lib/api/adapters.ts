@@ -25,6 +25,10 @@ import { classifyChatWireHealth, extractExecutionTier } from './wireChatHealth'
 import type { UiObservabilitySnapshot, UiObservabilityTracesResult } from '../../types/ui/observability'
 import type { UiRuntimeStatus } from '../../types/ui/runtime'
 import type { UiMilestonesSummary, UiRuntimeSignalsSummary, UiStrategySummary } from '../../types/ui/telemetry'
+import {
+  redactRuntimeDebugText,
+  sanitizeRuntimeDebugPayload,
+} from '../runtimeDebugSanitizer'
 
 export function parseWireChatPayload(payload: unknown): ChatApiResponse {
   if (typeof payload === 'string') {
@@ -467,9 +471,13 @@ export function observabilityApiEnvelopeToUi(resp: ObservabilityApiResponse): {
   error?: string
 } {
   return {
-    snapshot: resp.snapshot,
-    status: resp.status,
-    error: resp.error,
+    snapshot: resp.snapshot
+      ? sanitizeRuntimeDebugPayload(resp.snapshot) as unknown as UiObservabilitySnapshot
+      : null,
+    status: redactRuntimeDebugText(String(resp.status ?? 'error')),
+    error: typeof resp.error === 'string'
+      ? redactRuntimeDebugText(resp.error)
+      : undefined,
   }
 }
 
