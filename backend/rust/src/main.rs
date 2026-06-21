@@ -24,9 +24,12 @@ use axum::{
     Json, Router,
 };
 use error::AppError;
+#[cfg(test)]
+use observability_auth::ProcessLocalObservabilityStreamTicketStore;
 use observability_auth::{
-    issue_observability_stream_ticket, require_observability_stream_ticket, require_supabase_auth,
-    sanitize_uri_for_logs, ObservabilityStreamTicketStore, SupabaseAuthConfig,
+    issue_observability_stream_ticket, observability_stream_ticket_store_from_env,
+    require_observability_stream_ticket, require_supabase_auth, sanitize_uri_for_logs,
+    ObservabilityStreamTicketStore, SupabaseAuthConfig,
 };
 use runtime::Session;
 use serde::{Deserialize, Serialize};
@@ -56,7 +59,7 @@ struct AppState {
     node_bin: String,
     python_health: Arc<RwLock<DependencyStatus>>,
     supabase_auth: Arc<SupabaseAuthConfig>,
-    observability_stream_tickets: ObservabilityStreamTicketStore,
+    observability_stream_tickets: Arc<dyn ObservabilityStreamTicketStore>,
     chat_security: Arc<ChatSecurityState>,
 }
 
@@ -247,6 +250,7 @@ struct HealthResponse {
     status: String,
     rust_service: &'static str,
     runtime_mode: String,
+    observability_stream_ticket_store_mode: &'static str,
     runtime_session_version: u32,
     timestamp_ms: u64,
     python: DependencyHealth,
@@ -521,6 +525,19 @@ async fn main() -> Result<(), AppError> {
             )));
         }
     };
+    let observability_stream_tickets = match observability_stream_ticket_store_from_env() {
+        Ok(store) => store,
+        Err(error) => {
+            error!(%error, "observability stream ticket store configuration failed");
+            return Err(AppError::Internal(
+                "observability stream ticket store configuration error".to_string(),
+            ));
+        }
+    };
+    info!(
+        mode = observability_stream_tickets.mode().as_str(),
+        "observability stream ticket store configured"
+    );
     let state = AppState {
         project_root,
         python_root,
@@ -544,7 +561,7 @@ async fn main() -> Result<(), AppError> {
             last_checked_ms: None,
         })),
         supabase_auth,
-        observability_stream_tickets: ObservabilityStreamTicketStore::default(),
+        observability_stream_tickets,
         chat_security: default_chat_security_state(),
     };
 
@@ -1095,6 +1112,7 @@ async fn build_health_snapshot(state: &AppState) -> HealthResponse {
         status: status.to_string(),
         rust_service: "ok",
         runtime_mode: state.runtime_mode.clone(),
+        observability_stream_ticket_store_mode: state.observability_stream_tickets.mode().as_str(),
         runtime_session_version: state.runtime_session_version,
         timestamp_ms: unix_timestamp_ms(),
         python: DependencyHealth {
@@ -3690,7 +3708,9 @@ mod tests {
                 jwt_secret: "test-secret".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
-            observability_stream_tickets: ObservabilityStreamTicketStore::default(),
+            observability_stream_tickets: Arc::new(
+                ProcessLocalObservabilityStreamTicketStore::default(),
+            ),
             chat_security: Arc::new(ChatSecurityState::with_config(ChatSecurityConfig {
                 max_message_chars: 8_000,
                 max_body_bytes: 65_536,
@@ -3820,6 +3840,21 @@ mod tests {
             guard.last_status.as_str(),
             "ready" | "failed" | "timeout" | "stderr_warning" | "empty_stdout" | "mock"
         ));
+    }
+
+    #[tokio::test]
+    async fn health_snapshot_reports_process_local_ticket_store_mode() {
+        let state = build_test_state(
+            temp_script("print('{\"response\":\"ok\"}')\n", "health-ticket-store"),
+            15_000,
+        );
+
+        let snapshot = build_health_snapshot(&state).await;
+
+        assert_eq!(
+            snapshot.observability_stream_ticket_store_mode,
+            "process_local"
+        );
     }
 
     #[tokio::test]
