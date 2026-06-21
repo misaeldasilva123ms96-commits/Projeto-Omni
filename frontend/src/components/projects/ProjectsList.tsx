@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ChatMode, Project } from '../../types'
 import { OmniButton } from '../ui/OmniButton'
 import { OmniEmptyState } from '../ui/OmniEmptyState'
+import { OmniLoadingState } from '../ui/OmniLoadingState'
 import { ProjectCard } from './ProjectCard'
 import { ProjectForm } from './ProjectForm'
 
@@ -69,7 +70,7 @@ export function ProjectsList({ projects, loading, onCreate, onUpdate, onDelete, 
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando projetos...</div>
+        <OmniLoadingState label="Carregando projetos..." skeletonRows={3} />
       ) : projects.length === 0 ? (
         <OmniEmptyState
           actionLabel="Criar Projeto"

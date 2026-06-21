@@ -6,6 +6,7 @@ import { ContextFilterControls } from '../components/observability/ContextFilter
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { OmniButton } from '../components/ui/OmniButton'
+import { OmniLoadingState } from '../components/ui/OmniLoadingState'
 import { PageHero } from '../components/ui/PageHero'
 import { useProviders } from '../features/settings/hooks/useProviders'
 import type { ChatMode, ConversationSummary } from '../types'
@@ -96,7 +97,7 @@ export function ProviderCenterPage({ mode, onChangeMode, onChangeView, renderShe
         ) : null}
 
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando provedores...</div>
+          <OmniLoadingState label="Carregando provedores..." skeletonRows={3} />
         ) : hasContext && visibleProviders.length === 0 ? (
           <div className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-8 text-center text-sm text-slate-400">
             <p>Contexto recebido, mas não há dados disponíveis para este filtro.</p>

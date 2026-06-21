@@ -5,6 +5,7 @@ import { ContextFilterControls } from '../components/observability/ContextFilter
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { OmniButton } from '../components/ui/OmniButton'
 import { OmniCard } from '../components/ui/OmniCard'
+import { OmniLoadingState } from '../components/ui/OmniLoadingState'
 import { PageHero } from '../components/ui/PageHero'
 import { fetchGovernanceDecisions } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, GovernanceDecision } from '../types'
@@ -122,9 +123,7 @@ export function GovernanceCenterPage({ mode, onChangeMode, onChangeView, renderS
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-sm text-slate-400">
-            Carregando decisões de governança...
-          </div>
+          <OmniLoadingState label="Carregando decisões de governança..." skeletonRows={3} />
         ) : hasContext && visibleDecisions.length === 0 ? (
           <div className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-8 text-center text-sm text-slate-400">
             <p>Contexto recebido, mas não há dados disponíveis para este filtro.</p>
