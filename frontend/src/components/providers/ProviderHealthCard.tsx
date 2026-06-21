@@ -2,6 +2,7 @@ import type { ProviderRecord, ProviderTestResult } from '../../features/settings
 import { OmniBadge } from '../ui/OmniBadge'
 import { OmniButton } from '../ui/OmniButton'
 import { OmniCard } from '../ui/OmniCard'
+import { OmniInput } from '../ui/OmniInput'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type ProviderHealthCardProps = {
@@ -71,9 +72,8 @@ export function ProviderHealthCard({
           <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-violet-200/70" htmlFor={`key-${provider.provider}`}>
             API Key
           </label>
-          <input
+          <OmniInput
             id={`key-${provider.provider}`}
-            className="w-full rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 transition focus:border-neon-cyan/40"
             onChange={(e) => onApiKeyChange(e.target.value)}
             placeholder={isConfigured ? 'Atualizar API Key' : 'Informe a API Key'}
             value={apiKey}

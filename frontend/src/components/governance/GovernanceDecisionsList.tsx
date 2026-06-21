@@ -1,6 +1,7 @@
 import type { GovernanceDecision } from '../../types'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 import { OmniBadge } from '../ui/OmniBadge'
+import { OmniCard } from '../ui/OmniCard'
 
 type GovernanceDecisionsListProps = {
   decisions: GovernanceDecision[]
@@ -58,9 +59,10 @@ export function GovernanceDecisionsList({ decisions, className = '' }: Governanc
   return (
     <div className={`space-y-2 ${className}`.trim()}>
       {decisions.map((d) => (
-        <div
+        <OmniCard
           key={d.id}
-          className="rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] backdrop-blur-xl transition hover:border-white/18"
+          variant="elevated"
+          className="rounded-3xl px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:border-white/18"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -96,7 +98,7 @@ export function GovernanceDecisionsList({ decisions, className = '' }: Governanc
 
             <span className="shrink-0 text-xs text-slate-500">{formatDate(d.timestamp)}</span>
           </div>
-        </div>
+        </OmniCard>
       ))}
     </div>
   )

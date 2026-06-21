@@ -12,6 +12,7 @@ import {
   saveObservabilityContextHistory,
   type ObservabilityContextHistoryEntry,
 } from '../../lib/observabilityContextHistory'
+import { OmniButton } from '../ui/OmniButton'
 
 type ContextFilterControlsProps = {
   context: ObservabilityContext
@@ -89,27 +90,36 @@ export function ContextFilterControls({
             )}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              className="ghost-button status-pill"
+            <OmniButton
+              className="ghost-button status-pill normal-case tracking-normal"
               onClick={() => navigate(overviewPath, true)}
+              size="sm"
+              style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
               type="button"
+              variant="ghost"
             >
               Limpar filtros
-            </button>
-            <button
-              className="ghost-button status-pill"
+            </OmniButton>
+            <OmniButton
+              className="ghost-button status-pill normal-case tracking-normal"
               onClick={copyReference}
+              size="sm"
+              style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
               type="button"
+              variant="ghost"
             >
               {copied ? 'Referência copiada' : 'Copiar referência'}
-            </button>
-            <button
-              className="ghost-button status-pill"
+            </OmniButton>
+            <OmniButton
+              className="ghost-button status-pill normal-case tracking-normal"
               onClick={() => navigate(overviewPath, false)}
+              size="sm"
+              style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
               type="button"
+              variant="ghost"
             >
               Voltar para visão geral
-            </button>
+            </OmniButton>
           </div>
         </div>
       ) : null}
@@ -120,16 +130,19 @@ export function ContextFilterControls({
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
               Contextos recentes
             </p>
-            <button
-              className="ghost-button status-pill"
+            <OmniButton
+              className="ghost-button status-pill normal-case tracking-normal"
               onClick={() => {
                 clearObservabilityContextHistory()
                 setHistory([])
               }}
+              size="sm"
+              style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
               type="button"
+              variant="ghost"
             >
               Limpar histórico
-            </button>
+            </OmniButton>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {history.map((entry) => {
@@ -139,14 +152,17 @@ export function ContextFilterControls({
                 .map((key) => `${key}: ${entry.context[key]}`)
                 .join(' · ')
               return (
-                <button
-                  className="ghost-button status-pill"
+                <OmniButton
+                  className="ghost-button status-pill normal-case tracking-normal"
                   key={`${entry.path}${query}`}
                   onClick={() => navigate(`${entry.path}${query}`, false)}
+                  size="sm"
+                  style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
                   type="button"
+                  variant="ghost"
                 >
                   {label}
-                </button>
+                </OmniButton>
               )
             })}
           </div>

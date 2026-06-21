@@ -37,7 +37,7 @@ describe('ProviderHealthCard', () => {
 
   it('renders API key input', () => {
     render(<ProviderHealthCard {...defaultProps} />)
-    expect(screen.getByLabelText('API Key')).toBeInTheDocument()
+    expect(screen.getByLabelText('API Key')).toHaveClass('omni-control')
   })
 
   it('calls onApiKeyChange when input changes', async () => {
@@ -83,6 +83,12 @@ describe('ProviderHealthCard', () => {
   it('disables buttons when submitting', () => {
     render(<ProviderHealthCard {...defaultProps} submitting={true} apiKey="sk-test" />)
     expect(screen.getByRole('button', { name: /salvando/i })).toBeDisabled()
+  })
+
+  it('preserves the password input contract', () => {
+    render(<ProviderHealthCard {...defaultProps} apiKey="private-value" />)
+    expect(screen.getByLabelText('API Key')).toHaveAttribute('type', 'password')
+    expect(screen.getByLabelText('API Key')).toHaveValue('private-value')
   })
 
   it('disables test button when apiKey is empty', () => {

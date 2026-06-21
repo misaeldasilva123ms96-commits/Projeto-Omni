@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ChatMode } from '../../types'
-import { OmniInput } from '../ui'
+import { OmniButton, OmniInput } from '../ui'
 
 type HistoryFiltersProps = {
   onSearchChange: (query: string) => void
@@ -62,9 +62,9 @@ export function HistoryFilters({ onSearchChange, onModeFilter, onSortChange, cla
           {MODE_OPTIONS.map((opt) => {
             const active = mode === opt.id
             return (
-              <button
+              <OmniButton
                 key={opt.label}
-                className={`rounded-xl border px-2.5 py-1 text-xs transition ${
+                className={`rounded-xl px-2.5 py-1 normal-case tracking-normal ${
                   active
                     ? 'border-neon-purple/40 bg-neon-purple/15 text-white'
                     : 'border-white/8 bg-white/[0.03] text-slate-300 hover:text-white'
@@ -73,26 +73,32 @@ export function HistoryFilters({ onSearchChange, onModeFilter, onSortChange, cla
                   setMode(opt.id)
                   onModeFilter(opt.id)
                 }}
+                size="sm"
+                style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
                 type="button"
+                variant={active ? 'secondary' : 'ghost'}
               >
                 {opt.label}
-              </button>
+              </OmniButton>
             )
           })}
         </div>
 
-        <button
-          className="rounded-xl border border-white/8 bg-white/[0.03] px-2.5 py-1 text-xs text-slate-300 transition hover:text-white"
+        <OmniButton
+          className="rounded-xl border border-white/8 bg-white/[0.03] px-2.5 py-1 normal-case tracking-normal text-slate-300 hover:text-white"
           onClick={() => {
             const next = sort === 'newest' ? 'oldest' : 'newest'
             setSort(next)
             onSortChange(next)
           }}
+          size="sm"
+          style={{ fontWeight: 400, letterSpacing: 'normal', textTransform: 'none' }}
           type="button"
           title={sort === 'newest' ? 'Mais recentes primeiro' : 'Mais antigas primeiro'}
+          variant="ghost"
         >
           {sort === 'newest' ? '↓ Recentes' : '↑ Antigas'}
-        </button>
+        </OmniButton>
       </div>
     </div>
   )
