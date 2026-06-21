@@ -1,0 +1,43 @@
+:root,
+[data-omni-theme="dark"] {
+  --omni-bg: #0f1115;
+  --omni-surface: #151822;
+  --omni-panel: #1b1f2a;
+  --omni-border: #2a2f3a;
+  --omni-text: #f3f4f6;
+  --omni-muted: #9ca3af;
+  --omni-accent: #818cf8;
+  --omni-success: #16a34a;
+  --omni-warning: #d97706;
+  --omni-danger: #dc2626;
+  --omni-control-bg: rgba(255, 255, 255, 0.05);
+  --omni-control-bg-focus: rgba(123, 97, 255, 0.08);
+  --omni-focus-ring: rgba(81, 246, 255, 0.18);
+  --omni-border-subtle: rgba(138, 160, 255, 0.14);
+  --omni-text-muted: #9eb0d1;
+  --omni-space-1: 8px;
+  --omni-space-2: 12px;
+  --omni-space-3: 18px;
+  --omni-space-4: 24px;
+  --omni-radius-sm: 12px;
+  --omni-radius-md: 18px;
+  --omni-radius-lg: 24px;
+}
+
+[data-omni-theme="light"] {
+  --omni-bg: #ffffff;
+  --omni-surface: #f7f7f8;
+  --omni-panel: #ffffff;
+  --omni-border: #e5e7eb;
+  --omni-text: #111827;
+  --omni-muted: #6b7280;
+  --omni-accent: #6366f1;
+  --omni-success: #16a34a;
+  --omni-warning: #d97706;
+  --omni-danger: #dc2626;
+  --omni-control-bg: rgba(17, 24, 39, 0.04);
+  --omni-control-bg-focus: rgba(99, 102, 241, 0.06);
+  --omni-focus-ring: rgba(99, 102, 241, 0.16);
+  --omni-border-subtle: rgba(99, 102, 241, 0.16);
+  --omni-text-muted: #6b7280;
+}

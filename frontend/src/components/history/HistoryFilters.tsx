@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ChatMode } from '../../types'
+import { OmniInput } from '../ui'
 
 type HistoryFiltersProps = {
   onSearchChange: (query: string) => void
@@ -44,8 +45,8 @@ export function HistoryFilters({ onSearchChange, onModeFilter, onSortChange, cla
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.35-4.35" />
         </svg>
-        <input
-          className="w-full rounded-2xl border border-white/10 bg-white/[0.05] py-2 pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 transition focus:border-neon-cyan/40"
+        <OmniInput
+          className="py-2 pl-9 pr-3"
           onChange={(e) => {
             setQuery(e.target.value)
             handleSearch(e.target.value)

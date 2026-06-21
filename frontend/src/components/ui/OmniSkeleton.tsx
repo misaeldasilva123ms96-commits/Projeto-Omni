@@ -5,6 +5,8 @@ type OmniSkeletonProps = {
 }
 
 export function OmniSkeleton({ className = '', lines = 3, variant = 'text' }: OmniSkeletonProps) {
+  const safeLines = Number.isFinite(lines) ? Math.max(1, Math.floor(lines)) : 1
+
   if (variant === 'circle') {
     return (
       <span
@@ -22,10 +24,10 @@ export function OmniSkeleton({ className = '', lines = 3, variant = 'text' }: Om
       >
         <div className="mb-4 h-4 w-1/3 rounded-full bg-white/10 omni-skeleton" />
         <div className="space-y-2">
-          {Array.from({ length: lines }).map((_, i) => (
+          {Array.from({ length: safeLines }).map((_, i) => (
             <div
               key={i}
-              className={`h-3 rounded-full bg-white/10 omni-skeleton ${i === lines - 1 ? 'w-2/3' : 'w-full'}`}
+              className={`h-3 rounded-full bg-white/10 omni-skeleton ${i === safeLines - 1 ? 'w-2/3' : 'w-full'}`}
             />
           ))}
         </div>
@@ -35,10 +37,10 @@ export function OmniSkeleton({ className = '', lines = 3, variant = 'text' }: Om
 
   return (
     <div className={`space-y-2 ${className}`.trim()} aria-hidden="true">
-      {Array.from({ length: lines }).map((_, i) => (
+      {Array.from({ length: safeLines }).map((_, i) => (
         <div
           key={i}
-          className={`h-3 rounded-full bg-white/10 omni-skeleton ${i === lines - 1 ? 'w-2/3' : 'w-full'}`}
+          className={`h-3 rounded-full bg-white/10 omni-skeleton ${i === safeLines - 1 ? 'w-2/3' : 'w-full'}`}
         />
       ))}
     </div>

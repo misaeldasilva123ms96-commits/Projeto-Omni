@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ChatMode, Project } from '../../types'
-import { OmniButton } from '../ui/OmniButton'
+import { OmniButton, OmniInput, OmniPanel, OmniTextarea } from '../ui'
 
 type ProjectFormProps = {
   project?: Project | null
@@ -31,10 +31,10 @@ export function ProjectForm({ project, onSubmit, onCancel, className = '' }: Pro
   }
 
   return (
-    <form
-      className={`rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,15,34,0.88),rgba(10,11,27,0.84))] p-6 shadow-[0_18px_48px_rgba(0,0,0,0.34)] backdrop-blur-xl ${className}`.trim()}
-      onSubmit={handleSubmit}
+    <OmniPanel
+      className={`bg-[linear-gradient(180deg,rgba(15,15,34,0.88),rgba(10,11,27,0.84))] ${className}`.trim()}
     >
+      <form onSubmit={handleSubmit}>
       <h3 className="mb-5 text-lg font-semibold text-white">
         {isEditing ? 'Editar Projeto' : 'Novo Projeto'}
       </h3>
@@ -44,9 +44,8 @@ export function ProjectForm({ project, onSubmit, onCancel, className = '' }: Pro
           <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-violet-200/70" htmlFor="project-name">
             Nome
           </label>
-          <input
+          <OmniInput
             id="project-name"
-            className="w-full rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 transition focus:border-neon-cyan/40"
             onChange={(e) => setName(e.target.value)}
             placeholder="Nome do projeto"
             value={name}
@@ -59,9 +58,9 @@ export function ProjectForm({ project, onSubmit, onCancel, className = '' }: Pro
           <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-violet-200/70" htmlFor="project-description">
             Descrição
           </label>
-          <textarea
+          <OmniTextarea
             id="project-description"
-            className="min-h-[80px] w-full resize-y rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 transition focus:border-neon-cyan/40"
+            className="min-h-[80px] resize-y"
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Descrição opcional"
             value={description}
@@ -100,6 +99,7 @@ export function ProjectForm({ project, onSubmit, onCancel, className = '' }: Pro
           {isEditing ? 'Salvar' : 'Criar'}
         </OmniButton>
       </div>
-    </form>
+      </form>
+    </OmniPanel>
   )
 }

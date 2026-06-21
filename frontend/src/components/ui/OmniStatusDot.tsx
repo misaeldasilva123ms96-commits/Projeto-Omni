@@ -1,9 +1,10 @@
-type OmniStatusDotTone = 'success' | 'warning' | 'danger' | 'info' | 'inactive'
+export type OmniStatusDotTone = 'success' | 'warning' | 'danger' | 'info' | 'inactive'
 
-type OmniStatusDotProps = {
+export type OmniStatusDotProps = {
   tone?: OmniStatusDotTone
   className?: string
   animate?: boolean
+  label?: string
 }
 
 const toneClasses: Record<OmniStatusDotTone, string> = {
@@ -14,10 +15,19 @@ const toneClasses: Record<OmniStatusDotTone, string> = {
   inactive: 'bg-slate-500',
 }
 
-export function OmniStatusDot({ tone = 'info', className = '', animate = false }: OmniStatusDotProps) {
+export function OmniStatusDot({
+  tone = 'info',
+  className = '',
+  animate = false,
+  label,
+}: OmniStatusDotProps) {
   return (
     <span
       className={`inline-block h-2.5 w-2.5 rounded-full ${toneClasses[tone]} ${animate ? 'omni-active-dot' : ''} ${className}`.trim()}
+      aria-hidden={label ? undefined : true}
+      aria-label={label}
+      data-tone={tone}
+      role={label ? 'status' : undefined}
     />
   )
 }

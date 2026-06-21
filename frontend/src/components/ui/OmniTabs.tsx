@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 
 type OmniTab = {
@@ -15,6 +15,8 @@ type OmniTabsProps = {
 }
 
 export function OmniTabs({ tabs, activeTab, onSelect, className = '' }: OmniTabsProps) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const currentIndex = tabs.findIndex((t) => t.id === activeTab)
@@ -23,10 +25,15 @@ export function OmniTabs({ tabs, activeTab, onSelect, className = '' }: OmniTabs
         nextIndex = (currentIndex + 1) % tabs.length
       } else if (event.key === 'ArrowLeft') {
         nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+      } else if (event.key === 'Home') {
+        nextIndex = 0
+      } else if (event.key === 'End') {
+        nextIndex = tabs.length - 1
       }
       if (nextIndex !== null) {
         event.preventDefault()
         onSelect(tabs[nextIndex].id)
+        tabRefs.current[nextIndex]?.focus()
       }
     },
     [tabs, activeTab, onSelect],
@@ -54,6 +61,9 @@ export function OmniTabs({ tabs, activeTab, onSelect, className = '' }: OmniTabs
                 : 'border-white/8 bg-white/[0.03] text-slate-300 hover:text-white'
             }`}
             onClick={() => onSelect(tab.id)}
+            ref={(node) => {
+              tabRefs.current[tabs.indexOf(tab)] = node
+            }}
             type="button"
             tabIndex={isActive ? 0 : -1}
           >

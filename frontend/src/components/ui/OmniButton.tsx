@@ -1,10 +1,12 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-type OmniButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+export type OmniButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+export type OmniButtonSize = 'sm' | 'md'
 
-type OmniButtonProps = {
+export type OmniButtonProps = {
   children: ReactNode
   variant?: OmniButtonVariant
+  size?: OmniButtonSize
   className?: string
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'>
 
@@ -19,10 +21,23 @@ const variantClasses: Record<OmniButtonVariant, string> = {
     'bg-red-500/20 border border-red-400/30 text-red-200 hover:bg-red-500/30 hover:text-red-100 active:translate-y-px',
 }
 
-export function OmniButton({ children, variant = 'primary', className = '', ...rest }: OmniButtonProps) {
+const sizeClasses: Record<OmniButtonSize, string> = {
+  sm: 'px-3 py-1.5 text-[11px] tracking-[0.18em]',
+  md: 'px-5 py-2.5 text-xs tracking-[0.24em]',
+}
+
+export function OmniButton({
+  children,
+  variant = 'primary',
+  size = 'md',
+  className = '',
+  type = 'button',
+  ...rest
+}: OmniButtonProps) {
   return (
     <button
-      className={`rounded-full px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.24em] transition disabled:opacity-60 disabled:cursor-not-allowed ${variantClasses[variant]} ${className}`.trim()}
+      className={`rounded-full font-semibold uppercase transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neon-cyan disabled:cursor-not-allowed disabled:opacity-60 ${sizeClasses[size]} ${variantClasses[variant]} ${className}`.trim()}
+      type={type}
       {...rest}
     >
       {children}

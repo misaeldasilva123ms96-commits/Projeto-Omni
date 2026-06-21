@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/omni-theme.css";
 
 @theme {
   --animate-shimmer: shimmer 3.6s ease-in-out infinite;
@@ -40,33 +41,6 @@
 
 }
 
-:root,
-[data-omni-theme="dark"] {
-  --omni-bg: #0f1115;
-  --omni-surface: #151822;
-  --omni-panel: #1b1f2a;
-  --omni-border: #2a2f3a;
-  --omni-text: #f3f4f6;
-  --omni-muted: #9ca3af;
-  --omni-accent: #818cf8;
-  --omni-success: #16a34a;
-  --omni-warning: #d97706;
-  --omni-danger: #dc2626;
-}
-
-[data-omni-theme="light"] {
-  --omni-bg: #ffffff;
-  --omni-surface: #f7f7f8;
-  --omni-panel: #ffffff;
-  --omni-border: #e5e7eb;
-  --omni-text: #111827;
-  --omni-muted: #6b7280;
-  --omni-accent: #6366f1;
-  --omni-success: #16a34a;
-  --omni-warning: #d97706;
-  --omni-danger: #dc2626;
-}
-
 @layer base {
   :root {
     color-scheme: dark;
@@ -106,6 +80,22 @@
 
   button {
     border: 0;
+  }
+
+  .omni-control {
+    background: var(--omni-control-bg);
+    border-color: var(--omni-border-subtle);
+    color: var(--omni-text);
+  }
+
+  .omni-control::placeholder {
+    color: var(--omni-muted);
+  }
+
+  .omni-control:focus {
+    background: var(--omni-control-bg-focus);
+    border-color: var(--omni-accent);
+    box-shadow: 0 0 0 4px var(--omni-focus-ring);
   }
 }
 
@@ -208,15 +198,6 @@
 }
 
 :root {
-  --omni-space-1: 8px;
-  --omni-space-2: 12px;
-  --omni-space-3: 18px;
-  --omni-space-4: 24px;
-  --omni-radius-lg: 24px;
-  --omni-radius-md: 18px;
-  --omni-border-subtle: rgba(138, 160, 255, 0.14);
-  --omni-text-muted: #9eb0d1;
-  --omni-accent: #87a0ff;
   color-scheme: dark;
   font-family: "Segoe UI Variable", "Segoe UI", "Helvetica Neue", sans-serif;
   background:
