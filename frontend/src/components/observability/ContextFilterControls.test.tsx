@@ -49,7 +49,9 @@ describe('ContextFilterControls', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtros' }))
+    const clearButton = screen.getByRole('button', { name: 'Limpar filtros' })
+    expect(clearButton).toHaveClass('status-pill')
+    fireEvent.click(clearButton)
 
     expect(window.location.pathname).toBe('/observability')
     expect(window.location.search).toBe('')

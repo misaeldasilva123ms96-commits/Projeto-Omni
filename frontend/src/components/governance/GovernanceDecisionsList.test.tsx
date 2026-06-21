@@ -33,9 +33,10 @@ describe('GovernanceDecisionsList', () => {
   })
 
   it('renders decision badges', () => {
-    render(<GovernanceDecisionsList decisions={decisions} />)
+    const { container } = render(<GovernanceDecisionsList decisions={decisions} />)
     expect(screen.getByText('Allowed')).toBeInTheDocument()
     expect(screen.getByText('Blocked')).toBeInTheDocument()
+    expect(container.querySelectorAll('.panel-card')).toHaveLength(2)
   })
 
   it('renders risk level badges', () => {
