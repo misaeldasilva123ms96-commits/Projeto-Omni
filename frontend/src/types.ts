@@ -7,6 +7,7 @@ export type ChatMode = 'chat' | 'pesquisa' | 'codigo' | 'agente'
 export type ChatUsage = {
   input_tokens?: number
   output_tokens?: number
+  total_tokens?: number
 }
 
 export type RuntimeErrorPayload = {
@@ -34,6 +35,7 @@ export type ProviderDiagnostic = {
   latency_ms?: number | null
   tokens_in?: number | null
   tokens_out?: number | null
+  total_tokens?: number | null
 }
 
 export type ToolExecutionDiagnostic = {

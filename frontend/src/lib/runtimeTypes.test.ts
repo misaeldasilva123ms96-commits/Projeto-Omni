@@ -144,6 +144,44 @@ describe('runtime inspector contracts', () => {
     expect(normalized.provider?.provider_name).toBe('openai')
   })
 
+  it('prefers valid inspection token values and preserves an explicit total', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      usage: { input_tokens: 90, output_tokens: 40, total_tokens: 130 },
+      cognitiveRuntimeInspection: {
+        tokens_in: 12,
+        tokens_out: 8,
+        total_tokens: 25,
+      },
+    })
+
+    expect(normalized.summary).toMatchObject({
+      tokens_in: 12,
+      tokens_out: 8,
+      total_tokens: 25,
+    })
+  })
+
+  it('ignores invalid higher-priority token values and falls back to valid usage', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      usage: { input_tokens: 9, output_tokens: 4 },
+      cognitiveRuntimeInspection: {
+        tokens_in: -1,
+        tokens_out: 2.5,
+        total_tokens: Number.POSITIVE_INFINITY,
+      },
+    })
+
+    expect(normalized.summary).toMatchObject({
+      tokens_in: 9,
+      tokens_out: 4,
+      total_tokens: 13,
+    })
+  })
+
   it('maps governance scalar fields when a nested governance object is unavailable', () => {
     const normalized = normalizeRuntimeInspectorData({
       matchedCommands: [],

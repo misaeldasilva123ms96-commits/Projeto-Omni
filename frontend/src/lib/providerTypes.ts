@@ -1,5 +1,6 @@
 import type { ProviderDiagnostic } from '../types'
 import { redactRuntimeDebugText } from './runtimeDebugSanitizer'
+import { firstValidTokenCount, normalizeTokenUsage } from './tokenUsage'
 
 export type RuntimeProviderStatus = {
   provider_name: string | null
@@ -10,6 +11,7 @@ export type RuntimeProviderStatus = {
   latency_ms: number | null
   tokens_in: number | null
   tokens_out: number | null
+  total_tokens: number | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -34,6 +36,11 @@ export function normalizeProviderStatus(
 ): RuntimeProviderStatus | null {
   const record = isRecord(value) ? value : null
   if (!record && !fallback) return null
+  const usage = normalizeTokenUsage({
+    inputTokens: firstValidTokenCount(record?.tokens_in, fallback?.tokens_in),
+    outputTokens: firstValidTokenCount(record?.tokens_out, fallback?.tokens_out),
+    totalTokens: firstValidTokenCount(record?.total_tokens, fallback?.total_tokens),
+  })
 
   return {
     provider_name: optionalString(record?.provider_name ?? record?.provider ?? fallback?.provider),
@@ -42,7 +49,8 @@ export function normalizeProviderStatus(
     succeeded: optionalBoolean(record?.succeeded ?? fallback?.succeeded),
     failure_reason: optionalString(record?.failure_reason ?? fallback?.failure_reason),
     latency_ms: optionalNumber(record?.latency_ms ?? fallback?.latency_ms),
-    tokens_in: optionalNumber(record?.tokens_in ?? fallback?.tokens_in),
-    tokens_out: optionalNumber(record?.tokens_out ?? fallback?.tokens_out),
+    tokens_in: usage.inputTokens,
+    tokens_out: usage.outputTokens,
+    total_tokens: usage.totalTokens,
   }
 }

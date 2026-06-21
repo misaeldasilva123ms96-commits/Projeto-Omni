@@ -57,6 +57,7 @@ export function normalizeUiChatRuntime(
       ? {
           input_tokens: ui.usage.inputTokens,
           output_tokens: ui.usage.outputTokens,
+          total_tokens: ui.usage.totalTokens,
         }
       : undefined,
     runtimeMode: ui.runtimeMode,
