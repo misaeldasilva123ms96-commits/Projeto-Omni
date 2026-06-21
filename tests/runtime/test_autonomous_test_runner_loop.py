@@ -246,6 +246,43 @@ def test_allowed_real_validations(workspace_temp_dir) -> None:
     assert result.recommended_next_action == "no_action_needed"
 
 
+def test_token_meter_workspace_name_does_not_block_validations(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory(prefix="token-meter-", dir=PROJECT_ROOT) as value:
+        calls = []
+
+        def fake_runner(request):
+            calls.append(request.command)
+            return _runner_result(
+                command=request.command,
+                stdout="On branch ui/omni-token-meter\nnothing to commit\n",
+            )
+
+        monkeypatch.setattr(test_runner_loop, "run_sandbox_command", fake_runner)
+        result = _run(
+            commands=["git status", "git diff --check"],
+            working_directory=value,
+            stop_on_first_failure=False,
+        )
+
+    assert result.success is True
+    assert result.runtime_truth["secrets_detected"] is False
+    assert result.redacted is False
+    assert calls == ["git status", "git diff --check"]
+
+
+def test_token_assignment_still_blocks_test_loop(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(test_runner_loop, "run_sandbox_command", lambda request: calls.append(request))
+
+    result = _run(commands=["python --version --access_token=placeholder"])
+
+    assert result.blocked is True
+    assert result.failure_classification == "secret_detected"
+    assert result.runtime_truth["secrets_detected"] is True
+    assert "placeholder" not in json.dumps(result.to_dict())
+    assert calls == []
+
+
 def test_optional_pytest_can_pass_through_loop(monkeypatch, workspace_temp_dir) -> None:
     test_file = workspace_temp_dir / "test_tiny.py"
     test_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
