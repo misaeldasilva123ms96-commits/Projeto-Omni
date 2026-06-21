@@ -5,6 +5,7 @@ const DANGEROUS_KEY_FRAGMENTS = [
   'api_key',
   'apikey',
   'token',
+  'ticket',
   'jwt',
   'secret',
   'password',
@@ -66,6 +67,7 @@ const GITHUB_TOKEN_PATTERN = /\b(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{
 const GITLAB_TOKEN_PATTERN = /\bglpat-[A-Za-z0-9_-]{12,}\b/g
 const SLACK_TOKEN_PATTERN = /\bxox[bp]-[A-Za-z0-9-]{12,}\b/g
 const AWS_ACCESS_KEY_PATTERN = /\bAKIA[A-Z0-9]{16}\b/g
+const OBSERVABILITY_STREAM_TICKET_PATTERN = /\bost_[a-f0-9]{64}\b/gi
 const PEM_BLOCK_PATTERN = /-----BEGIN [A-Z0-9 ]+-----[\s\S]*?(?:-----END [A-Z0-9 ]+-----|$)/g
 const ENV_SECRET_PATTERN = /\b(?:SUPABASE_SERVICE_ROLE|OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER_API_KEY)\s*=\s*[^\s,;]+/gi
 const SUPABASE_URL_PATTERN = /https:\/\/[a-z0-9-]+\.supabase\.co(?:\/[^\s"'`{}[\],;]*)?/gi
@@ -96,6 +98,7 @@ function redactString(value: string): string {
     .replace(GITLAB_TOKEN_PATTERN, REDACTED)
     .replace(SLACK_TOKEN_PATTERN, REDACTED)
     .replace(AWS_ACCESS_KEY_PATTERN, REDACTED)
+    .replace(OBSERVABILITY_STREAM_TICKET_PATTERN, REDACTED)
     .replace(PEM_BLOCK_PATTERN, REDACTED)
     .replace(ENV_SECRET_PATTERN, REDACTED)
     .replace(SUPABASE_URL_PATTERN, REDACTED)

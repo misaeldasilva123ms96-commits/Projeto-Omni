@@ -160,6 +160,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
       private_key: 'value',
       access_key: 'value',
       refresh_token: 'value',
+      observability_stream_ticket: 'opaque-reference',
       dotenv: 'value',
       shell: 'value',
       nested: [{ apikey: 'value', x_auth_token: 'value' }],
@@ -174,6 +175,8 @@ describe('sanitizeRuntimeDebugPayload', () => {
       'private_key',
       'access_key',
       'refresh_token',
+      'observability_stream_ticket',
+      'opaque-reference',
       'dotenv',
       'shell',
       'apikey',
@@ -186,6 +189,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
   })
 
   it('redacts common credential value patterns', () => {
+    const streamTicket = `ost_${'a'.repeat(64)}`
     const sanitized = sanitizeRuntimeDebugPayload({
       values: [
         'sk_proj_abcdefghijklmnop',
@@ -200,11 +204,12 @@ describe('sanitizeRuntimeDebugPayload', () => {
         'OPENAI_API_KEY=provider-secret',
         'ANTHROPIC_API_KEY=provider-secret',
         'OPENROUTER_API_KEY=provider-secret',
+        `stream reference ${streamTicket}`,
       ],
     })
 
     const payload = text(sanitized)
-    expect(payload).not.toMatch(/sk_proj|ghp_|github_pat_|glpat-|xox[ bp]-|AKIA|BEGIN PRIVATE KEY|SERVICE_ROLE|API_KEY/)
+    expect(payload).not.toMatch(/sk_proj|ghp_|github_pat_|glpat-|xox[ bp]-|AKIA|BEGIN PRIVATE KEY|SERVICE_ROLE|API_KEY|ost_/)
     expect(payload).toContain('[REDACTED]')
   })
 

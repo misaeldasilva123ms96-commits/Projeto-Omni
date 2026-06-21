@@ -4,19 +4,116 @@
 //! Public issuer URL may come from `SUPABASE_URL` or `VITE_SUPABASE_URL` (same value as the browser anon project URL).
 //! Python-side provider keys are centralized under `backend/python/config/`; this Rust module only reads what the Axum process needs.
 
-use std::env;
+use std::{
+    collections::HashMap,
+    env,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::{Request, State},
-    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    http::{
+        header::{AUTHORIZATION, CACHE_CONTROL},
+        HeaderMap, StatusCode,
+    },
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
+
+const OBSERVABILITY_STREAM_TICKET_TTL_SECONDS: u64 = 30;
+const MAX_ACTIVE_STREAM_TICKETS: usize = 1_024;
+
+#[derive(Clone, Debug)]
+pub(crate) struct ObservabilityStreamTicketStore {
+    tickets: Arc<Mutex<HashMap<String, Instant>>>,
+    ttl: Duration,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct IssuedObservabilityStreamTicket {
+    pub(crate) ticket: String,
+    pub(crate) expires_in_seconds: u64,
+}
+
+impl Default for ObservabilityStreamTicketStore {
+    fn default() -> Self {
+        Self::with_ttl(Duration::from_secs(OBSERVABILITY_STREAM_TICKET_TTL_SECONDS))
+    }
+}
+
+impl ObservabilityStreamTicketStore {
+    fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            tickets: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
+        }
+    }
+
+    pub(crate) fn issue(&self) -> IssuedObservabilityStreamTicket {
+        self.issue_at(Instant::now())
+    }
+
+    fn issue_at(&self, now: Instant) -> IssuedObservabilityStreamTicket {
+        let ticket = generate_stream_ticket();
+        let expires_at = now + self.ttl;
+        let mut tickets = self
+            .tickets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        tickets.retain(|_, expiry| *expiry > now);
+        if tickets.len() >= MAX_ACTIVE_STREAM_TICKETS {
+            if let Some(oldest) = tickets
+                .iter()
+                .min_by_key(|(_, expiry)| **expiry)
+                .map(|(ticket, _)| ticket.clone())
+            {
+                tickets.remove(&oldest);
+            }
+        }
+        tickets.insert(ticket.clone(), expires_at);
+
+        IssuedObservabilityStreamTicket {
+            ticket,
+            expires_in_seconds: self.ttl.as_secs(),
+        }
+    }
+
+    pub(crate) fn consume(&self, ticket: &str) -> bool {
+        self.consume_at(ticket, Instant::now())
+    }
+
+    fn consume_at(&self, ticket: &str, now: Instant) -> bool {
+        if ticket.is_empty() {
+            return false;
+        }
+        let mut tickets = self
+            .tickets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        tickets
+            .remove(ticket)
+            .is_some_and(|expires_at| expires_at > now)
+    }
+}
+
+fn generate_stream_ticket() -> String {
+    let mut bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    let mut ticket = String::with_capacity(4 + bytes.len() * 2);
+    ticket.push_str("ost_");
+    for byte in bytes {
+        use std::fmt::Write;
+        let _ = write!(ticket, "{byte:02x}");
+    }
+    ticket
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct SupabaseAuthConfig {
@@ -103,7 +200,7 @@ pub(crate) async fn require_supabase_auth(
     mut req: Request,
     next: Next,
 ) -> Response {
-    let token = extract_auth_token(req.headers(), req.uri().path(), req.uri().query());
+    let token = extract_bearer_token(req.headers());
     let Some(token) = token else {
         return unauthorized_response();
     };
@@ -117,6 +214,29 @@ pub(crate) async fn require_supabase_auth(
         }
         Err(_) => unauthorized_response(),
     }
+}
+
+pub(crate) async fn issue_observability_stream_ticket(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    (
+        [(CACHE_CONTROL, "no-store")],
+        Json(state.observability_stream_tickets.issue()),
+    )
+}
+
+pub(crate) async fn require_observability_stream_ticket(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let Some(ticket) = extract_stream_ticket(req.uri().query()) else {
+        return unauthorized_stream_ticket_response();
+    };
+    if !state.observability_stream_tickets.consume(ticket) {
+        return unauthorized_stream_ticket_response();
+    }
+    next.run(req).await
 }
 
 pub(crate) fn sanitize_uri_for_logs(uri: &axum::http::Uri) -> String {
@@ -142,8 +262,8 @@ fn sanitize_query_segment(segment: &str) -> String {
     let mut parts = segment.splitn(2, '=');
     let key = parts.next().unwrap_or_default();
     let value = parts.next().unwrap_or_default();
-    if key == "token" {
-        "token=[REDACTED]".to_string()
+    if matches!(key, "token" | "ticket") {
+        format!("{key}=[REDACTED]")
     } else if value.is_empty() {
         key.to_string()
     } else {
@@ -162,18 +282,15 @@ fn unauthorized_response() -> Response {
         .into_response()
 }
 
-fn extract_auth_token<'a>(
-    headers: &'a HeaderMap,
-    path: &str,
-    query: Option<&'a str>,
-) -> Option<&'a str> {
-    extract_bearer_token(headers).or_else(|| {
-        if path == "/api/observability/stream" {
-            extract_query_token(query)
-        } else {
-            None
-        }
-    })
+fn unauthorized_stream_ticket_response() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(UnauthorizedBody {
+            error: "unauthorized",
+            message: "Valid observability stream ticket required",
+        }),
+    )
+        .into_response()
 }
 
 fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
@@ -185,16 +302,16 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
-fn extract_query_token(query: Option<&str>) -> Option<&str> {
-    let query = query?;
-    query.split('&').find_map(|segment| {
+fn extract_stream_ticket(query: Option<&str>) -> Option<&str> {
+    let mut matches = query?.split('&').filter_map(|segment| {
         let (key, value) = segment.split_once('=').unwrap_or((segment, ""));
-        if key == "token" && !value.is_empty() {
-            Some(value)
-        } else {
-            None
-        }
-    })
+        (key == "ticket" && !value.is_empty()).then_some(value)
+    });
+    let ticket = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    Some(ticket)
 }
 
 #[cfg(test)]
@@ -203,7 +320,7 @@ mod tests {
     use axum::{
         body::Body,
         http::{Method, Request},
-        routing::get,
+        routing::{get, post},
         Router,
     };
     use jsonwebtoken::{encode, EncodingKey, Header};
@@ -281,6 +398,7 @@ mod tests {
             node_bin: "node".to_string(),
             python_health: Arc::new(tokio::sync::RwLock::new(Default::default())),
             supabase_auth: Arc::new(build_config()),
+            observability_stream_tickets: ObservabilityStreamTicketStore::default(),
             chat_security: crate::default_chat_security_state(),
         }
     }
@@ -311,14 +429,23 @@ mod tests {
         }
 
         let state = build_state();
-        Router::new()
+        let protected = Router::new()
             .route("/api/observability/snapshot", get(ok_handler))
-            .route("/api/observability/stream", get(ok_handler))
+            .route(
+                "/api/observability/stream-ticket",
+                post(issue_observability_stream_ticket),
+            )
             .route_layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 require_supabase_auth,
-            ))
-            .with_state(state)
+            ));
+        let stream = Router::new()
+            .route("/api/observability/stream", get(ok_handler))
+            .route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_observability_stream_ticket,
+            ));
+        protected.merge(stream).with_state(state)
     }
 
     async fn read_json(response: Response) -> Value {
@@ -404,7 +531,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sse_query_token_with_valid_jwt_proceeds() {
+    async fn sse_query_token_with_valid_jwt_is_rejected() {
         let response = test_router()
             .oneshot(
                 Request::builder()
@@ -419,7 +546,7 @@ mod tests {
             .await
             .expect("response");
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -438,6 +565,87 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
+    #[tokio::test]
+    async fn valid_stream_ticket_is_accepted_once() {
+        let router = test_router();
+        let issue_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/observability/stream-ticket")
+                    .header(AUTHORIZATION, format!("Bearer {}", token_with_offset(300)))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(issue_response.status(), StatusCode::OK);
+        assert_eq!(
+            issue_response
+                .headers()
+                .get("cache-control")
+                .and_then(|value| value.to_str().ok()),
+            Some("no-store")
+        );
+        let body = read_json(issue_response).await;
+        let ticket = body.get("ticket").and_then(Value::as_str).expect("ticket");
+        assert_eq!(body.get("expires_in_seconds"), Some(&json!(30)));
+
+        let first = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/observability/stream?ticket={ticket}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(first.status(), StatusCode::OK);
+
+        let reused = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/observability/stream?ticket={ticket}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(reused.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn stream_rejects_missing_or_unknown_ticket() {
+        for uri in [
+            "/api/observability/stream",
+            "/api/observability/stream?ticket=unknown-reference",
+        ] {
+            let response = test_router()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            let body = read_json(response).await;
+            assert_eq!(
+                body,
+                json!({
+                    "error": "unauthorized",
+                    "message": "Valid observability stream ticket required"
+                })
+            );
+        }
+    }
+
     #[test]
     fn sanitize_uri_redacts_token_query_parameter() {
         let uri: axum::http::Uri = "/api/observability/stream?token=secret-token&interval=2"
@@ -446,6 +654,40 @@ mod tests {
         assert_eq!(
             sanitize_uri_for_logs(&uri),
             "/api/observability/stream?token=[REDACTED]&interval=2"
+        );
+    }
+
+    #[test]
+    fn stream_ticket_is_opaque_scoped_and_single_use() {
+        let store = ObservabilityStreamTicketStore::with_ttl(std::time::Duration::from_secs(30));
+        let now = std::time::Instant::now();
+        let issued = store.issue_at(now);
+
+        assert_eq!(issued.expires_in_seconds, 30);
+        assert!(issued.ticket.starts_with("ost_"));
+        assert_ne!(issued.ticket, token_with_offset(300));
+        assert!(store.consume_at(&issued.ticket, now + std::time::Duration::from_secs(1)));
+        assert!(!store.consume_at(&issued.ticket, now + std::time::Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn expired_or_unknown_stream_ticket_is_rejected() {
+        let store = ObservabilityStreamTicketStore::with_ttl(std::time::Duration::from_secs(5));
+        let now = std::time::Instant::now();
+        let issued = store.issue_at(now);
+
+        assert!(!store.consume_at(&issued.ticket, now + std::time::Duration::from_secs(6)));
+        assert!(!store.consume_at("unknown-reference", now));
+    }
+
+    #[test]
+    fn sanitize_uri_redacts_stream_ticket_query_parameter() {
+        let uri: axum::http::Uri = "/api/observability/stream?ticket=opaque-reference&interval=2"
+            .parse()
+            .expect("uri");
+        assert_eq!(
+            sanitize_uri_for_logs(&uri),
+            "/api/observability/stream?ticket=[REDACTED]&interval=2"
         );
     }
 }

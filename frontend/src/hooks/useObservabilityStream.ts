@@ -5,6 +5,12 @@ import { supabase } from '../lib/supabase'
 import type { ObservabilityApiResponse, ObservabilityConnectionState } from '../types/observability'
 import type { UiObservabilitySnapshot } from '../types/ui/observability'
 import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
+import {
+  buildObservabilityStreamUrl,
+  requestObservabilityStreamTicket,
+} from '../lib/api/observability'
+
+const STREAM_RECONNECT_DELAY_MS = 1_000
 
 export function useObservabilityStream(enabled: boolean) {
   const [snapshot, setSnapshot] = useState<UiObservabilitySnapshot | null>(null)
@@ -19,49 +25,95 @@ export function useObservabilityStream(enabled: boolean) {
     let cancelled = false
     let eventSource: EventSource | null = null
     let activeToken = ''
+    let reconnectTimer: number | null = null
+    let connecting = false
 
     const closeStream = () => {
       eventSource?.close()
       eventSource = null
     }
 
-    const openStream = (token: string) => {
+    const clearReconnectTimer = () => {
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+    }
+
+    const scheduleReconnect = (token: string) => {
+      if (cancelled || reconnectTimer !== null || token !== activeToken) {
+        return
+      }
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null
+        void openStream(token)
+      }, STREAM_RECONNECT_DELAY_MS)
+    }
+
+    const openStream = async (token: string) => {
       if (cancelled) {
         return
       }
       activeToken = token
+      if (connecting) {
+        return
+      }
+      connecting = true
+      clearReconnectTimer()
       setStatus((current) => (current === 'idle' ? 'reconnecting' : current))
       closeStream()
-      eventSource = new EventSource(
-        `${API_BASE_URL}/api/observability/stream?token=${encodeURIComponent(token)}&interval=2`,
-      )
 
-      eventSource.addEventListener('snapshot', (event) => {
-        try {
-          const payload = JSON.parse((event as MessageEvent).data) as ObservabilityApiResponse
-          const ui = observabilityApiEnvelopeToUi(payload)
-          if (ui.snapshot) {
-            setSnapshot(ui.snapshot)
-          }
-          if (ui.status === 'ok') {
-            setStatus('live')
-            setError(null)
-          } else {
-            setStatus('reconnecting')
-            setError(ui.error ?? 'Observability reader returned an error.')
-          }
-        } catch {
-          setStatus('reconnecting')
-          setError('Failed to parse live observability payload.')
-        }
-      })
-
-      eventSource.onerror = () => {
-        if (cancelled) {
+      try {
+        const ticket = await requestObservabilityStreamTicket({
+          Authorization: `Bearer ${token}`,
+        })
+        if (cancelled || token !== activeToken) {
           return
         }
-        setStatus('reconnecting')
-        setError((current) => current ?? 'Live observability stream disconnected. Retrying...')
+
+        eventSource = new EventSource(buildObservabilityStreamUrl(ticket.ticket))
+        eventSource.addEventListener('snapshot', (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as ObservabilityApiResponse
+            const ui = observabilityApiEnvelopeToUi(payload)
+            if (ui.snapshot) {
+              setSnapshot(ui.snapshot)
+            }
+            if (ui.status === 'ok') {
+              setStatus('live')
+              setError(null)
+            } else {
+              setStatus('reconnecting')
+              setError(ui.error ?? 'Observability reader returned an error.')
+            }
+          } catch {
+            setStatus('reconnecting')
+            setError('Failed to parse live observability payload.')
+          }
+        })
+
+        eventSource.onerror = () => {
+          if (cancelled) {
+            return
+          }
+          closeStream()
+          setStatus('reconnecting')
+          setError((current) => current ?? 'Live observability stream disconnected. Retrying...')
+          scheduleReconnect(token)
+        }
+      } catch (reason) {
+        if (!cancelled && token === activeToken) {
+          setStatus('reconnecting')
+          setError(reason instanceof Error
+            ? redactRuntimeDebugText(reason.message)
+            : 'Failed to authorize live observability stream.')
+          scheduleReconnect(token)
+        }
+      } finally {
+        connecting = false
+        if (!cancelled && activeToken && token !== activeToken) {
+          void openStream(activeToken)
+        }
       }
     }
 
@@ -81,7 +133,7 @@ export function useObservabilityStream(enabled: boolean) {
         return
       }
 
-      openStream(data.session.access_token)
+      void openStream(data.session.access_token)
     }
 
     void connect()
@@ -92,18 +144,21 @@ export function useObservabilityStream(enabled: boolean) {
       }
       const nextToken = session?.access_token ?? ''
       if (!nextToken) {
+        clearReconnectTimer()
         closeStream()
+        activeToken = ''
         setStatus('error')
         setError('No active session')
         return
       }
       if (nextToken !== activeToken) {
-        openStream(nextToken)
+        void openStream(nextToken)
       }
     })
 
     return () => {
       cancelled = true
+      clearReconnectTimer()
       closeStream()
       subscription.subscription.unsubscribe()
     }

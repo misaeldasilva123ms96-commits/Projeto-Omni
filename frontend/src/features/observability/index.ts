@@ -1,5 +1,10 @@
 /**
  * Authenticated observability HTTP surface (snapshot, traces).
  */
-export { fetchObservabilitySnapshot, fetchObservabilityTraces } from '../../lib/api/observability'
+export {
+  buildObservabilityStreamUrl,
+  fetchObservabilitySnapshot,
+  fetchObservabilityTraces,
+  requestObservabilityStreamTicket,
+} from '../../lib/api/observability'
 export { observabilityApiEnvelopeToUi, observabilityTracesResponseToUi } from '../../lib/api/adapters'
