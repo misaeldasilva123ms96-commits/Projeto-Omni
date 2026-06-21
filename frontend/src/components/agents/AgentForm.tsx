@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Agent } from '../../types'
-import { OmniButton } from '../ui/OmniButton'
+import { OmniButton, OmniInput, OmniPanel, OmniTextarea } from '../ui'
 
 type AgentFormProps = {
   agent?: Agent | null
@@ -64,18 +64,18 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
   }
 
   return (
-    <form
-      className={`rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] p-6 shadow-[0_12px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl ${className}`.trim()}
-      onSubmit={handleSubmit}
+    <OmniPanel
+      className={`bg-[linear-gradient(180deg,rgba(15,15,34,0.72),rgba(10,11,27,0.68))] ${className}`.trim()}
     >
+      <form onSubmit={handleSubmit}>
       <h2 className="mb-5 text-base font-semibold text-white">
         {agent ? 'Editar Agente' : 'Novo Agente'}
       </h2>
 
       <label className="mb-4 block">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Nome</span>
-        <input
-          className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+        <OmniInput
+          className="mt-1"
           placeholder="Ex: Assistente de Pesquisa"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -85,8 +85,8 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
 
       <label className="mb-4 block">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Descrição</span>
-        <textarea
-          className="mt-1 min-h-[72px] w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-violet-500/40 focus:bg-violet-500/5"
+        <OmniTextarea
+          className="mt-1 min-h-[72px] resize-none"
           placeholder="Descrição do agente e seu propósito"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -156,6 +156,7 @@ export function AgentForm({ agent, onSubmit, onCancel, className = '' }: AgentFo
           {agent ? 'Salvar' : 'Criar Agente'}
         </OmniButton>
       </div>
-    </form>
+      </form>
+    </OmniPanel>
   )
 }

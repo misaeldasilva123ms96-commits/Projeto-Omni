@@ -1,13 +1,12 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 
-type OmniBadgeTone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
+export type OmniBadgeTone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 
-type OmniBadgeProps = {
+export type OmniBadgeProps = {
   children: ReactNode
   tone?: OmniBadgeTone
   className?: string
-  title?: string
-}
+} & Omit<HTMLAttributes<HTMLSpanElement>, 'children'>
 
 const toneClasses: Record<OmniBadgeTone, string> = {
   success: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
@@ -17,11 +16,12 @@ const toneClasses: Record<OmniBadgeTone, string> = {
   muted: 'bg-white/[0.04] text-slate-400 border-white/10',
 }
 
-export function OmniBadge({ children, tone = 'info', className = '', title }: OmniBadgeProps) {
+export function OmniBadge({ children, tone = 'info', className = '', ...rest }: OmniBadgeProps) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${toneClasses[tone]} ${className}`.trim()}
-      title={title}
+      data-tone={tone}
+      {...rest}
     >
       {children}
     </span>
