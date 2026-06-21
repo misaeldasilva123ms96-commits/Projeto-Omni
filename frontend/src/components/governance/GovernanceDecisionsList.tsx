@@ -2,6 +2,7 @@ import type { GovernanceDecision } from '../../types'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 import { OmniBadge } from '../ui/OmniBadge'
 import { OmniCard } from '../ui/OmniCard'
+import { OmniEmptyState } from '../ui/OmniEmptyState'
 
 type GovernanceDecisionsListProps = {
   decisions: GovernanceDecision[]
@@ -46,13 +47,15 @@ function formatDate(iso: string) {
 export function GovernanceDecisionsList({ decisions, className = '' }: GovernanceDecisionsListProps) {
   if (decisions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <svg className="mb-4 h-12 w-12 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-        <p className="text-sm text-slate-400">Nenhuma decisão de governança registrada.</p>
-        <p className="mt-1 text-xs text-slate-500">As decisões aparecerão após requisições com inspeção de governança.</p>
-      </div>
+      <OmniEmptyState
+        description="As decisões aparecerão após requisições com inspeção de governança."
+        icon={(
+          <svg className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        )}
+        title="Nenhuma decisão de governança registrada."
+      />
     )
   }
 

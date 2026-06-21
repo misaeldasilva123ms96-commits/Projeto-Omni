@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Agent } from '../../types'
 import { OmniButton } from '../ui/OmniButton'
+import { OmniEmptyState } from '../ui/OmniEmptyState'
 import { AgentCard } from './AgentCard'
 import { AgentForm } from './AgentForm'
 
@@ -70,18 +71,19 @@ export function AgentsList({ agents, loading, onCreate, onUpdate, onDelete, onTo
       {loading ? (
         <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando agentes...</div>
       ) : agents.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <svg className="mb-4 h-12 w-12 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
-            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z" />
-            <path d="M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
-            <path d="M12 9v3l2 2" />
-          </svg>
-          <p className="text-sm text-slate-400">Nenhum agente ainda.</p>
-          <p className="mt-1 text-xs text-slate-500">Crie seu primeiro agente para automatizar tarefas.</p>
-          <OmniButton className="mt-4" variant="primary" onClick={() => setShowForm(true)}>
-            Criar Agente
-          </OmniButton>
-        </div>
+        <OmniEmptyState
+          actionLabel="Criar Agente"
+          description="Crie seu primeiro agente para automatizar tarefas."
+          icon={(
+            <svg className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
+              <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z" />
+              <path d="M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
+              <path d="M12 9v3l2 2" />
+            </svg>
+          )}
+          onAction={() => setShowForm(true)}
+          title="Nenhum agente ainda."
+        />
       ) : (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {agents.map((agent) => (

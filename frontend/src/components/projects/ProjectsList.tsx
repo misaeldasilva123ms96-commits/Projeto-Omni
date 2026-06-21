@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChatMode, Project } from '../../types'
 import { OmniButton } from '../ui/OmniButton'
+import { OmniEmptyState } from '../ui/OmniEmptyState'
 import { ProjectCard } from './ProjectCard'
 import { ProjectForm } from './ProjectForm'
 
@@ -70,16 +71,17 @@ export function ProjectsList({ projects, loading, onCreate, onUpdate, onDelete, 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-sm text-slate-400">Carregando projetos...</div>
       ) : projects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <svg className="mb-4 h-12 w-12 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
-          <p className="text-sm text-slate-400">Nenhum projeto ainda.</p>
-          <p className="mt-1 text-xs text-slate-500">Crie seu primeiro projeto para organizar suas sessões.</p>
-          <OmniButton className="mt-4" variant="primary" onClick={() => setShowForm(true)}>
-            Criar Projeto
-          </OmniButton>
-        </div>
+        <OmniEmptyState
+          actionLabel="Criar Projeto"
+          description="Crie seu primeiro projeto para organizar suas sessões."
+          icon={(
+            <svg className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+          )}
+          onAction={() => setShowForm(true)}
+          title="Nenhum projeto ainda."
+        />
       ) : (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
