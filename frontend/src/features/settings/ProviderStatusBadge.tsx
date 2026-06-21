@@ -1,55 +1,56 @@
-import { useMemo } from 'react';
+import { useMemo } from 'react'
+import { OmniBadge } from '../../components/ui/OmniBadge'
+import type { OmniBadgeTone } from '../../components/ui/OmniBadge'
 
 const STATUS_LABELS: Record<string, string> = {
   connected: 'Conectado',
   invalid_credentials: 'Credenciais inválidas',
   connection_failed: 'Falha na conexão',
   not_configured: 'Não configurado',
-};
+}
 
-const STATUS_VARIANTS: Record<string, string> = {
-  connected: 'ok',
-  invalid_credentials: 'danger',
+const STATUS_TONES: Record<string, OmniBadgeTone> = {
+  connected: 'success',
+  invalid_credentials: 'warning',
   connection_failed: 'danger',
-  not_configured: 'inactive',
-};
+  not_configured: 'muted',
+}
 
 type ProviderStatusBadgeProps = {
-  configured: boolean;
-  updatedAt?: number | null;
-};
+  configured: boolean
+  updatedAt?: number | null
+}
 
 export function ProviderStatusBadge({ configured, updatedAt }: ProviderStatusBadgeProps) {
   const status = useMemo(() => {
     if (!configured) {
-      return 'not_configured';
+      return 'not_configured'
     }
     if (!updatedAt) {
-      return 'connection_failed';
+      return 'connection_failed'
     }
-    return 'connected';
-  }, [configured, updatedAt]);
+    return 'connected'
+  }, [configured, updatedAt])
 
-  const label = STATUS_LABELS[status] ?? status;
-  const variant = STATUS_VARIANTS[status] ?? 'inactive';
+  const label = STATUS_LABELS[status] ?? status
+  const tone = STATUS_TONES[status] ?? 'muted'
 
   const formatted = useMemo(() => {
     if (!updatedAt) {
-      return null;
+      return null
     }
     try {
-      return new Date(updatedAt).toLocaleString('pt-BR');
+      return new Date(updatedAt).toLocaleString('pt-BR')
     } catch {
-      return null;
+      return null
     }
-  }, [updatedAt]);
+  }, [updatedAt])
 
   return (
-    <span className={`status-pill ${variant}`} title={formatted ?? ''}>
+    <OmniBadge tone={tone} title={formatted ?? ''}>
       {label}
-      {formatted ? <span className="timestamp">{formatted}</span> : null}
-    </span>
-  );
+    </OmniBadge>
+  )
 }
 
-export default ProviderStatusBadge;
+export default ProviderStatusBadge
