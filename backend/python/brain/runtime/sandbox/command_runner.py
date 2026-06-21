@@ -52,7 +52,11 @@ _CREDENTIAL_PATTERNS = (
     re.compile(r"(?<![A-Za-z0-9])" + "s" + r"k-[A-Za-z0-9_-]+", re.IGNORECASE),
     re.compile("API" + r"_KEY", re.IGNORECASE),
     re.compile("SEC" + r"RET", re.IGNORECASE),
-    re.compile("TO" + r"KEN", re.IGNORECASE),
+    re.compile(
+        r"(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])?TO"
+        r"KEN(?:[_-][A-Za-z0-9]+)?\s*(?:=|:)\s*\S+",
+        re.IGNORECASE,
+    ),
     re.compile("PASS" + r"WORD", re.IGNORECASE),
     re.compile("SUPA" + r"BASE", re.IGNORECASE),
     re.compile("OPEN" + r"AI", re.IGNORECASE),

@@ -261,6 +261,37 @@ def test_working_directory_boundaries(workspace_temp_dir) -> None:
     assert temp_root.blocked is True
 
 
+def test_token_meter_path_and_branch_output_are_not_credentials(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory(prefix="token-meter-", dir=PROJECT_ROOT) as value:
+        working_directory = Path(value)
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout=b"On branch ui/omni-token-meter\nnothing to commit\n",
+                stderr=b"",
+            )
+
+        monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
+        result = _run(command="git status", working_directory=str(working_directory))
+
+    assert result.executed is True
+    assert result.blocked is False
+    assert result.redacted is False
+    assert result.runtime_truth["secrets_detected"] is False
+    assert "ui/omni-token-meter" in result.stdout
+
+
+def test_token_assignment_remains_blocked() -> None:
+    result = _run(command="python --version --access_token=placeholder")
+
+    assert result.blocked is True
+    assert result.executed is False
+    assert result.runtime_truth["secrets_detected"] is True
+    assert "placeholder" not in json.dumps(result.to_dict())
+
+
 def test_path_arguments_block_traversal_and_secret_paths(workspace_temp_dir) -> None:
     safe_json = workspace_temp_dir / "safe.json"
     safe_json.write_text('{"ok": true}\n', encoding="utf-8")
