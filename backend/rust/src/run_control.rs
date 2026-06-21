@@ -264,8 +264,9 @@ mod tests {
                 jwt_secret: "test-secret".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
-            observability_stream_tickets:
-                crate::observability_auth::ObservabilityStreamTicketStore::default(),
+            observability_stream_tickets: Arc::new(
+                crate::observability_auth::ProcessLocalObservabilityStreamTicketStore::default(),
+            ),
             chat_security: crate::default_chat_security_state(),
         }
     }

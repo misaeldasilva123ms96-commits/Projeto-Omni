@@ -29,10 +29,47 @@ use crate::AppState;
 
 const OBSERVABILITY_STREAM_TICKET_TTL_SECONDS: u64 = 30;
 const MAX_ACTIVE_STREAM_TICKETS: usize = 1_024;
+pub(crate) const OBSERVABILITY_STREAM_TICKET_STORE_MODE_ENV: &str =
+    "OMNI_OBSERVABILITY_STREAM_TICKET_STORE_MODE";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ObservabilityStreamTicketStoreMode {
+    ProcessLocal,
+}
+
+impl ObservabilityStreamTicketStoreMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ProcessLocal => "process_local",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ObservabilityStreamTicketScope {
+    Stream,
+    #[cfg(test)]
+    Other,
+}
+
+pub(crate) trait ObservabilityStreamTicketStore: Send + Sync {
+    fn issue(&self, scope: ObservabilityStreamTicketScope) -> IssuedObservabilityStreamTicket;
+    fn consume(&self, ticket: &str, scope: ObservabilityStreamTicketScope) -> bool;
+    fn mode(&self) -> ObservabilityStreamTicketStoreMode;
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ProcessLocalTicketRecord {
+    expires_at: Instant,
+    scope: ObservabilityStreamTicketScope,
+}
+
+/// Process-local storage is the safe default for the current single-instance deployment.
+/// Multi-instance deployments require sticky routing, or a future shared implementation of
+/// [`ObservabilityStreamTicketStore`], so issue and consume reach the same ticket state.
 #[derive(Clone, Debug)]
-pub(crate) struct ObservabilityStreamTicketStore {
-    tickets: Arc<Mutex<HashMap<String, Instant>>>,
+pub(crate) struct ProcessLocalObservabilityStreamTicketStore {
+    tickets: Arc<Mutex<HashMap<String, ProcessLocalTicketRecord>>>,
     ttl: Duration,
 }
 
@@ -42,13 +79,13 @@ pub(crate) struct IssuedObservabilityStreamTicket {
     pub(crate) expires_in_seconds: u64,
 }
 
-impl Default for ObservabilityStreamTicketStore {
+impl Default for ProcessLocalObservabilityStreamTicketStore {
     fn default() -> Self {
         Self::with_ttl(Duration::from_secs(OBSERVABILITY_STREAM_TICKET_TTL_SECONDS))
     }
 }
 
-impl ObservabilityStreamTicketStore {
+impl ProcessLocalObservabilityStreamTicketStore {
     fn with_ttl(ttl: Duration) -> Self {
         Self {
             tickets: Arc::new(Mutex::new(HashMap::new())),
@@ -56,28 +93,31 @@ impl ObservabilityStreamTicketStore {
         }
     }
 
-    pub(crate) fn issue(&self) -> IssuedObservabilityStreamTicket {
-        self.issue_at(Instant::now())
-    }
-
-    fn issue_at(&self, now: Instant) -> IssuedObservabilityStreamTicket {
+    fn issue_at(
+        &self,
+        scope: ObservabilityStreamTicketScope,
+        now: Instant,
+    ) -> IssuedObservabilityStreamTicket {
         let ticket = generate_stream_ticket();
         let expires_at = now + self.ttl;
         let mut tickets = self
             .tickets
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        tickets.retain(|_, expiry| *expiry > now);
+        tickets.retain(|_, record| record.expires_at > now);
         if tickets.len() >= MAX_ACTIVE_STREAM_TICKETS {
             if let Some(oldest) = tickets
                 .iter()
-                .min_by_key(|(_, expiry)| **expiry)
+                .min_by_key(|(_, record)| record.expires_at)
                 .map(|(ticket, _)| ticket.clone())
             {
                 tickets.remove(&oldest);
             }
         }
-        tickets.insert(ticket.clone(), expires_at);
+        tickets.insert(
+            ticket.clone(),
+            ProcessLocalTicketRecord { expires_at, scope },
+        );
 
         IssuedObservabilityStreamTicket {
             ticket,
@@ -85,11 +125,12 @@ impl ObservabilityStreamTicketStore {
         }
     }
 
-    pub(crate) fn consume(&self, ticket: &str) -> bool {
-        self.consume_at(ticket, Instant::now())
-    }
-
-    fn consume_at(&self, ticket: &str, now: Instant) -> bool {
+    fn consume_at(
+        &self,
+        ticket: &str,
+        scope: ObservabilityStreamTicketScope,
+        now: Instant,
+    ) -> bool {
         if ticket.is_empty() {
             return false;
         }
@@ -97,10 +138,54 @@ impl ObservabilityStreamTicketStore {
             .tickets
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        tickets
-            .remove(ticket)
-            .is_some_and(|expires_at| expires_at > now)
+        let Some(record) = tickets.get(ticket).copied() else {
+            return false;
+        };
+        if record.expires_at <= now {
+            tickets.remove(ticket);
+            return false;
+        }
+        if record.scope != scope {
+            return false;
+        }
+        tickets.remove(ticket);
+        true
     }
+}
+
+impl ObservabilityStreamTicketStore for ProcessLocalObservabilityStreamTicketStore {
+    fn issue(&self, scope: ObservabilityStreamTicketScope) -> IssuedObservabilityStreamTicket {
+        self.issue_at(scope, Instant::now())
+    }
+
+    fn consume(&self, ticket: &str, scope: ObservabilityStreamTicketScope) -> bool {
+        self.consume_at(ticket, scope, Instant::now())
+    }
+
+    fn mode(&self) -> ObservabilityStreamTicketStoreMode {
+        ObservabilityStreamTicketStoreMode::ProcessLocal
+    }
+}
+
+pub(crate) fn build_observability_stream_ticket_store(
+    configured_mode: &str,
+) -> Result<Arc<dyn ObservabilityStreamTicketStore>, String> {
+    match configured_mode.trim().to_ascii_lowercase().as_str() {
+        "" | "process_local" => Ok(Arc::new(
+            ProcessLocalObservabilityStreamTicketStore::default(),
+        )),
+        "shared_external" => Err(
+            "observability stream ticket store mode shared_external is not supported".to_string(),
+        ),
+        _ => Err("unsupported observability stream ticket store mode".to_string()),
+    }
+}
+
+pub(crate) fn observability_stream_ticket_store_from_env(
+) -> Result<Arc<dyn ObservabilityStreamTicketStore>, String> {
+    let mode = env::var(OBSERVABILITY_STREAM_TICKET_STORE_MODE_ENV)
+        .unwrap_or_else(|_| "process_local".to_string());
+    build_observability_stream_ticket_store(&mode)
 }
 
 fn generate_stream_ticket() -> String {
@@ -221,7 +306,11 @@ pub(crate) async fn issue_observability_stream_ticket(
 ) -> impl IntoResponse {
     (
         [(CACHE_CONTROL, "no-store")],
-        Json(state.observability_stream_tickets.issue()),
+        Json(
+            state
+                .observability_stream_tickets
+                .issue(ObservabilityStreamTicketScope::Stream),
+        ),
     )
 }
 
@@ -233,7 +322,10 @@ pub(crate) async fn require_observability_stream_ticket(
     let Some(ticket) = extract_stream_ticket(req.uri().query()) else {
         return unauthorized_stream_ticket_response();
     };
-    if !state.observability_stream_tickets.consume(ticket) {
+    if !state
+        .observability_stream_tickets
+        .consume(ticket, ObservabilityStreamTicketScope::Stream)
+    {
         return unauthorized_stream_ticket_response();
     }
     next.run(req).await
@@ -398,7 +490,9 @@ mod tests {
             node_bin: "node".to_string(),
             python_health: Arc::new(tokio::sync::RwLock::new(Default::default())),
             supabase_auth: Arc::new(build_config()),
-            observability_stream_tickets: ObservabilityStreamTicketStore::default(),
+            observability_stream_tickets: Arc::new(
+                ProcessLocalObservabilityStreamTicketStore::default(),
+            ),
             chat_security: crate::default_chat_security_state(),
         }
     }
@@ -659,25 +753,81 @@ mod tests {
 
     #[test]
     fn stream_ticket_is_opaque_scoped_and_single_use() {
-        let store = ObservabilityStreamTicketStore::with_ttl(std::time::Duration::from_secs(30));
+        let store = ProcessLocalObservabilityStreamTicketStore::with_ttl(
+            std::time::Duration::from_secs(30),
+        );
         let now = std::time::Instant::now();
-        let issued = store.issue_at(now);
+        let issued = store.issue_at(ObservabilityStreamTicketScope::Stream, now);
 
         assert_eq!(issued.expires_in_seconds, 30);
         assert!(issued.ticket.starts_with("ost_"));
         assert_ne!(issued.ticket, token_with_offset(300));
-        assert!(store.consume_at(&issued.ticket, now + std::time::Duration::from_secs(1)));
-        assert!(!store.consume_at(&issued.ticket, now + std::time::Duration::from_secs(2)));
+        assert!(store.consume_at(
+            &issued.ticket,
+            ObservabilityStreamTicketScope::Stream,
+            now + std::time::Duration::from_secs(1)
+        ));
+        assert!(!store.consume_at(
+            &issued.ticket,
+            ObservabilityStreamTicketScope::Stream,
+            now + std::time::Duration::from_secs(2)
+        ));
     }
 
     #[test]
     fn expired_or_unknown_stream_ticket_is_rejected() {
-        let store = ObservabilityStreamTicketStore::with_ttl(std::time::Duration::from_secs(5));
+        let store =
+            ProcessLocalObservabilityStreamTicketStore::with_ttl(std::time::Duration::from_secs(5));
         let now = std::time::Instant::now();
-        let issued = store.issue_at(now);
+        let issued = store.issue_at(ObservabilityStreamTicketScope::Stream, now);
 
-        assert!(!store.consume_at(&issued.ticket, now + std::time::Duration::from_secs(6)));
-        assert!(!store.consume_at("unknown-reference", now));
+        assert!(!store.consume_at(
+            &issued.ticket,
+            ObservabilityStreamTicketScope::Stream,
+            now + std::time::Duration::from_secs(6)
+        ));
+        assert!(!store.consume_at(
+            "unknown-reference",
+            ObservabilityStreamTicketScope::Stream,
+            now
+        ));
+    }
+
+    #[test]
+    fn process_local_ticket_store_mode_is_explicit() {
+        let store = ProcessLocalObservabilityStreamTicketStore::default();
+
+        assert_eq!(
+            store.mode(),
+            ObservabilityStreamTicketStoreMode::ProcessLocal
+        );
+        assert_eq!(store.mode().as_str(), "process_local");
+    }
+
+    #[test]
+    fn unsupported_shared_ticket_store_mode_fails_closed() {
+        assert!(build_observability_stream_ticket_store("shared_external").is_err());
+        assert!(build_observability_stream_ticket_store("unknown").is_err());
+    }
+
+    #[test]
+    fn stream_ticket_rejects_wrong_scope_without_consuming_valid_scope() {
+        let store = ProcessLocalObservabilityStreamTicketStore::with_ttl(
+            std::time::Duration::from_secs(30),
+        );
+        let now = std::time::Instant::now();
+        let issued = store.issue_at(ObservabilityStreamTicketScope::Stream, now);
+
+        assert!(!store.consume_at(
+            &issued.ticket,
+            ObservabilityStreamTicketScope::Other,
+            now + std::time::Duration::from_secs(1),
+        ));
+        assert!(store.consume_at(
+            &issued.ticket,
+            ObservabilityStreamTicketScope::Stream,
+            now + std::time::Duration::from_secs(2),
+        ));
     }
 
     #[test]
