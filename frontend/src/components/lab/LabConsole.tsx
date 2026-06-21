@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import type { LabConfig, LabTest } from '../../types'
 import { OmniButton } from '../ui/OmniButton'
 import { OmniCard } from '../ui/OmniCard'
+import { OmniErrorState } from '../ui/OmniErrorState'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 const MODEL_OPTIONS = [
@@ -251,9 +252,7 @@ export function LabConsole({ className = '' }: LabConsoleProps) {
         </OmniCard>
 
         {error ? (
-          <OmniCard variant="panel">
-            <p className="text-sm text-red-300">{redactRuntimeDebugText(error)}</p>
-          </OmniCard>
+          <OmniErrorState description={error} size="compact" />
         ) : null}
 
         {response ? (

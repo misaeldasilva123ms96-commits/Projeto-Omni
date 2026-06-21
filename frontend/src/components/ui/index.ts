@@ -2,6 +2,7 @@ export { OmniBadge } from './OmniBadge'
 export { OmniButton } from './OmniButton'
 export { OmniCard } from './OmniCard'
 export { OmniEmptyState } from './OmniEmptyState'
+export { OmniErrorState } from './OmniErrorState'
 export { OmniInput } from './OmniInput'
 export { OmniLoadingState } from './OmniLoadingState'
 export { OmniPanel } from './OmniPanel'
@@ -12,6 +13,11 @@ export { OmniTextarea } from './OmniTextarea'
 export { OmniTooltip } from './OmniTooltip'
 export type { OmniInputProps } from './OmniInput'
 export type { OmniEmptyStateProps, OmniEmptyStateTone } from './OmniEmptyState'
+export type {
+  OmniErrorStateProps,
+  OmniErrorStateSize,
+  OmniErrorStateTone,
+} from './OmniErrorState'
 export type {
   OmniLoadingStateProps,
   OmniLoadingStateSize,

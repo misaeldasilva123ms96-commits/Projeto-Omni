@@ -3,8 +3,8 @@ import type { RenderOmniShell, View } from '../app/App'
 import { TokenUsageChart } from '../components/tokens/TokenUsageChart'
 import { TokenUsageOverview } from '../components/tokens/TokenUsageOverview'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
-import { ErrorNotice } from '../components/ui/ErrorNotice'
 import { OmniEmptyState } from '../components/ui/OmniEmptyState'
+import { OmniErrorState } from '../components/ui/OmniErrorState'
 import { OmniLoadingState } from '../components/ui/OmniLoadingState'
 import { PageHero } from '../components/ui/PageHero'
 import { fetchTokenUsage } from '../lib/omniData'
@@ -68,7 +68,13 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, renderShell, 
     }
 
     if (error) {
-      return <ErrorNotice message={error} className="mx-auto mt-8 max-w-lg" />
+      return (
+        <OmniErrorState
+          className="mt-8"
+          description={error}
+          title="Não foi possível carregar o uso de tokens."
+        />
+      )
     }
 
     if (!summary) {
