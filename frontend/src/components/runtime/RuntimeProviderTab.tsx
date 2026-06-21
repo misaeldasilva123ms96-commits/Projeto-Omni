@@ -1,6 +1,7 @@
 import type { RuntimeProviderStatus } from '../../lib/providerTypes'
 import { RuntimeLinkAction } from './RuntimeLinkAction'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
+import { TokenUsageMeter } from '../tokens/TokenUsageMeter'
 
 type RuntimeProviderTabProps = {
   data: RuntimeProviderStatus[]
@@ -47,9 +48,15 @@ function ProviderCard({ provider }: { provider: RuntimeProviderStatus }) {
           {redactRuntimeDebugText(provider.model)}
         </p>
       ) : null}
-      <p className="mt-1 text-xs text-slate-400">
-        Tokens: {provider.tokens_in ?? 'não disponível'} in / {provider.tokens_out ?? 'não disponível'} out
-      </p>
+      <TokenUsageMeter
+        className="mt-2"
+        usage={{
+          inputTokens: provider.tokens_in,
+          outputTokens: provider.tokens_out,
+          totalTokens: provider.total_tokens,
+        }}
+        variant="detailed"
+      />
     </div>
   )
 }

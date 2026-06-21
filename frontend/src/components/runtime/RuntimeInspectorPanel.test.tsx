@@ -147,4 +147,38 @@ describe('RuntimeInspectorPanel', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Logs' }))
     expect(screen.getByText('logs seguros indisponíveis')).toBeInTheDocument()
   })
+
+  it('renders detailed token usage in summary and provider tabs', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      usage: { input_tokens: 1_000, output_tokens: 200, total_tokens: 1_200 },
+      providerDiagnostics: [{
+        provider: 'openai',
+        model: 'gpt-test',
+        attempted: true,
+        succeeded: true,
+        tokens_in: 1_000,
+        tokens_out: 200,
+        total_tokens: 1_200,
+      }],
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    expect(screen.getByText('Entrada: 1.000')).toBeInTheDocument()
+    expect(screen.getByText('Saída: 200')).toBeInTheDocument()
+    expect(screen.getByText('Total: 1.200')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getByText('Entrada: 1.000')).toBeInTheDocument()
+    expect(screen.getByText('Saída: 200')).toBeInTheDocument()
+    expect(screen.getByText('Total: 1.200')).toBeInTheDocument()
+  })
 })

@@ -23,6 +23,7 @@ export type UiChatResponse = {
   usage?: {
     inputTokens?: number
     outputTokens?: number
+    totalTokens?: number
   }
   runtimeMode?: string
   runtimeReason?: string

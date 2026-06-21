@@ -57,6 +57,7 @@ describe('runtimeConsoleStore', () => {
         governance_decision: null,
         tokens_in: 10,
         tokens_out: 5,
+        total_tokens: 15,
         latency_ms: 30,
         request_id: 'req-store-1',
         trace_id: null,

@@ -11,6 +11,10 @@ import {
   redactRuntimeDebugText,
   sanitizeRuntimeDebugPayload,
 } from './runtimeDebugSanitizer'
+import {
+  firstValidTokenCount,
+  normalizeTokenUsage,
+} from './tokenUsage'
 
 export const RUNTIME_MODES = [
   'FULL_COGNITIVE_RUNTIME',
@@ -35,6 +39,7 @@ export type RuntimeSummaryContract = {
   governance_decision: string | null
   tokens_in: number | null
   tokens_out: number | null
+  total_tokens: number | null
   latency_ms: number | null
   request_id: string | null
   trace_id: string | null
@@ -100,6 +105,7 @@ function firstBoolean(...values: unknown[]): boolean | null {
 function normalizeOil(value: unknown): RuntimeOilSkeleton | null {
   if (!isRecord(value)) return null
   const safe = sanitizeRuntimeDebugPayload(value)
+
   return {
     input: safe.input ?? null,
     decision: safe.decision ?? null,
@@ -166,6 +172,7 @@ export function normalizeRuntimeInspectorData(
           latency_ms: inspection.latency_ms,
           tokens_in: inspection.tokens_in,
           tokens_out: inspection.tokens_out,
+          total_tokens: inspection.total_tokens,
         }
       : null)
   const provider = normalizeProviderStatus(providerSource, selectedProvider)
@@ -193,6 +200,23 @@ export function normalizeRuntimeInspectorData(
     inspection.governance_decision
     ?? (isRecord(inspection.governance) ? inspection.governance.decision : null),
   )
+  const tokenUsage = normalizeTokenUsage({
+    inputTokens: firstValidTokenCount(
+      inspection.tokens_in,
+      provider?.tokens_in,
+      metadata?.usage?.input_tokens,
+    ),
+    outputTokens: firstValidTokenCount(
+      inspection.tokens_out,
+      provider?.tokens_out,
+      metadata?.usage?.output_tokens,
+    ),
+    totalTokens: firstValidTokenCount(
+      inspection.total_tokens,
+      provider?.total_tokens,
+      metadata?.usage?.total_tokens,
+    ),
+  })
 
   return {
     summary: {
@@ -227,16 +251,9 @@ export function normalizeRuntimeInspectorData(
         metadata?.toolExecution?.tool_attempted,
       ),
       governance_decision: governanceDecision,
-      tokens_in: optionalNumber(
-        inspection.tokens_in
-        ?? provider?.tokens_in
-        ?? metadata?.usage?.input_tokens,
-      ),
-      tokens_out: optionalNumber(
-        inspection.tokens_out
-        ?? provider?.tokens_out
-        ?? metadata?.usage?.output_tokens,
-      ),
+      tokens_in: tokenUsage.inputTokens,
+      tokens_out: tokenUsage.outputTokens,
+      total_tokens: tokenUsage.totalTokens,
       latency_ms: optionalNumber(inspection.latency_ms ?? provider?.latency_ms),
       request_id: optionalString(inspection.request_id),
       trace_id: optionalString(inspection.trace_id),

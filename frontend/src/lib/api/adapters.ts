@@ -363,6 +363,7 @@ export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
       ? {
         inputTokens: res.usage.input_tokens,
         outputTokens: res.usage.output_tokens,
+        totalTokens: res.usage.total_tokens,
       }
       : undefined,
     runtimeMode: res.runtime_mode,

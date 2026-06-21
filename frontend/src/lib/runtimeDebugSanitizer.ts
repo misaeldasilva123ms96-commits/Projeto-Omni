@@ -47,6 +47,7 @@ const SAFE_TOKEN_COUNT_KEYS = new Set([
   'tokens_out',
   'input_tokens',
   'output_tokens',
+  'total_tokens',
 ])
 
 const REDACTED = '[REDACTED]'

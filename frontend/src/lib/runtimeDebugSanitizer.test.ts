@@ -115,6 +115,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
       tool_status: 'succeeded',
       tool_public_name: 'read_file',
       latency_ms: 42,
+      total_tokens: 25,
       request_id: 'req-1',
       warnings_public: ['none'],
       error_public_code: 'NONE',
@@ -132,6 +133,7 @@ describe('sanitizeRuntimeDebugPayload', () => {
     expect(sanitized.provider_actual).toBe('openai')
     expect(sanitized.tool_status).toBe('succeeded')
     expect(sanitized.tool_public_name).toBe('read_file')
+    expect(sanitized.total_tokens).toBe(25)
     expect(sanitized.public_summary).toBe('Full cognitive execution with provider and tool verification.')
     expect(sanitized.final_verdict).toBe('TRUE_COGNITIVE_RUNTIME')
   })

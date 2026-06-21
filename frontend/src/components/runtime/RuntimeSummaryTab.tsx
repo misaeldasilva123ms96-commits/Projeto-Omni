@@ -3,7 +3,7 @@ import type { RuntimeSummaryContract } from '../../lib/runtimeTypes'
 import type { RuntimeProviderStatus } from '../../lib/providerTypes'
 import { RuntimeStatusBadge } from './RuntimeStatusBadge'
 import { ProviderStatusBadge } from './ProviderStatusBadge'
-import { TokenUsageMeter } from './TokenUsageMeter'
+import { TokenUsageMeter } from '../tokens/TokenUsageMeter'
 import { RuntimeLinkAction } from './RuntimeLinkAction'
 
 type RuntimeSummaryTabProps = {
@@ -53,6 +53,7 @@ export function RuntimeSummaryTab({
     governance_decision: null,
     tokens_in: null,
     tokens_out: null,
+    total_tokens: null,
     latency_ms: null,
     request_id: null,
     trace_id: null,
@@ -90,19 +91,14 @@ export function RuntimeSummaryTab({
 
       <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
         <h4 className="mb-3 text-sm font-medium text-white">Usage</h4>
-        <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5">
-          <span className="text-sm text-slate-300/70">Tokens</span>
-          <TokenUsageMeter
-            usage={summary.tokens_in === null && summary.tokens_out === null
-              ? null
-              : {
-                  input_tokens: summary.tokens_in ?? undefined,
-                  output_tokens: summary.tokens_out ?? undefined,
-                }}
-          />
-        </div>
-        <SummaryRow label="Input" value={summary.tokens_in?.toLocaleString() ?? 'não disponível'} />
-        <SummaryRow label="Output" value={summary.tokens_out?.toLocaleString() ?? 'não disponível'} />
+        <TokenUsageMeter
+          usage={{
+            inputTokens: summary.tokens_in,
+            outputTokens: summary.tokens_out,
+            totalTokens: summary.total_tokens,
+          }}
+          variant="detailed"
+        />
       </section>
 
       <RuntimeLinkAction
