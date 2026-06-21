@@ -8,6 +8,7 @@ export { OmniLoadingState } from './OmniLoadingState'
 export { OmniPanel } from './OmniPanel'
 export { OmniSkeleton } from './OmniSkeleton'
 export { OmniStatusDot } from './OmniStatusDot'
+export { OmniSuccessState } from './OmniSuccessState'
 export { OmniTabs } from './OmniTabs'
 export { OmniTextarea } from './OmniTextarea'
 export { OmniTooltip } from './OmniTooltip'
@@ -23,4 +24,5 @@ export type {
   OmniLoadingStateSize,
   OmniLoadingStateTone,
 } from './OmniLoadingState'
+export type { OmniSuccessStateProps, OmniSuccessStateSize } from './OmniSuccessState'
 export type { OmniTextareaProps } from './OmniTextarea'
