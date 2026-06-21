@@ -4,6 +4,7 @@ import { TokenUsageChart } from '../components/tokens/TokenUsageChart'
 import { TokenUsageOverview } from '../components/tokens/TokenUsageOverview'
 import { OmniSidebar } from '../components/shell/OmniSidebar'
 import { ErrorNotice } from '../components/ui/ErrorNotice'
+import { OmniEmptyState } from '../components/ui/OmniEmptyState'
 import { PageHero } from '../components/ui/PageHero'
 import { fetchTokenUsage } from '../lib/omniData'
 import type { ChatMode, ConversationSummary, TokenUsageSummary } from '../types'
@@ -75,14 +76,16 @@ export function TokenUsagePage({ mode, onChangeMode, onChangeView, renderShell, 
 
     if (!summary) {
       return (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <svg className="mb-4 h-12 w-12 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
-            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z" />
-            <path d="M12 6v6l4 2" />
-          </svg>
-          <p className="text-sm text-slate-400">Nenhum dado de uso disponível.</p>
-          <p className="mt-1 text-xs text-slate-500">O uso de tokens aparecerá após algumas requisições.</p>
-        </div>
+        <OmniEmptyState
+          description="O uso de tokens aparecerá após algumas requisições."
+          icon={(
+            <svg className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="1.2" viewBox="0 0 24 24">
+              <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+          )}
+          title="Nenhum dado de uso disponível."
+        />
       )
     }
 

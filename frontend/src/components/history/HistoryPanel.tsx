@@ -3,6 +3,7 @@ import type { ChatMode, ConversationSummary } from '../../types'
 import { HistoryFilters } from './HistoryFilters'
 import { HistorySessionCard } from './HistorySessionCard'
 import { HistorySessionDetail } from './HistorySessionDetail'
+import { OmniEmptyState } from '../ui/OmniEmptyState'
 
 type HistoryPanelProps = {
   sessions: ConversationSummary[]
@@ -65,11 +66,11 @@ export function HistoryPanel({ sessions, activeSessionId, onRestoreSession, clas
       />
 
       {filteredSessions.length === 0 ? (
-        <div className="flex items-center justify-center py-10 text-sm text-slate-400">
-          {sessions.length === 0
+        <OmniEmptyState
+          title={sessions.length === 0
             ? 'Nenhuma sessão encontrada. Envie uma mensagem para começar.'
             : 'Nenhuma sessão corresponde aos filtros.'}
-        </div>
+        />
       ) : (
         <div className="flex flex-col gap-1.5">
           {filteredSessions.map((session) => (
