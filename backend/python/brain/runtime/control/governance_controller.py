@@ -7,6 +7,7 @@ from typing import Any
 from .governance_taxonomy import GovernanceReason, build_governance_decision, map_legacy_reason_string
 from .governance_timeline import infer_event_type_from_transition
 from .run_registry import RunRecord, RunRegistry, RunStatus, infer_reason_from_action, infer_resolution_state
+from brain.memory.runtime_integration import record_governance_event
 
 
 class GovernanceResolutionController:
@@ -63,7 +64,7 @@ class GovernanceResolutionController:
         engine_mode: str | None = None,
     ) -> RunRecord | None:
         """Apply a governance-aware status transition through the registry."""
-        return self._registry.update_status(
+        result = self._registry.update_status(
             run_id=run_id,
             status=status,
             last_action=last_action,
@@ -74,6 +75,19 @@ class GovernanceResolutionController:
             promotion_metadata=promotion_metadata,
             engine_mode=engine_mode,
         )
+        if result is not None:
+            try:
+                record_governance_event(
+                    event_type=last_action,
+                    source=decision_source or "runtime_orchestrator",
+                    session_id=result.session_id,
+                    run_id=run_id,
+                    status=status.value,
+                    reason=str(reason or ""),
+                )
+            except Exception:
+                pass
+        return result
 
     def apply_transition(
         self,
@@ -126,7 +140,19 @@ class GovernanceResolutionController:
             progress_score=progress_score,
             metadata=metadata,
         )
-        return self._registry.register(run)
+        result = self._registry.register(run)
+        try:
+            record_governance_event(
+                event_type="run_start",
+                source="runtime_orchestrator",
+                session_id=session_id,
+                run_id=run_id,
+                status=status.value,
+                reason="run_started",
+            )
+        except Exception:
+            pass
+        return result
 
     def handle_operator_action(
         self,
