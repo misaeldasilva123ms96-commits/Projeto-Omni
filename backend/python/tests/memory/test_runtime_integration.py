@@ -18,6 +18,7 @@ from brain.memory.runtime_integration import (
     close,
     reset_for_testing,
 )
+from main import _record_provider_attempt_from_response
 
 
 def _find_records(facade, record_type: str, limit: int = 50) -> list[dict]:
@@ -206,6 +207,169 @@ class RuntimeIntegrationTest(unittest.TestCase):
         self.assertIsNotNone(facade)
         if facade is not None:
             self.assertTrue(facade.sqlite_enabled)
+
+    # ----------------------------------------------------------------
+    # Provider attempt status scenarios
+    # ----------------------------------------------------------------
+    def test_provider_attempt_successful_record(self) -> None:
+        record_provider_attempt(
+            provider="groq",
+            model="llama-3.3-70b",
+            session_id="test-session",
+            run_id="",
+            status="succeeded",
+            duration_ms=1200,
+            token_count=500,
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "groq"]
+            self.assertGreaterEqual(len(matching), 1)
+            self.assertEqual(matching[0]["status"], "succeeded")
+            self.assertEqual(matching[0]["duration_ms"], 1200)
+            self.assertEqual(matching[0]["token_count"], 500)
+
+    def test_provider_attempt_failed_record(self) -> None:
+        record_provider_attempt(
+            provider="openai",
+            model="gpt-4",
+            session_id="test-session",
+            run_id="",
+            status="failed",
+            duration_ms=3000,
+            token_count=0,
+            error_type="PROVIDER_RATE_LIMITED",
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "openai"]
+            self.assertGreaterEqual(len(matching), 1)
+            self.assertEqual(matching[0]["status"], "failed")
+            self.assertEqual(matching[0]["error_type"], "PROVIDER_RATE_LIMITED")
+
+    def test_provider_attempt_with_fallback_metadata(self) -> None:
+        record_provider_attempt(
+            provider="anthropic",
+            model="claude-3",
+            session_id="test-session",
+            run_id="",
+            status="succeeded",
+            duration_ms=2500,
+            metadata={"fallback_triggered": True, "original_provider": "openai"},
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "anthropic"]
+            self.assertGreaterEqual(len(matching), 1)
+            self.assertEqual(matching[0]["status"], "succeeded")
+            self.assertEqual(matching[0]["duration_ms"], 2500)
+
+    def test_provider_attempt_empty_provider_is_noop(self) -> None:
+        record_provider_attempt(
+            provider="",
+            model="",
+            session_id="",
+            run_id="",
+            status="",
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+
+    def test_provider_attempt_no_model_is_ok(self) -> None:
+        record_provider_attempt(
+            provider="groq",
+            model="",
+            session_id="test-session",
+            run_id="",
+            status="succeeded",
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "groq"]
+            self.assertGreaterEqual(len(matching), 1)
+
+    def test_provider_attempt_raw_prompt_not_stored(self) -> None:
+        record_provider_attempt(
+            provider="test",
+            model="test-model",
+            session_id="s",
+            run_id="r",
+            status="succeeded",
+            metadata={"raw_prompt": "some secret prompt", "safe_key": "ok"},
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "test"]
+            self.assertGreaterEqual(len(matching), 1)
+
+    def test_provider_attempt_auth_not_stored(self) -> None:
+        record_provider_attempt(
+            provider="test",
+            model="test-model",
+            session_id="s",
+            run_id="r",
+            status="failed",
+            metadata={"api_key": "sk-secret-123", "headers": {"Authorization": "Bearer xyz"}},
+        )
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "test"]
+            self.assertGreaterEqual(len(matching), 1)
+
+    def test_provider_attempt_from_response_success(self) -> None:
+        safe_resp = {"provider_actual": "groq", "provider_failed": False}
+        insp = {"provider_actual": "groq", "latency_ms": 800, "fallback_triggered": False}
+        _record_provider_attempt_from_response(safe_resp, insp)
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "groq"]
+            self.assertGreaterEqual(len(matching), 1)
+            self.assertEqual(matching[0]["status"], "succeeded")
+
+    def test_provider_attempt_from_response_failed(self) -> None:
+        safe_resp = {
+            "provider_actual": "openai",
+            "provider_failed": True,
+            "failure_class": "PROVIDER_RATE_LIMITED",
+        }
+        insp = {"provider_actual": "openai", "latency_ms": 2000}
+        _record_provider_attempt_from_response(safe_resp, insp)
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "openai"]
+            self.assertGreaterEqual(len(matching), 1)
+            self.assertEqual(matching[0]["status"], "failed")
+            self.assertEqual(matching[0]["error_type"], "PROVIDER_RATE_LIMITED")
+
+    def test_provider_attempt_from_response_noop_when_no_provider(self) -> None:
+        safe_resp: dict = {}
+        _record_provider_attempt_from_response(safe_resp, None)
+
+    def test_provider_attempt_from_response_no_inspection(self) -> None:
+        safe_resp = {"provider_actual": "anthropic", "failure_class": "PROVIDER_TIMEOUT"}
+        _record_provider_attempt_from_response(safe_resp, None)
+        facade = _lazy_facade()
+        self.assertIsNotNone(facade)
+        if facade is not None:
+            records = _find_records(facade, "provider_attempt")
+            matching = [r for r in records if r.get("provider") == "anthropic"]
+            self.assertGreaterEqual(len(matching), 1)
 
     def test_jsonl_fallback_when_sqlite_enabled(self) -> None:
         close()

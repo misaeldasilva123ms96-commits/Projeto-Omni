@@ -21,6 +21,7 @@ from config.provider_registry import (
     describe_provider_diagnostics_snapshot,
     get_available_providers,
 )
+from brain.memory.runtime_integration import record_provider_attempt
 from brain.runtime.observability.public_runtime_outcome import normalize_public_runtime_outcome
 
 USER_FALLBACK_RESPONSE = (
@@ -301,6 +302,37 @@ def _provider_diagnostics_rows_from_response(
     )
 
 
+def _record_provider_attempt_from_response(
+    safe_response: dict[str, Any],
+    public_inspection: dict[str, Any] | None,
+) -> None:
+    provider = (
+        str(safe_response.get("provider_actual", "") or "")
+        or str(public_inspection.get("provider_actual", "") if public_inspection else "")
+        or ""
+    )
+    if not provider:
+        return
+    failure_class = str(safe_response.get("failure_class", "") or "")
+    provider_failed = safe_response.get("provider_failed", False) or bool(failure_class)
+    status = "failed" if provider_failed else "succeeded"
+    latency_ms = int(public_inspection.get("latency_ms", 0)) if public_inspection else 0
+    fallback = bool(public_inspection.get("fallback_triggered", False)) if public_inspection else False
+    metadata: dict[str, Any] = {}
+    if fallback:
+        metadata["fallback_triggered"] = True
+    record_provider_attempt(
+        provider=provider,
+        model="",
+        session_id="",
+        run_id="",
+        status=status,
+        duration_ms=latency_ms,
+        error_type=failure_class,
+        metadata=metadata,
+    )
+
+
 def emit_public_json(payload: dict[str, Any]) -> int:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
     sys.stdout.write("\n")
@@ -327,6 +359,7 @@ def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None
             message="Python main produced an empty public response after sanitization.",
         )
     safe_response.setdefault("stop_reason", "python_completed")
+    public_inspection: dict[str, Any] | None = None
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
         public_inspection = build_public_cognitive_runtime_inspection(inspection)
@@ -375,6 +408,7 @@ def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None
     public_payload = sanitize_public_runtime_payload(safe_response)
     public_payload["provider_diagnostics"] = provider_diagnostics
     public_payload["provider_diagnostics_snapshot"] = provider_diagnostics_snapshot
+    _record_provider_attempt_from_response(safe_response, public_inspection)
     return public_payload
 
 
