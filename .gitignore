@@ -109,6 +109,11 @@ local-memory/
 runtime-memory/
 storage/local/
 
+# Exception for tracked source/test/docs memory directories
+!backend/python/brain/memory/
+!backend/python/tests/memory/
+!docs/memory/
+
 # Private datasets
 datasets/private/
 private-datasets/

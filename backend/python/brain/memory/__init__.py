@@ -30,6 +30,13 @@ from .memory_models import (
     redact_payload,
     utc_now_iso,
 )
+from .runtime_integration import (
+    record_runtime_event,
+    record_provider_attempt,
+    record_governance_event,
+    close as close_runtime_integration,
+    reset_for_testing,
+)
 from .sqlite_adapter import SQLiteAdapter
 
 __all__ = [
@@ -50,4 +57,9 @@ __all__ = [
     "SAFE_DEFAULT_BACKEND",
     "redact_payload",
     "utc_now_iso",
+    "record_runtime_event",
+    "record_provider_attempt",
+    "record_governance_event",
+    "close_runtime_integration",
+    "reset_for_testing",
 ]

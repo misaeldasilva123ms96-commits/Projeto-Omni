@@ -117,6 +117,7 @@ from brain.runtime.evolution import ControlledEvolutionEngine
 from brain.runtime.improvement import ImprovementOrchestrator
 from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
+from brain.memory.runtime_integration import record_runtime_event, close as close_memory_integration
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.orchestrator_services import (
@@ -458,7 +459,11 @@ class BrainOrchestrator:
         try:
             self.memory_facade.close()
         except Exception:
-            return
+            pass
+        try:
+            close_memory_integration()
+        except Exception:
+            pass
 
     def __del__(self) -> None:
         try:
@@ -6205,6 +6210,14 @@ class BrainOrchestrator:
             **payload,
         }
         self._append_jsonl(log_dir / "execution-audit.jsonl", entry)
+        record_runtime_event(
+            event_type=event_type,
+            source="orchestrator",
+            session_id=session_id,
+            run_id=run_id,
+            summary=task_id,
+            metadata=payload,
+        )
 
     def _record_learning_memory(
         self,
