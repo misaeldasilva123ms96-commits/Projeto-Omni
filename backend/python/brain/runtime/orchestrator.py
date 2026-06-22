@@ -118,6 +118,17 @@ from brain.runtime.improvement import ImprovementOrchestrator
 from brain.runtime.performance import PerformanceEngine
 from brain.runtime.strategy import StrategyEngine
 from brain.memory.runtime_integration import record_runtime_event, close as close_memory_integration
+try:
+    from brain.runtime.autonomy.runtime_wiring import evaluate_and_attach
+
+    _AUTONOMY_AVAILABLE = True
+except ImportError:
+    _AUTONOMY_AVAILABLE = False
+
+    def evaluate_and_attach(  # type: ignore[misc]
+        inspection: object, session_id: str, response: str
+    ) -> None:
+        return None
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
 from brain.runtime.orchestrator_services import (
@@ -1634,6 +1645,13 @@ class BrainOrchestrator:
                 "decision_issue": str(controlled_learning.get("decision_issue", "") or ""),
             },
         )
+        if _AUTONOMY_AVAILABLE:
+            _inspection = getattr(self, "last_cognitive_runtime_inspection", None)
+            evaluate_and_attach(
+                inspection=_inspection,
+                session_id=sid,
+                response=response,
+            )
         return response
 
     async def _async_node_execution(
