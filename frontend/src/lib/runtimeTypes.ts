@@ -60,6 +60,23 @@ export type RuntimeMemoryStatus = {
   matched_commands: string[]
 }
 
+export type RuntimeAutonomyStats = {
+  total_evaluations: number | null
+  decisions_by_type: Record<string, number> | null
+  escalation_count: number | null
+  escalation_rate: number | null
+  abort_safe_count: number | null
+  continue_count: number | null
+  retry_count: number | null
+  replan_count: number | null
+  pause_count: number | null
+  last_decision: string | null
+  last_risk_level: string | null
+  last_updated_at: string | null
+  advisory_mode_enabled: boolean | null
+  active_session_count: number | null
+}
+
 export type RuntimeAutonomyStatus = {
   decision: string
   advisory: boolean
@@ -85,6 +102,7 @@ export type RuntimeInspectorData = {
   memory: RuntimeMemoryStatus | null
   oil: RuntimeOilSkeleton | null
   autonomy: RuntimeAutonomyStatus | null
+  autonomy_stats: RuntimeAutonomyStats | null
   logs: Record<string, unknown> | null
 }
 
@@ -148,6 +166,34 @@ export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus |
     fingerprint_id: optionalString(value.fingerprint_id),
     recommended_decision_hint: optionalString(value.recommended_decision_hint),
     evidence_summary: optionalString(value.evidence_summary),
+  }
+}
+
+export function normalizeAutonomyStats(value: unknown): RuntimeAutonomyStats | null {
+  if (!isRecord(value)) return null
+  const decisions_by_type_raw = value.decisions_by_type
+  const decisions_by_type: Record<string, number> | null =
+    isRecord(decisions_by_type_raw)
+      ? Object.fromEntries(
+          Object.entries(decisions_by_type_raw)
+            .filter(([_, v]) => typeof v === 'number' && Number.isFinite(v)),
+        ) as Record<string, number>
+      : null
+  return {
+    total_evaluations: optionalNumber(value.total_evaluations),
+    decisions_by_type,
+    escalation_count: optionalNumber(value.escalation_count),
+    escalation_rate: optionalNumber(value.escalation_rate),
+    abort_safe_count: optionalNumber(value.abort_safe_count),
+    continue_count: optionalNumber(value.continue_count),
+    retry_count: optionalNumber(value.retry_count),
+    replan_count: optionalNumber(value.replan_count),
+    pause_count: optionalNumber(value.pause_count),
+    last_decision: optionalString(value.last_decision),
+    last_risk_level: optionalString(value.last_risk_level),
+    last_updated_at: optionalTimestamp(value.last_updated_at),
+    advisory_mode_enabled: optionalBoolean(value.advisory_mode_enabled),
+    active_session_count: optionalNumber(value.active_session_count),
   }
 }
 
@@ -233,6 +279,7 @@ export function normalizeRuntimeInspectorData(
   const matchedTools = metadata?.matchedTools ?? []
   const matchedCommands = metadata?.matchedCommands ?? []
   const autonomy = normalizeAutonomyStatus(inspection.autonomy_evaluation)
+  const autonomy_stats = normalizeAutonomyStats(inspection.autonomy_controller_stats)
 
   const governanceDecision = optionalString(
     inspection.governance_decision
@@ -310,6 +357,7 @@ export function normalizeRuntimeInspectorData(
       : null,
     oil: normalizeOil(inspection.oil ?? inspection.oil_envelope),
     autonomy,
+    autonomy_stats,
     logs: metadata ? sanitizeRuntimeDebugPayload(metadata) : null,
   }
 }

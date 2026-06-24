@@ -70,6 +70,7 @@ describe('runtimeConsoleStore', () => {
       memory: null,
       oil: null,
       autonomy: null,
+      autonomy_stats: null,
       logs: null,
     }
 

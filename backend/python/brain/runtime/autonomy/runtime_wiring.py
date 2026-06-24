@@ -254,6 +254,14 @@ def evaluate_autonomy(
     return result
 
 
+def get_autonomy_controller_stats() -> dict[str, Any]:
+    controller = _get_controller()
+    tracker = _get_tracker()
+    stats = controller.get_controller_stats()
+    stats["active_session_count"] = len(tracker.all_sessions())
+    return stats
+
+
 def evaluate_and_attach(
     inspection: dict[str, Any] | None,
     session_id: str,
@@ -267,6 +275,7 @@ def evaluate_and_attach(
         )
         if isinstance(inspection, dict):
             inspection["autonomy_evaluation"] = result
+            inspection["autonomy_controller_stats"] = get_autonomy_controller_stats()
     except Exception as exc:
         logger.debug("Autonomy evaluation failed (advisory-only, ignored): %s", exc)
 

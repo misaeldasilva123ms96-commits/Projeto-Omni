@@ -60,7 +60,7 @@ export function RuntimeInspectorPanel({ data, requestState }: RuntimeInspectorPa
         ) : activeTab === 'memory' ? (
           <RuntimeMemoryTab data={data?.memory ?? null} />
         ) : activeTab === 'autonomy' ? (
-          <RuntimeAutonomyTab data={data?.autonomy ?? null} />
+          <RuntimeAutonomyTab data={data?.autonomy ?? null} stats={data?.autonomy_stats ?? null} />
         ) : activeTab === 'oil' ? (
           <RuntimeOilTab data={data?.oil ?? null} />
         ) : activeTab === 'logs' ? (
