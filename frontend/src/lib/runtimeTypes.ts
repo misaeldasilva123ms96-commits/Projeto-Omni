@@ -93,6 +93,25 @@ export type RuntimeAutonomyStatus = {
   evidence_summary: string | null
 }
 
+export type AutonomyTimelineItem = {
+  id: string
+  session_id: string
+  decision: string
+  advisory: boolean
+  risk_level: string | null
+  fingerprint_id: string | null
+  progress_score: number | null
+  stagnation_score: number | null
+  is_progress: boolean | null
+  is_stagnation: boolean | null
+  stagnant_attempts: number | null
+  recommended_decision_hint: string | null
+  evidence_summary: string | null
+  strategies_attempted: string[]
+  repeated_strategy_count: number | null
+  timestamp: string
+}
+
 export type RuntimeInspectorData = {
   summary: RuntimeSummaryContract
   governance: RuntimeGovernanceStatus | null
@@ -194,6 +213,38 @@ export function normalizeAutonomyStats(value: unknown): RuntimeAutonomyStats | n
     last_updated_at: optionalTimestamp(value.last_updated_at),
     advisory_mode_enabled: optionalBoolean(value.advisory_mode_enabled),
     active_session_count: optionalNumber(value.active_session_count),
+  }
+}
+
+export function normalizeAutonomyTimelineItem(
+  value: unknown,
+  messageId: string,
+  sessionId: string,
+  timestamp: string,
+): AutonomyTimelineItem | null {
+  if (!isRecord(value) || typeof messageId !== 'string' || typeof sessionId !== 'string') return null
+  const decision = optionalString(value.decision)
+  if (!decision) return null
+  const rawStrategies: string[] = Array.isArray(value.strategies_attempted)
+    ? value.strategies_attempted.filter((s): s is string => typeof s === 'string').map(redactRuntimeDebugText)
+    : []
+  return {
+    id: `${messageId}`,
+    session_id: sessionId,
+    decision,
+    advisory: typeof value.advisory === 'boolean' ? value.advisory : false,
+    risk_level: optionalString(value.risk_level),
+    fingerprint_id: optionalString(value.fingerprint_id),
+    progress_score: optionalNumber(value.progress_score),
+    stagnation_score: optionalNumber(value.stagnation_score),
+    is_progress: optionalBoolean(value.is_progress),
+    is_stagnation: optionalBoolean(value.is_stagnation),
+    stagnant_attempts: optionalNumber(value.stagnant_attempts),
+    recommended_decision_hint: optionalString(value.recommended_decision_hint),
+    evidence_summary: optionalString(value.evidence_summary),
+    strategies_attempted: rawStrategies,
+    repeated_strategy_count: optionalNumber(value.repeated_strategy_count),
+    timestamp,
   }
 }
 

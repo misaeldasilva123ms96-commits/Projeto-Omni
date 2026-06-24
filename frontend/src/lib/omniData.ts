@@ -1,5 +1,6 @@
 import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, GovernanceDecision, MemoryEntry, MemoryType, Project, ProjectStatus, RuntimeMetadata, TokenUsageSummary } from '../types'
 import { redactRuntimeDebugText } from './runtimeDebugSanitizer'
+import { normalizeAutonomyTimelineItem, type AutonomyTimelineItem } from './runtimeTypes'
 import { supabase } from './supabase'
 
 type AuthenticatedUser = {
@@ -533,6 +534,32 @@ export async function fetchGovernanceDecisions(): Promise<GovernanceDecision[]> 
 
     decisions.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     return decisions
+  } catch {
+    return []
+  }
+}
+
+export async function fetchAutonomyTimeline(): Promise<AutonomyTimelineItem[]> {
+  try {
+    const conversations = await fetchChatSessions()
+    const items: AutonomyTimelineItem[] = []
+
+    for (const conv of conversations) {
+      const messages = await fetchChatMessages(conv.id)
+      for (const msg of messages) {
+        const inspection = msg.metadata?.cognitiveRuntimeInspection
+        if (!inspection || typeof inspection !== 'object') continue
+
+        const raw = (inspection as Record<string, unknown>).autonomy_evaluation as Record<string, unknown> | undefined
+        if (!raw || typeof raw !== 'object') continue
+
+        const item = normalizeAutonomyTimelineItem(raw, msg.id, conv.id, msg.createdAt)
+        if (item) items.push(item)
+      }
+    }
+
+    items.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    return items
   } catch {
     return []
   }

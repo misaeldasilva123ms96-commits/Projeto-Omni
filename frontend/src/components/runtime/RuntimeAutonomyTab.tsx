@@ -1,4 +1,6 @@
-import type { RuntimeAutonomyStats, RuntimeAutonomyStatus } from '../../lib/runtimeTypes'
+import { useEffect, useState } from 'react'
+import type { AutonomyTimelineItem, RuntimeAutonomyStats, RuntimeAutonomyStatus } from '../../lib/runtimeTypes'
+import { fetchAutonomyTimeline } from '../../lib/omniData'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
 type RuntimeAutonomyTabProps = {
@@ -50,8 +52,81 @@ function decisionVariant(decision: string): 'success' | 'warning' | 'danger' | '
   }
 }
 
+function formatTimestamp(ts: string): string {
+  try {
+    const d = new Date(ts)
+    if (isNaN(d.getTime())) return ts
+    return d.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return ts
+  }
+}
+
+function TimelineItemRow({ item }: { item: AutonomyTimelineItem }) {
+  return (
+    <div className="border-b border-white/8 py-3 last:border-b-0">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <Badge label={item.decision} variant={decisionVariant(item.decision)} />
+        <span className="text-xs text-slate-500">{formatTimestamp(item.timestamp)}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <span className="text-slate-400">Risk:</span>
+        <span className="text-white">{item.risk_level ?? '—'}</span>
+        {item.fingerprint_id ? (
+          <>
+            <span className="text-slate-400">Fingerprint:</span>
+            <span className="text-white font-mono truncate" title={item.fingerprint_id}>{item.fingerprint_id}</span>
+          </>
+        ) : null}
+        <span className="text-slate-400">Progress:</span>
+        <span className="text-white">{item.progress_score != null ? String(item.progress_score) : '—'}</span>
+        <span className="text-slate-400">Stagnation:</span>
+        <span className="text-white">{item.stagnation_score != null ? String(item.stagnation_score) : '—'}</span>
+        {item.is_stagnation || item.is_progress ? (
+          <>
+            <span className="text-slate-400">State:</span>
+            <span className="text-white">{item.is_stagnation ? 'Stagnation' : 'Progress'}</span>
+          </>
+        ) : null}
+      </div>
+      {item.strategies_attempted.length > 0 ? (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {item.strategies_attempted.map((s, i) => (
+            <span key={i} className="rounded bg-white/8 px-1.5 py-0.5 text-xs text-slate-300">
+              {s}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {item.evidence_summary ? (
+        <p className="mt-1 text-xs text-slate-400">{item.evidence_summary}</p>
+      ) : null}
+    </div>
+  )
+}
+
 export function RuntimeAutonomyTab({ data, stats }: RuntimeAutonomyTabProps) {
-  if (!data && !stats) {
+  const [timeline, setTimeline] = useState<AutonomyTimelineItem[]>([])
+  const [timelineLoading, setTimelineLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setTimelineLoading(true)
+    fetchAutonomyTimeline().then((items) => {
+      if (!cancelled) {
+        setTimeline(items)
+        setTimelineLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  if (!data && !stats && timeline.length === 0 && !timelineLoading) {
     return (
       <div>
         <p className="text-sm text-slate-400">não disponível</p>
@@ -62,13 +137,13 @@ export function RuntimeAutonomyTab({ data, stats }: RuntimeAutonomyTabProps) {
   return (
     <div className="space-y-4">
       <p className="text-xs italic text-slate-400">
-        Métricas somente leitura — nenhuma ação autônoma executada.
+        Timeline somente leitura — nenhuma ação autônoma executada.
       </p>
 
       {data ? (
         <>
           <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
-            <h4 className="mb-3 text-sm font-medium text-white">Decisão</h4>
+            <h4 className="mb-3 text-sm font-medium text-white">Decisão Atual</h4>
             <div className="flex items-center justify-between gap-4 border-b border-white/8 py-2.5">
               <span className="text-sm text-slate-300/70">Decision</span>
               <Badge label={data.decision} variant={decisionVariant(data.decision)} />
@@ -123,6 +198,21 @@ export function RuntimeAutonomyTab({ data, stats }: RuntimeAutonomyTabProps) {
           <DetailRow label="Modo Consultivo" value={stats.advisory_mode_enabled ? 'Sim' : 'Não'} />
         </section>
       ) : null}
+
+      <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
+        <h4 className="mb-3 text-sm font-medium text-white">Timeline de Decisões</h4>
+        {timelineLoading ? (
+          <p className="text-sm text-slate-400">carregando...</p>
+        ) : timeline.length === 0 ? (
+          <p className="text-sm text-slate-400">Nenhuma decisão de autonomia registrada no histórico.</p>
+        ) : (
+          <div>
+            {timeline.map((item) => (
+              <TimelineItemRow key={item.id} item={item} />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

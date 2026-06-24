@@ -180,7 +180,7 @@ describe('RuntimeInspectorPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
 
-    expect(screen.getByText('Métricas somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
+    expect(screen.getByText('Timeline somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
     expect(screen.getAllByText('CONTINUE').length).toBeGreaterThanOrEqual(1)
   })
 
@@ -422,6 +422,42 @@ describe('RuntimeInspectorPanel', () => {
     expect(document.body.textContent).toContain('[REDACTED]')
     expect(document.body.textContent).not.toContain('sk-proj-leaked')
     expect(document.body.textContent).not.toContain('should-not-render')
+  })
+
+  it('renders timeline section on Autonomia tab with empty state', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'ok',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 0,
+          is_progress: false,
+          is_stagnation: false,
+          stagnant_attempts: 0,
+          fingerprint_id: '',
+          recommended_decision_hint: '',
+          evidence_summary: '',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Timeline de Decisões')).toBeInTheDocument()
+    expect(screen.getByText('Nenhuma decisão de autonomia registrada no histórico.')).toBeInTheDocument()
   })
 
   it('shows empty state on Autonomia tab when no autonomy data', async () => {
