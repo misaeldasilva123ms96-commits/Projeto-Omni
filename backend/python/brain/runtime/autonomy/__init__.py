@@ -22,6 +22,8 @@ from .autonomy_policy import evaluate_policy
 from .autonomy_receipt import AutonomyReceipt, AutonomyReceiptLog, build_receipt
 from .autonomy_session_state import AutonomySessionState
 from .autonomy_session_tracker import AutonomySessionTracker
+from .error_progress_models import ErrorFingerprint, ProgressTrackerOutput, StrategyAttempt
+from .error_progress_tracker import SmartErrorProgressTracker
 
 __all__ = [
     "AutonomyController",
@@ -31,6 +33,10 @@ __all__ = [
     "AutonomyReceiptLog",
     "AutonomySessionState",
     "AutonomySessionTracker",
+    "ErrorFingerprint",
+    "ProgressTrackerOutput",
+    "SmartErrorProgressTracker",
+    "StrategyAttempt",
     "EscalationReport",
     "DecisionType",
     "ADVISORY_ONLY_DECISIONS",
