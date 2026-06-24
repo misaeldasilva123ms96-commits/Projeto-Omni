@@ -225,12 +225,22 @@ def evaluate_autonomy(
 
     tracker.update(session_id, ctx, decision)
 
+    tracker_fields = smart_output.as_dict()
+
     result: dict[str, Any] = {
         "decision": decision.decision.value,
         "advisory": decision.advisory,
         "reason": decision.reason,
         "risk_level": decision.risk_level,
         "session_id": ctx.session_id,
+        "fingerprint_id": tracker_fields.get("fingerprint_id", ""),
+        "progress_score": tracker_fields.get("progress_score", 0),
+        "stagnation_score": tracker_fields.get("stagnation_score", 0),
+        "is_progress": tracker_fields.get("is_progress", False),
+        "is_stagnation": tracker_fields.get("is_stagnation", False),
+        "stagnant_attempts": tracker_fields.get("stagnant_attempts", 0),
+        "recommended_decision_hint": tracker_fields.get("recommended_decision_hint", ""),
+        "evidence_summary": tracker_fields.get("evidence_summary", ""),
     }
 
     logger.debug(

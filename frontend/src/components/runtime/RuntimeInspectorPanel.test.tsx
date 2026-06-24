@@ -14,7 +14,7 @@ describe('RuntimeInspectorPanel', () => {
       />,
     )
 
-    for (const tab of ['Summary', 'Governance', 'Tools', 'Provider', 'Memory', 'OIL', 'Logs']) {
+    for (const tab of ['Summary', 'Governance', 'Autonomia', 'Tools', 'Provider', 'Memory', 'OIL', 'Logs']) {
       await userEvent.click(screen.getByRole('tab', { name: tab }))
       expect(screen.getByText('não disponível')).toBeInTheDocument()
     }
@@ -146,6 +146,166 @@ describe('RuntimeInspectorPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Logs' }))
     expect(screen.getByText('logs seguros indisponíveis')).toBeInTheDocument()
+  })
+
+  it('renders advisory-only label on Autonomia tab', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'No errors.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 5,
+          stagnation_score: 0,
+          is_progress: true,
+          is_stagnation: false,
+          stagnant_attempts: 0,
+          fingerprint_id: 'abc123',
+          recommended_decision_hint: 'CONTINUE',
+          evidence_summary: 'fingerprint=abc123 | progress | progress_score=5',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Modo somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
+    expect(screen.getAllByText('CONTINUE').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders tracker scores safely on Autonomia tab', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'RETRY',
+          advisory: true,
+          reason: 'Stagnation detected.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 3,
+          is_progress: false,
+          is_stagnation: true,
+          stagnant_attempts: 2,
+          fingerprint_id: 'abc123',
+          recommended_decision_hint: 'RETRY',
+          evidence_summary: 'fingerprint=abc123 | stagnation | stagnation_score=3',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Progress Score')).toBeInTheDocument()
+    expect(screen.getByText('Stagnation Score')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('0')).toBeInTheDocument()
+    expect(screen.getByText('Stagnation')).toBeInTheDocument()
+    expect(screen.getByText('Evidence')).toBeInTheDocument()
+  })
+
+  it('renders evidence summary safely on Autonomia tab', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'ESCALATE_TO_MISAEL',
+          advisory: true,
+          reason: 'High stagnation.',
+          risk_level: 'high',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 5,
+          is_progress: false,
+          is_stagnation: true,
+          stagnant_attempts: 3,
+          fingerprint_id: 'abc123',
+          recommended_decision_hint: 'ESCALATE_TO_MISAEL',
+          evidence_summary: 'fingerprint=abc123 | stagnation | escalation | score=5',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('fingerprint=abc123 | stagnation | escalation | score=5')).toBeInTheDocument()
+  })
+
+  it('redacts sensitive autonomy reason', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'Bearer sk-proj-should-not-render',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 0,
+          is_progress: false,
+          is_stagnation: false,
+          stagnant_attempts: 0,
+          fingerprint_id: '',
+          recommended_decision_hint: '',
+          evidence_summary: '',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(document.body.textContent).toContain('[REDACTED]')
+    expect(document.body.textContent).not.toContain('should-not-render')
+  })
+
+  it('shows empty state on Autonomia tab when no autonomy data', async () => {
+    render(
+      <RuntimeInspectorPanel
+        data={null}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('não disponível')).toBeInTheDocument()
   })
 
   it('renders detailed token usage in summary and provider tabs', async () => {

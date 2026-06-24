@@ -60,6 +60,22 @@ export type RuntimeMemoryStatus = {
   matched_commands: string[]
 }
 
+export type RuntimeAutonomyStatus = {
+  decision: string
+  advisory: boolean
+  reason: string | null
+  risk_level: string | null
+  session_id: string | null
+  progress_score: number | null
+  stagnation_score: number | null
+  is_progress: boolean | null
+  is_stagnation: boolean | null
+  stagnant_attempts: number | null
+  fingerprint_id: string | null
+  recommended_decision_hint: string | null
+  evidence_summary: string | null
+}
+
 export type RuntimeInspectorData = {
   summary: RuntimeSummaryContract
   governance: RuntimeGovernanceStatus | null
@@ -68,6 +84,7 @@ export type RuntimeInspectorData = {
   providers: RuntimeProviderStatus[]
   memory: RuntimeMemoryStatus | null
   oil: RuntimeOilSkeleton | null
+  autonomy: RuntimeAutonomyStatus | null
   logs: Record<string, unknown> | null
 }
 
@@ -112,6 +129,25 @@ function normalizeOil(value: unknown): RuntimeOilSkeleton | null {
     execution: safe.execution ?? null,
     observation: safe.observation ?? null,
     evaluation: safe.evaluation ?? null,
+  }
+}
+
+export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus | null {
+  if (!isRecord(value)) return null
+  return {
+    decision: optionalString(value.decision) ?? 'UNKNOWN',
+    advisory: typeof value.advisory === 'boolean' ? value.advisory : false,
+    reason: optionalString(value.reason),
+    risk_level: optionalString(value.risk_level),
+    session_id: optionalString(value.session_id),
+    progress_score: optionalNumber(value.progress_score),
+    stagnation_score: optionalNumber(value.stagnation_score),
+    is_progress: optionalBoolean(value.is_progress),
+    is_stagnation: optionalBoolean(value.is_stagnation),
+    stagnant_attempts: optionalNumber(value.stagnant_attempts),
+    fingerprint_id: optionalString(value.fingerprint_id),
+    recommended_decision_hint: optionalString(value.recommended_decision_hint),
+    evidence_summary: optionalString(value.evidence_summary),
   }
 }
 
@@ -196,6 +232,8 @@ export function normalizeRuntimeInspectorData(
   const memoryStatus = optionalString(inspection.memory_status)
   const matchedTools = metadata?.matchedTools ?? []
   const matchedCommands = metadata?.matchedCommands ?? []
+  const autonomy = normalizeAutonomyStatus(inspection.autonomy_evaluation)
+
   const governanceDecision = optionalString(
     inspection.governance_decision
     ?? (isRecord(inspection.governance) ? inspection.governance.decision : null),
@@ -271,6 +309,7 @@ export function normalizeRuntimeInspectorData(
         }
       : null,
     oil: normalizeOil(inspection.oil ?? inspection.oil_envelope),
+    autonomy,
     logs: metadata ? sanitizeRuntimeDebugPayload(metadata) : null,
   }
 }
