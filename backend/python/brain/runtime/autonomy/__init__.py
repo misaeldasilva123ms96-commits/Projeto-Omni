@@ -20,6 +20,8 @@ from .autonomy_models import (
 )
 from .autonomy_policy import evaluate_policy
 from .autonomy_receipt import AutonomyReceipt, AutonomyReceiptLog, build_receipt
+from .autonomy_session_state import AutonomySessionState
+from .autonomy_session_tracker import AutonomySessionTracker
 
 __all__ = [
     "AutonomyController",
@@ -27,6 +29,8 @@ __all__ = [
     "AutonomyDecision",
     "AutonomyReceipt",
     "AutonomyReceiptLog",
+    "AutonomySessionState",
+    "AutonomySessionTracker",
     "EscalationReport",
     "DecisionType",
     "ADVISORY_ONLY_DECISIONS",
