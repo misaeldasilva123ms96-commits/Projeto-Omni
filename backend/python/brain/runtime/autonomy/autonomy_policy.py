@@ -2,6 +2,8 @@
 
 Evaluates a runtime AutonomyContext against policy thresholds and
 returns an advisory AutonomyDecision. No autonomous execution.
+Consumes SmartErrorProgressTracker output from context metadata
+to improve advisory decision selection.
 """
 
 from __future__ import annotations
@@ -28,6 +30,25 @@ DEFAULT_ESCALATE_AFTER_STAGNATION = 5
 DEFAULT_MAX_TOTAL_PROGRESSIVE_CYCLES = 50
 DEFAULT_AUTONOMY_LEVEL = "supervised"
 
+# Smart tracker thresholds
+DEFAULT_TRACKER_STAGNATION_ESCALATE_SCORE = 5
+DEFAULT_TRACKER_STAGNANT_ATTEMPTS_THRESHOLD = 3
+DEFAULT_TRACKER_REPEATED_STRATEGY_THRESHOLD = 3
+DEFAULT_TRACKER_STAGNATION_MODERATE_SCORE = 3
+
+
+def _read_tracker_data(ctx: AutonomyContext) -> dict[str, Any]:
+    raw = ctx.metadata.get("error_progress_tracker")
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _tracker_metadata(evidence_summary: str) -> dict[str, Any] | None:
+    if evidence_summary:
+        return {"evidence_summary": evidence_summary}
+    return None
+
 
 def evaluate_policy(
     ctx: AutonomyContext,
@@ -37,8 +58,21 @@ def evaluate_policy(
     max_stagnant_attempts: int = DEFAULT_MAX_STAGNANT_ATTEMPTS,
     escalate_after_stagnation: int = DEFAULT_ESCALATE_AFTER_STAGNATION,
     max_total_progressive_cycles: int = DEFAULT_MAX_TOTAL_PROGRESSIVE_CYCLES,
+    tracker_stagnation_escalate_score: int = DEFAULT_TRACKER_STAGNATION_ESCALATE_SCORE,
+    tracker_stagnant_attempts_threshold: int = DEFAULT_TRACKER_STAGNANT_ATTEMPTS_THRESHOLD,
+    tracker_repeated_strategy_threshold: int = DEFAULT_TRACKER_REPEATED_STRATEGY_THRESHOLD,
+    tracker_stagnation_moderate_score: int = DEFAULT_TRACKER_STAGNATION_MODERATE_SCORE,
 ) -> AutonomyDecision:
     level = (autonomy_level or DEFAULT_AUTONOMY_LEVEL).strip().lower()
+
+    tracker = _read_tracker_data(ctx)
+    progress_score: int = tracker.get("progress_score", 0) or 0
+    stagnation_score: int = tracker.get("stagnation_score", 0) or 0
+    is_stagnation: bool = tracker.get("is_stagnation", False) or False
+    is_progress: bool = tracker.get("is_progress", False) or False
+    stagnant_attempts: int = tracker.get("stagnant_attempts", 0) or 0
+    repeated_strategy_count: int = tracker.get("repeated_strategy_count", 0) or 0
+    evidence_summary: str = tracker.get("evidence_summary", "") or ""
 
     if ctx.no_safe_next_action:
         return _make_decision(
@@ -89,6 +123,14 @@ def evaluate_policy(
             ctx,
         )
 
+    if stagnation_score >= tracker_stagnation_escalate_score and stagnant_attempts >= tracker_stagnant_attempts_threshold:
+        return _make_decision(
+            DecisionType.ESCALATE_TO_MISAEL,
+            f"Smart tracker: high stagnation score={stagnation_score}, attempts={stagnant_attempts}.",
+            ctx,
+            metadata=_tracker_metadata(evidence_summary),
+        )
+
     if ctx.stagnation_count >= escalate_after_stagnation:
         return _make_decision(
             DecisionType.ESCALATE_TO_MISAEL,
@@ -115,6 +157,38 @@ def evaluate_policy(
             DecisionType.ESCALATE_TO_MISAEL,
             f"Same error repeated {ctx.error_count} times (max {max_attempts_per_error}).",
             ctx,
+        )
+
+    if repeated_strategy_count >= tracker_repeated_strategy_threshold:
+        return _make_decision(
+            DecisionType.REPLAN,
+            f"Smart tracker: same strategy repeated {repeated_strategy_count} times.",
+            ctx,
+            metadata=_tracker_metadata(evidence_summary),
+        )
+
+    if is_stagnation and stagnation_score >= tracker_stagnation_moderate_score:
+        return _make_decision(
+            DecisionType.ESCALATE_TO_MISAEL,
+            f"Smart tracker: persistent stagnation score={stagnation_score}.",
+            ctx,
+            metadata=_tracker_metadata(evidence_summary),
+        )
+
+    if is_stagnation and stagnation_score > 0:
+        return _make_decision(
+            DecisionType.RETRY,
+            f"Smart tracker: stagnation detected score={stagnation_score}. Advisory retry.",
+            ctx,
+            metadata=_tracker_metadata(evidence_summary),
+        )
+
+    if is_progress and progress_score > 0 and ctx.error_count == 0:
+        return _make_decision(
+            DecisionType.CONTINUE,
+            f"Smart tracker: progress detected score={progress_score}. Advisory continue.",
+            ctx,
+            metadata=_tracker_metadata(evidence_summary),
         )
 
     if _is_transient_error(ctx.error_type):
