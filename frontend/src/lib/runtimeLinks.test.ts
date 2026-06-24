@@ -52,6 +52,7 @@ function inspectorData(): RuntimeInspectorData {
     memory: null,
     oil: null,
     autonomy: null,
+    autonomy_stats: null,
     logs: { runtime_mode: 'FULL_COGNITIVE_RUNTIME' },
   }
 }

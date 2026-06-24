@@ -180,7 +180,7 @@ describe('RuntimeInspectorPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
 
-    expect(screen.getByText('Modo somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
+    expect(screen.getByText('Métricas somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
     expect(screen.getAllByText('CONTINUE').length).toBeGreaterThanOrEqual(1)
   })
 
@@ -292,6 +292,135 @@ describe('RuntimeInspectorPanel', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
 
     expect(document.body.textContent).toContain('[REDACTED]')
+    expect(document.body.textContent).not.toContain('should-not-render')
+  })
+
+  it('renders controller stats on Autonomia tab', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'All good.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 5,
+          stagnation_score: 0,
+          is_progress: true,
+          is_stagnation: false,
+          stagnant_attempts: 0,
+          fingerprint_id: 'abc123',
+          recommended_decision_hint: 'CONTINUE',
+          evidence_summary: '',
+        },
+        autonomy_controller_stats: {
+          total_evaluations: 10,
+          decisions_by_type: { CONTINUE: 7, RETRY: 2, ESCALATE_TO_MISAEL: 1 },
+          escalation_count: 1,
+          escalation_rate: 0.1,
+          abort_safe_count: 0,
+          continue_count: 7,
+          retry_count: 2,
+          replan_count: 0,
+          pause_count: 0,
+          last_decision: 'CONTINUE',
+          last_risk_level: 'low',
+          last_updated_at: '2026-06-24T02:49:13Z',
+          advisory_mode_enabled: true,
+          active_session_count: 2,
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Métricas do Controlador')).toBeInTheDocument()
+    expect(screen.getByText('Total de Avaliações')).toBeInTheDocument()
+    expect(screen.getByText('10')).toBeInTheDocument()
+    expect(screen.getByText('10.0%')).toBeInTheDocument()
+    expect(screen.getByText('Sim')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+  })
+
+  it('renders controller stats even without per-turn autonomy data', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_controller_stats: {
+          total_evaluations: 3,
+          escalation_count: 0,
+          escalation_rate: 0,
+          abort_safe_count: 0,
+          continue_count: 2,
+          retry_count: 1,
+          replan_count: 0,
+          pause_count: 0,
+          last_decision: 'CONTINUE',
+          last_risk_level: 'low',
+          last_updated_at: null,
+          advisory_mode_enabled: true,
+          active_session_count: 1,
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Métricas do Controlador')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('0.0%')).toBeInTheDocument()
+  })
+
+  it('redacts sensitive stats values', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_controller_stats: {
+          total_evaluations: 5,
+          last_decision: 'Bearer sk-proj-leaked',
+          last_risk_level: 'sk-proj-should-not-render',
+          escalation_rate: 0.2,
+          escalation_count: 1,
+          abort_safe_count: 0,
+          continue_count: 3,
+          retry_count: 1,
+          replan_count: 0,
+          pause_count: 0,
+          active_session_count: 1,
+          advisory_mode_enabled: true,
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(document.body.textContent).toContain('[REDACTED]')
+    expect(document.body.textContent).not.toContain('sk-proj-leaked')
     expect(document.body.textContent).not.toContain('should-not-render')
   })
 

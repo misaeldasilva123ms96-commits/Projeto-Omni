@@ -88,6 +88,33 @@ class AutonomyController:
         self._emit_event(ctx, decision)
         return decision
 
+    def get_controller_stats(self) -> dict[str, Any]:
+        total = self._receipt_log.count()
+        last_receipt = self._receipt_log.last()
+        escalation_count = self._receipt_log.count(decision=DecisionType.ESCALATE_TO_MISAEL)
+
+        decisions_by_type: dict[str, int] = {}
+        for dt in DecisionType:
+            count = self._receipt_log.count(decision=dt)
+            if count > 0:
+                decisions_by_type[dt.value] = count
+
+        return {
+            "total_evaluations": total,
+            "decisions_by_type": decisions_by_type,
+            "escalation_count": escalation_count,
+            "escalation_rate": round(escalation_count / total, 4) if total > 0 else 0.0,
+            "abort_safe_count": self._receipt_log.count(decision=DecisionType.ABORT_SAFE),
+            "continue_count": self._receipt_log.count(decision=DecisionType.CONTINUE),
+            "retry_count": self._receipt_log.count(decision=DecisionType.RETRY),
+            "replan_count": self._receipt_log.count(decision=DecisionType.REPLAN),
+            "pause_count": self._receipt_log.count(decision=DecisionType.PAUSE),
+            "last_decision": last_receipt.decision if last_receipt else None,
+            "last_risk_level": last_receipt.risk_level if last_receipt else None,
+            "last_updated_at": last_receipt.created_at if last_receipt else None,
+            "advisory_mode_enabled": True,
+        }
+
     def decide_with_report(
         self,
         ctx: AutonomyContext,

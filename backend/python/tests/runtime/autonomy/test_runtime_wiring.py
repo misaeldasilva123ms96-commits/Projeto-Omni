@@ -203,6 +203,26 @@ class EvaluateAndAttachTest(unittest.TestCase):
         )
         self.assertTrue(inspection["autonomy_evaluation"]["advisory"])
 
+    def test_attaches_controller_stats_to_inspection(self) -> None:
+        inspection: dict[str, Any] = {"signals": {}}
+        evaluate_and_attach(inspection, "s1", "good response")
+        self.assertIn("autonomy_controller_stats", inspection)
+        stats = inspection["autonomy_controller_stats"]
+        self.assertEqual(stats["total_evaluations"], 1)
+        self.assertIn("decisions_by_type", stats)
+        self.assertIn("last_decision", stats)
+        self.assertTrue(stats["advisory_mode_enabled"])
+        self.assertIn("active_session_count", stats)
+
+    def test_controller_stats_escalation(self) -> None:
+        inspection: dict[str, Any] = {"signals": {}}
+        safe_fallback = "Nao consegui processar isso ainda, mas estou aprendendo."
+        evaluate_and_attach(inspection, "s1", safe_fallback)
+        self.assertIn("autonomy_controller_stats", inspection)
+        stats = inspection["autonomy_controller_stats"]
+        self.assertEqual(stats["total_evaluations"], 1)
+        self.assertEqual(stats["abort_safe_count"], 1)
+
     def test_does_not_modify_when_no_inspection(self) -> None:
         evaluate_and_attach(None, "s1", "good response")
 

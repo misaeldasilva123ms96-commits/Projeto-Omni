@@ -298,4 +298,146 @@ describe('runtime inspector contracts', () => {
       expect(normalized.autonomy).toBeNull()
     })
   })
+
+  describe('autonomy controller stats', () => {
+    it('normalizes controller stats from inspection', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_controller_stats: {
+            total_evaluations: 10,
+            decisions_by_type: { CONTINUE: 7, RETRY: 2, ESCALATE_TO_MISAEL: 1 },
+            escalation_count: 1,
+            escalation_rate: 0.1,
+            abort_safe_count: 0,
+            continue_count: 7,
+            retry_count: 2,
+            replan_count: 0,
+            pause_count: 0,
+            last_decision: 'CONTINUE',
+            last_risk_level: 'low',
+            last_updated_at: '2026-06-24T02:49:13Z',
+            advisory_mode_enabled: true,
+            active_session_count: 2,
+          },
+        },
+      })
+
+      expect(normalized.autonomy_stats).not.toBeNull()
+      expect(normalized.autonomy_stats?.total_evaluations).toBe(10)
+      expect(normalized.autonomy_stats?.decisions_by_type).toEqual({ CONTINUE: 7, RETRY: 2, ESCALATE_TO_MISAEL: 1 })
+      expect(normalized.autonomy_stats?.escalation_count).toBe(1)
+      expect(normalized.autonomy_stats?.escalation_rate).toBe(0.1)
+      expect(normalized.autonomy_stats?.abort_safe_count).toBe(0)
+      expect(normalized.autonomy_stats?.continue_count).toBe(7)
+      expect(normalized.autonomy_stats?.retry_count).toBe(2)
+      expect(normalized.autonomy_stats?.last_decision).toBe('CONTINUE')
+      expect(normalized.autonomy_stats?.last_risk_level).toBe('low')
+      expect(normalized.autonomy_stats?.last_updated_at).toBe('2026-06-24T02:49:13Z')
+      expect(normalized.autonomy_stats?.advisory_mode_enabled).toBe(true)
+      expect(normalized.autonomy_stats?.active_session_count).toBe(2)
+    })
+
+    it('returns null when stats are missing', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {},
+      })
+
+      expect(normalized.autonomy_stats).toBeNull()
+    })
+
+    it('handles malformed stats gracefully', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_controller_stats: 'not-a-record',
+        },
+      })
+
+      expect(normalized.autonomy_stats).toBeNull()
+    })
+
+    it('redacts sensitive fields in stats', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_controller_stats: {
+            total_evaluations: 5,
+            last_decision: 'Bearer sk-proj-leaked-decision',
+            last_risk_level: 'sk-proj-leaked-risk',
+            escalation_rate: 0.2,
+            escalation_count: 1,
+            abort_safe_count: 0,
+            continue_count: 3,
+            retry_count: 1,
+            replan_count: 0,
+            pause_count: 0,
+            active_session_count: 1,
+            advisory_mode_enabled: true,
+          },
+        },
+      })
+
+      expect(normalized.autonomy_stats?.total_evaluations).toBe(5)
+      expect(normalized.autonomy_stats?.last_decision).toBe('Bearer [REDACTED]')
+      expect(normalized.autonomy_stats?.last_risk_level).toBe('[REDACTED]')
+    })
+
+    it('filters non-numeric values from decisions_by_type', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_controller_stats: {
+            total_evaluations: 5,
+            decisions_by_type: { CONTINUE: 3, RETRY: 'invalid' },
+            escalation_count: 1,
+            escalation_rate: 0.2,
+            abort_safe_count: 0,
+            continue_count: 3,
+            retry_count: 1,
+            replan_count: 0,
+            pause_count: 0,
+            active_session_count: 1,
+            advisory_mode_enabled: true,
+          },
+        },
+      })
+
+      expect(normalized.autonomy_stats?.decisions_by_type).toEqual({ CONTINUE: 3 })
+      expect(normalized.autonomy_stats?.decisions_by_type?.RETRY).toBeUndefined()
+    })
+
+    it('preserves empty state when only per-turn data present', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'CONTINUE',
+            advisory: true,
+            reason: 'ok',
+            risk_level: 'low',
+            session_id: 's1',
+            progress_score: 0,
+            stagnation_score: 0,
+            is_progress: false,
+            is_stagnation: false,
+            stagnant_attempts: 0,
+            fingerprint_id: '',
+            recommended_decision_hint: '',
+            evidence_summary: '',
+          },
+        },
+      })
+
+      expect(normalized.autonomy).not.toBeNull()
+      expect(normalized.autonomy_stats).toBeNull()
+    })
+  })
 })

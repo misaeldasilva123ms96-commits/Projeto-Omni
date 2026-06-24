@@ -405,6 +405,104 @@ class ControllerIntegrationTest(unittest.TestCase):
         self.assertEqual(ctrl.autonomy_level, "supervised")
 
 
+class ControllerStatsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.controller = AutonomyController()
+
+    def test_empty_controller_returns_zero_stats(self) -> None:
+        stats = self.controller.get_controller_stats()
+        self.assertEqual(stats["total_evaluations"], 0)
+        self.assertEqual(stats["decisions_by_type"], {})
+        self.assertEqual(stats["escalation_count"], 0)
+        self.assertEqual(stats["escalation_rate"], 0.0)
+        self.assertEqual(stats["abort_safe_count"], 0)
+        self.assertEqual(stats["continue_count"], 0)
+        self.assertEqual(stats["retry_count"], 0)
+        self.assertEqual(stats["replan_count"], 0)
+        self.assertEqual(stats["pause_count"], 0)
+        self.assertIsNone(stats["last_decision"])
+        self.assertIsNone(stats["last_risk_level"])
+        self.assertIsNone(stats["last_updated_at"])
+        self.assertTrue(stats["advisory_mode_enabled"])
+
+    def test_stats_after_single_continue(self) -> None:
+        ctx = AutonomyContext()
+        self.controller.decide(ctx)
+        stats = self.controller.get_controller_stats()
+        self.assertEqual(stats["total_evaluations"], 1)
+        self.assertEqual(stats["continue_count"], 1)
+        self.assertEqual(stats["retry_count"], 0)
+        self.assertEqual(stats["escalation_count"], 0)
+        self.assertEqual(stats["decisions_by_type"], {"CONTINUE": 1})
+        self.assertEqual(stats["last_decision"], "CONTINUE")
+        self.assertEqual(stats["last_risk_level"], "low")
+
+    def test_stats_tracks_multiple_decision_types(self) -> None:
+        self.controller.decide(AutonomyContext())
+        self.controller.decide(AutonomyContext(error_type="timeout", error_count=1))
+        self.controller.decide(AutonomyContext(error_type="timeout", error_count=1))
+
+        stats = self.controller.get_controller_stats()
+        self.assertEqual(stats["total_evaluations"], 3)
+        self.assertEqual(stats["continue_count"], 1)
+        self.assertEqual(stats["retry_count"], 2)
+        self.assertEqual(stats["decisions_by_type"], {"CONTINUE": 1, "RETRY": 2})
+        self.assertEqual(stats["last_decision"], "RETRY")
+
+    def test_stats_escalation_rate(self) -> None:
+        for _ in range(3):
+            self.controller.decide(AutonomyContext())
+        self.controller.decide(AutonomyContext(secret_detected=True))
+        self.controller.decide(AutonomyContext(secret_detected=True))
+
+        stats = self.controller.get_controller_stats()
+        self.assertEqual(stats["total_evaluations"], 5)
+        self.assertEqual(stats["escalation_count"], 2)
+        self.assertAlmostEqual(stats["escalation_rate"], 0.4)
+
+    def test_stats_abort_safe(self) -> None:
+        self.controller.decide(AutonomyContext(no_safe_next_action=True))
+        stats = self.controller.get_controller_stats()
+        self.assertEqual(stats["abort_safe_count"], 1)
+
+    def test_stats_last_updated_at_present(self) -> None:
+        self.controller.decide(AutonomyContext())
+        stats = self.controller.get_controller_stats()
+        self.assertIsNotNone(stats["last_updated_at"])
+        self.assertIn("T", stats["last_updated_at"])
+
+    def test_stats_advisory_always_true(self) -> None:
+        self.controller.decide(AutonomyContext())
+        stats = self.controller.get_controller_stats()
+        self.assertTrue(stats["advisory_mode_enabled"])
+
+    def test_stats_no_raw_receipt_data(self) -> None:
+        self.controller.decide(AutonomyContext())
+        stats = self.controller.get_controller_stats()
+        keys = set(stats.keys())
+        for unsafe in ("reason", "context_summary", "metadata", "receipt_id", "receipts"):
+            self.assertNotIn(unsafe, keys)
+
+    def test_stats_all_keys_are_safe_types(self) -> None:
+        self.controller.decide(AutonomyContext())
+        stats = self.controller.get_controller_stats()
+        for key, value in stats.items():
+            if key == "decisions_by_type":
+                self.assertIsInstance(value, dict)
+            elif key == "advisory_mode_enabled":
+                self.assertIsInstance(value, bool)
+            elif key == "escalation_rate":
+                self.assertIsInstance(value, float)
+            elif key == "last_updated_at":
+                self.assertTrue(value is None or isinstance(value, str))
+            elif key in ("last_decision", "last_risk_level"):
+                self.assertIsInstance(value, str)
+            elif value is None:
+                continue
+            else:
+                self.assertIsInstance(value, (int, float, str, bool))
+
+
 class DecisionModelSerializationTest(unittest.TestCase):
     def test_autonomy_context_as_dict(self) -> None:
         ctx = AutonomyContext(
