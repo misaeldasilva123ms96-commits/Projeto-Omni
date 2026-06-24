@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RuntimeMetadata } from '../types'
 import {
+  normalizeAutonomyTimelineItem,
   normalizeRuntimeInspectorData,
   normalizeRuntimeMode,
 } from './runtimeTypes'
@@ -438,6 +439,95 @@ describe('runtime inspector contracts', () => {
 
       expect(normalized.autonomy).not.toBeNull()
       expect(normalized.autonomy_stats).toBeNull()
+    })
+  })
+
+  describe('normalizeAutonomyTimelineItem', () => {
+    it('returns null for non-object value', () => {
+      expect(normalizeAutonomyTimelineItem(null, 'm1', 's1', '2026-06-24T00:00:00Z')).toBeNull()
+      expect(normalizeAutonomyTimelineItem('invalid', 'm1', 's1', '2026-06-24T00:00:00Z')).toBeNull()
+      expect(normalizeAutonomyTimelineItem(42, 'm1', 's1', '2026-06-24T00:00:00Z')).toBeNull()
+    })
+
+    it('returns null when decision is missing or empty', () => {
+      expect(normalizeAutonomyTimelineItem({ advisory: true }, 'm1', 's1', '2026-06-24T00:00:00Z')).toBeNull()
+      expect(normalizeAutonomyTimelineItem({ decision: '' }, 'm1', 's1', '2026-06-24T00:00:00Z')).toBeNull()
+    })
+
+    it('normalizes a valid timeline item with all fields', () => {
+      const item = normalizeAutonomyTimelineItem(
+        {
+          decision: 'RETRY',
+          advisory: true,
+          risk_level: 'medium',
+          fingerprint_id: 'fp-123',
+          progress_score: 2,
+          stagnation_score: 4,
+          is_progress: false,
+          is_stagnation: true,
+          stagnant_attempts: 2,
+          recommended_decision_hint: 'RETRY',
+          evidence_summary: 'stagnation detected',
+          strategies_attempted: ['retry_provider', 'switch_tool'],
+          repeated_strategy_count: 1,
+        },
+        'msg-1',
+        'session-abc',
+        '2026-06-24T12:30:00Z',
+      )
+
+      expect(item).not.toBeNull()
+      expect(item!.id).toBe('msg-1')
+      expect(item!.session_id).toBe('session-abc')
+      expect(item!.decision).toBe('RETRY')
+      expect(item!.advisory).toBe(true)
+      expect(item!.risk_level).toBe('medium')
+      expect(item!.fingerprint_id).toBe('fp-123')
+      expect(item!.progress_score).toBe(2)
+      expect(item!.stagnation_score).toBe(4)
+      expect(item!.is_progress).toBe(false)
+      expect(item!.is_stagnation).toBe(true)
+      expect(item!.stagnant_attempts).toBe(2)
+      expect(item!.recommended_decision_hint).toBe('RETRY')
+      expect(item!.evidence_summary).toBe('stagnation detected')
+      expect(item!.strategies_attempted).toEqual(['retry_provider', 'switch_tool'])
+      expect(item!.repeated_strategy_count).toBe(1)
+      expect(item!.timestamp).toBe('2026-06-24T12:30:00Z')
+    })
+
+    it('filters non-string values from strategies_attempted', () => {
+      const item = normalizeAutonomyTimelineItem(
+        {
+          decision: 'CONTINUE',
+          strategies_attempted: ['strategy_a', 42, null, 'strategy_b'],
+        },
+        'm1',
+        's1',
+        '2026-06-24T00:00:00Z',
+      )
+
+      expect(item!.strategies_attempted).toEqual(['strategy_a', 'strategy_b'])
+    })
+
+    it('returns safe string for missing or null optional fields', () => {
+      const item = normalizeAutonomyTimelineItem(
+        { decision: 'CONTINUE' },
+        'm1',
+        's1',
+        '2026-06-24T00:00:00Z',
+      )
+
+      expect(item!.risk_level).toBeNull()
+      expect(item!.fingerprint_id).toBeNull()
+      expect(item!.progress_score).toBeNull()
+      expect(item!.stagnation_score).toBeNull()
+      expect(item!.is_progress).toBeNull()
+      expect(item!.is_stagnation).toBeNull()
+      expect(item!.stagnant_attempts).toBeNull()
+      expect(item!.recommended_decision_hint).toBeNull()
+      expect(item!.evidence_summary).toBeNull()
+      expect(item!.repeated_strategy_count).toBeNull()
+      expect(item!.strategies_attempted).toEqual([])
     })
   })
 })
