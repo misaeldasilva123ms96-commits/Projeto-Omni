@@ -69,6 +69,7 @@ describe('runtimeConsoleStore', () => {
       providers: [],
       memory: null,
       oil: null,
+      autonomy: null,
       logs: null,
     }
 
