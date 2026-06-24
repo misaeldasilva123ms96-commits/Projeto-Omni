@@ -164,7 +164,7 @@ class ProviderFailureStagnationTest(unittest.TestCase):
         )
         evaluate_autonomy(inspection, "s1", "ok")
         result = evaluate_autonomy(inspection, "s1", "ok")
-        self.assertEqual(result["decision"], DecisionType.RETRY.value)
+        self.assertEqual(result["decision"], DecisionType.ESCALATE_TO_MISAEL.value)
         tracker = _get_tracker()
         state = tracker.get_state("s1")
         self.assertIsNotNone(state)

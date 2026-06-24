@@ -67,4 +67,5 @@ def build_receipt(decision: AutonomyDecision) -> AutonomyReceipt:
         advisory=decision.advisory,
         reason=decision.reason,
         context_summary=ctx_summary,
+        metadata=decision.metadata,
     )
