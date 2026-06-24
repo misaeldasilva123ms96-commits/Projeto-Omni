@@ -9,6 +9,7 @@ import { RuntimeToolsTab } from './RuntimeToolsTab'
 import { RuntimeProviderTab } from './RuntimeProviderTab'
 import { RuntimeMemoryTab } from './RuntimeMemoryTab'
 import { RuntimeOilTab } from './RuntimeOilTab'
+import { RuntimeAutonomyTab } from './RuntimeAutonomyTab'
 import { RuntimeLogsTab } from './RuntimeLogsTab'
 
 type RuntimeInspectorPanelProps = {
@@ -19,6 +20,7 @@ type RuntimeInspectorPanelProps = {
 const TABS = [
   { id: 'summary', label: 'Summary' },
   { id: 'governance', label: 'Governance' },
+  { id: 'autonomy', label: 'Autonomia' },
   { id: 'tools', label: 'Tools' },
   { id: 'provider', label: 'Provider' },
   { id: 'memory', label: 'Memory' },
@@ -57,6 +59,8 @@ export function RuntimeInspectorPanel({ data, requestState }: RuntimeInspectorPa
           <RuntimeProviderTab data={data?.providers ?? []} providerHref={links.provider} />
         ) : activeTab === 'memory' ? (
           <RuntimeMemoryTab data={data?.memory ?? null} />
+        ) : activeTab === 'autonomy' ? (
+          <RuntimeAutonomyTab data={data?.autonomy ?? null} />
         ) : activeTab === 'oil' ? (
           <RuntimeOilTab data={data?.oil ?? null} />
         ) : activeTab === 'logs' ? (

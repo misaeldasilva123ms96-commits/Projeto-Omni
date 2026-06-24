@@ -97,6 +97,7 @@ describe('runtime inspector contracts', () => {
     expect(normalized.tools).toEqual([])
     expect(normalized.memory).toBeNull()
     expect(normalized.oil).toBeNull()
+    expect(normalized.autonomy).toBeNull()
     expect(normalized.logs).toBeNull()
   })
 
@@ -206,6 +207,95 @@ describe('runtime inspector contracts', () => {
       policy: 'tool-policy',
       tool_category: 'filesystem',
       requires_approval: true,
+    })
+  })
+
+  describe('autonomy evaluation', () => {
+    it('normalizes autonomy evaluation data from inspection', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'RETRY',
+            advisory: true,
+            reason: 'Transient error detected: timeout. Advisory retry.',
+            risk_level: 'low',
+            session_id: 's1',
+            progress_score: 0,
+            stagnation_score: 1,
+            is_progress: false,
+            is_stagnation: true,
+            stagnant_attempts: 1,
+            fingerprint_id: 'abc123def456',
+            recommended_decision_hint: 'RETRY',
+            evidence_summary: 'fingerprint=abc123def456 | repeated_error | stagnation | progress_score=0 | stagnation_score=1 | stagnant_attempts=1 | distinct_errors=1 | hint=RETRY',
+          },
+        },
+      })
+
+      expect(normalized.autonomy).not.toBeNull()
+      expect(normalized.autonomy?.decision).toBe('RETRY')
+      expect(normalized.autonomy?.advisory).toBe(true)
+      expect(normalized.autonomy?.reason).toBe('Transient error detected: timeout. Advisory retry.')
+      expect(normalized.autonomy?.risk_level).toBe('low')
+      expect(normalized.autonomy?.session_id).toBe('s1')
+      expect(normalized.autonomy?.progress_score).toBe(0)
+      expect(normalized.autonomy?.stagnation_score).toBe(1)
+      expect(normalized.autonomy?.is_progress).toBe(false)
+      expect(normalized.autonomy?.is_stagnation).toBe(true)
+      expect(normalized.autonomy?.stagnant_attempts).toBe(1)
+      expect(normalized.autonomy?.fingerprint_id).toBe('abc123def456')
+      expect(normalized.autonomy?.recommended_decision_hint).toBe('RETRY')
+      expect(normalized.autonomy?.evidence_summary).toContain('fingerprint=abc123def456')
+    })
+
+    it('returns null autonomy when autonomy_evaluation is missing', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {},
+      })
+
+      expect(normalized.autonomy).toBeNull()
+    })
+
+    it('redacts sensitive fields in autonomy data', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'CONTINUE',
+            advisory: true,
+            reason: 'Bearer sk-proj-leaked',
+            risk_level: 'low',
+            session_id: 's1',
+            progress_score: 0,
+            stagnation_score: 0,
+            is_progress: false,
+            is_stagnation: false,
+            stagnant_attempts: 0,
+            fingerprint_id: '',
+            recommended_decision_hint: '',
+            evidence_summary: '',
+          },
+        },
+      })
+
+      expect(normalized.autonomy?.reason).toBe('[REDACTED]')
+    })
+
+    it('handles null autonomy_evaluation gracefully', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: null,
+        },
+      })
+
+      expect(normalized.autonomy).toBeNull()
     })
   })
 })
