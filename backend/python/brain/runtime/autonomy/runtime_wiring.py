@@ -13,10 +13,12 @@ from typing import Any
 
 from .autonomy_controller import AutonomyController
 from .autonomy_models import AutonomyContext
+from .autonomy_session_tracker import AutonomySessionTracker
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONTROLLER: AutonomyController | None = None
+_DEFAULT_TRACKER: AutonomySessionTracker | None = None
 
 
 def _get_controller() -> AutonomyController:
@@ -24,6 +26,13 @@ def _get_controller() -> AutonomyController:
     if _DEFAULT_CONTROLLER is None:
         _DEFAULT_CONTROLLER = AutonomyController()
     return _DEFAULT_CONTROLLER
+
+
+def _get_tracker() -> AutonomySessionTracker:
+    global _DEFAULT_TRACKER
+    if _DEFAULT_TRACKER is None:
+        _DEFAULT_TRACKER = AutonomySessionTracker()
+    return _DEFAULT_TRACKER
 
 
 def build_autonomy_context(
@@ -71,15 +80,121 @@ def build_autonomy_context(
     return ctx
 
 
+def _enrich_context_from_session(
+    ctx: AutonomyContext,
+    tracker: AutonomySessionTracker,
+) -> AutonomyContext:
+    state = tracker.get_or_create(ctx.session_id)
+
+    if ctx.error_type:
+        cumulative_errors = state.current_error_count + 1
+        distinct_count = len(state.distinct_error_types)
+        if ctx.error_type not in state.distinct_error_types:
+            distinct_count += 1
+        is_stagnation = _detect_stagnation(state, ctx)
+        stagnant_count = state.stagnant_attempts + (1 if is_stagnation else 0)
+        ctx.error_count = cumulative_errors
+        ctx.stagnation_count = stagnant_count
+        ctx.distinct_errors = distinct_count
+        ctx.consecutive_same_error = stagnant_count
+    else:
+        ctx.error_count = 0
+        ctx.stagnation_count = 0
+        ctx.distinct_errors = 0
+        ctx.consecutive_same_error = 0
+
+    is_progress = _detect_progress(state, ctx)
+    progressive_count = state.progressive_cycles + (1 if is_progress else 0)
+    ctx.total_progressive_cycles = progressive_count
+
+    return ctx
+
+
+def _detect_stagnation(
+    state: Any,
+    ctx: AutonomyContext,
+) -> bool:
+    if ctx.error_type and state.last_error_type:
+        if ctx.error_type == state.last_error_type:
+            return True
+
+    provider_failure: str = ctx.metadata.get("provider_failure_type", "")
+    if provider_failure and state.last_provider_failure_type:
+        if provider_failure == state.last_provider_failure_type:
+            return True
+
+    runtime_mode: str = ctx.metadata.get("runtime_mode", "")
+    if runtime_mode and state.last_runtime_mode:
+        if runtime_mode == state.last_runtime_mode:
+            if runtime_mode in ("provider_failure", "safe_fallback", "node_fallback"):
+                return True
+
+    if ctx.no_safe_next_action and state.last_response_was_safe_fallback:
+        return True
+
+    return False
+
+
+def _detect_progress(
+    state: Any,
+    ctx: AutonomyContext,
+) -> bool:
+    if ctx.error_type and state.last_error_type:
+        if ctx.error_type != state.last_error_type:
+            return True
+
+    runtime_mode: str = ctx.metadata.get("runtime_mode", "")
+    if runtime_mode and state.last_runtime_mode:
+        current_rank = _RUNTIME_MODE_ORDER.get(runtime_mode, -1)
+        last_rank = _RUNTIME_MODE_ORDER.get(state.last_runtime_mode, -1)
+        if current_rank > last_rank:
+            return True
+
+    if state.last_runtime_mode in ("safe_fallback", "node_fallback", "provider_failure"):
+        if runtime_mode not in ("safe_fallback", "node_fallback", "provider_failure"):
+            return True
+
+    if state.last_provider_failure_type and not ctx.metadata.get("provider_failure_type", ""):
+        return True
+
+    prev_response_len: int = state.last_response_length
+    current_response_len: Any = ctx.metadata.get("response_length", 0)
+    if isinstance(current_response_len, str):
+        try:
+            current_response_len = int(current_response_len)
+        except (ValueError, TypeError):
+            current_response_len = 0
+    if prev_response_len == 0 and current_response_len > 0:
+        return True
+
+    if state.last_response_was_safe_fallback and not ctx.no_safe_next_action:
+        return True
+
+    return False
+
+
+_RUNTIME_MODE_ORDER: dict[str, int] = {
+    "provider_failure": 0,
+    "safe_fallback": 1,
+    "node_fallback": 2,
+    "standard": 3,
+    "default": 3,
+    "normal": 3,
+}
+
+
 def evaluate_autonomy(
     inspection: dict[str, Any] | None,
     session_id: str,
     response: str,
     *,
     controller: AutonomyController | None = None,
+    tracker: AutonomySessionTracker | None = None,
 ) -> dict[str, Any]:
     if controller is None:
         controller = _get_controller()
+    if tracker is None:
+        tracker = _get_tracker()
 
     ctx = build_autonomy_context(
         inspection=inspection,
@@ -87,7 +202,11 @@ def evaluate_autonomy(
         response=response,
     )
 
+    ctx = _enrich_context_from_session(ctx, tracker)
+
     decision = controller.decide(ctx)
+
+    tracker.update(session_id, ctx, decision)
 
     result: dict[str, Any] = {
         "decision": decision.decision.value,
@@ -98,10 +217,11 @@ def evaluate_autonomy(
     }
 
     logger.debug(
-        "Autonomy evaluation: decision=%s advisory=%s reason=%s",
+        "Autonomy evaluation: decision=%s advisory=%s reason=%s session=%s",
         decision.decision.value,
         decision.advisory,
         decision.reason,
+        ctx.session_id,
     )
 
     return result
@@ -125,5 +245,6 @@ def evaluate_and_attach(
 
 
 def reset_controller_for_testing() -> None:
-    global _DEFAULT_CONTROLLER
+    global _DEFAULT_CONTROLLER, _DEFAULT_TRACKER
     _DEFAULT_CONTROLLER = None
+    _DEFAULT_TRACKER = None
