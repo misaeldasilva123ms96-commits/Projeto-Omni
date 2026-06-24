@@ -16,6 +16,13 @@ from .autonomy_models import AutonomyContext
 from .autonomy_session_tracker import AutonomySessionTracker
 from .error_progress_tracker import SmartErrorProgressTracker
 
+try:
+    from brain.memory.runtime_integration import record_governance_event as _record_governance_event
+    _HAS_GOV_EVENTS = True
+except ImportError:
+    _HAS_GOV_EVENTS = False
+    _record_governance_event = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONTROLLER: AutonomyController | None = None
@@ -241,6 +248,8 @@ def evaluate_autonomy(
         "stagnant_attempts": tracker_fields.get("stagnant_attempts", 0),
         "recommended_decision_hint": tracker_fields.get("recommended_decision_hint", ""),
         "evidence_summary": tracker_fields.get("evidence_summary", ""),
+        "strategies_attempted": list(tracker_fields.get("strategies_attempted", [])),
+        "repeated_strategy_count": tracker_fields.get("repeated_strategy_count", 0),
     }
 
     logger.debug(
@@ -252,6 +261,39 @@ def evaluate_autonomy(
     )
 
     return result
+
+
+def record_autonomy_evidence(result: dict[str, Any]) -> None:
+    if not _HAS_GOV_EVENTS or _record_governance_event is None:
+        return
+    session_id = result.get("session_id", "")
+    if not session_id:
+        return
+    try:
+        evidence = result.get("evidence_summary", "")
+        _record_governance_event(
+            event_type="autonomy_decision_evidence",
+            source="runtime_wiring",
+            session_id=session_id,
+            run_id="",
+            status=result.get("decision", "unknown"),
+            reason=evidence[:500] if evidence else "",
+            metadata={
+                "fingerprint_id": result.get("fingerprint_id", ""),
+                "progress_score": result.get("progress_score", 0),
+                "stagnation_score": result.get("stagnation_score", 0),
+                "recommended_decision_hint": result.get("recommended_decision_hint", ""),
+                "repeated_strategy_count": result.get("repeated_strategy_count", 0),
+                "strategies_attempted": result.get("strategies_attempted", []),
+                "advisory": result.get("advisory", ""),
+                "risk_level": result.get("risk_level", ""),
+                "is_progress": result.get("is_progress", False),
+                "is_stagnation": result.get("is_stagnation", False),
+                "stagnant_attempts": result.get("stagnant_attempts", 0),
+            },
+        )
+    except Exception as exc:
+        logger.debug("Failed to record autonomy evidence: %s", exc)
 
 
 def get_autonomy_controller_stats() -> dict[str, Any]:
@@ -276,6 +318,7 @@ def evaluate_and_attach(
         if isinstance(inspection, dict):
             inspection["autonomy_evaluation"] = result
             inspection["autonomy_controller_stats"] = get_autonomy_controller_stats()
+        record_autonomy_evidence(result)
     except Exception as exc:
         logger.debug("Autonomy evaluation failed (advisory-only, ignored): %s", exc)
 
