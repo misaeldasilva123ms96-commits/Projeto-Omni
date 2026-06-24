@@ -14,11 +14,13 @@ from typing import Any
 from .autonomy_controller import AutonomyController
 from .autonomy_models import AutonomyContext
 from .autonomy_session_tracker import AutonomySessionTracker
+from .error_progress_tracker import SmartErrorProgressTracker
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONTROLLER: AutonomyController | None = None
 _DEFAULT_TRACKER: AutonomySessionTracker | None = None
+_DEFAULT_SMART_TRACKER: SmartErrorProgressTracker | None = None
 
 
 def _get_controller() -> AutonomyController:
@@ -33,6 +35,13 @@ def _get_tracker() -> AutonomySessionTracker:
     if _DEFAULT_TRACKER is None:
         _DEFAULT_TRACKER = AutonomySessionTracker()
     return _DEFAULT_TRACKER
+
+
+def _get_smart_tracker() -> SmartErrorProgressTracker:
+    global _DEFAULT_SMART_TRACKER
+    if _DEFAULT_SMART_TRACKER is None:
+        _DEFAULT_SMART_TRACKER = SmartErrorProgressTracker()
+    return _DEFAULT_SMART_TRACKER
 
 
 def build_autonomy_context(
@@ -190,11 +199,14 @@ def evaluate_autonomy(
     *,
     controller: AutonomyController | None = None,
     tracker: AutonomySessionTracker | None = None,
+    smart_tracker: SmartErrorProgressTracker | None = None,
 ) -> dict[str, Any]:
     if controller is None:
         controller = _get_controller()
     if tracker is None:
         tracker = _get_tracker()
+    if smart_tracker is None:
+        smart_tracker = _get_smart_tracker()
 
     ctx = build_autonomy_context(
         inspection=inspection,
@@ -204,7 +216,12 @@ def evaluate_autonomy(
 
     ctx = _enrich_context_from_session(ctx, tracker)
 
+    smart_output = smart_tracker.classify(session_id, ctx, inspection)
+    ctx.metadata["error_progress_tracker"] = smart_output.as_dict()
+
     decision = controller.decide(ctx)
+
+    smart_tracker.update(session_id, ctx, inspection, decision)
 
     tracker.update(session_id, ctx, decision)
 
@@ -245,6 +262,7 @@ def evaluate_and_attach(
 
 
 def reset_controller_for_testing() -> None:
-    global _DEFAULT_CONTROLLER, _DEFAULT_TRACKER
+    global _DEFAULT_CONTROLLER, _DEFAULT_TRACKER, _DEFAULT_SMART_TRACKER
     _DEFAULT_CONTROLLER = None
     _DEFAULT_TRACKER = None
+    _DEFAULT_SMART_TRACKER = None
