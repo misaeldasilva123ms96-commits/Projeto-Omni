@@ -22,8 +22,8 @@ use axum::{
     Json,
 };
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use rand::Rng;
 use rand::rngs::SysRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
