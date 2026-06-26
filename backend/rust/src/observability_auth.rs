@@ -23,7 +23,7 @@ use axum::{
 };
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use rand::rngs::SysRng;
-use rand::Rng;
+use rand_core::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -191,7 +191,7 @@ pub(crate) fn observability_stream_ticket_store_from_env(
 
 fn generate_stream_ticket() -> String {
     let mut bytes = [0_u8; 32];
-    SysRng.fill(&mut bytes);
+    SysRng.fill_bytes(&mut bytes);
     let mut ticket = String::with_capacity(4 + bytes.len() * 2);
     ticket.push_str("ost_");
     for byte in bytes {
