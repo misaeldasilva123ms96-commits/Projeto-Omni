@@ -4,10 +4,12 @@ import argparse
 import json
 from pathlib import Path
 
+from brain.memory.autonomy_session_cleanup import cleanup_expired_autonomy_session_states_manual
+from brain.memory.memory_facade import MemoryFacade as StructuredMemoryFacade
 from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
 from brain.runtime.control.run_identity import validate_run_id_for_operator_cli
 from brain.runtime.control.governance_read_model import build_operational_governance_snapshot, list_operator_attention_runs
-from brain.runtime.memory import MemoryFacade
+from brain.runtime.memory import MemoryFacade as RuntimeMemoryFacade
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -31,6 +33,11 @@ def _build_parser() -> argparse.ArgumentParser:
     rollback = subparsers.add_parser("runs_with_rollback")
     rollback.add_argument("--limit", type=int, default=50)
     subparsers.add_parser("list_governed_tools")
+    cleanup = subparsers.add_parser("cleanup_autonomy_session_states")
+    cleanup.add_argument("--now", default=None)
+    cleanup.add_argument("--sqlite-path", default=None)
+    cleanup.add_argument("--jsonl-path", default=None)
+    cleanup.add_argument("--enable-sqlite", action="store_true")
     return parser
 
 
@@ -46,7 +53,7 @@ def _emit(payload: dict[str, object]) -> int:
 
 
 def _record_operator_event(root: Path, *, action: str, run_id: str) -> None:
-    memory = MemoryFacade(root)
+    memory = RuntimeMemoryFacade(root)
     try:
         memory.record_event(
             event_type="operator_control",
@@ -137,6 +144,18 @@ def main() -> int:
         from brain.runtime.control.governed_tools import list_governed_tools_as_dicts
 
         return _emit({"status": "ok", "governed_tools": list_governed_tools_as_dicts()})
+    if args.command == "cleanup_autonomy_session_states":
+        facade = StructuredMemoryFacade(
+            enable_sqlite=True if args.enable_sqlite else None,
+            sqlite_path=args.sqlite_path,
+            jsonl_path=args.jsonl_path,
+        )
+        try:
+            facade.initialize()
+            result = cleanup_expired_autonomy_session_states_manual(facade=facade, now=args.now)
+            return _emit({"status": "ok", "cleanup": result.as_dict()})
+        finally:
+            facade.close()
     return _emit({"status": "error", "error": "unsupported_command"})
 
 

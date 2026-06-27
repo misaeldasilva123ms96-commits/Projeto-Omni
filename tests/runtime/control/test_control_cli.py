@@ -17,6 +17,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.control import RunRecord, RunRegistry, RunStatus  # noqa: E402
 from brain.runtime.control.cli import main as control_cli_main  # noqa: E402
+from brain.memory.memory_facade import MemoryFacade as StructuredMemoryFacade  # noqa: E402
+from brain.memory.memory_models import AutonomySessionStateRecord  # noqa: E402
 from brain.runtime.observability.timeline_reader import TimelineReader  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator  # noqa: E402
 from brain.runtime.orchestrator_services import GovernanceIntegrationService  # noqa: E402
@@ -256,6 +258,173 @@ class ControlCliTest(unittest.TestCase):
             stored = registry.get("run-control")
             self.assertIsNotNone(stored)
             self.assertEqual(stored.status, RunStatus.AWAITING_APPROVAL)
+
+    def test_cleanup_autonomy_session_states_noops_when_sqlite_disabled(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            sqlite_path = workspace_root / "memory.sqlite"
+            jsonl_path = workspace_root / "audit.jsonl"
+            stream = io.StringIO()
+            with patch.dict("os.environ", {"OMINI_ENABLE_SQLITE_MEMORY": "false"}, clear=False):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "control-cli",
+                        "--root",
+                        str(workspace_root),
+                        "cleanup_autonomy_session_states",
+                        "--sqlite-path",
+                        str(sqlite_path),
+                        "--jsonl-path",
+                        str(jsonl_path),
+                        "--now",
+                        "2026-06-27T00:00:00+00:00",
+                    ],
+                ):
+                    with redirect_stdout(stream):
+                        result = control_cli_main()
+
+            payload = json.loads(stream.getvalue())
+            cleanup = payload["cleanup"]
+            self.assertEqual(result, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertTrue(cleanup["attempted"])
+            self.assertFalse(cleanup["supported"])
+            self.assertEqual(cleanup["deleted_count"], 0)
+            self.assertFalse(cleanup["degraded"])
+            self.assertEqual(cleanup["error_category"], "")
+
+    def test_cleanup_autonomy_session_states_deletes_only_expired_rows(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            sqlite_path = workspace_root / "memory.sqlite"
+            jsonl_path = workspace_root / "audit.jsonl"
+            facade = StructuredMemoryFacade(
+                enable_sqlite=True,
+                sqlite_path=sqlite_path,
+                jsonl_path=jsonl_path,
+            )
+            facade.initialize()
+            try:
+                facade.record_autonomy_session_state(
+                    AutonomySessionStateRecord(
+                        session_id="old",
+                        last_error_type="timeout",
+                        current_error_count=1,
+                        distinct_error_count=1,
+                        distinct_error_types=["timeout"],
+                        updated_at="2026-06-27T00:00:00+00:00",
+                        expires_at="2026-06-01T00:00:00+00:00",
+                    )
+                )
+                facade.record_autonomy_session_state(
+                    AutonomySessionStateRecord(
+                        session_id="fresh",
+                        last_error_type="timeout",
+                        current_error_count=1,
+                        distinct_error_count=1,
+                        distinct_error_types=["timeout"],
+                        updated_at="2026-06-27T00:00:00+00:00",
+                        expires_at="2999-01-01T00:00:00+00:00",
+                    )
+                )
+            finally:
+                facade.close()
+
+            stream = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "control-cli",
+                    "--root",
+                    str(workspace_root),
+                    "cleanup_autonomy_session_states",
+                    "--enable-sqlite",
+                    "--sqlite-path",
+                    str(sqlite_path),
+                    "--jsonl-path",
+                    str(jsonl_path),
+                    "--now",
+                    "2026-06-27T00:00:00+00:00",
+                ],
+            ):
+                with redirect_stdout(stream):
+                    result = control_cli_main()
+
+            payload = json.loads(stream.getvalue())
+            cleanup = payload["cleanup"]
+            self.assertEqual(result, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(
+                set(cleanup),
+                {"attempted", "supported", "deleted_count", "degraded", "error_category", "attempted_at"},
+            )
+            self.assertTrue(cleanup["supported"])
+            self.assertEqual(cleanup["deleted_count"], 1)
+            self.assertFalse(cleanup["degraded"])
+            self.assertNotIn("session_id", str(cleanup))
+            self.assertNotIn("raw_prompt", str(cleanup))
+
+            verifier = StructuredMemoryFacade(enable_sqlite=True, sqlite_path=sqlite_path, jsonl_path=jsonl_path)
+            verifier.initialize()
+            try:
+                self.assertIsNone(verifier.get_autonomy_session_state("old"))
+                self.assertIsNotNone(verifier.get_autonomy_session_state("fresh"))
+            finally:
+                verifier.close()
+
+    def test_cleanup_autonomy_session_states_failure_degrades_safely(self) -> None:
+        class FailingFacade:
+            sqlite_enabled = True
+            is_sqlite_connected = True
+
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            def initialize(self) -> None:
+                pass
+
+            def close(self) -> None:
+                pass
+
+            def cleanup_expired_autonomy_session_states(self, now: str | None = None) -> int:
+                raise RuntimeError("cleanup failed with sk-test-secret")
+
+            def get_autonomy_session_state_lifecycle_diagnostics(self, now: str | None = None) -> dict[str, object]:
+                return {
+                    "cleanup_degraded": True,
+                    "cleanup_last_error_category": "Bearer sk-test-secret",
+                    "last_cleanup_attempted_at": "2026-06-27T00:00:00+00:00",
+                }
+
+        with self.temp_workspace() as workspace_root:
+            stream = io.StringIO()
+            with patch("brain.runtime.control.cli.StructuredMemoryFacade", FailingFacade):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "control-cli",
+                        "--root",
+                        str(workspace_root),
+                        "cleanup_autonomy_session_states",
+                        "--enable-sqlite",
+                    ],
+                ):
+                    with redirect_stdout(stream):
+                        result = control_cli_main()
+
+            payload = json.loads(stream.getvalue())
+            cleanup = payload["cleanup"]
+            self.assertEqual(result, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertTrue(cleanup["attempted"])
+            self.assertTrue(cleanup["supported"])
+            self.assertEqual(cleanup["deleted_count"], 0)
+            self.assertTrue(cleanup["degraded"])
+            self.assertEqual(cleanup["error_category"], "cleanup_failed")
+            self.assertNotIn("sk-test-secret", str(payload))
+            self.assertNotIn("Traceback", str(payload))
 
 
 if __name__ == "__main__":

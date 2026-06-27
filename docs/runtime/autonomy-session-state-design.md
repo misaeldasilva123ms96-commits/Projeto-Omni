@@ -55,6 +55,14 @@ The hook is not scheduled, not exposed as a public endpoint, and not rendered as
 a destructive Cockpit control. It returns only safe metadata: `attempted`,
 `supported`, `deleted_count`, `degraded`, `error_category`, and `attempted_at`.
 
+**Protected cleanup entrypoint update:** `feature/autonomy-session-state-protected-cleanup-entrypoint`
+does not add a new HTTP cleanup endpoint because the repository has protected
+Supabase operator/control routes but no established admin-role MemoryFacade
+maintenance route for destructive cleanup. The implemented protected invocation
+surface is the existing local operator `control-cli`:
+`cleanup_autonomy_session_states`. It reuses the manual hook, is explicit only,
+and returns the same safe metadata fields.
+
 ## 2. Current State
 
 The current autonomy stack is advisory-only:
@@ -296,6 +304,9 @@ The persisted state should be short lived. Recommended defaults:
 - Maximum TTL: 30 days unless a later ADR approves a longer value.
 - Cleanup trigger: explicit/manual hook invocation only. No background
   scheduler, startup cleanup, or automatic runtime-turn cleanup is implemented.
+- Protected invocation: local operator `control-cli cleanup_autonomy_session_states`
+  with optional `--enable-sqlite`, `--sqlite-path`, `--jsonl-path`, and `--now`.
+  Without SQLite enabled and connected, the command is a safe unsupported no-op.
 - Cleanup query: delete rows where `expires_at < now_utc`.
 - Cleanup failure: log sanitized diagnostic and continue.
 
@@ -452,7 +463,8 @@ Recommended rollout phases:
 | Phase 3 | Enable SQLite opt-in in local/dev only |
 | Phase 4 | Add lifecycle diagnostics for hydrate/save/cleanup success and failure |
 | Phase 5 | Add explicit/manual cleanup hook without scheduler or public endpoint |
-| Phase 6 | Consider broader opt-in after review and incident-free soak |
+| Phase 6 | Add protected local operator CLI entrypoint for explicit cleanup |
+| Phase 7 | Consider broader opt-in after review and incident-free soak |
 
 No phase enables autonomous execution.
 
@@ -496,6 +508,15 @@ Implemented manual cleanup hook result fields:
 - `degraded`
 - `error_category`
 - `attempted_at`
+
+Implemented protected cleanup entrypoint:
+
+- `control-cli cleanup_autonomy_session_states`
+- Explicit local/operator invocation only
+- No HTTP endpoint
+- No Cockpit button
+- No scheduler or automatic loop
+- Same safe result fields as the manual hook
 
 ## 23. Risks
 
