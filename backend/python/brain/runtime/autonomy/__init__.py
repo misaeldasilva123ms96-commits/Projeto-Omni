@@ -22,6 +22,8 @@ from .autonomy_policy import evaluate_policy
 from .autonomy_receipt import AutonomyReceipt, AutonomyReceiptLog, build_receipt
 from .autonomy_session_state import AutonomySessionState
 from .autonomy_session_tracker import AutonomySessionTracker
+from .dry_run_retry_models import DryRunRetryPlan
+from .dry_run_retry_planner import DryRunRetryPlanner, build_dry_run_retry_plan
 from .evidence_view import build_autonomy_evidence_payload
 from .error_progress_models import ErrorFingerprint, ProgressTrackerOutput, StrategyAttempt
 from .error_progress_tracker import SmartErrorProgressTracker
@@ -34,6 +36,9 @@ __all__ = [
     "AutonomyReceiptLog",
     "AutonomySessionState",
     "AutonomySessionTracker",
+    "DryRunRetryPlan",
+    "DryRunRetryPlanner",
+    "build_dry_run_retry_plan",
     "build_autonomy_evidence_payload",
     "ErrorFingerprint",
     "ProgressTrackerOutput",
