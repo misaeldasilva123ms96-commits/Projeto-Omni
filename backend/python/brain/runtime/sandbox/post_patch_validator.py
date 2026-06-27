@@ -68,7 +68,6 @@ _PROTECTED_PREFIXES = (
     "docs/governance/",
     "docs/security/",
     ".github/workflows/",
-    ".circleci/",
 )
 _CREDENTIAL_PATTERNS = (
     re.compile(r"Authorization:\s*Bearer\s+\S+", re.IGNORECASE),

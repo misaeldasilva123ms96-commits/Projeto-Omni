@@ -46,7 +46,7 @@ _SHA_PATTERN = re.compile(r"^[A-Fa-f0-9]{7,64}$")
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _./:(),\\-]{0,159}$")
 _SHELL_CHARS = re.compile(r"[;&|`$<>]")
 _PROTECTED_PREFIXES = ("release/", "prod/", "production/", "protected/")
-_ALLOWED_PROVIDERS = {"github_actions", "circleci"}
+_ALLOWED_PROVIDERS = {"github_actions"}
 
 
 class ControlledGitHubActionsClient(Protocol):
@@ -60,22 +60,10 @@ class ControlledGitHubActionsClient(Protocol):
         """Return a read-only GitHub Actions/checks snapshot."""
 
 
-class ControlledCircleCIClient(Protocol):
-    def get_circleci_status_snapshot(
-        self,
-        *,
-        repository_full_name: str,
-        head_branch: str,
-        head_sha: str,
-    ) -> Mapping[str, Any]:
-        """Return a read-only CircleCI status snapshot."""
-
-
 def monitor_ci_status(
     request_or_mapping: ControlledCIMonitorRequest | Mapping[str, Any] | Any,
     *,
     github_actions_client: ControlledGitHubActionsClient | None = None,
-    circleci_client: ControlledCircleCIClient | None = None,
 ) -> ControlledCIMonitorResult:
     request = _coerce_request(request_or_mapping)
     gate = _coerce_mapping(request.ci_monitor_gate_result)
@@ -159,7 +147,6 @@ def monitor_ci_status(
         pr_number=pr_number,
         pr_url=pr_url,
         github_actions_client=github_actions_client,
-        circleci_client=circleci_client,
         providers=providers,
     )
     if mode == "dry_run" and not blocked_reason:
@@ -188,7 +175,6 @@ def monitor_ci_status(
             workflows=[],
             required_checks=required_checks,
             github_status={},
-            circleci_status={},
             blocked=False,
             dry_run=True,
             partial=False,
@@ -224,7 +210,6 @@ def monitor_ci_status(
             workflows=[],
             required_checks=required_checks,
             github_status={},
-            circleci_status={},
             blocked=True,
             dry_run=False,
             partial=False,
@@ -240,7 +225,6 @@ def monitor_ci_status(
     checks: list[dict[str, object]] = []
     workflows_seen: list[dict[str, object]] = []
     github_status: dict[str, object] = {}
-    circleci_status: dict[str, object] = {}
     errors: list[str] = []
 
     if "github_actions" in providers:
@@ -259,23 +243,6 @@ def monitor_ci_status(
             secret_detected = secret_detected or github_redacted
         except Exception as exc:  # noqa: BLE001 - injected read client failure becomes partial evidence.
             errors.append(_redact_text(str(exc))[0])
-    if "circleci" in providers:
-        attempted.append("circleci_status_snapshot")
-        try:
-            circleci_status, circleci_redacted = _sanitize_snapshot(
-                circleci_client.get_circleci_status_snapshot(  # type: ignore[union-attr]
-                    repository_full_name=str(repository),
-                    head_branch=str(head_branch),
-                    head_sha=str(head_sha),
-                )
-            )
-            completed.append("circleci_status_snapshot")
-            checks.extend(_normalize_checks(circleci_status, "circleci", required_checks))
-            workflows_seen.extend(_normalize_workflows(circleci_status, "circleci"))
-            secret_detected = secret_detected or circleci_redacted
-        except Exception as exc:  # noqa: BLE001 - injected read client failure becomes partial evidence.
-            errors.append(_redact_text(str(exc))[0])
-
     if secret_detected:
         checks = []
         workflows_seen = []
@@ -305,7 +272,6 @@ def monitor_ci_status(
             workflows=[],
             required_checks=required_checks,
             github_status={},
-            circleci_status={},
             blocked=True,
             dry_run=False,
             partial=False,
@@ -342,7 +308,6 @@ def monitor_ci_status(
         workflows=workflows_seen,
         required_checks=required_checks,
         github_status=github_status,
-        circleci_status=circleci_status,
         blocked=False,
         dry_run=False,
         partial=partial,
@@ -378,7 +343,6 @@ def _blocked_reason(
     pr_number: int | None,
     pr_url: str | None,
     github_actions_client: ControlledGitHubActionsClient | None,
-    circleci_client: ControlledCircleCIClient | None,
     providers: list[str],
 ) -> str | None:
     if secret_detected:
@@ -454,8 +418,6 @@ def _blocked_reason(
         return "PR lock or archived repository metadata requires human intervention."
     if "github_actions" in providers and request.allow_github_actions_read and github_actions_client is None and mode == "monitor_ci":
         return "A GitHub Actions read client is required."
-    if "circleci" in providers and request.allow_circleci_read and circleci_client is None and mode == "monitor_ci":
-        return "A CircleCI read client is required."
     return None
 
 
@@ -485,7 +447,6 @@ def _result(
     workflows: list[dict[str, object]],
     required_checks: list[str],
     github_status: dict[str, object],
-    circleci_status: dict[str, object],
     blocked: bool,
     dry_run: bool,
     partial: bool,
@@ -539,7 +500,6 @@ def _result(
         workflow_runs_fetched=bool(monitored and workflows),
         check_runs_fetched=bool(monitored and checks),
         github_actions_read="github_actions_status_snapshot" in completed,
-        circleci_read="circleci_status_snapshot" in completed,
         secrets_detected=redacted,
         human_intervention_required=requires_human,
         escalation_reason=blocked_reason if requires_human else None,
@@ -571,7 +531,6 @@ def _result(
         aggregate_status=str(summary["aggregate_status"]),
         aggregate_conclusion=str(summary["aggregate_conclusion"]),
         github_actions_status=github_status,
-        circleci_status=circleci_status,
         checks_observed=checks,
         workflows_observed=workflows,
         required_checks_observed=list(summary["required_checks_observed"]),
@@ -915,7 +874,7 @@ def _coerce_request(value: ControlledCIMonitorRequest | Mapping[str, Any] | Any)
         base_branch=str(payload.get("base_branch") or MAIN_BRANCH),
         head_sha=payload.get("head_sha"),
         commit_sha=payload.get("commit_sha"),
-        expected_ci_providers=list(payload.get("expected_ci_providers") or ["github_actions", "circleci"]),
+        expected_ci_providers=list(payload.get("expected_ci_providers") or ["github_actions"]),
         expected_workflows=list(payload.get("expected_workflows") or []),
         expected_required_checks=list(payload.get("expected_required_checks") or []),
         polling_strategy=str(payload.get("polling_strategy") or "single_snapshot"),
@@ -933,7 +892,6 @@ def _coerce_request(value: ControlledCIMonitorRequest | Mapping[str, Any] | Any)
         require_head_sha=bool(payload.get("require_head_sha", True)),
         allow_ci_monitoring=bool(payload.get("allow_ci_monitoring", True)),
         allow_github_actions_read=bool(payload.get("allow_github_actions_read", True)),
-        allow_circleci_read=bool(payload.get("allow_circleci_read", True)),
         allow_log_download=bool(payload.get("allow_log_download", False)),
         allow_workflow_retry=bool(payload.get("allow_workflow_retry", False)),
         allow_workflow_trigger=bool(payload.get("allow_workflow_trigger", False)),

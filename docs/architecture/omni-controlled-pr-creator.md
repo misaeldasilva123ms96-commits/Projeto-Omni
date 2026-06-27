@@ -44,4 +44,4 @@ Runtime Truth records PR URL, number, state, duplicate detection, GitHub operati
 
 ## Next Gate
 
-The next layer is the CI Monitor Gate. It revalidates the created PR metadata and Runtime Truth before any future CI/check monitoring executor is allowed to query checks. The gate itself does not monitor CI or call GitHub/CircleCI APIs.
+The next layer is the CI Monitor Gate. It revalidates the created PR metadata and Runtime Truth before any future CI/check monitoring executor is allowed to query checks. The gate itself does not monitor CI or call GitHub APIs.

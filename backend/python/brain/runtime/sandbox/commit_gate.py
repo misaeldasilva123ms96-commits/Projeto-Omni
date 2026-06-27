@@ -36,7 +36,6 @@ _PROTECTED_PREFIXES = (
     "docs/governance/",
     "docs/security/",
     ".github/workflows/",
-    ".circleci/",
 )
 _CREDENTIAL_PATTERNS = (
     re.compile(r"Authorization:\s*Bearer\s+\S+", re.IGNORECASE),
@@ -495,7 +494,7 @@ def _commit_type(files: list[str]) -> str:
         return "test"
     if all(path.startswith("docs/") or path.startswith("vault/templates/") for path in files):
         return "docs"
-    if any(path.startswith(".github/") or path.startswith(".circleci/") for path in files):
+    if any(path.startswith(".github/") for path in files):
         return "ci"
     if any(path.startswith("backend/") or path.startswith("frontend/") for path in files):
         return "fix"

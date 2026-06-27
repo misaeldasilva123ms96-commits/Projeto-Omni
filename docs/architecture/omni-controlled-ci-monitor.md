@@ -17,7 +17,7 @@ Phase 30 sits after the CI Monitor Gate in the autonomous resolution loop:
 - Optional Phase 28 `pr_creator_result`
 - Optional Phase 27 `pr_creation_gate_result`
 - Repository, PR number, PR URL, PR state, head branch, base branch, and head SHA metadata
-- Narrow injected GitHub Actions and CircleCI read clients
+- Narrow injected GitHub Actions read clients
 
 ## Client Boundary
 

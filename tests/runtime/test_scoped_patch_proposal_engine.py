@@ -185,7 +185,6 @@ def test_file_scope_allowed_high_risk_and_blocked_paths() -> None:
         "docs/governance/policy.md",
         "docs/security/threat-model.md",
         ".github/workflows/ci.yml",
-        ".circleci/config.yml",
     ]
     for path in risky_paths:
         result = _proposal(

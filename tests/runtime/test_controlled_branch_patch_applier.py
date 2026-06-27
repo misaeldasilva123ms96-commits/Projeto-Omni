@@ -197,7 +197,6 @@ def test_file_scope_allowed_and_protected_paths(tmp_path: Path) -> None:
         "docs/governance/policy.md",
         "docs/security/threat-model.md",
         ".github/workflows/ci.yml",
-        ".circleci/config.yml",
         "../escape.py",
         str(tmp_path.parent / "outside.py"),
         ".git/config",

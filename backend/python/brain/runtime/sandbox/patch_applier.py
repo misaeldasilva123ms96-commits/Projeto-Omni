@@ -54,7 +54,6 @@ _PROTECTED_PREFIXES = (
     "docs/governance/",
     "docs/security/",
     ".github/workflows/",
-    ".circleci/",
 )
 _SAFE_COMMAND_PREFIXES = (
     "python -m pytest",

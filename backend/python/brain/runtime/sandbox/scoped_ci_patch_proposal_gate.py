@@ -63,7 +63,7 @@ _ALLOWED_FILE_ROOTS = frozenset({
     "backend/python", "backend/rust/src", "frontend/src", "tests", "docs", "sandbox/local",
 })
 _BLOCKED_FILE_ROOTS = frozenset({
-    ".git", ".github/workflows", ".circleci", "docs/security", "docs/governance",
+    ".git", ".github/workflows", "docs/security", "docs/governance",
     "vault/08_ADR", ".env", "secrets", "deploy", "deployment", "production", "prod",
     "billing", "credentials", "keys", "tokens", "auth secrets",
 })

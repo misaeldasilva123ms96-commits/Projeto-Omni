@@ -17,6 +17,6 @@ The gate links Phase 28 PR creator evidence, Phase 27 PR gate evidence, and Phas
 - A bounded `ci_monitor_plan` with expected providers, workflows, required checks, polling strategy, and terminal states.
 - Required pre-CI-monitor checks.
 
-It deliberately does not query GitHub, CircleCI, workflow runs, check runs, or logs. It also does not execute commands, use `gh`, mutate Git, push, merge, rebase, create/update PRs, approve PRs, call providers, call MCP, call agents, write Vault notes, edit files, or apply patches.
+It deliberately does not query GitHub, workflow runs, check runs, or logs. It also does not execute commands, use `gh`, mutate Git, push, merge, rebase, create/update PRs, approve PRs, call providers, call MCP, call agents, write Vault notes, edit files, or apply patches.
 
 The Phase 30 Controlled CI Monitor revalidates this evidence before any read-only CI status snapshot happens.

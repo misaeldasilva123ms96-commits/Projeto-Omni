@@ -65,7 +65,6 @@ Protected files and paths require blocking or human intervention:
 - `docs/governance/**`
 - `docs/security/**`
 - `.github/workflows/**`
-- `.circleci/**`
 - production deploy files
 - billing files
 - lockfiles

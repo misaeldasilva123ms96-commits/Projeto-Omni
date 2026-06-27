@@ -45,7 +45,7 @@ _SHA_PATTERN = re.compile(r"^[A-Fa-f0-9]{7,64}$")
 _CI_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _./:(),\\-]{0,119}$")
 _SHELL_CHARS = re.compile(r"[;&|`$<>]")
 _PROTECTED_PREFIXES = ("release/", "prod/", "production/", "protected/")
-_ALLOWED_PROVIDERS = {"github_actions", "circleci"}
+_ALLOWED_PROVIDERS = {"github_actions"}
 _DESTRUCTIVE_CI_WORDS = ("deploy", "release production", "production deploy", "billing", "destroy")
 
 
@@ -294,7 +294,6 @@ def evaluate_ci_monitor_gate(
         required_pre_ci_monitor_checks=required_checks,
         can_monitor_ci=False,
         can_call_github_api=False,
-        can_call_circleci_api=False,
         can_download_logs=False,
         can_retry_workflows=False,
         can_start_repair_loop=False,
@@ -361,7 +360,6 @@ def _blocked_reason(
         (
             request.allow_ci_monitoring,
             request.allow_github_api,
-            request.allow_circleci_api,
             request.allow_log_download,
             request.allow_workflow_retry,
             request.allow_repair_loop,
@@ -720,7 +718,7 @@ def _coerce_request(value: CIMonitorGateRequest | Mapping[str, Any] | Any) -> CI
         base_sha=payload.get("base_sha"),
         merge_commit_sha=payload.get("merge_commit_sha"),
         commit_sha=payload.get("commit_sha"),
-        expected_ci_providers=list(payload.get("expected_ci_providers") or ["github_actions", "circleci"]),
+        expected_ci_providers=list(payload.get("expected_ci_providers") or ["github_actions"]),
         expected_workflows=list(payload.get("expected_workflows") or []),
         expected_required_checks=list(payload.get("expected_required_checks") or []),
         allowed_statuses=list(payload.get("allowed_statuses") or CIMonitorGateRequest().allowed_statuses),
@@ -736,7 +734,6 @@ def _coerce_request(value: CIMonitorGateRequest | Mapping[str, Any] | Any) -> CI
         require_repository_safe=bool(payload.get("require_repository_safe", True)),
         allow_ci_monitoring=bool(payload.get("allow_ci_monitoring", False)),
         allow_github_api=bool(payload.get("allow_github_api", False)),
-        allow_circleci_api=bool(payload.get("allow_circleci_api", False)),
         allow_log_download=bool(payload.get("allow_log_download", False)),
         allow_workflow_retry=bool(payload.get("allow_workflow_retry", False)),
         allow_repair_loop=bool(payload.get("allow_repair_loop", False)),

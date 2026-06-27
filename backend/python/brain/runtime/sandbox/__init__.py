@@ -49,7 +49,6 @@ from .scoped_ci_patch_proposal_gate_types import (
     ScopedCIPatchProposalGateResult,
 )
 from .ci_monitor import (
-    ControlledCircleCIClient,
     ControlledGitHubActionsClient,
     monitor_ci_status,
 )
@@ -167,7 +166,6 @@ __all__ = [
     "CIMonitorGateEvidence",
     "CIMonitorGateRequest",
     "CIMonitorGateResult",
-    "ControlledCircleCIClient",
     "ControlledCIMonitorEvidence",
     "CIRepairLoopGateEvidence",
     "CIRepairLoopGateRequest",
