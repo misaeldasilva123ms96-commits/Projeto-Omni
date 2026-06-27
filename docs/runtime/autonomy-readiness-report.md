@@ -132,10 +132,12 @@ consumes the decision to perform autonomous actions.
 7. **Cockpit** reconstructs the decision timeline from `cognitiveRuntimeInspection.autonomy_evaluation` in Supabase chat message metadata
 
 **Known limitations:**
-- No dedicated evidence persistence endpoint — evidence is embedded in message metadata
+- Dedicated read-only evidence retrieval is now available through
+  `build_autonomy_evidence_payload()` over MemoryFacade governance events
 - The `EvidenceMemoryStore` (JSON file) exists but is not wired into the controller
 - Governance events are fire-and-forget with silent failure on error
-- No evidence query API for the frontend — timeline reconstruction is Supabase-based
+- Cockpit timeline reconstruction can still use Supabase metadata, but backend
+  evidence no longer depends only on chat message metadata
 
 ---
 
@@ -173,6 +175,91 @@ enabling decisions, or executing actions.
 
 The timeline is sourced from Supabase message metadata, not from the controller
 receipt log (which is process-local).
+
+---
+
+## 12. Phase 1 Advisory Hardening Addendum
+
+**Branch:** `feature/autonomy-hardened-advisory`
+
+Phase 1 hardening adds a dedicated read-only evidence retrieval path without
+enabling autonomous execution.
+
+### Read-Only Evidence Retrieval
+
+`backend/python/brain/runtime/autonomy/evidence_view.py` exposes
+`build_autonomy_evidence_payload()`.
+
+The payload is:
+
+- `mode = "advisory-only"`
+- `read_only = true`
+- sourced from existing `MemoryFacade` governance events
+- limited to safe metadata fields such as decision, risk level, advisory flag,
+  fingerprint, progress/stagnation scores, strategy labels, and timestamps
+- sanitized by the public runtime payload sanitizer
+
+It deliberately excludes:
+
+- raw prompts
+- raw responses
+- raw receipts
+- stdout/stderr
+- stack traces
+- command names or args
+- headers/cookies
+- API keys, tokens, secrets, credentials
+- provider raw payloads
+
+Malformed or corrupt JSONL evidence degrades to an empty safe payload.
+
+### Persistence Behavior
+
+The hardening preserves the existing memory contract:
+
+- JSONL remains the default audit mirror.
+- SQLite remains opt-in through the existing MemoryFacade flags and environment.
+- Evidence retrieval does not require SQLite.
+- SQLite write/read failures degrade safely through the existing facade behavior.
+
+No production or deploy settings changed.
+
+### Session State
+
+No SQLite-backed autonomy session state was added in this phase. The
+`AutonomySessionTracker` remains process-local, and durable retrieval is scoped
+to persisted governance evidence. This avoids expanding state-write behavior
+until a dedicated MemoryFacade-backed session-state design is reviewed.
+
+### Escalation Visibility
+
+Escalation visibility is now represented in the evidence payload summary:
+
+- `summary.escalation_count`
+- `summary.latest_escalation_at`
+- per-item `decision = "ESCALATE_TO_MISAEL"`
+
+This is reporting only. It does not notify, execute, retry, replan, repair,
+switch providers, commit, push, open PRs, merge, or repair CI.
+
+### Evidence Reliability Fix
+
+`AutonomyController.decide_with_report()` now returns the receipt recorded by
+`decide()` instead of adding a second receipt for the same decision. Controller
+stats and receipt counts now reflect one receipt per evaluation in that path.
+
+### Advisory-Only Boundary
+
+The hardening keeps the non-execution boundary intact:
+
+- `SELF_REPAIR` and `SWITCH_PROVIDER` remain disabled decisions.
+- `RETRY`, `REPLAN`, `ABORT_SAFE`, and `ESCALATE_TO_MISAEL` remain advisory
+  decisions only.
+- No execution controls were added to Cockpit.
+- No provider routing logic changed.
+
+**Omni autonomy remains NOT approved for autonomous execution. Current mode is
+advisory-only.**
 
 ---
 

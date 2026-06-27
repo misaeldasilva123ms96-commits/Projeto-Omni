@@ -120,8 +120,7 @@ class AutonomyController:
         ctx: AutonomyContext,
     ) -> tuple[AutonomyDecision, AutonomyReceipt, EscalationReport | None]:
         decision = self.decide(ctx)
-        receipt = build_receipt(decision)
-        self._receipt_log.add(receipt)
+        receipt = self._receipt_log.last() or build_receipt(decision)
         escalation: EscalationReport | None = None
         if decision.decision == DecisionType.ESCALATE_TO_MISAEL:
             escalation = build_escalation_report(decision, ctx)
