@@ -81,6 +81,8 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         result = self._evaluate(inspection, tracker)
 
         self.assertTrue(result["advisory"])
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "process_local")
+        self.assertFalse(result["session_state_diagnostics"]["session_state_persistence_enabled"])
         self.assertEqual(facade.reads, [])
         self.assertEqual(facade.writes, [])
         self.assertEqual(tracker.get_state("sess-1").current_error_count, 1)  # type: ignore[union-attr]
@@ -91,9 +93,10 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         tracker = AutonomySessionTracker(memory_facade=facade)
         inspection = {"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}
 
-        self._evaluate(inspection, tracker)
+        result = self._evaluate(inspection, tracker)
 
         self.assertFalse(facade.sqlite_enabled)
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "process_local")
         self.assertIsNone(facade.get_autonomy_session_state("sess-1"))
         self.assertEqual(facade.audit_records(), [])
 
@@ -113,33 +116,44 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         tracker = AutonomySessionTracker(memory_facade=facade)
         inspection = {"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}
 
-        self._evaluate(inspection, tracker)
+        result = self._evaluate(inspection, tracker)
 
         state = tracker.get_state("sess-1")
         self.assertIsNotNone(state)
         self.assertEqual(state.current_error_count if state else 0, 5)
+        diagnostics = result["session_state_diagnostics"]
+        self.assertEqual(diagnostics["session_state_source"], "sqlite_hydrated")
+        self.assertTrue(diagnostics["session_state_persistence_enabled"])
+        self.assertTrue(diagnostics["session_state_hydrated"])
+        self.assertTrue(diagnostics["session_state_upserted"])
+        self.assertFalse(diagnostics["session_state_degraded"])
 
     def test_sqlite_enabled_upserts_after_evaluation(self) -> None:
         facade = self._sqlite_facade()
         tracker = AutonomySessionTracker(memory_facade=facade)
         inspection = {"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}
 
-        self._evaluate(inspection, tracker)
+        result = self._evaluate(inspection, tracker)
         persisted = facade.get_autonomy_session_state("sess-1")
 
         self.assertIsNotNone(persisted)
         self.assertEqual(persisted.current_error_count if persisted else 0, 1)
         self.assertEqual(persisted.last_error_type if persisted else "", "timeout")
         self.assertEqual(persisted.last_decision if persisted else "", DecisionType.RETRY.value)
+        diagnostics = result["session_state_diagnostics"]
+        self.assertEqual(diagnostics["session_state_source"], "sqlite_missing")
+        self.assertFalse(diagnostics["session_state_hydrated"])
+        self.assertTrue(diagnostics["session_state_upserted"])
 
     def test_missing_persisted_state_falls_back_to_new_process_local_state(self) -> None:
         facade = self._sqlite_facade()
         tracker = AutonomySessionTracker(memory_facade=facade)
 
-        self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
+        result = self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
 
         state = tracker.get_state("sess-1")
         self.assertEqual(state.current_error_count if state else 0, 1)
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "sqlite_missing")
 
     def test_corrupt_persisted_state_falls_back_safely(self) -> None:
         facade = self._sqlite_facade()
@@ -155,10 +169,11 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         )
         tracker = AutonomySessionTracker(memory_facade=facade)
 
-        self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
+        result = self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
 
         state = tracker.get_state("sess-1")
         self.assertEqual(state.current_error_count if state else 0, 1)
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "sqlite_missing")
 
     def test_memory_facade_read_failure_does_not_break_runtime(self) -> None:
         facade = _SpyFacade(sqlite_enabled=True, connected=True, fail_read=True)
@@ -167,7 +182,19 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         result = self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
 
         self.assertTrue(result["advisory"])
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "sqlite_read_failed")
+        self.assertTrue(result["session_state_diagnostics"]["session_state_degraded"])
         self.assertEqual(tracker.get_state("sess-1").current_error_count, 1)  # type: ignore[union-attr]
+
+    def test_sqlite_unavailable_diagnostic_does_not_break_runtime(self) -> None:
+        facade = _SpyFacade(sqlite_enabled=True, connected=False)
+        tracker = AutonomySessionTracker(memory_facade=facade)  # type: ignore[arg-type]
+
+        result = self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
+
+        self.assertTrue(result["advisory"])
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "sqlite_unavailable")
+        self.assertTrue(result["session_state_diagnostics"]["session_state_degraded"])
 
     def test_memory_facade_write_failure_does_not_break_runtime(self) -> None:
         facade = _SpyFacade(sqlite_enabled=True, connected=True, fail_write=True)
@@ -176,6 +203,8 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         result = self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
 
         self.assertTrue(result["advisory"])
+        self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "sqlite_write_failed")
+        self.assertTrue(result["session_state_diagnostics"]["session_state_degraded"])
         self.assertEqual(tracker.get_state("sess-1").current_error_count, 1)  # type: ignore[union-attr]
 
     def test_raw_prompt_response_and_secret_are_not_persisted(self) -> None:
@@ -195,12 +224,28 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         persisted = facade.get_autonomy_session_state("sess-1")
         payload = persisted.as_dict() if persisted is not None else {}
         as_text = str(payload)
+        diagnostics_text = str(self._evaluate(inspection, tracker, response="secret response")["session_state_diagnostics"])
 
         self.assertNotIn("raw_prompt", as_text)
         self.assertNotIn("raw_response", as_text)
         self.assertNotIn("secret prompt", as_text)
         self.assertNotIn("secret response", as_text)
         self.assertNotIn("sk-test-secret", as_text)
+        self.assertNotIn("secret prompt", diagnostics_text)
+        self.assertNotIn("secret response", diagnostics_text)
+        self.assertNotIn("sk-test-secret", diagnostics_text)
+
+    def test_secret_like_error_category_is_redacted_in_diagnostics(self) -> None:
+        tracker = AutonomySessionTracker(memory_facade=_SpyFacade(sqlite_enabled=False, connected=False))  # type: ignore[arg-type]
+
+        result = self._evaluate(
+            {"signals": {"failure_class": "Bearer sk-test-secret", "runtime_mode": "standard"}},
+            tracker,
+        )
+
+        diagnostics = result["session_state_diagnostics"]
+        self.assertEqual(diagnostics["session_state_last_error_category"], "[REDACTED]")
+        self.assertNotIn("sk-test-secret", str(diagnostics))
 
     def test_response_string_result_is_unchanged_with_sqlite_disabled(self) -> None:
         inspection = {"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}
@@ -210,7 +255,10 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
             AutonomySessionTracker(memory_facade=_SpyFacade(sqlite_enabled=False, connected=False)),  # type: ignore[arg-type]
         )
 
-        self.assertEqual(sqlite_disabled, baseline)
+        self.assertEqual(
+            {k: v for k, v in sqlite_disabled.items() if k != "session_state_diagnostics"},
+            {k: v for k, v in baseline.items() if k != "session_state_diagnostics"},
+        )
 
     def test_advisory_only_decisions_remain_advisory(self) -> None:
         result = self._evaluate(

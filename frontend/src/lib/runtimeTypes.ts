@@ -91,6 +91,27 @@ export type RuntimeAutonomyStatus = {
   fingerprint_id: string | null
   recommended_decision_hint: string | null
   evidence_summary: string | null
+  session_state_diagnostics: RuntimeAutonomySessionStateDiagnostics | null
+}
+
+export type RuntimeAutonomySessionStateSource =
+  | 'process_local'
+  | 'sqlite_hydrated'
+  | 'sqlite_missing'
+  | 'sqlite_unavailable'
+  | 'sqlite_read_failed'
+  | 'sqlite_write_failed'
+
+export type RuntimeAutonomySessionStateDiagnostics = {
+  session_state_source: RuntimeAutonomySessionStateSource | null
+  session_state_persistence_enabled: boolean | null
+  session_state_hydrated: boolean | null
+  session_state_upserted: boolean | null
+  session_state_degraded: boolean | null
+  session_state_last_error_category: string | null
+  session_state_updated_at: string | null
+  session_state_expires_at: string | null
+  session_state_fields_count: number | null
 }
 
 export type AutonomyTimelineItem = {
@@ -169,6 +190,36 @@ function normalizeOil(value: unknown): RuntimeOilSkeleton | null {
   }
 }
 
+const AUTONOMY_SESSION_STATE_SOURCES = new Set([
+  'process_local',
+  'sqlite_hydrated',
+  'sqlite_missing',
+  'sqlite_unavailable',
+  'sqlite_read_failed',
+  'sqlite_write_failed',
+])
+
+export function normalizeAutonomySessionStateDiagnostics(
+  value: unknown,
+): RuntimeAutonomySessionStateDiagnostics | null {
+  if (!isRecord(value)) return null
+  const rawSource = optionalString(value.session_state_source)
+  const source = rawSource && AUTONOMY_SESSION_STATE_SOURCES.has(rawSource)
+    ? rawSource as RuntimeAutonomySessionStateSource
+    : null
+  return {
+    session_state_source: source,
+    session_state_persistence_enabled: optionalBoolean(value.session_state_persistence_enabled),
+    session_state_hydrated: optionalBoolean(value.session_state_hydrated),
+    session_state_upserted: optionalBoolean(value.session_state_upserted),
+    session_state_degraded: optionalBoolean(value.session_state_degraded),
+    session_state_last_error_category: optionalString(value.session_state_last_error_category),
+    session_state_updated_at: optionalTimestamp(value.session_state_updated_at),
+    session_state_expires_at: optionalTimestamp(value.session_state_expires_at),
+    session_state_fields_count: optionalNumber(value.session_state_fields_count),
+  }
+}
+
 export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus | null {
   if (!isRecord(value)) return null
   return {
@@ -185,6 +236,7 @@ export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus |
     fingerprint_id: optionalString(value.fingerprint_id),
     recommended_decision_hint: optionalString(value.recommended_decision_hint),
     evidence_summary: optionalString(value.evidence_summary),
+    session_state_diagnostics: normalizeAutonomySessionStateDiagnostics(value.session_state_diagnostics),
   }
 }
 

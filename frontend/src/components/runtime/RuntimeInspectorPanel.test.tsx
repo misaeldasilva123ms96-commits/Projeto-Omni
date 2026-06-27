@@ -180,8 +180,254 @@ describe('RuntimeInspectorPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
 
-    expect(screen.getByText('Timeline somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
+    expect(screen.getByText('Diagnóstico somente leitura — nenhuma ação autônoma executada.')).toBeInTheDocument()
     expect(screen.getAllByText('CONTINUE').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders process-local autonomy session diagnostics', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'No errors.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 0,
+          is_progress: false,
+          is_stagnation: false,
+          stagnant_attempts: 0,
+          fingerprint_id: '',
+          recommended_decision_hint: '',
+          evidence_summary: '',
+          session_state_diagnostics: {
+            session_state_source: 'process_local',
+            session_state_persistence_enabled: false,
+            session_state_hydrated: false,
+            session_state_upserted: false,
+            session_state_degraded: false,
+            session_state_last_error_category: '',
+            session_state_updated_at: '2026-06-27T03:00:00+00:00',
+            session_state_expires_at: '2026-07-04T03:00:00+00:00',
+            session_state_fields_count: 4,
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Estado da Sessão')).toBeInTheDocument()
+    expect(screen.getByText('Process-local')).toBeInTheDocument()
+    expect(screen.getByText('Campos Seguros')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+  })
+
+  it('renders SQLite hydrated autonomy session diagnostics', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'RETRY',
+          advisory: true,
+          reason: 'Stagnation.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 1,
+          is_progress: false,
+          is_stagnation: true,
+          stagnant_attempts: 1,
+          fingerprint_id: 'abc123',
+          recommended_decision_hint: 'RETRY',
+          evidence_summary: '',
+          session_state_diagnostics: {
+            session_state_source: 'sqlite_hydrated',
+            session_state_persistence_enabled: true,
+            session_state_hydrated: true,
+            session_state_upserted: true,
+            session_state_degraded: false,
+            session_state_last_error_category: 'timeout',
+            session_state_updated_at: '2026-06-27T03:00:00+00:00',
+            session_state_expires_at: '2026-07-04T03:00:00+00:00',
+            session_state_fields_count: 8,
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('SQLite hidratado')).toBeInTheDocument()
+    expect(screen.getByText('Categoria de Erro')).toBeInTheDocument()
+    expect(screen.getByText('timeout')).toBeInTheDocument()
+  })
+
+  it('renders SQLite fallback and failure diagnostics safely', async () => {
+    const cases = [
+      ['sqlite_missing', 'SQLite sem estado salvo'],
+      ['sqlite_read_failed', 'Falha de leitura SQLite'],
+      ['sqlite_write_failed', 'Falha de gravação SQLite'],
+    ] as const
+
+    for (const [source, label] of cases) {
+      const metadata: RuntimeMetadata = {
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'CONTINUE',
+            advisory: true,
+            reason: 'ok',
+            risk_level: 'low',
+            session_id: 's1',
+            progress_score: 0,
+            stagnation_score: 0,
+            is_progress: false,
+            is_stagnation: false,
+            stagnant_attempts: 0,
+            fingerprint_id: '',
+            recommended_decision_hint: '',
+            evidence_summary: '',
+            session_state_diagnostics: {
+              session_state_source: source,
+              session_state_persistence_enabled: true,
+              session_state_hydrated: false,
+              session_state_upserted: source === 'sqlite_missing',
+              session_state_degraded: source !== 'sqlite_missing',
+              session_state_last_error_category: 'timeout',
+              session_state_updated_at: '2026-06-27T03:00:00+00:00',
+              session_state_expires_at: '2026-07-04T03:00:00+00:00',
+              session_state_fields_count: 5,
+            },
+          },
+        },
+      }
+
+      const { unmount } = render(
+        <RuntimeInspectorPanel
+          data={normalizeStoredRuntimeMetadata(metadata)}
+          requestState="idle"
+        />,
+      )
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+      expect(screen.getByText(label)).toBeInTheDocument()
+      expect(screen.getByText('Degradado com Segurança')).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('preserves empty session diagnostics when missing', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'No errors.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 0,
+          is_progress: false,
+          is_stagnation: false,
+          stagnant_attempts: 0,
+          fingerprint_id: '',
+          recommended_decision_hint: '',
+          evidence_summary: '',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Estado da Sessão')).toBeInTheDocument()
+    expect(screen.getByText('Fonte')).toBeInTheDocument()
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+  })
+
+  it('does not render forbidden session diagnostic fields or controls', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'RETRY',
+          advisory: true,
+          reason: 'ok',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 1,
+          is_progress: false,
+          is_stagnation: true,
+          stagnant_attempts: 1,
+          fingerprint_id: '',
+          recommended_decision_hint: 'RETRY',
+          evidence_summary: '',
+          session_state_diagnostics: {
+            session_state_source: 'sqlite_hydrated',
+            session_state_persistence_enabled: true,
+            session_state_hydrated: true,
+            session_state_upserted: true,
+            session_state_degraded: false,
+            session_state_last_error_category: 'Bearer sk-proj-should-not-render',
+            session_state_updated_at: '2026-06-27T03:00:00+00:00',
+            session_state_expires_at: '2026-07-04T03:00:00+00:00',
+            session_state_fields_count: 8,
+            raw_prompt: 'do not render',
+            raw_response: 'do not render',
+            provider_payload: 'do not render',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(document.body.textContent).toContain('[REDACTED]')
+    expect(document.body.textContent).not.toContain('should-not-render')
+    expect(document.body.textContent).not.toContain('raw_prompt')
+    expect(document.body.textContent).not.toContain('raw_response')
+    expect(document.body.textContent).not.toContain('provider_payload')
+    expect(screen.queryByRole('button', { name: 'RETRY' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'SELF_REPAIR' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'SWITCH_PROVIDER' })).not.toBeInTheDocument()
   })
 
   it('renders tracker scores safely on Autonomia tab', async () => {

@@ -37,6 +37,12 @@ when a `MemoryFacade` is present and SQLite memory is explicitly enabled and
 connected. JSONL/default behavior remains process-local, and autonomy decisions
 remain advisory-only.
 
+**Cockpit diagnostics update:** `feature/autonomy-session-state-cockpit-diagnostics`
+exposes read-only session-state diagnostics in `autonomy_evaluation` and the
+Cockpit Autonomia tab. Diagnostics are limited to categorical source, booleans,
+safe timestamps, numeric field count, and a redacted error category. No raw
+persisted session state is rendered.
+
 ## 2. Current State
 
 The current autonomy stack is advisory-only:
@@ -449,6 +455,18 @@ Future implementation may expose non-sensitive persistence diagnostics, such as:
 - Expired rows cleaned count.
 
 Cockpit must not display forbidden fields or raw storage errors.
+
+Implemented diagnostics use these safe fields:
+
+- `session_state_source`
+- `session_state_persistence_enabled`
+- `session_state_hydrated`
+- `session_state_upserted`
+- `session_state_degraded`
+- `session_state_last_error_category`
+- `session_state_updated_at`
+- `session_state_expires_at`
+- `session_state_fields_count`
 
 ## 23. Risks
 

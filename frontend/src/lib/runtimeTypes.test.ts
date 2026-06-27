@@ -231,6 +231,17 @@ describe('runtime inspector contracts', () => {
             fingerprint_id: 'abc123def456',
             recommended_decision_hint: 'RETRY',
             evidence_summary: 'fingerprint=abc123def456 | repeated_error | stagnation | progress_score=0 | stagnation_score=1 | stagnant_attempts=1 | distinct_errors=1 | hint=RETRY',
+            session_state_diagnostics: {
+              session_state_source: 'sqlite_hydrated',
+              session_state_persistence_enabled: true,
+              session_state_hydrated: true,
+              session_state_upserted: true,
+              session_state_degraded: false,
+              session_state_last_error_category: 'timeout',
+              session_state_updated_at: '2026-06-27T03:00:00+00:00',
+              session_state_expires_at: '2026-07-04T03:00:00+00:00',
+              session_state_fields_count: 8,
+            },
           },
         },
       })
@@ -249,6 +260,15 @@ describe('runtime inspector contracts', () => {
       expect(normalized.autonomy?.fingerprint_id).toBe('abc123def456')
       expect(normalized.autonomy?.recommended_decision_hint).toBe('RETRY')
       expect(normalized.autonomy?.evidence_summary).toContain('fingerprint=abc123def456')
+      expect(normalized.autonomy?.session_state_diagnostics).toMatchObject({
+        session_state_source: 'sqlite_hydrated',
+        session_state_persistence_enabled: true,
+        session_state_hydrated: true,
+        session_state_upserted: true,
+        session_state_degraded: false,
+        session_state_last_error_category: 'timeout',
+        session_state_fields_count: 8,
+      })
     })
 
     it('returns null autonomy when autonomy_evaluation is missing', () => {
@@ -280,11 +300,49 @@ describe('runtime inspector contracts', () => {
             fingerprint_id: '',
             recommended_decision_hint: '',
             evidence_summary: '',
+            session_state_diagnostics: {
+              session_state_source: 'sqlite_hydrated',
+              session_state_persistence_enabled: true,
+              session_state_hydrated: true,
+              session_state_upserted: true,
+              session_state_degraded: false,
+              session_state_last_error_category: 'Bearer sk-proj-leaked',
+              session_state_updated_at: '2026-06-27T03:00:00+00:00',
+              session_state_expires_at: '2026-07-04T03:00:00+00:00',
+              session_state_fields_count: 8,
+              raw_prompt: 'do not normalize',
+            },
           },
         },
       })
 
       expect(normalized.autonomy?.reason).toBe('[REDACTED]')
+      expect(normalized.autonomy?.session_state_diagnostics?.session_state_last_error_category).toBe('[REDACTED]')
+      expect(normalized.autonomy?.session_state_diagnostics).not.toHaveProperty('raw_prompt')
+    })
+
+    it('drops unknown autonomy session state diagnostic source', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'CONTINUE',
+            advisory: true,
+            session_state_diagnostics: {
+              session_state_source: 'raw_response',
+              session_state_persistence_enabled: true,
+              session_state_hydrated: false,
+              session_state_upserted: false,
+              session_state_degraded: true,
+              session_state_fields_count: 2,
+            },
+          },
+        },
+      })
+
+      expect(normalized.autonomy?.session_state_diagnostics?.session_state_source).toBeNull()
+      expect(normalized.autonomy?.session_state_diagnostics?.session_state_degraded).toBe(true)
     })
 
     it('handles null autonomy_evaluation gracefully', () => {
