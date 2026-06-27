@@ -237,6 +237,7 @@ def evaluate_autonomy(
     tracker.update(session_id, ctx, decision)
 
     tracker_fields = smart_output.as_dict()
+    session_state_diagnostics = tracker.get_session_diagnostics(ctx.session_id)
 
     result: dict[str, Any] = {
         "decision": decision.decision.value,
@@ -254,6 +255,7 @@ def evaluate_autonomy(
         "evidence_summary": tracker_fields.get("evidence_summary", ""),
         "strategies_attempted": list(tracker_fields.get("strategies_attempted", [])),
         "repeated_strategy_count": tracker_fields.get("repeated_strategy_count", 0),
+        "session_state_diagnostics": session_state_diagnostics,
     }
 
     logger.debug(

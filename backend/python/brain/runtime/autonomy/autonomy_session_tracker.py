@@ -35,12 +35,32 @@ _RUNTIME_MODE_ORDER: dict[str, int] = {
     "normal": 3,
 }
 
+_PROCESS_LOCAL_DIAGNOSTIC = {
+    "session_state_source": "process_local",
+    "session_state_persistence_enabled": False,
+    "session_state_hydrated": False,
+    "session_state_upserted": False,
+    "session_state_degraded": False,
+    "session_state_last_error_category": "",
+    "session_state_updated_at": "",
+    "session_state_expires_at": "",
+    "session_state_fields_count": 0,
+}
+
 
 def _safe_int(value: Any) -> int:
     try:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
+
+
+def _safe_diagnostic_string(value: Any) -> str:
+    text = str(value or "").replace("\x00", "").strip()
+    lowered = text.lower()
+    if any(marker in lowered for marker in ("sk-", "api_key", "authorization:", "bearer ", "token=", "secret=")):
+        return "[REDACTED]"
+    return text[:80]
 
 
 class AutonomySessionTracker:
@@ -54,6 +74,31 @@ class AutonomySessionTracker:
         self._sessions: dict[str, AutonomySessionState] = {}
         self._memory_facade = memory_facade
         self._hydrated_sessions: set[str] = set()
+        self._session_diagnostics: dict[str, dict[str, Any]] = {}
+
+    def _set_diagnostic(
+        self,
+        session_id: str,
+        *,
+        source: str,
+        persistence_enabled: bool,
+        hydrated: bool = False,
+        upserted: bool = False,
+        degraded: bool = False,
+        last_error_category: str = "",
+        state: AutonomySessionState | None = None,
+    ) -> None:
+        self._session_diagnostics[session_id] = {
+            "session_state_source": source,
+            "session_state_persistence_enabled": persistence_enabled,
+            "session_state_hydrated": hydrated,
+            "session_state_upserted": upserted,
+            "session_state_degraded": degraded,
+            "session_state_last_error_category": _safe_diagnostic_string(last_error_category),
+            "session_state_updated_at": state.updated_at if state else "",
+            "session_state_expires_at": state.expires_at if state else "",
+            "session_state_fields_count": _state_fields_count(state),
+        }
 
     def _sqlite_persistence_enabled(self) -> bool:
         facade = self._memory_facade
@@ -117,30 +162,103 @@ class AutonomySessionTracker:
         if session_id in self._hydrated_sessions:
             return None
         self._hydrated_sessions.add(session_id)
+        persistence_requested = bool(getattr(self._memory_facade, "sqlite_enabled", False)) if self._memory_facade else False
+        if not persistence_requested:
+            self._set_diagnostic(
+                session_id,
+                source="process_local",
+                persistence_enabled=False,
+            )
+            return None
         if not self._sqlite_persistence_enabled():
+            self._set_diagnostic(
+                session_id,
+                source="sqlite_unavailable",
+                persistence_enabled=True,
+                degraded=True,
+            )
             return None
         try:
             record = self._memory_facade.get_autonomy_session_state(session_id)
         except Exception as exc:
             logger.debug("Autonomy session state hydrate failed: %s", exc)
+            self._set_diagnostic(
+                session_id,
+                source="sqlite_read_failed",
+                persistence_enabled=True,
+                degraded=True,
+            )
             return None
         if record is None:
+            self._set_diagnostic(
+                session_id,
+                source="sqlite_missing",
+                persistence_enabled=True,
+            )
             return None
         try:
-            return self._record_to_state(record)
+            state = self._record_to_state(record)
+            self._set_diagnostic(
+                session_id,
+                source="sqlite_hydrated",
+                persistence_enabled=True,
+                hydrated=True,
+                state=state,
+            )
+            return state
         except Exception as exc:
             logger.debug("Autonomy session state hydrate decode failed: %s", exc)
+            self._set_diagnostic(
+                session_id,
+                source="sqlite_read_failed",
+                persistence_enabled=True,
+                degraded=True,
+            )
             return None
 
     def _persist_to_memory(self, state: AutonomySessionState) -> None:
         if not self._sqlite_persistence_enabled():
+            previous = self._session_diagnostics.get(state.session_id, {})
+            persistence_requested = bool(getattr(self._memory_facade, "sqlite_enabled", False)) if self._memory_facade else False
+            self._set_diagnostic(
+                state.session_id,
+                source=str(previous.get("session_state_source") or "process_local"),
+                persistence_enabled=persistence_requested,
+                hydrated=bool(previous.get("session_state_hydrated")),
+                upserted=False,
+                degraded=bool(previous.get("session_state_degraded")),
+                last_error_category=state.last_error_type,
+                state=state,
+            )
             return
         try:
             record = self._state_to_record(state)
             if record is not None:
                 self._memory_facade.record_autonomy_session_state(record)
+                previous = self._session_diagnostics.get(state.session_id, {})
+                self._set_diagnostic(
+                    state.session_id,
+                    source=str(previous.get("session_state_source") or "sqlite_missing"),
+                    persistence_enabled=True,
+                    hydrated=bool(previous.get("session_state_hydrated")),
+                    upserted=True,
+                    degraded=bool(previous.get("session_state_degraded")),
+                    last_error_category=state.last_error_type,
+                    state=state,
+                )
         except Exception as exc:
             logger.debug("Autonomy session state persist failed: %s", exc)
+            previous = self._session_diagnostics.get(state.session_id, {})
+            self._set_diagnostic(
+                state.session_id,
+                source="sqlite_write_failed",
+                persistence_enabled=True,
+                hydrated=bool(previous.get("session_state_hydrated")),
+                upserted=False,
+                degraded=True,
+                last_error_category=state.last_error_type,
+                state=state,
+            )
 
     def get_or_create(self, session_id: str) -> AutonomySessionState:
         if session_id not in self._sessions:
@@ -276,3 +394,38 @@ class AutonomySessionTracker:
 
     def all_sessions(self) -> dict[str, AutonomySessionState]:
         return dict(self._sessions)
+
+    def get_session_diagnostics(self, session_id: str) -> dict[str, Any]:
+        diagnostic = self._session_diagnostics.get(session_id)
+        if diagnostic is None:
+            return dict(_PROCESS_LOCAL_DIAGNOSTIC)
+        return dict(diagnostic)
+
+
+def _state_fields_count(state: AutonomySessionState | None) -> int:
+    if state is None:
+        return 0
+    return sum(
+        1
+        for value in (
+            state.session_id,
+            state.last_error_type,
+            state.current_error_count,
+            state.stagnant_attempts,
+            len(state.distinct_error_types),
+            state.progressive_cycles,
+            state.last_runtime_mode,
+            state.last_provider_failure_type,
+            state.last_response_length,
+            state.last_response_was_safe_fallback,
+            state.last_decision,
+            state.last_fingerprint_id,
+            state.last_progress_score,
+            state.last_stagnation_score,
+            state.repeated_strategy_count,
+            len(state.strategies_attempted),
+            state.updated_at,
+            state.expires_at,
+        )
+        if value not in ("", 0, False, None)
+    )

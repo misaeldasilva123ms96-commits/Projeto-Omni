@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { AutonomyTimelineItem, RuntimeAutonomyStats, RuntimeAutonomyStatus } from '../../lib/runtimeTypes'
+import type {
+  AutonomyTimelineItem,
+  RuntimeAutonomySessionStateDiagnostics,
+  RuntimeAutonomyStats,
+  RuntimeAutonomyStatus,
+} from '../../lib/runtimeTypes'
 import { fetchAutonomyTimeline } from '../../lib/omniData'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 
@@ -65,6 +70,55 @@ function formatTimestamp(ts: string): string {
   } catch {
     return ts
   }
+}
+
+function boolLabel(value: boolean | null): string {
+  if (value === true) return 'Sim'
+  if (value === false) return 'Não'
+  return '—'
+}
+
+function sourceLabel(source: RuntimeAutonomySessionStateDiagnostics['session_state_source']): string {
+  switch (source) {
+    case 'process_local':
+      return 'Process-local'
+    case 'sqlite_hydrated':
+      return 'SQLite hidratado'
+    case 'sqlite_missing':
+      return 'SQLite sem estado salvo'
+    case 'sqlite_unavailable':
+      return 'SQLite indisponível'
+    case 'sqlite_read_failed':
+      return 'Falha de leitura SQLite'
+    case 'sqlite_write_failed':
+      return 'Falha de gravação SQLite'
+    default:
+      return '—'
+  }
+}
+
+function SessionStateDiagnosticsPanel({
+  diagnostics,
+}: {
+  diagnostics: RuntimeAutonomySessionStateDiagnostics | null
+}) {
+  return (
+    <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
+      <h4 className="mb-3 text-sm font-medium text-white">Estado da Sessão</h4>
+      <DetailRow label="Fonte" value={sourceLabel(diagnostics?.session_state_source ?? null)} />
+      <DetailRow label="Persistência Ativa" value={boolLabel(diagnostics?.session_state_persistence_enabled ?? null)} />
+      <DetailRow label="Hidratado" value={boolLabel(diagnostics?.session_state_hydrated ?? null)} />
+      <DetailRow label="Último Upsert" value={boolLabel(diagnostics?.session_state_upserted ?? null)} />
+      <DetailRow label="Degradado com Segurança" value={boolLabel(diagnostics?.session_state_degraded ?? null)} />
+      <DetailRow label="Categoria de Erro" value={diagnostics?.session_state_last_error_category ?? '—'} />
+      <DetailRow label="Atualizado em" value={diagnostics?.session_state_updated_at ?? '—'} />
+      <DetailRow label="Expira em" value={diagnostics?.session_state_expires_at ?? '—'} />
+      <DetailRow
+        label="Campos Seguros"
+        value={diagnostics?.session_state_fields_count != null ? String(diagnostics.session_state_fields_count) : '—'}
+      />
+    </section>
+  )
 }
 
 function TimelineItemRow({ item }: { item: AutonomyTimelineItem }) {
@@ -137,7 +191,7 @@ export function RuntimeAutonomyTab({ data, stats }: RuntimeAutonomyTabProps) {
   return (
     <div className="space-y-4">
       <p className="text-xs italic text-slate-400">
-        Timeline somente leitura — nenhuma ação autônoma executada.
+        Diagnóstico somente leitura — nenhuma ação autônoma executada.
       </p>
 
       {data ? (
@@ -184,6 +238,8 @@ export function RuntimeAutonomyTab({ data, stats }: RuntimeAutonomyTabProps) {
               <DetailRow label="Session ID" value={data.session_id} />
             </section>
           ) : null}
+
+          <SessionStateDiagnosticsPanel diagnostics={data.session_state_diagnostics} />
         </>
       ) : null}
 
