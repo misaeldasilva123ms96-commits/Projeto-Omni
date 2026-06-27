@@ -38,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cleanup.add_argument("--sqlite-path", default=None)
     cleanup.add_argument("--jsonl-path", default=None)
     cleanup.add_argument("--enable-sqlite", action="store_true")
+    cleanup.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -152,7 +153,11 @@ def main() -> int:
         )
         try:
             facade.initialize()
-            result = cleanup_expired_autonomy_session_states_manual(facade=facade, now=args.now)
+            result = cleanup_expired_autonomy_session_states_manual(
+                facade=facade,
+                now=args.now,
+                dry_run=args.dry_run,
+            )
             return _emit({"status": "ok", "cleanup": result.as_dict()})
         finally:
             facade.close()

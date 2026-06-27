@@ -135,13 +135,23 @@ python -m brain.runtime.control.cli cleanup_autonomy_session_states `
 
 ## 11. Dry-Run Status
 
-There is no dry-run mode yet.
+Dry-run is available through the same local operator CLI by passing
+`--dry-run`.
 
-To estimate cleanup impact without deleting rows, use existing read-only
-lifecycle diagnostics where available, such as Cockpit session-state cleanup
-diagnostics or MemoryFacade lifecycle diagnostics in a controlled diagnostic
-context. Do not simulate dry-run behavior by dumping raw SQLite rows into logs
-or user-facing tools.
+Dry-run counts expired rows that would be deleted, returns safe metadata only,
+and deletes zero rows. It does not expose raw SQLite rows or persisted session
+state.
+
+```powershell
+python -m brain.runtime.control.cli cleanup_autonomy_session_states `
+  --dry-run `
+  --enable-sqlite `
+  --sqlite-path .omni/memory/omni-memory.sqlite `
+  --now 2026-06-27T00:00:00+00:00
+```
+
+Do not simulate dry-run behavior by dumping raw SQLite rows into logs or
+user-facing tools.
 
 ## 12. SQLite Enabled Example
 
@@ -162,10 +172,15 @@ Example response:
   "cleanup": {
     "attempted": true,
     "supported": true,
+    "dry_run": false,
+    "would_delete_count": 0,
     "deleted_count": 3,
     "degraded": false,
     "error_category": "",
-    "attempted_at": "2026-06-27T00:00:01+00:00"
+    "attempted_at": "2026-06-27T00:00:01+00:00",
+    "sqlite_enabled": true,
+    "sqlite_connected": true,
+    "cutoff_time": "2026-06-27T00:00:00+00:00"
   }
 }
 ```
@@ -302,7 +317,8 @@ not a runtime failure.
 
 ## 22. Known Risks
 
-- There is no dry-run mode yet.
+- Dry-run can confirm count and cutoff only; it cannot prove the operator chose
+  the intended environment or SQLite path.
 - Running against the wrong SQLite path may clean the wrong local database.
 - SQLite cleanup is last-state maintenance only; it does not coordinate across
   distributed instances.
@@ -338,7 +354,8 @@ manual where manual approval is required.
 
 Potential future improvements require separate review:
 
-- Add a read-only dry-run/count mode.
+- Add richer dry-run warnings or confirmation thresholds for unexpectedly high
+  `would_delete_count` values.
 - Add an admin-role protected HTTP maintenance endpoint if a safe admin pattern
   is approved.
 - Add structured maintenance audit events with safe metadata only.
