@@ -20,6 +20,14 @@ execute tools, write files, patch code, repair CI, or automate Git/PR work.
 The design is approved only as a future planning contract. It is not approval
 for autonomous execution.
 
+**Contracts update:** `feature/autonomy-dry-run-replan-plan-contracts` adds the
+safe `DryRunReplanPlan` model, a pure `DryRunReplanPlanner`, safe
+serialization, bounded evidence summaries, safe categorical
+`suggested_strategy`, and tests for the metadata-only contract. The planner is
+not wired into replan execution, does not rewrite prompts, does not call
+providers, does not repeat model calls, and does not change runtime responses
+or provider routing.
+
 ## 2. Current Status
 
 The current autonomy mode is advisory-only and dry-run planning only.
