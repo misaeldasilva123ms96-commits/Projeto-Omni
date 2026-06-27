@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .memory_models import (
+    AutonomySessionStateRecord,
     ConversationRecord,
     EpisodeRecord,
     GovernanceEventRecord,
@@ -15,6 +16,7 @@ from .memory_models import (
     ProviderAttemptRecord,
     RuntimeEventRecord,
     SemanticFactRecord,
+    utc_now_iso,
 )
 
 
@@ -110,6 +112,28 @@ CREATE TABLE IF NOT EXISTS learning_artifacts (
     metadata TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS autonomy_session_states (
+    session_id TEXT PRIMARY KEY,
+    last_error_type TEXT NOT NULL DEFAULT '',
+    current_error_count INTEGER NOT NULL DEFAULT 0,
+    stagnant_attempts INTEGER NOT NULL DEFAULT 0,
+    distinct_error_count INTEGER NOT NULL DEFAULT 0,
+    distinct_error_types TEXT NOT NULL DEFAULT '[]',
+    progressive_cycles INTEGER NOT NULL DEFAULT 0,
+    last_runtime_mode TEXT NOT NULL DEFAULT '',
+    last_provider_failure_type TEXT NOT NULL DEFAULT '',
+    last_response_length INTEGER NOT NULL DEFAULT 0,
+    last_response_was_safe_fallback INTEGER NOT NULL DEFAULT 0,
+    last_decision TEXT NOT NULL DEFAULT '',
+    last_fingerprint_id TEXT NOT NULL DEFAULT '',
+    last_progress_score INTEGER NOT NULL DEFAULT 0,
+    last_stagnation_score INTEGER NOT NULL DEFAULT 0,
+    repeated_strategy_count INTEGER NOT NULL DEFAULT 0,
+    strategies_attempted TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_goal ON episodes(goal_id);
@@ -121,6 +145,8 @@ CREATE INDEX IF NOT EXISTS idx_provider_attempts_provider ON provider_attempts(p
 CREATE INDEX IF NOT EXISTS idx_provider_attempts_session ON provider_attempts(session_id);
 CREATE INDEX IF NOT EXISTS idx_governance_events_session ON governance_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_learning_artifacts_type ON learning_artifacts(artifact_type);
+CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_expires_at ON autonomy_session_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_updated_at ON autonomy_session_states(updated_at);
 """
 
 
@@ -250,6 +276,40 @@ class SQLiteAdapter:
             record.created_at, _json(record.metadata),
         )
 
+    def upsert_autonomy_session_state(self, record: AutonomySessionStateRecord) -> None:
+        safe = AutonomySessionStateRecord.from_dict(record.as_dict())
+        if safe is None:
+            return
+        self._execute(
+            "INSERT OR REPLACE INTO autonomy_session_states ("
+            "session_id, last_error_type, current_error_count, stagnant_attempts, "
+            "distinct_error_count, distinct_error_types, progressive_cycles, "
+            "last_runtime_mode, last_provider_failure_type, last_response_length, "
+            "last_response_was_safe_fallback, last_decision, last_fingerprint_id, "
+            "last_progress_score, last_stagnation_score, repeated_strategy_count, "
+            "strategies_attempted, updated_at, expires_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            safe.session_id,
+            safe.last_error_type,
+            safe.current_error_count,
+            safe.stagnant_attempts,
+            safe.distinct_error_count,
+            _json(safe.distinct_error_types),
+            safe.progressive_cycles,
+            safe.last_runtime_mode,
+            safe.last_provider_failure_type,
+            safe.last_response_length,
+            1 if safe.last_response_was_safe_fallback else 0,
+            safe.last_decision,
+            safe.last_fingerprint_id,
+            safe.last_progress_score,
+            safe.last_stagnation_score,
+            safe.repeated_strategy_count,
+            _json(safe.strategies_attempted),
+            safe.updated_at,
+            safe.expires_at,
+        )
+
     def query_runtime_events(self, session_id: str, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._fetchall(
             "SELECT * FROM runtime_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
@@ -263,6 +323,43 @@ class SQLiteAdapter:
             provider, max(1, limit),
         )
         return [_row_to_dict(columns, row) for columns, row in rows]
+
+    def get_autonomy_session_state(self, session_id: str) -> AutonomySessionStateRecord | None:
+        rows = self._fetchall(
+            "SELECT * FROM autonomy_session_states WHERE session_id = ? LIMIT 1",
+            session_id,
+        )
+        if not rows:
+            return None
+        columns, row = rows[0]
+        record = _autonomy_state_from_row(columns, row)
+        if record is not None and record.expires_at < utc_now_iso():
+            return None
+        return record
+
+    def list_autonomy_session_states(self, limit: int = 50) -> list[AutonomySessionStateRecord]:
+        rows = self._fetchall(
+            "SELECT * FROM autonomy_session_states ORDER BY updated_at DESC LIMIT ?",
+            max(1, limit),
+        )
+        records: list[AutonomySessionStateRecord] = []
+        for columns, row in rows:
+            record = _autonomy_state_from_row(columns, row)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def cleanup_expired_autonomy_session_states(self, now: str = "") -> int:
+        if self._conn is None:
+            return 0
+        cutoff = now or utc_now_iso()
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM autonomy_session_states WHERE expires_at < ?",
+                (cutoff,),
+            )
+            self._conn.commit()
+            return int(cursor.rowcount if cursor.rowcount is not None else 0)
 
     def table_count(self, table_name: str) -> int:
         if self._conn is None:
@@ -318,3 +415,25 @@ def _row_to_dict(columns: list[str], row: sqlite3.Row) -> dict[str, Any]:
                 pass
         result[col] = raw
     return result
+
+
+def _autonomy_state_from_row(columns: list[str], row: sqlite3.Row) -> AutonomySessionStateRecord | None:
+    payload: dict[str, Any] = {}
+    for idx, col in enumerate(columns):
+        raw = row[idx]
+        if col in ("distinct_error_types", "strategies_attempted"):
+            if not isinstance(raw, str):
+                return None
+            try:
+                import json
+                decoded = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return None
+            if not isinstance(decoded, list):
+                return None
+            payload[col] = decoded
+        elif col == "last_response_was_safe_fallback":
+            payload[col] = bool(raw)
+        else:
+            payload[col] = raw
+    return AutonomySessionStateRecord.from_dict(payload)
