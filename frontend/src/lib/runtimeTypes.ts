@@ -92,6 +92,27 @@ export type RuntimeAutonomyStatus = {
   recommended_decision_hint: string | null
   evidence_summary: string | null
   session_state_diagnostics: RuntimeAutonomySessionStateDiagnostics | null
+  dry_run_retry_plan: RuntimeDryRunRetryPlan | null
+}
+
+export type RuntimeDryRunRetryPlan = {
+  plan_id: string | null
+  plan_type: 'dry_run_retry' | null
+  advisory: boolean | null
+  would_retry: boolean | null
+  retry_reason: string | null
+  blocked: boolean | null
+  block_reasons: string[]
+  retry_eligibility_score: number | null
+  risk_level: string | null
+  source_decision: string | null
+  fingerprint_id: string | null
+  stagnation_score: number | null
+  progress_score: number | null
+  repeated_strategy_count: number | null
+  max_attempts_remaining: number | null
+  evidence_summary: string | null
+  created_at: string | null
 }
 
 export type RuntimeAutonomySessionStateSource =
@@ -234,6 +255,38 @@ export function normalizeAutonomySessionStateDiagnostics(
   }
 }
 
+export function normalizeDryRunRetryPlan(value: unknown): RuntimeDryRunRetryPlan | null {
+  if (!isRecord(value)) return null
+  const rawPlanType = optionalString(value.plan_type)
+  const planType = rawPlanType === 'dry_run_retry' ? rawPlanType : null
+  const rawBlockReasons = Array.isArray(value.block_reasons)
+    ? value.block_reasons
+      .filter((reason): reason is string => typeof reason === 'string')
+      .slice(0, 12)
+      .map(redactRuntimeDebugText)
+    : []
+
+  return {
+    plan_id: optionalString(value.plan_id),
+    plan_type: planType,
+    advisory: optionalBoolean(value.advisory),
+    would_retry: optionalBoolean(value.would_retry),
+    retry_reason: optionalString(value.retry_reason),
+    blocked: optionalBoolean(value.blocked),
+    block_reasons: rawBlockReasons,
+    retry_eligibility_score: optionalNumber(value.retry_eligibility_score),
+    risk_level: optionalString(value.risk_level),
+    source_decision: optionalString(value.source_decision),
+    fingerprint_id: optionalString(value.fingerprint_id),
+    stagnation_score: optionalNumber(value.stagnation_score),
+    progress_score: optionalNumber(value.progress_score),
+    repeated_strategy_count: optionalNumber(value.repeated_strategy_count),
+    max_attempts_remaining: optionalNumber(value.max_attempts_remaining),
+    evidence_summary: optionalString(value.evidence_summary),
+    created_at: optionalTimestamp(value.created_at),
+  }
+}
+
 export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus | null {
   if (!isRecord(value)) return null
   return {
@@ -251,6 +304,7 @@ export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus |
     recommended_decision_hint: optionalString(value.recommended_decision_hint),
     evidence_summary: optionalString(value.evidence_summary),
     session_state_diagnostics: normalizeAutonomySessionStateDiagnostics(value.session_state_diagnostics),
+    dry_run_retry_plan: normalizeDryRunRetryPlan(value.dry_run_retry_plan),
   }
 }
 

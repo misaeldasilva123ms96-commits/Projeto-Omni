@@ -26,6 +26,13 @@ metadata-only contract. The planner is not wired into retry execution, does not
 call providers, does not repeat model calls, and does not change runtime
 responses or provider routing.
 
+**Observability update:** `feature/autonomy-dry-run-retry-plan-observability`
+attaches the pure planner output to `autonomy_evaluation.dry_run_retry_plan`
+for runtime inspection and displays it in the Cockpit Autonomia tab as read-only
+diagnostics. The plan remains metadata-only and advisory; it does not alter
+runtime responses, provider routing, provider/model calls, tool execution, or
+retry execution.
+
 ## 2. Current Status
 
 The current autonomy stack is advisory-only. It includes:

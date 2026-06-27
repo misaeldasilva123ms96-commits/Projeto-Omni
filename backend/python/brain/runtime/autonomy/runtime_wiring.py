@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from .autonomy_controller import AutonomyController
+from .dry_run_retry_planner import DryRunRetryPlanner
 from .evidence_view import build_autonomy_evidence_payload
 from .autonomy_models import AutonomyContext
 from .autonomy_session_tracker import AutonomySessionTracker
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CONTROLLER: AutonomyController | None = None
 _DEFAULT_TRACKER: AutonomySessionTracker | None = None
 _DEFAULT_SMART_TRACKER: SmartErrorProgressTracker | None = None
+_DEFAULT_DRY_RUN_RETRY_PLANNER: DryRunRetryPlanner | None = None
 
 
 def _get_controller() -> AutonomyController:
@@ -53,6 +55,13 @@ def _get_smart_tracker() -> SmartErrorProgressTracker:
     if _DEFAULT_SMART_TRACKER is None:
         _DEFAULT_SMART_TRACKER = SmartErrorProgressTracker()
     return _DEFAULT_SMART_TRACKER
+
+
+def _get_dry_run_retry_planner() -> DryRunRetryPlanner:
+    global _DEFAULT_DRY_RUN_RETRY_PLANNER
+    if _DEFAULT_DRY_RUN_RETRY_PLANNER is None:
+        _DEFAULT_DRY_RUN_RETRY_PLANNER = DryRunRetryPlanner()
+    return _DEFAULT_DRY_RUN_RETRY_PLANNER
 
 
 def build_autonomy_context(
@@ -211,6 +220,7 @@ def evaluate_autonomy(
     controller: AutonomyController | None = None,
     tracker: AutonomySessionTracker | None = None,
     smart_tracker: SmartErrorProgressTracker | None = None,
+    dry_run_retry_planner: DryRunRetryPlanner | None = None,
 ) -> dict[str, Any]:
     if controller is None:
         controller = _get_controller()
@@ -218,6 +228,8 @@ def evaluate_autonomy(
         tracker = _get_tracker()
     if smart_tracker is None:
         smart_tracker = _get_smart_tracker()
+    if dry_run_retry_planner is None:
+        dry_run_retry_planner = _get_dry_run_retry_planner()
 
     ctx = build_autonomy_context(
         inspection=inspection,
@@ -238,6 +250,12 @@ def evaluate_autonomy(
 
     tracker_fields = smart_output.as_dict()
     session_state_diagnostics = tracker.get_session_diagnostics(ctx.session_id)
+    dry_run_retry_plan = _build_dry_run_retry_plan_metadata(
+        planner=dry_run_retry_planner,
+        decision=decision,
+        context=ctx,
+        tracker_fields=tracker_fields,
+    )
 
     result: dict[str, Any] = {
         "decision": decision.decision.value,
@@ -256,6 +274,7 @@ def evaluate_autonomy(
         "strategies_attempted": list(tracker_fields.get("strategies_attempted", [])),
         "repeated_strategy_count": tracker_fields.get("repeated_strategy_count", 0),
         "session_state_diagnostics": session_state_diagnostics,
+        "dry_run_retry_plan": dry_run_retry_plan,
     }
 
     logger.debug(
@@ -267,6 +286,24 @@ def evaluate_autonomy(
     )
 
     return result
+
+
+def _build_dry_run_retry_plan_metadata(
+    *,
+    planner: DryRunRetryPlanner,
+    decision: Any,
+    context: AutonomyContext,
+    tracker_fields: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        return planner.plan(
+            decision=decision,
+            context=context,
+            tracker=tracker_fields,
+        ).as_dict()
+    except Exception as exc:
+        logger.debug("Dry-run retry planning failed (advisory-only, ignored): %s", exc)
+        return None
 
 
 def record_autonomy_evidence(result: dict[str, Any]) -> None:
@@ -342,7 +379,8 @@ def evaluate_and_attach(
 
 
 def reset_controller_for_testing() -> None:
-    global _DEFAULT_CONTROLLER, _DEFAULT_TRACKER, _DEFAULT_SMART_TRACKER
+    global _DEFAULT_CONTROLLER, _DEFAULT_TRACKER, _DEFAULT_SMART_TRACKER, _DEFAULT_DRY_RUN_RETRY_PLANNER
     _DEFAULT_CONTROLLER = None
     _DEFAULT_TRACKER = None
     _DEFAULT_SMART_TRACKER = None
+    _DEFAULT_DRY_RUN_RETRY_PLANNER = None

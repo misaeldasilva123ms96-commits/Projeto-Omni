@@ -188,6 +188,28 @@ class EvaluateAutonomyTest(unittest.TestCase):
         for key in ("decision", "advisory", "reason", "risk_level", "session_id"):
             self.assertIn(key, result)
 
+    def test_result_includes_read_only_dry_run_retry_plan(self) -> None:
+        inspection = _make_inspection(failure_class="timeout")
+        result = evaluate_autonomy(inspection, "s1", "ok")
+
+        plan = result.get("dry_run_retry_plan")
+        self.assertIsInstance(plan, dict)
+        self.assertEqual(plan.get("plan_type"), "dry_run_retry")
+        self.assertTrue(plan.get("advisory"))
+        self.assertEqual(plan.get("source_decision"), DecisionType.RETRY.value)
+
+    def test_dry_run_retry_plan_does_not_change_response_or_provider(self) -> None:
+        inspection = _make_inspection(failure_class="timeout", provider_actual="openai")
+        response = "stable runtime response"
+        result = evaluate_autonomy(inspection, "s1", response)
+
+        self.assertEqual(response, "stable runtime response")
+        plan_text = str(result.get("dry_run_retry_plan", {})).lower()
+        self.assertNotIn("provider_call", plan_text)
+        self.assertNotIn("model_call", plan_text)
+        self.assertNotIn("execute_retry", plan_text)
+        self.assertNotIn("raw_response", plan_text)
+
 
 class EvaluateAndAttachTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -252,6 +274,16 @@ class EvaluateAndAttachTest(unittest.TestCase):
         eval_result = inspection["autonomy_evaluation"]
         self.assertEqual(eval_result["decision"], DecisionType.ABORT_SAFE.value)
         self.assertTrue(eval_result["advisory"])
+
+    def test_attaches_dry_run_retry_plan_to_inspection(self) -> None:
+        inspection = _make_inspection(failure_class="timeout")
+        evaluate_and_attach(inspection, "s1", "ok")
+
+        plan = inspection["autonomy_evaluation"]["dry_run_retry_plan"]
+        self.assertEqual(plan["plan_type"], "dry_run_retry")
+        self.assertTrue(plan["advisory"])
+        self.assertEqual(plan["source_decision"], DecisionType.RETRY.value)
+        self.assertNotIn("raw_prompt", str(plan))
 
 
 class SafetyDegradationTest(unittest.TestCase):
