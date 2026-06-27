@@ -7,6 +7,7 @@
 --   - Sensitive fields are redacted before any write.
 --   - Runtime events store evidence references, not full raw payloads.
 --   - Provider attempts store metadata only (no raw key material).
+--   - Autonomy session state stores bounded advisory metadata only.
 
 -- =================================================================
 -- conversations: Tracks structured conversation records
@@ -140,3 +141,33 @@ CREATE TABLE IF NOT EXISTS learning_artifacts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_learning_artifacts_type ON learning_artifacts(artifact_type);
+
+-- =================================================================
+-- autonomy_session_states: Safe advisory autonomy state summaries
+-- =================================================================
+CREATE TABLE IF NOT EXISTS autonomy_session_states (
+    session_id                       TEXT PRIMARY KEY,
+    last_error_type                  TEXT NOT NULL DEFAULT '',
+    current_error_count              INTEGER NOT NULL DEFAULT 0,
+    stagnant_attempts                INTEGER NOT NULL DEFAULT 0,
+    distinct_error_count             INTEGER NOT NULL DEFAULT 0,
+    distinct_error_types             TEXT NOT NULL DEFAULT '[]',
+    progressive_cycles               INTEGER NOT NULL DEFAULT 0,
+    last_runtime_mode                TEXT NOT NULL DEFAULT '',
+    last_provider_failure_type       TEXT NOT NULL DEFAULT '',
+    last_response_length             INTEGER NOT NULL DEFAULT 0,
+    last_response_was_safe_fallback  INTEGER NOT NULL DEFAULT 0,
+    last_decision                    TEXT NOT NULL DEFAULT '',
+    last_fingerprint_id              TEXT NOT NULL DEFAULT '',
+    last_progress_score              INTEGER NOT NULL DEFAULT 0,
+    last_stagnation_score            INTEGER NOT NULL DEFAULT 0,
+    repeated_strategy_count          INTEGER NOT NULL DEFAULT 0,
+    strategies_attempted             TEXT NOT NULL DEFAULT '[]',
+    updated_at                       TEXT NOT NULL,
+    expires_at                       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_expires_at
+    ON autonomy_session_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_updated_at
+    ON autonomy_session_states(updated_at);

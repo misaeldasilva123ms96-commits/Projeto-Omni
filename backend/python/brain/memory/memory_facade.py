@@ -9,6 +9,7 @@ from .memory_models import (
     MEMORY_BACKEND_JSONL,
     MEMORY_BACKEND_SQLITE,
     SAFE_DEFAULT_BACKEND,
+    AutonomySessionStateRecord,
     ConversationRecord,
     EpisodeRecord,
     GovernanceEventRecord,
@@ -208,6 +209,46 @@ class MemoryFacade:
                 pass
         if self._jsonl is not None:
             self._jsonl.append("learning_artifact", record.as_dict())
+
+    def record_autonomy_session_state(self, record: AutonomySessionStateRecord) -> None:
+        self._ensure_initialized()
+        safe = AutonomySessionStateRecord.from_dict(record.as_dict())
+        if safe is None or self._sqlite is None:
+            return
+        try:
+            self._sqlite.upsert_autonomy_session_state(safe)
+        except Exception:
+            pass
+
+    def get_autonomy_session_state(self, session_id: str) -> AutonomySessionStateRecord | None:
+        self._ensure_initialized()
+        if self._sqlite is None:
+            return None
+        safe_session_id = AutonomySessionStateRecord.from_dict({"session_id": session_id})
+        if safe_session_id is None:
+            return None
+        try:
+            return self._sqlite.get_autonomy_session_state(safe_session_id.session_id)
+        except Exception:
+            return None
+
+    def list_autonomy_session_states(self, limit: int = 50) -> list[AutonomySessionStateRecord]:
+        self._ensure_initialized()
+        if self._sqlite is None:
+            return []
+        try:
+            return self._sqlite.list_autonomy_session_states(limit)
+        except Exception:
+            return []
+
+    def cleanup_expired_autonomy_session_states(self, now: str | None = None) -> int:
+        self._ensure_initialized()
+        if self._sqlite is None:
+            return 0
+        try:
+            return self._sqlite.cleanup_expired_autonomy_session_states(now or "")
+        except Exception:
+            return 0
 
     def query_runtime_events(self, session_id: str, limit: int = 50) -> list[dict[str, Any]]:
         self._ensure_initialized()

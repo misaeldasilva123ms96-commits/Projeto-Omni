@@ -26,6 +26,11 @@ The proposed persistence model is deliberately narrow:
 
 This document does not implement persistence or change runtime behavior.
 
+**Contracts update:** `feature/autonomy-session-state-memoryfacade-contracts`
+adds the safe `AutonomySessionStateRecord`, `MemoryFacade` methods, SQLite
+adapter support, and tests for this design. Runtime autonomy wiring is still not
+connected to these methods.
+
 ## 2. Current State
 
 The current autonomy stack is advisory-only:
@@ -375,9 +380,11 @@ successor ADR before implementation.
 
 Recommended migration sequence:
 
-1. Add safe record model and serializer tests.
-2. Add `SQLiteAdapter` schema and query/upsert/delete helpers.
+1. Add safe record model and serializer tests. Done in the contracts branch.
+2. Add `SQLiteAdapter` schema and query/upsert/delete helpers. Done in the
+   contracts branch.
 3. Add `MemoryFacade` session-state methods with SQLite disabled by default.
+   Done in the contracts branch.
 4. Add tracker hydration/persistence behind explicit constructor injection.
 5. Keep process-local tracker as the default and fallback.
 6. Add cleanup for expired rows.
