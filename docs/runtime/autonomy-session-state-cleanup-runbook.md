@@ -279,7 +279,12 @@ raw exception text.
 
 When using dry-run before destructive cleanup, compare only safe metadata:
 
+- `operation_id` should differ between the dry-run and cleanup invocation. It
+  identifies one command attempt, not the database or environment.
 - `operation_type` should be `cleanup_autonomy_session_states` in both outputs.
+- `sqlite_path_present` should match the operator's expectation. It only means
+  an explicit SQLite path was supplied; it does not validate that the path is
+  the intended database.
 - `sqlite_path_fingerprint` should match if both invocations used the same
   operator-supplied SQLite path.
 - `cutoff_time` should match when validating the exact same cleanup window.
@@ -290,6 +295,33 @@ When using dry-run before destructive cleanup, compare only safe metadata:
 
 Do not compare raw SQLite paths in logs or tickets. Keep the safe
 `operation_id` values as separate evidence for each invocation.
+
+Dry-run counts can become stale. Rows may be inserted, updated, or expire
+between dry-run and cleanup, so `would_delete_count` and `deleted_count` can
+differ even when the same fingerprint and cutoff are used. If they differ,
+record the difference as operational context instead of treating it as proof of
+a runtime behavior change.
+
+## 16b. Verifying The Intended Environment
+
+`sqlite_path_fingerprint` is for comparison, not proof that the operator chose
+the correct environment or database. Before running destructive cleanup,
+operators should verify the target outside the CLI output:
+
+- Confirm the shell, host, container, or deployment context is the intended
+  Omni environment.
+- Confirm the configured SQLite memory path through approved local operational
+  procedures.
+- Confirm `--enable-sqlite` is intentionally being used for this maintenance
+  run.
+- Confirm the environment label in the maintenance ticket or review matches the
+  operator's local context.
+- Confirm any backup, retention, or incident-hold requirement has been handled
+  before deleting expired rows.
+
+Do not paste raw SQLite paths into review comments if they contain user names,
+host names, workspace paths, or other system information. Use the fingerprint
+to show that dry-run and cleanup used the same supplied path.
 
 ## 17. How To Interpret Unsupported/No-Op
 
@@ -375,16 +407,46 @@ not a runtime failure.
 The safe cleanup result can be kept as maintenance evidence. It should contain
 only the expected result fields and no raw rows.
 
-Recommended evidence to retain:
+Recommended evidence to retain for each invocation:
 
 - Command time.
 - Target environment label.
 - Whether SQLite was enabled.
-- Safe cleanup result payload.
+- Command mode: `dry_run` or `cleanup`.
+- `operation_id`.
+- `operation_type`.
+- `sqlite_path_fingerprint`.
+- `sqlite_path_present`.
+- `attempted`.
+- `supported`.
+- `would_delete_count`.
+- `deleted_count`.
+- `degraded`.
+- `error_category`.
+- `attempted_at`.
+- `cutoff_time`.
 - Operator note explaining why cleanup was run.
 
-Do not retain secrets, full provider payloads, prompts, responses, or raw SQLite
-rows as cleanup evidence.
+For a dry-run followed by cleanup, paste both safe payloads or a table with the
+safe fields above. Confirm whether `sqlite_path_fingerprint` and `cutoff_time`
+match. If counts differ, add a short note that dry-run counts can become stale
+between invocations.
+
+Never paste:
+
+- Raw SQLite paths if they contain user, host, workspace, or system
+  information.
+- Secrets, `.env` files, API keys, tokens, cookies, headers, or provider
+  credentials.
+- Raw database rows.
+- Raw autonomy session state dumps.
+- Prompts, responses, provider payloads, tool output, receipts, stdout/stderr,
+  stack traces, traceback, or command argument dumps.
+
+Cleanup evidence does not approve autonomous execution. Cleanup still deletes
+only expired autonomy session state rows, does not execute autonomy decisions,
+does not affect provider routing, and does not make Omni approved for
+autonomous execution.
 
 ## 24. Manual Merge/Governance Note
 

@@ -38,9 +38,13 @@ Current cleanup behavior is explicit and manual:
 
 Baseline cleanup result fields are:
 
+- `operation_id`
+- `operation_type`
 - `attempted`
 - `supported`
 - `dry_run`
+- `sqlite_path_fingerprint`
+- `sqlite_path_present`
 - `would_delete_count`
 - `deleted_count`
 - `degraded`
@@ -294,6 +298,15 @@ and cutoff time before running destructive cleanup.
 
 After destructive cleanup, operators should compare:
 
+- Dry-run `operation_id` and cleanup `operation_id`, which should be distinct
+  command-attempt identifiers.
+- Dry-run and cleanup `operation_type`, which should both be
+  `cleanup_autonomy_session_states`.
+- Dry-run and cleanup `sqlite_path_fingerprint`, which should match when the
+  same operator-supplied SQLite path was used.
+- Dry-run and cleanup `sqlite_path_present`, which should match operator
+  expectations for explicit path usage.
+- Dry-run and cleanup `cutoff_time`, when validating the same cleanup window.
 - Dry-run `would_delete_count`
 - Cleanup `deleted_count`
 - Cleanup `degraded`
@@ -302,6 +315,12 @@ After destructive cleanup, operators should compare:
 The numbers may differ if rows are added, updated, or expired between dry-run
 and cleanup. That race is acceptable for advisory metadata but should be noted
 as maintenance evidence.
+
+`sqlite_path_fingerprint` is for comparison only. It does not prove that the
+operator selected the intended environment or database. Operators must verify
+the intended host, shell/container context, environment label, SQLite memory
+configuration, and any retention or incident-hold requirement outside the CLI
+payload.
 
 ## 17. Testing Plan
 
@@ -343,17 +362,34 @@ Dry-run should return safe evidence that operators can record manually:
 
 - Command timestamp
 - Target environment label
+- Command mode: `dry_run` or `cleanup`
+- `operation_id`
+- `operation_type`
+- `sqlite_path_fingerprint`
+- `sqlite_path_present`
+- `attempted`
 - `supported`
 - `dry_run`
 - `would_delete_count`
 - `deleted_count`
 - `degraded`
 - `error_category`
+- `attempted_at`
 - `cutoff_time`
 
 Dry-run should not append raw row data to JSONL and should not persist raw
 diagnostic payloads. If future implementation records a maintenance audit
 event, it must be metadata-only and follow the same allowlist.
+
+Evidence shared in review or audit must not include raw SQLite paths when they
+contain user, host, workspace, or system information. It must also exclude
+secrets, `.env` files, tokens, provider credentials, raw rows, session dumps,
+prompts, responses, provider payloads, tool output, receipts, stdout/stderr,
+stack traces, tracebacks, and command argument dumps.
+
+Cleanup evidence is maintenance evidence only. It does not approve autonomous
+execution, does not execute autonomy decisions, and does not make Omni approved
+for autonomous execution.
 
 ## 20. Future Cockpit Considerations
 
