@@ -20,6 +20,12 @@ output, execute tools, write files, patch code, repair CI, or automate Git.
 The design is approved only as a future planning contract. It is not approval
 for autonomous execution.
 
+**Contracts update:** `feature/autonomy-dry-run-retry-plan-contracts` adds the
+safe `DryRunRetryPlan` model, a pure `DryRunRetryPlanner`, and tests for the
+metadata-only contract. The planner is not wired into retry execution, does not
+call providers, does not repeat model calls, and does not change runtime
+responses or provider routing.
+
 ## 2. Current Status
 
 The current autonomy stack is advisory-only. It includes:
