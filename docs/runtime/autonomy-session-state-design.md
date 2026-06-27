@@ -31,6 +31,12 @@ adds the safe `AutonomySessionStateRecord`, `MemoryFacade` methods, SQLite
 adapter support, and tests for this design. Runtime autonomy wiring is still not
 connected to these methods.
 
+**Runtime opt-in update:** `feature/autonomy-session-state-runtime-opt-in-wiring`
+wires `AutonomySessionTracker` to hydrate and upsert safe session state only
+when a `MemoryFacade` is present and SQLite memory is explicitly enabled and
+connected. JSONL/default behavior remains process-local, and autonomy decisions
+remain advisory-only.
+
 ## 2. Current State
 
 The current autonomy stack is advisory-only:
@@ -386,6 +392,7 @@ Recommended migration sequence:
 3. Add `MemoryFacade` session-state methods with SQLite disabled by default.
    Done in the contracts branch.
 4. Add tracker hydration/persistence behind explicit constructor injection.
+   Done in the runtime opt-in wiring branch.
 5. Keep process-local tracker as the default and fallback.
 6. Add cleanup for expired rows.
 7. Add docs for the opt-in flag and operational behavior.

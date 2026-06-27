@@ -19,10 +19,12 @@ from .error_progress_tracker import SmartErrorProgressTracker
 
 try:
     from brain.memory.runtime_integration import record_governance_event as _record_governance_event
+    from brain.memory.runtime_integration import get_memory_facade as _get_memory_facade
     _HAS_GOV_EVENTS = True
 except ImportError:
     _HAS_GOV_EVENTS = False
     _record_governance_event = None  # type: ignore[assignment]
+    _get_memory_facade = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,8 @@ def _get_controller() -> AutonomyController:
 def _get_tracker() -> AutonomySessionTracker:
     global _DEFAULT_TRACKER
     if _DEFAULT_TRACKER is None:
-        _DEFAULT_TRACKER = AutonomySessionTracker()
+        memory_facade = _get_memory_facade() if _get_memory_facade is not None else None
+        _DEFAULT_TRACKER = AutonomySessionTracker(memory_facade=memory_facade)
     return _DEFAULT_TRACKER
 
 

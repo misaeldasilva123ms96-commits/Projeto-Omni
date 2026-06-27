@@ -7,11 +7,15 @@ No raw prompts, responses, secrets, or credentials are stored.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _default_expires_at() -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
 
 @dataclass(slots=True)
@@ -27,4 +31,10 @@ class AutonomySessionState:
     last_response_length: int = 0
     last_response_was_safe_fallback: bool = False
     last_decision: str = ""
+    last_fingerprint_id: str = ""
+    last_progress_score: int = 0
+    last_stagnation_score: int = 0
+    repeated_strategy_count: int = 0
+    strategies_attempted: list[str] = field(default_factory=list)
     updated_at: str = field(default_factory=_utc_now)
+    expires_at: str = field(default_factory=_default_expires_at)
