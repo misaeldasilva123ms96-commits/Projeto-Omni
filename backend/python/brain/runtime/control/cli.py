@@ -157,6 +157,7 @@ def main() -> int:
                 facade=facade,
                 now=args.now,
                 dry_run=args.dry_run,
+                sqlite_path=args.sqlite_path,
             )
             return _emit({"status": "ok", "cleanup": result.as_dict()})
         finally:

@@ -24,9 +24,13 @@ from brain.runtime.orchestrator import BrainOrchestrator  # noqa: E402
 from brain.runtime.orchestrator_services import GovernanceIntegrationService  # noqa: E402
 
 _CLEANUP_RESULT_FIELDS = {
+    "operation_id",
+    "operation_type",
     "attempted",
     "supported",
     "dry_run",
+    "sqlite_path_fingerprint",
+    "sqlite_path_present",
     "would_delete_count",
     "deleted_count",
     "degraded",
@@ -311,7 +315,13 @@ class ControlCliTest(unittest.TestCase):
             self.assertEqual(cleanup["error_category"], "")
             self.assertFalse(cleanup["sqlite_enabled"])
             self.assertFalse(cleanup["sqlite_connected"])
+            self.assertTrue(cleanup["sqlite_path_present"])
+            self.assertTrue(cleanup["sqlite_path_fingerprint"].startswith("sha256:"))
+            self.assertEqual(cleanup["operation_type"], "cleanup_autonomy_session_states")
+            self.assertTrue(cleanup["operation_id"].startswith("cleanup-"))
             self.assertEqual(cleanup["cutoff_time"], "2026-06-27T00:00:00+00:00")
+            self.assertNotIn(str(sqlite_path), str(payload))
+            self.assertNotIn(sqlite_path.name, str(payload))
 
     def test_cleanup_autonomy_session_states_deletes_only_expired_rows(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -382,8 +392,14 @@ class ControlCliTest(unittest.TestCase):
             self.assertFalse(cleanup["degraded"])
             self.assertTrue(cleanup["sqlite_enabled"])
             self.assertTrue(cleanup["sqlite_connected"])
+            self.assertTrue(cleanup["sqlite_path_present"])
+            self.assertTrue(cleanup["sqlite_path_fingerprint"].startswith("sha256:"))
+            self.assertEqual(cleanup["operation_type"], "cleanup_autonomy_session_states")
+            self.assertTrue(cleanup["operation_id"].startswith("cleanup-"))
             self.assertNotIn("session_id", str(cleanup))
             self.assertNotIn("raw_prompt", str(cleanup))
+            self.assertNotIn(str(sqlite_path), str(payload))
+            self.assertNotIn(sqlite_path.name, str(payload))
 
             verifier = StructuredMemoryFacade(enable_sqlite=True, sqlite_path=sqlite_path, jsonl_path=jsonl_path)
             verifier.initialize()
@@ -462,8 +478,14 @@ class ControlCliTest(unittest.TestCase):
             self.assertEqual(cleanup["deleted_count"], 0)
             self.assertFalse(cleanup["degraded"])
             self.assertEqual(cleanup["cutoff_time"], "2026-06-27T00:00:00+00:00")
+            self.assertTrue(cleanup["sqlite_path_present"])
+            self.assertTrue(cleanup["sqlite_path_fingerprint"].startswith("sha256:"))
+            self.assertEqual(cleanup["operation_type"], "cleanup_autonomy_session_states")
+            self.assertTrue(cleanup["operation_id"].startswith("cleanup-"))
             self.assertNotIn("session_id", str(cleanup))
             self.assertNotIn("old", str(cleanup))
+            self.assertNotIn(str(sqlite_path), str(payload))
+            self.assertNotIn(sqlite_path.name, str(payload))
 
             verifier = StructuredMemoryFacade(enable_sqlite=True, sqlite_path=sqlite_path, jsonl_path=jsonl_path)
             verifier.initialize()
@@ -527,6 +549,46 @@ class ControlCliTest(unittest.TestCase):
             self.assertEqual(cleanup["error_category"], "cleanup_failed")
             self.assertNotIn("sk-test-secret", str(payload))
             self.assertNotIn("Traceback", str(payload))
+
+    def test_cleanup_autonomy_session_states_dry_run_path_fingerprint_is_stable(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            sqlite_path = workspace_root / "memory.sqlite"
+            jsonl_path = workspace_root / "audit.jsonl"
+            outputs: list[dict[str, object]] = []
+
+            for _ in range(2):
+                stream = io.StringIO()
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "control-cli",
+                        "--root",
+                        str(workspace_root),
+                        "cleanup_autonomy_session_states",
+                        "--dry-run",
+                        "--enable-sqlite",
+                        "--sqlite-path",
+                        str(sqlite_path),
+                        "--jsonl-path",
+                        str(jsonl_path),
+                        "--now",
+                        "2026-06-27T00:00:00+00:00",
+                    ],
+                ):
+                    with redirect_stdout(stream):
+                        result = control_cli_main()
+
+                self.assertEqual(result, 0)
+                payload = json.loads(stream.getvalue())
+                outputs.append(payload["cleanup"])
+
+            first, second = outputs
+            self.assertNotEqual(first["operation_id"], second["operation_id"])
+            self.assertEqual(first["sqlite_path_fingerprint"], second["sqlite_path_fingerprint"])
+            self.assertTrue(str(first["sqlite_path_fingerprint"]).startswith("sha256:"))
+            self.assertNotIn(str(sqlite_path), str(first))
+            self.assertNotIn(sqlite_path.name, str(first))
 
 
 if __name__ == "__main__":

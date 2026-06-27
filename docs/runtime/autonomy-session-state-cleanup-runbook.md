@@ -140,7 +140,8 @@ Dry-run is available through the same local operator CLI by passing
 
 Dry-run counts expired rows that would be deleted, returns safe metadata only,
 and deletes zero rows. It does not expose raw SQLite rows or persisted session
-state.
+state. The output includes a safe operation identifier and a fingerprint of the
+operator-supplied SQLite path, not the raw path.
 
 ```powershell
 python -m brain.runtime.control.cli cleanup_autonomy_session_states `
@@ -170,9 +171,13 @@ Example response:
 {
   "status": "ok",
   "cleanup": {
+    "operation_id": "cleanup-6f3a2b8c9d10",
+    "operation_type": "cleanup_autonomy_session_states",
     "attempted": true,
     "supported": true,
     "dry_run": false,
+    "sqlite_path_fingerprint": "sha256:9f81b9f2c2e5a0d4",
+    "sqlite_path_present": true,
     "would_delete_count": 0,
     "deleted_count": 3,
     "degraded": false,
@@ -202,12 +207,21 @@ Example response:
 {
   "status": "ok",
   "cleanup": {
+    "operation_id": "cleanup-1a2b3c4d5e6f",
+    "operation_type": "cleanup_autonomy_session_states",
     "attempted": true,
     "supported": false,
+    "dry_run": false,
+    "sqlite_path_fingerprint": "",
+    "sqlite_path_present": false,
+    "would_delete_count": 0,
     "deleted_count": 0,
     "degraded": false,
     "error_category": "",
-    "attempted_at": "2026-06-27T00:00:01+00:00"
+    "attempted_at": "2026-06-27T00:00:01+00:00",
+    "sqlite_enabled": false,
+    "sqlite_connected": false,
+    "cutoff_time": "2026-06-27T00:00:01+00:00"
   }
 }
 ```
@@ -216,21 +230,35 @@ Example response:
 
 The cleanup payload contains only:
 
+- `operation_id`: safe unique identifier for this cleanup invocation.
+- `operation_type`: fixed value `cleanup_autonomy_session_states`.
 - `attempted`: whether the command attempted cleanup.
 - `supported`: whether SQLite cleanup was available.
+- `dry_run`: whether the invocation was count-only.
+- `sqlite_path_fingerprint`: stable SHA-256 fingerprint of the operator-supplied
+  SQLite path, never the raw path.
+- `sqlite_path_present`: whether an explicit SQLite path was supplied to the
+  CLI/helper.
+- `would_delete_count`: number of expired rows dry-run would delete.
 - `deleted_count`: number of expired rows deleted.
 - `degraded`: whether cleanup failed or partially degraded.
 - `error_category`: safe categorical error label, if degraded.
 - `attempted_at`: safe timestamp for the cleanup attempt.
+- `sqlite_enabled`: whether SQLite memory was enabled.
+- `sqlite_connected`: whether SQLite was connected.
+- `cutoff_time`: timestamp used for count/delete eligibility.
 
 No raw session records, prompts, responses, provider payloads, stack traces, or
-secrets are returned.
+secrets are returned. Raw SQLite paths are not returned; use
+`sqlite_path_fingerprint` to compare whether two invocations targeted the same
+operator-supplied path.
 
 ## 15. How To Interpret `deleted_count`
 
 `deleted_count` is the number of expired autonomy session state rows removed by
 the explicit cleanup invocation.
 
+- In dry-run, `deleted_count` must always be `0`.
 - `0` with `supported=true` usually means no expired rows were present.
 - `0` with `supported=false` means cleanup was not available.
 - A positive value means expired rows were deleted.
@@ -246,6 +274,22 @@ encountered a safe failure condition.
 Use `error_category` for the safe category. Expected categories are limited and
 must not include stack traces, database paths, secrets, command arguments, or
 raw exception text.
+
+## 16a. Comparing Dry-Run And Cleanup Outputs
+
+When using dry-run before destructive cleanup, compare only safe metadata:
+
+- `operation_type` should be `cleanup_autonomy_session_states` in both outputs.
+- `sqlite_path_fingerprint` should match if both invocations used the same
+  operator-supplied SQLite path.
+- `cutoff_time` should match when validating the exact same cleanup window.
+- Dry-run should report `dry_run=true`, `would_delete_count=N`, and
+  `deleted_count=0`.
+- Destructive cleanup should report `dry_run=false`, `would_delete_count=0`,
+  and `deleted_count` equal to the rows actually deleted at that cutoff.
+
+Do not compare raw SQLite paths in logs or tickets. Keep the safe
+`operation_id` values as separate evidence for each invocation.
 
 ## 17. How To Interpret Unsupported/No-Op
 
