@@ -13,6 +13,10 @@ See docs/memory/sqlite-memory-facade.md for full architecture.
 """
 
 from .jsonl_audit_mirror import JSONLAuditMirror
+from .autonomy_session_cleanup import (
+    AutonomySessionCleanupResult,
+    cleanup_expired_autonomy_session_states_manual,
+)
 from .memory_facade import MemoryFacade
 from .memory_models import (
     MEMORY_BACKEND_JSONL,
@@ -54,6 +58,7 @@ __all__ = [
     "GovernanceEventRecord",
     "LearningArtifactRecord",
     "AutonomySessionStateRecord",
+    "AutonomySessionCleanupResult",
     "MEMORY_BACKEND_JSONL",
     "MEMORY_BACKEND_SQLITE",
     "SAFE_DEFAULT_BACKEND",
@@ -64,4 +69,5 @@ __all__ = [
     "record_governance_event",
     "close_runtime_integration",
     "reset_for_testing",
+    "cleanup_expired_autonomy_session_states_manual",
 ]

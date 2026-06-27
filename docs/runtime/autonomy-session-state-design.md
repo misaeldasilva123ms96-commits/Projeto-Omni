@@ -49,6 +49,12 @@ attempt metadata, deleted count, cleanup degradation, TTL seconds, and expired
 state count. No background cleanup job or autonomous cleanup scheduling is
 introduced.
 
+**Manual cleanup hook update:** `feature/autonomy-session-state-manual-cleanup-hook`
+adds an internal explicit Python hook for expired autonomy session state cleanup.
+The hook is not scheduled, not exposed as a public endpoint, and not rendered as
+a destructive Cockpit control. It returns only safe metadata: `attempted`,
+`supported`, `deleted_count`, `degraded`, `error_category`, and `attempted_at`.
+
 ## 2. Current State
 
 The current autonomy stack is advisory-only:
@@ -234,7 +240,7 @@ When enabled, future behavior should be:
 - If a valid row exists, hydrate only allowed fields.
 - After tracker update, sanitize and upsert the latest safe state.
 - On reset, best-effort delete the row for the session.
-- On cleanup, best-effort delete expired rows.
+- On explicit manual cleanup, best-effort delete expired rows.
 
 All SQLite failures must be swallowed after sanitized diagnostic logging.
 
@@ -277,7 +283,7 @@ Recommended lifecycle for a future implementation:
 7. Tracker updates process-local state.
 8. Tracker asks `MemoryFacade` to best-effort persist sanitized state.
 9. Session reset deletes local state and best-effort deletes persisted state.
-10. Periodic cleanup removes expired rows.
+10. Explicit manual cleanup may remove expired rows.
 
 Hydration must happen before advisory evaluation, but failure to hydrate must
 not prevent evaluation.
@@ -288,8 +294,8 @@ The persisted state should be short lived. Recommended defaults:
 
 - Default TTL: 7 days from `updated_at`.
 - Maximum TTL: 30 days unless a later ADR approves a longer value.
-- Cleanup trigger: best-effort during `MemoryFacade.initialize()`, runtime
-  startup, or periodic maintenance.
+- Cleanup trigger: explicit/manual hook invocation only. No background
+  scheduler, startup cleanup, or automatic runtime-turn cleanup is implemented.
 - Cleanup query: delete rows where `expires_at < now_utc`.
 - Cleanup failure: log sanitized diagnostic and continue.
 
@@ -406,7 +412,7 @@ Recommended migration sequence:
 4. Add tracker hydration/persistence behind explicit constructor injection.
    Done in the runtime opt-in wiring branch.
 5. Keep process-local tracker as the default and fallback.
-6. Add cleanup for expired rows.
+6. Add explicit/manual cleanup for expired rows.
 7. Add docs for the opt-in flag and operational behavior.
 8. Run docs, unit, and focused runtime autonomy tests.
 
@@ -444,8 +450,9 @@ Recommended rollout phases:
 | Phase 1 | Add model, schema, facade methods, and unit tests, still unused by runtime |
 | Phase 2 | Wire tracker with persistence disabled by default and explicit test injection |
 | Phase 3 | Enable SQLite opt-in in local/dev only |
-| Phase 4 | Add operational metrics for hydrate/save/cleanup success and failure |
-| Phase 5 | Consider broader opt-in after review and incident-free soak |
+| Phase 4 | Add lifecycle diagnostics for hydrate/save/cleanup success and failure |
+| Phase 5 | Add explicit/manual cleanup hook without scheduler or public endpoint |
+| Phase 6 | Consider broader opt-in after review and incident-free soak |
 
 No phase enables autonomous execution.
 
@@ -481,6 +488,15 @@ Implemented diagnostics use these safe fields:
 - `session_state_ttl_seconds`
 - `expired_state_count`
 
+Implemented manual cleanup hook result fields:
+
+- `attempted`
+- `supported`
+- `deleted_count`
+- `degraded`
+- `error_category`
+- `attempted_at`
+
 ## 23. Risks
 
 | Risk | Impact | Mitigation |
@@ -497,7 +513,8 @@ Implemented diagnostics use these safe fields:
 - Should TTL default to 7 days or a shorter value such as 24 hours?
 - Should `session_id` be hashed before persistence, or is the bounded id safe as
   currently used by memory records?
-- Should cleanup run on every startup or only on scheduled maintenance?
+- Should cleanup remain internal-only, or should a future protected admin
+  surface invoke the manual hook?
 - Should persistence diagnostics be surfaced in Cockpit immediately, or only
   after implementation stabilizes?
 - What maximum count clamp should be used for long-running sessions?
