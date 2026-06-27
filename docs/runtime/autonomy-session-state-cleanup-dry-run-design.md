@@ -2,7 +2,8 @@
 
 **Date:** 2026-06-27
 **Branch:** `feature/autonomy-session-state-cleanup-dry-run-design`
-**Status:** Design only
+**Status:** Design approved; contracts implemented by
+`feature/autonomy-session-state-cleanup-dry-run-contracts`
 **Runtime impact:** None
 
 ## 1. Executive Summary
@@ -15,12 +16,13 @@ python -m brain.runtime.control.cli cleanup_autonomy_session_states
 ```
 
 That command can delete expired SQLite `autonomy_session_states` rows when
-SQLite memory is enabled and connected. There is no dry-run mode yet.
+SQLite memory is enabled and connected.
 
-This design proposes a future dry-run mode that counts expired rows that would
-be deleted, returns only safe metadata, and deletes nothing. The design does
-not implement dry-run support, add a scheduler, expose HTTP cleanup, add a
-Cockpit destructive control, or change runtime behavior.
+This design defines a dry-run mode that counts expired rows that would be
+deleted, returns only safe metadata, and deletes nothing. The follow-up
+contracts branch implements the explicit helper/CLI contract without adding a
+scheduler, exposing HTTP cleanup, adding a Cockpit destructive control, or
+changing runtime behavior.
 
 ## 2. Current Cleanup Behavior
 
@@ -34,14 +36,19 @@ Current cleanup behavior is explicit and manual:
 - Cleanup deletes only expired autonomy session state rows.
 - Cleanup result metadata is limited to safe fields.
 
-Current result fields are:
+Baseline cleanup result fields are:
 
 - `attempted`
 - `supported`
+- `dry_run`
+- `would_delete_count`
 - `deleted_count`
 - `degraded`
 - `error_category`
 - `attempted_at`
+- `sqlite_enabled`
+- `sqlite_connected`
+- `cutoff_time`
 
 ## 3. Problem Statement
 
@@ -70,8 +77,7 @@ impact without exposing raw rows or changing runtime behavior.
 
 ## 5. Non-Goals
 
-- Do not implement dry-run in this branch.
-- Do not add cleanup implementation.
+- Do not add background cleanup implementation.
 - Do not add a scheduler.
 - Do not add an automatic cleanup loop.
 - Do not add a public HTTP endpoint.
@@ -101,7 +107,7 @@ state.
 
 ## 7. CLI UX Proposal
 
-Add a future flag to the existing local operator CLI:
+Use the explicit flag on the existing local operator CLI:
 
 ```powershell
 python -m brain.runtime.control.cli cleanup_autonomy_session_states --dry-run
@@ -117,7 +123,7 @@ python -m brain.runtime.control.cli cleanup_autonomy_session_states `
   --now 2026-06-27T00:00:00+00:00
 ```
 
-Recommended UX rules:
+UX rules:
 
 - `--dry-run` and destructive cleanup share the same cutoff semantics.
 - `--dry-run` must not require write access beyond what is needed to open the
@@ -368,21 +374,21 @@ separate design.
 
 ## 23. Go/No-Go Checklist
 
-Before implementing dry-run:
+Before enabling or extending dry-run:
 
-- [ ] Design reviewed and approved.
-- [ ] No destructive behavior in dry-run.
-- [ ] `deleted_count` remains `0` in dry-run.
-- [ ] `would_delete_count` uses count-only SQLite query.
-- [ ] JSONL/default mode remains unsupported no-op.
-- [ ] Process-local state remains untouched.
-- [ ] Result fields are allowlisted.
-- [ ] Forbidden data exposure tests are added.
-- [ ] Failure categories are safe and categorical.
-- [ ] No scheduler is added.
-- [ ] No automatic cleanup loop is added.
-- [ ] No public HTTP endpoint is added.
-- [ ] No Cockpit destructive control is added.
-- [ ] Runtime output remains unchanged.
-- [ ] Provider routing remains unchanged.
-- [ ] Advisory-only autonomy remains enforced.
+- [x] Design reviewed and approved.
+- [x] No destructive behavior in dry-run.
+- [x] `deleted_count` remains `0` in dry-run.
+- [x] `would_delete_count` uses count-only SQLite query.
+- [x] JSONL/default mode remains unsupported no-op.
+- [x] Process-local state remains untouched.
+- [x] Result fields are allowlisted.
+- [x] Forbidden data exposure tests are added.
+- [x] Failure categories are safe and categorical.
+- [x] No scheduler is added.
+- [x] No automatic cleanup loop is added.
+- [x] No public HTTP endpoint is added.
+- [x] No Cockpit destructive control is added.
+- [x] Runtime output remains unchanged.
+- [x] Provider routing remains unchanged.
+- [x] Advisory-only autonomy remains enforced.

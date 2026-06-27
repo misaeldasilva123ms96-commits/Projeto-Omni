@@ -20,6 +20,20 @@ from brain.runtime.autonomy import AutonomyController, AutonomySessionTracker, D
 from brain.runtime.autonomy.error_progress_tracker import SmartErrorProgressTracker  # noqa: E402
 from brain.runtime.autonomy.runtime_wiring import evaluate_autonomy  # noqa: E402
 
+_CLEANUP_RESULT_FIELDS = {
+    "attempted",
+    "supported",
+    "dry_run",
+    "would_delete_count",
+    "deleted_count",
+    "degraded",
+    "error_category",
+    "attempted_at",
+    "sqlite_enabled",
+    "sqlite_connected",
+    "cutoff_time",
+}
+
 
 class _FailingCleanupFacade:
     sqlite_enabled = True
@@ -33,6 +47,7 @@ class _FailingCleanupFacade:
             "cleanup_degraded": True,
             "cleanup_last_error_category": "Bearer sk-test-secret",
             "last_cleanup_attempted_at": "2026-06-27T00:00:00+00:00",
+            "expired_state_count": 0,
         }
 
 
@@ -77,10 +92,35 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
 
         self.assertTrue(result.attempted)
         self.assertFalse(result.supported)
+        self.assertFalse(result.dry_run)
+        self.assertEqual(result.would_delete_count, 0)
         self.assertEqual(result.deleted_count, 0)
         self.assertFalse(result.degraded)
         self.assertEqual(result.error_category, "")
+        self.assertFalse(result.sqlite_enabled)
+        self.assertFalse(result.sqlite_connected)
         self.assertEqual(facade.audit_records(), [])
+
+    def test_manual_cleanup_dry_run_noops_safely_when_sqlite_disabled(self) -> None:
+        facade = MemoryFacade(jsonl_path=self._audit_path, sqlite_path=self._sqlite_path)
+        facade.initialize()
+
+        result = cleanup_expired_autonomy_session_states_manual(
+            facade=facade,
+            now="2026-06-27T00:00:00+00:00",
+            dry_run=True,
+        )
+
+        self.assertTrue(result.attempted)
+        self.assertFalse(result.supported)
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.would_delete_count, 0)
+        self.assertEqual(result.deleted_count, 0)
+        self.assertFalse(result.degraded)
+        self.assertEqual(result.error_category, "")
+        self.assertFalse(result.sqlite_enabled)
+        self.assertFalse(result.sqlite_connected)
+        self.assertEqual(result.cutoff_time, "2026-06-27T00:00:00+00:00")
 
     def test_manual_cleanup_deletes_only_expired_rows_when_sqlite_enabled(self) -> None:
         facade = self._sqlite_facade()
@@ -94,11 +134,48 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
 
         self.assertTrue(result.attempted)
         self.assertTrue(result.supported)
+        self.assertFalse(result.dry_run)
+        self.assertEqual(result.would_delete_count, 0)
         self.assertEqual(result.deleted_count, 1)
         self.assertFalse(result.degraded)
         self.assertEqual(result.error_category, "")
+        self.assertTrue(result.sqlite_enabled)
+        self.assertTrue(result.sqlite_connected)
         self.assertIsNone(facade.get_autonomy_session_state("old"))
         self.assertIsNotNone(facade.get_autonomy_session_state("fresh"))
+
+    def test_manual_cleanup_dry_run_counts_without_deleting(self) -> None:
+        facade = self._sqlite_facade()
+        self.assertIsNotNone(facade._sqlite)
+        facade.record_autonomy_session_state(self._record("old", "2026-06-01T00:00:00+00:00"))
+        facade.record_autonomy_session_state(self._record("fresh", "2999-01-01T00:00:00+00:00"))
+
+        result = cleanup_expired_autonomy_session_states_manual(
+            facade=facade,
+            now="2026-06-27T00:00:00+00:00",
+            dry_run=True,
+        )
+
+        self.assertTrue(result.attempted)
+        self.assertTrue(result.supported)
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.would_delete_count, 1)
+        self.assertEqual(result.deleted_count, 0)
+        self.assertFalse(result.degraded)
+        self.assertEqual(result.error_category, "")
+        self.assertTrue(result.sqlite_enabled)
+        self.assertTrue(result.sqlite_connected)
+        self.assertEqual(result.cutoff_time, "2026-06-27T00:00:00+00:00")
+        self.assertEqual(facade._sqlite.table_count("autonomy_session_states"), 2)
+        self.assertIsNotNone(facade.get_autonomy_session_state("fresh"))
+
+        destructive = cleanup_expired_autonomy_session_states_manual(
+            facade=facade,
+            now="2026-06-27T00:00:00+00:00",
+        )
+
+        self.assertEqual(destructive.deleted_count, 1)
+        self.assertEqual(facade._sqlite.table_count("autonomy_session_states"), 1)
 
     def test_manual_cleanup_returns_safe_metadata_only(self) -> None:
         facade = self._sqlite_facade()
@@ -108,10 +185,7 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
             now="2026-06-27T00:00:00+00:00",
         ).as_dict()
 
-        self.assertEqual(
-            set(result),
-            {"attempted", "supported", "deleted_count", "degraded", "error_category", "attempted_at"},
-        )
+        self.assertEqual(set(result), _CLEANUP_RESULT_FIELDS)
         self.assertNotIn("session_id", result)
         self.assertNotIn("raw_prompt", str(result))
         self.assertNotIn("raw_response", str(result))
@@ -125,9 +199,28 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
 
         self.assertTrue(result.attempted)
         self.assertTrue(result.supported)
+        self.assertFalse(result.dry_run)
+        self.assertEqual(result.would_delete_count, 0)
         self.assertEqual(result.deleted_count, 0)
         self.assertTrue(result.degraded)
         self.assertEqual(result.error_category, "cleanup_failed")
+        self.assertNotIn("sk-test-secret", str(result.as_dict()))
+        self.assertNotIn("Traceback", str(result.as_dict()))
+
+    def test_manual_cleanup_dry_run_failure_degrades_safely(self) -> None:
+        result = cleanup_expired_autonomy_session_states_manual(
+            facade=_FailingCleanupFacade(),  # type: ignore[arg-type]
+            now="2026-06-27T00:00:00+00:00",
+            dry_run=True,
+        )
+
+        self.assertTrue(result.attempted)
+        self.assertTrue(result.supported)
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.would_delete_count, 0)
+        self.assertEqual(result.deleted_count, 0)
+        self.assertTrue(result.degraded)
+        self.assertEqual(result.error_category, "cleanup_degraded")
         self.assertNotIn("sk-test-secret", str(result.as_dict()))
         self.assertNotIn("Traceback", str(result.as_dict()))
 

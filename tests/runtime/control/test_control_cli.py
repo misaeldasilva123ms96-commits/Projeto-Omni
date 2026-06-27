@@ -23,6 +23,20 @@ from brain.runtime.observability.timeline_reader import TimelineReader  # noqa: 
 from brain.runtime.orchestrator import BrainOrchestrator  # noqa: E402
 from brain.runtime.orchestrator_services import GovernanceIntegrationService  # noqa: E402
 
+_CLEANUP_RESULT_FIELDS = {
+    "attempted",
+    "supported",
+    "dry_run",
+    "would_delete_count",
+    "deleted_count",
+    "degraded",
+    "error_category",
+    "attempted_at",
+    "sqlite_enabled",
+    "sqlite_connected",
+    "cutoff_time",
+}
+
 
 class ControlCliTest(unittest.TestCase):
     @contextmanager
@@ -290,9 +304,14 @@ class ControlCliTest(unittest.TestCase):
             self.assertEqual(payload["status"], "ok")
             self.assertTrue(cleanup["attempted"])
             self.assertFalse(cleanup["supported"])
+            self.assertFalse(cleanup["dry_run"])
+            self.assertEqual(cleanup["would_delete_count"], 0)
             self.assertEqual(cleanup["deleted_count"], 0)
             self.assertFalse(cleanup["degraded"])
             self.assertEqual(cleanup["error_category"], "")
+            self.assertFalse(cleanup["sqlite_enabled"])
+            self.assertFalse(cleanup["sqlite_connected"])
+            self.assertEqual(cleanup["cutoff_time"], "2026-06-27T00:00:00+00:00")
 
     def test_cleanup_autonomy_session_states_deletes_only_expired_rows(self) -> None:
         with self.temp_workspace() as workspace_root:
@@ -355,13 +374,14 @@ class ControlCliTest(unittest.TestCase):
             cleanup = payload["cleanup"]
             self.assertEqual(result, 0)
             self.assertEqual(payload["status"], "ok")
-            self.assertEqual(
-                set(cleanup),
-                {"attempted", "supported", "deleted_count", "degraded", "error_category", "attempted_at"},
-            )
+            self.assertEqual(set(cleanup), _CLEANUP_RESULT_FIELDS)
             self.assertTrue(cleanup["supported"])
+            self.assertFalse(cleanup["dry_run"])
+            self.assertEqual(cleanup["would_delete_count"], 0)
             self.assertEqual(cleanup["deleted_count"], 1)
             self.assertFalse(cleanup["degraded"])
+            self.assertTrue(cleanup["sqlite_enabled"])
+            self.assertTrue(cleanup["sqlite_connected"])
             self.assertNotIn("session_id", str(cleanup))
             self.assertNotIn("raw_prompt", str(cleanup))
 
@@ -369,6 +389,86 @@ class ControlCliTest(unittest.TestCase):
             verifier.initialize()
             try:
                 self.assertIsNone(verifier.get_autonomy_session_state("old"))
+                self.assertIsNotNone(verifier.get_autonomy_session_state("fresh"))
+            finally:
+                verifier.close()
+
+    def test_cleanup_autonomy_session_states_dry_run_counts_without_deleting(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            sqlite_path = workspace_root / "memory.sqlite"
+            jsonl_path = workspace_root / "audit.jsonl"
+            facade = StructuredMemoryFacade(
+                enable_sqlite=True,
+                sqlite_path=sqlite_path,
+                jsonl_path=jsonl_path,
+            )
+            facade.initialize()
+            try:
+                facade.record_autonomy_session_state(
+                    AutonomySessionStateRecord(
+                        session_id="old",
+                        last_error_type="timeout",
+                        current_error_count=1,
+                        distinct_error_count=1,
+                        distinct_error_types=["timeout"],
+                        updated_at="2026-06-27T00:00:00+00:00",
+                        expires_at="2026-06-01T00:00:00+00:00",
+                    )
+                )
+                facade.record_autonomy_session_state(
+                    AutonomySessionStateRecord(
+                        session_id="fresh",
+                        last_error_type="timeout",
+                        current_error_count=1,
+                        distinct_error_count=1,
+                        distinct_error_types=["timeout"],
+                        updated_at="2026-06-27T00:00:00+00:00",
+                        expires_at="2999-01-01T00:00:00+00:00",
+                    )
+                )
+            finally:
+                facade.close()
+
+            stream = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "control-cli",
+                    "--root",
+                    str(workspace_root),
+                    "cleanup_autonomy_session_states",
+                    "--dry-run",
+                    "--enable-sqlite",
+                    "--sqlite-path",
+                    str(sqlite_path),
+                    "--jsonl-path",
+                    str(jsonl_path),
+                    "--now",
+                    "2026-06-27T00:00:00+00:00",
+                ],
+            ):
+                with redirect_stdout(stream):
+                    result = control_cli_main()
+
+            payload = json.loads(stream.getvalue())
+            cleanup = payload["cleanup"]
+            self.assertEqual(result, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(set(cleanup), _CLEANUP_RESULT_FIELDS)
+            self.assertTrue(cleanup["supported"])
+            self.assertTrue(cleanup["dry_run"])
+            self.assertEqual(cleanup["would_delete_count"], 1)
+            self.assertEqual(cleanup["deleted_count"], 0)
+            self.assertFalse(cleanup["degraded"])
+            self.assertEqual(cleanup["cutoff_time"], "2026-06-27T00:00:00+00:00")
+            self.assertNotIn("session_id", str(cleanup))
+            self.assertNotIn("old", str(cleanup))
+
+            verifier = StructuredMemoryFacade(enable_sqlite=True, sqlite_path=sqlite_path, jsonl_path=jsonl_path)
+            verifier.initialize()
+            try:
+                self.assertEqual(verifier._sqlite.table_count("autonomy_session_states"), 2)  # type: ignore[union-attr]
                 self.assertIsNotNone(verifier.get_autonomy_session_state("fresh"))
             finally:
                 verifier.close()
@@ -420,6 +520,8 @@ class ControlCliTest(unittest.TestCase):
             self.assertEqual(payload["status"], "ok")
             self.assertTrue(cleanup["attempted"])
             self.assertTrue(cleanup["supported"])
+            self.assertFalse(cleanup["dry_run"])
+            self.assertEqual(cleanup["would_delete_count"], 0)
             self.assertEqual(cleanup["deleted_count"], 0)
             self.assertTrue(cleanup["degraded"])
             self.assertEqual(cleanup["error_category"], "cleanup_failed")
