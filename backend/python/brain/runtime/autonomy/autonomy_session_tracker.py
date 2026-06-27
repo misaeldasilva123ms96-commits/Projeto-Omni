@@ -1,19 +1,30 @@
 """Per-session state tracker for autonomy decisions.
 
 Tracks safe session-level metadata across turns to detect repeated errors,
-stagnation, and progress. Process-local — no persistence yet.
+stagnation, and progress. Process-local state remains the default source of
+truth; MemoryFacade persistence is SQLite opt-in and best-effort.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .autonomy_session_state import AutonomySessionState
 from .autonomy_models import AutonomyContext, AutonomyDecision
 
 logger = logging.getLogger(__name__)
+
+try:
+    from brain.memory.memory_facade import MemoryFacade
+    from brain.memory.memory_models import AutonomySessionStateRecord
+
+    _HAS_MEMORY_CONTRACTS = True
+except ImportError:
+    MemoryFacade = Any  # type: ignore[misc,assignment]
+    AutonomySessionStateRecord = Any  # type: ignore[misc,assignment]
+    _HAS_MEMORY_CONTRACTS = False
 
 _RUNTIME_MODE_ORDER: dict[str, int] = {
     "provider_failure": 0,
@@ -25,6 +36,13 @@ _RUNTIME_MODE_ORDER: dict[str, int] = {
 }
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 class AutonomySessionTracker:
     """Tracks per-session autonomy state across turns.
 
@@ -32,12 +50,102 @@ class AutonomySessionTracker:
     safe metadata only. No raw prompts, responses, or secrets stored.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, memory_facade: MemoryFacade | None = None) -> None:
         self._sessions: dict[str, AutonomySessionState] = {}
+        self._memory_facade = memory_facade
+        self._hydrated_sessions: set[str] = set()
+
+    def _sqlite_persistence_enabled(self) -> bool:
+        facade = self._memory_facade
+        if facade is None or not _HAS_MEMORY_CONTRACTS:
+            return False
+        return bool(
+            getattr(facade, "sqlite_enabled", False)
+            and getattr(facade, "is_sqlite_connected", False)
+        )
+
+    @staticmethod
+    def _record_to_state(record: AutonomySessionStateRecord) -> AutonomySessionState:
+        return AutonomySessionState(
+            session_id=record.session_id,
+            last_error_type=record.last_error_type,
+            current_error_count=record.current_error_count,
+            stagnant_attempts=record.stagnant_attempts,
+            distinct_error_types=set(record.distinct_error_types),
+            progressive_cycles=record.progressive_cycles,
+            last_runtime_mode=record.last_runtime_mode,
+            last_provider_failure_type=record.last_provider_failure_type,
+            last_response_length=record.last_response_length,
+            last_response_was_safe_fallback=record.last_response_was_safe_fallback,
+            last_decision=record.last_decision,
+            last_fingerprint_id=record.last_fingerprint_id,
+            last_progress_score=record.last_progress_score,
+            last_stagnation_score=record.last_stagnation_score,
+            repeated_strategy_count=record.repeated_strategy_count,
+            strategies_attempted=list(record.strategies_attempted),
+            updated_at=record.updated_at,
+            expires_at=record.expires_at,
+        )
+
+    @staticmethod
+    def _state_to_record(state: AutonomySessionState) -> AutonomySessionStateRecord | None:
+        if not _HAS_MEMORY_CONTRACTS:
+            return None
+        return AutonomySessionStateRecord.from_dict({
+            "session_id": state.session_id,
+            "last_error_type": state.last_error_type,
+            "current_error_count": state.current_error_count,
+            "stagnant_attempts": state.stagnant_attempts,
+            "distinct_error_count": len(state.distinct_error_types),
+            "distinct_error_types": sorted(state.distinct_error_types),
+            "progressive_cycles": state.progressive_cycles,
+            "last_runtime_mode": state.last_runtime_mode,
+            "last_provider_failure_type": state.last_provider_failure_type,
+            "last_response_length": state.last_response_length,
+            "last_response_was_safe_fallback": state.last_response_was_safe_fallback,
+            "last_decision": state.last_decision,
+            "last_fingerprint_id": state.last_fingerprint_id,
+            "last_progress_score": state.last_progress_score,
+            "last_stagnation_score": state.last_stagnation_score,
+            "repeated_strategy_count": state.repeated_strategy_count,
+            "strategies_attempted": list(state.strategies_attempted),
+            "updated_at": state.updated_at,
+            "expires_at": state.expires_at,
+        })
+
+    def _hydrate_from_memory(self, session_id: str) -> AutonomySessionState | None:
+        if session_id in self._hydrated_sessions:
+            return None
+        self._hydrated_sessions.add(session_id)
+        if not self._sqlite_persistence_enabled():
+            return None
+        try:
+            record = self._memory_facade.get_autonomy_session_state(session_id)
+        except Exception as exc:
+            logger.debug("Autonomy session state hydrate failed: %s", exc)
+            return None
+        if record is None:
+            return None
+        try:
+            return self._record_to_state(record)
+        except Exception as exc:
+            logger.debug("Autonomy session state hydrate decode failed: %s", exc)
+            return None
+
+    def _persist_to_memory(self, state: AutonomySessionState) -> None:
+        if not self._sqlite_persistence_enabled():
+            return
+        try:
+            record = self._state_to_record(state)
+            if record is not None:
+                self._memory_facade.record_autonomy_session_state(record)
+        except Exception as exc:
+            logger.debug("Autonomy session state persist failed: %s", exc)
 
     def get_or_create(self, session_id: str) -> AutonomySessionState:
         if session_id not in self._sessions:
-            self._sessions[session_id] = AutonomySessionState(session_id=session_id)
+            hydrated = self._hydrate_from_memory(session_id)
+            self._sessions[session_id] = hydrated or AutonomySessionState(session_id=session_id)
         return self._sessions[session_id]
 
     def _detect_stagnation(
@@ -141,7 +249,19 @@ class AutonomySessionTracker:
         state.last_response_length = int(response_length) if not isinstance(response_length, int) else response_length
         state.last_response_was_safe_fallback = ctx.no_safe_next_action
         state.last_decision = decision.decision.value
+        tracker_fields = ctx.metadata.get("error_progress_tracker")
+        if isinstance(tracker_fields, dict):
+            state.last_fingerprint_id = str(tracker_fields.get("fingerprint_id") or "")
+            state.last_progress_score = _safe_int(tracker_fields.get("progress_score", 0))
+            state.last_stagnation_score = _safe_int(tracker_fields.get("stagnation_score", 0))
+            state.repeated_strategy_count = _safe_int(tracker_fields.get("repeated_strategy_count", 0))
+            strategies = tracker_fields.get("strategies_attempted", [])
+            if isinstance(strategies, list):
+                state.strategies_attempted = [str(item) for item in strategies]
         state.updated_at = datetime.now(timezone.utc).isoformat()
+        state.expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+
+        self._persist_to_memory(state)
 
         return state
 

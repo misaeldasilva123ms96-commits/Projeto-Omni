@@ -32,6 +32,10 @@ def _lazy_facade() -> MemoryFacade | None:
     return _facade
 
 
+def get_memory_facade() -> MemoryFacade | None:
+    return _lazy_facade()
+
+
 def record_runtime_event(
     *,
     event_type: str,
