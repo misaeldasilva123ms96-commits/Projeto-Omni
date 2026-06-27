@@ -101,6 +101,19 @@ class AutonomySessionStateSQLiteTest(unittest.TestCase):
         self.assertIsNone(self.adapter.get_autonomy_session_state("old"))
         self.assertIsNotNone(self.adapter.get_autonomy_session_state("fresh"))
 
+    def test_count_expired_states_without_deleting(self) -> None:
+        expired = self._record("old")
+        expired.expires_at = "2026-06-01T00:00:00+00:00"
+        fresh = self._record("fresh")
+        fresh.expires_at = "2999-07-04T00:00:00+00:00"
+        self.adapter.upsert_autonomy_session_state(expired)
+        self.adapter.upsert_autonomy_session_state(fresh)
+
+        count = self.adapter.count_expired_autonomy_session_states("2026-06-27T00:00:00+00:00")
+
+        self.assertEqual(count, 1)
+        self.assertEqual(self.adapter.table_count("autonomy_session_states"), 2)
+
     def test_corrupt_list_row_degrades_to_none(self) -> None:
         self.adapter._execute(
             "INSERT OR REPLACE INTO autonomy_session_states (session_id, distinct_error_types, strategies_attempted, updated_at, expires_at) "

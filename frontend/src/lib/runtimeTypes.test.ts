@@ -241,6 +241,13 @@ describe('runtime inspector contracts', () => {
               session_state_updated_at: '2026-06-27T03:00:00+00:00',
               session_state_expires_at: '2026-07-04T03:00:00+00:00',
               session_state_fields_count: 8,
+              expired_state_cleanup_supported: true,
+              last_cleanup_attempted_at: '2026-06-27T04:00:00+00:00',
+              last_cleanup_deleted_count: 1,
+              cleanup_degraded: false,
+              cleanup_last_error_category: '',
+              session_state_ttl_seconds: 604800,
+              expired_state_count: 0,
             },
           },
         },
@@ -268,6 +275,11 @@ describe('runtime inspector contracts', () => {
         session_state_degraded: false,
         session_state_last_error_category: 'timeout',
         session_state_fields_count: 8,
+        expired_state_cleanup_supported: true,
+        last_cleanup_deleted_count: 1,
+        cleanup_degraded: false,
+        session_state_ttl_seconds: 604800,
+        expired_state_count: 0,
       })
     })
 
@@ -310,6 +322,7 @@ describe('runtime inspector contracts', () => {
               session_state_updated_at: '2026-06-27T03:00:00+00:00',
               session_state_expires_at: '2026-07-04T03:00:00+00:00',
               session_state_fields_count: 8,
+              cleanup_last_error_category: 'Bearer sk-proj-cleanup',
               raw_prompt: 'do not normalize',
             },
           },
@@ -318,6 +331,7 @@ describe('runtime inspector contracts', () => {
 
       expect(normalized.autonomy?.reason).toBe('[REDACTED]')
       expect(normalized.autonomy?.session_state_diagnostics?.session_state_last_error_category).toBe('[REDACTED]')
+      expect(normalized.autonomy?.session_state_diagnostics?.cleanup_last_error_category).toBe('Bearer [REDACTED]')
       expect(normalized.autonomy?.session_state_diagnostics).not.toHaveProperty('raw_prompt')
     })
 

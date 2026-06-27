@@ -97,6 +97,11 @@ function sourceLabel(source: RuntimeAutonomySessionStateDiagnostics['session_sta
   }
 }
 
+function secondsLabel(value: number | null): string {
+  if (value == null) return '—'
+  return `${value}s`
+}
+
 function SessionStateDiagnosticsPanel({
   diagnostics,
 }: {
@@ -116,6 +121,19 @@ function SessionStateDiagnosticsPanel({
       <DetailRow
         label="Campos Seguros"
         value={diagnostics?.session_state_fields_count != null ? String(diagnostics.session_state_fields_count) : '—'}
+      />
+      <DetailRow label="Cleanup Suportado" value={boolLabel(diagnostics?.expired_state_cleanup_supported ?? null)} />
+      <DetailRow label="Último Cleanup" value={diagnostics?.last_cleanup_attempted_at ?? '—'} />
+      <DetailRow
+        label="Estados Removidos"
+        value={diagnostics?.last_cleanup_deleted_count != null ? String(diagnostics.last_cleanup_deleted_count) : '—'}
+      />
+      <DetailRow label="Cleanup Degradado" value={boolLabel(diagnostics?.cleanup_degraded ?? null)} />
+      <DetailRow label="Erro de Cleanup" value={diagnostics?.cleanup_last_error_category ?? '—'} />
+      <DetailRow label="TTL" value={secondsLabel(diagnostics?.session_state_ttl_seconds ?? null)} />
+      <DetailRow
+        label="Estados Expirados"
+        value={diagnostics?.expired_state_count != null ? String(diagnostics.expired_state_count) : '—'}
       />
     </section>
   )

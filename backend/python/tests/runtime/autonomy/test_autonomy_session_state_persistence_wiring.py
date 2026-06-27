@@ -14,11 +14,20 @@ from brain.runtime.autonomy.runtime_wiring import evaluate_autonomy
 
 
 class _SpyFacade:
-    def __init__(self, *, sqlite_enabled: bool, connected: bool, fail_read: bool = False, fail_write: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        sqlite_enabled: bool,
+        connected: bool,
+        fail_read: bool = False,
+        fail_write: bool = False,
+        cleanup_diagnostics: dict[str, Any] | None = None,
+    ) -> None:
         self.sqlite_enabled = sqlite_enabled
         self.is_sqlite_connected = connected
         self.fail_read = fail_read
         self.fail_write = fail_write
+        self.cleanup_diagnostics = cleanup_diagnostics
         self.reads: list[str] = []
         self.writes: list[AutonomySessionStateRecord] = []
         self.record: AutonomySessionStateRecord | None = None
@@ -34,6 +43,17 @@ class _SpyFacade:
         if self.fail_write:
             raise RuntimeError("write failed")
         self.record = record
+
+    def get_autonomy_session_state_lifecycle_diagnostics(self) -> dict[str, Any]:
+        return self.cleanup_diagnostics or {
+            "expired_state_cleanup_supported": self.sqlite_enabled and self.is_sqlite_connected,
+            "last_cleanup_attempted_at": "",
+            "last_cleanup_deleted_count": 0,
+            "cleanup_degraded": False,
+            "cleanup_last_error_category": "",
+            "session_state_ttl_seconds": 604800,
+            "expired_state_count": 0,
+        }
 
 
 class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
@@ -83,6 +103,7 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         self.assertTrue(result["advisory"])
         self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "process_local")
         self.assertFalse(result["session_state_diagnostics"]["session_state_persistence_enabled"])
+        self.assertFalse(result["session_state_diagnostics"]["expired_state_cleanup_supported"])
         self.assertEqual(facade.reads, [])
         self.assertEqual(facade.writes, [])
         self.assertEqual(tracker.get_state("sess-1").current_error_count, 1)  # type: ignore[union-attr]
@@ -127,6 +148,9 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         self.assertTrue(diagnostics["session_state_hydrated"])
         self.assertTrue(diagnostics["session_state_upserted"])
         self.assertFalse(diagnostics["session_state_degraded"])
+        self.assertTrue(diagnostics["expired_state_cleanup_supported"])
+        self.assertEqual(diagnostics["session_state_ttl_seconds"], 604800)
+        self.assertEqual(diagnostics["expired_state_count"], 0)
 
     def test_sqlite_enabled_upserts_after_evaluation(self) -> None:
         facade = self._sqlite_facade()
@@ -185,6 +209,31 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         self.assertEqual(result["session_state_diagnostics"]["session_state_source"], "sqlite_read_failed")
         self.assertTrue(result["session_state_diagnostics"]["session_state_degraded"])
         self.assertEqual(tracker.get_state("sess-1").current_error_count, 1)  # type: ignore[union-attr]
+
+    def test_cleanup_lifecycle_degradation_is_reported_safely(self) -> None:
+        facade = _SpyFacade(
+            sqlite_enabled=True,
+            connected=True,
+            cleanup_diagnostics={
+                "expired_state_cleanup_supported": True,
+                "last_cleanup_attempted_at": "2026-06-27T03:00:00+00:00",
+                "last_cleanup_deleted_count": 0,
+                "cleanup_degraded": True,
+                "cleanup_last_error_category": "Bearer sk-test-secret",
+                "session_state_ttl_seconds": 604800,
+                "expired_state_count": 3,
+            },
+        )
+        tracker = AutonomySessionTracker(memory_facade=facade)  # type: ignore[arg-type]
+
+        result = self._evaluate({"signals": {"failure_class": "timeout", "runtime_mode": "standard"}}, tracker)
+        diagnostics = result["session_state_diagnostics"]
+
+        self.assertTrue(diagnostics["expired_state_cleanup_supported"])
+        self.assertTrue(diagnostics["cleanup_degraded"])
+        self.assertEqual(diagnostics["cleanup_last_error_category"], "[REDACTED]")
+        self.assertEqual(diagnostics["expired_state_count"], 3)
+        self.assertNotIn("sk-test-secret", str(diagnostics))
 
     def test_sqlite_unavailable_diagnostic_does_not_break_runtime(self) -> None:
         facade = _SpyFacade(sqlite_enabled=True, connected=False)

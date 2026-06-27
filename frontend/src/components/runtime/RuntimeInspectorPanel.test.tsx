@@ -213,6 +213,13 @@ describe('RuntimeInspectorPanel', () => {
             session_state_updated_at: '2026-06-27T03:00:00+00:00',
             session_state_expires_at: '2026-07-04T03:00:00+00:00',
             session_state_fields_count: 4,
+            expired_state_cleanup_supported: false,
+            last_cleanup_attempted_at: '',
+            last_cleanup_deleted_count: 0,
+            cleanup_degraded: false,
+            cleanup_last_error_category: '',
+            session_state_ttl_seconds: 604800,
+            expired_state_count: 0,
           },
         },
       },
@@ -230,6 +237,9 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getByText('Estado da Sessão')).toBeInTheDocument()
     expect(screen.getByText('Process-local')).toBeInTheDocument()
     expect(screen.getByText('Campos Seguros')).toBeInTheDocument()
+    expect(screen.getByText('Cleanup Suportado')).toBeInTheDocument()
+    expect(screen.getByText('TTL')).toBeInTheDocument()
+    expect(screen.getByText('604800s')).toBeInTheDocument()
     expect(screen.getByText('4')).toBeInTheDocument()
   })
 
@@ -262,6 +272,13 @@ describe('RuntimeInspectorPanel', () => {
             session_state_updated_at: '2026-06-27T03:00:00+00:00',
             session_state_expires_at: '2026-07-04T03:00:00+00:00',
             session_state_fields_count: 8,
+            expired_state_cleanup_supported: true,
+            last_cleanup_attempted_at: '2026-06-27T04:00:00+00:00',
+            last_cleanup_deleted_count: 2,
+            cleanup_degraded: false,
+            cleanup_last_error_category: '',
+            session_state_ttl_seconds: 604800,
+            expired_state_count: 0,
           },
         },
       },
@@ -279,6 +296,8 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getByText('SQLite hidratado')).toBeInTheDocument()
     expect(screen.getByText('Categoria de Erro')).toBeInTheDocument()
     expect(screen.getByText('timeout')).toBeInTheDocument()
+    expect(screen.getByText('Estados Removidos')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
   })
 
   it('renders SQLite fallback and failure diagnostics safely', async () => {
@@ -317,6 +336,13 @@ describe('RuntimeInspectorPanel', () => {
               session_state_updated_at: '2026-06-27T03:00:00+00:00',
               session_state_expires_at: '2026-07-04T03:00:00+00:00',
               session_state_fields_count: 5,
+              expired_state_cleanup_supported: true,
+              last_cleanup_attempted_at: '2026-06-27T04:00:00+00:00',
+              last_cleanup_deleted_count: 0,
+              cleanup_degraded: source !== 'sqlite_missing',
+              cleanup_last_error_category: source === 'sqlite_write_failed' ? 'cleanup_failed' : '',
+              session_state_ttl_seconds: 604800,
+              expired_state_count: 1,
             },
           },
         },
@@ -333,6 +359,7 @@ describe('RuntimeInspectorPanel', () => {
 
       expect(screen.getByText(label)).toBeInTheDocument()
       expect(screen.getByText('Degradado com Segurança')).toBeInTheDocument()
+      expect(screen.getByText('Estados Expirados')).toBeInTheDocument()
       unmount()
     }
   })
@@ -403,6 +430,11 @@ describe('RuntimeInspectorPanel', () => {
             session_state_updated_at: '2026-06-27T03:00:00+00:00',
             session_state_expires_at: '2026-07-04T03:00:00+00:00',
             session_state_fields_count: 8,
+            expired_state_cleanup_supported: true,
+            cleanup_degraded: true,
+            cleanup_last_error_category: 'Bearer sk-proj-cleanup',
+            session_state_ttl_seconds: 604800,
+            expired_state_count: 3,
             raw_prompt: 'do not render',
             raw_response: 'do not render',
             provider_payload: 'do not render',
