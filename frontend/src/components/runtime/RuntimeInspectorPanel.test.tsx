@@ -401,6 +401,141 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
 
+  it('renders eligible dry-run retry plan diagnostics', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'RETRY',
+          advisory: true,
+          reason: 'Transient timeout.',
+          risk_level: 'low',
+          session_id: 's1',
+          progress_score: 0,
+          stagnation_score: 1,
+          is_progress: false,
+          is_stagnation: true,
+          stagnant_attempts: 1,
+          fingerprint_id: 'abc123',
+          recommended_decision_hint: 'RETRY',
+          evidence_summary: '',
+          dry_run_retry_plan: {
+            plan_id: 'dry-retry-eligible',
+            plan_type: 'dry_run_retry',
+            advisory: true,
+            would_retry: true,
+            retry_reason: 'retry_eligible',
+            blocked: false,
+            block_reasons: [],
+            retry_eligibility_score: 1,
+            risk_level: 'low',
+            source_decision: 'RETRY',
+            fingerprint_id: 'abc123',
+            stagnation_score: 1,
+            progress_score: 0,
+            repeated_strategy_count: 0,
+            max_attempts_remaining: 1,
+            evidence_summary: 'fingerprint=abc123 | retry eligible',
+            created_at: '2026-06-27T12:00:00Z',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Plano dry-run somente leitura — nenhum retry executado.')).toBeInTheDocument()
+    expect(screen.getByText('Plano Dry-run RETRY')).toBeInTheDocument()
+    expect(screen.getByText('dry-retry-eligible')).toBeInTheDocument()
+    expect(screen.getByText('retry_eligible')).toBeInTheDocument()
+    expect(screen.getByText('fingerprint=abc123 | retry eligible')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
+
+  it('renders blocked dry-run retry plan diagnostics', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'RETRY',
+          advisory: true,
+          reason: 'High risk.',
+          risk_level: 'high',
+          session_id: 's1',
+          dry_run_retry_plan: {
+            plan_id: 'dry-retry-blocked',
+            plan_type: 'dry_run_retry',
+            advisory: true,
+            would_retry: false,
+            retry_reason: 'retry_blocked',
+            blocked: true,
+            block_reasons: ['risk_too_high', 'user_approval_required'],
+            retry_eligibility_score: 0,
+            risk_level: 'high',
+            source_decision: 'RETRY',
+            fingerprint_id: 'abc123',
+            stagnation_score: 4,
+            progress_score: 0,
+            repeated_strategy_count: 2,
+            max_attempts_remaining: 0,
+            evidence_summary: 'blocked by risk',
+            created_at: '2026-06-27T12:00:00Z',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('dry-retry-blocked')).toBeInTheDocument()
+    expect(screen.getByText('retry_blocked')).toBeInTheDocument()
+    expect(screen.getByText('risk_too_high, user_approval_required')).toBeInTheDocument()
+    expect(screen.getByText('blocked by risk')).toBeInTheDocument()
+  })
+
+  it('shows empty dry-run retry plan state when metadata is missing', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'ok',
+          risk_level: 'low',
+          session_id: 's1',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Nenhum plano dry-run disponível.')).toBeInTheDocument()
+  })
+
   it('does not render forbidden session diagnostic fields or controls', async () => {
     const metadata: RuntimeMetadata = {
       matchedCommands: [],
@@ -439,6 +574,23 @@ describe('RuntimeInspectorPanel', () => {
             raw_response: 'do not render',
             provider_payload: 'do not render',
           },
+          dry_run_retry_plan: {
+            plan_id: 'dry-retry-safe',
+            plan_type: 'dry_run_retry',
+            advisory: true,
+            would_retry: false,
+            retry_reason: 'retry_blocked',
+            blocked: true,
+            block_reasons: ['Bearer sk-proj-block'],
+            retry_eligibility_score: 0,
+            risk_level: 'high',
+            source_decision: 'RETRY',
+            fingerprint_id: 'abc123',
+            evidence_summary: 'Bearer sk-proj-plan',
+            raw_prompt: 'do not render',
+            raw_response: 'do not render',
+            provider_payload: 'do not render',
+          },
         },
       },
     }
@@ -457,6 +609,8 @@ describe('RuntimeInspectorPanel', () => {
     expect(document.body.textContent).not.toContain('raw_prompt')
     expect(document.body.textContent).not.toContain('raw_response')
     expect(document.body.textContent).not.toContain('provider_payload')
+    expect(document.body.textContent).not.toContain('sk-proj-plan')
+    expect(document.body.textContent).not.toContain('sk-proj-block')
     expect(screen.queryByRole('button', { name: 'RETRY' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'SELF_REPAIR' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'SWITCH_PROVIDER' })).not.toBeInTheDocument()
@@ -494,8 +648,8 @@ describe('RuntimeInspectorPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
 
-    expect(screen.getByText('Progress Score')).toBeInTheDocument()
-    expect(screen.getByText('Stagnation Score')).toBeInTheDocument()
+    expect(screen.getAllByText('Progress Score').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Stagnation Score').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.getByText('0')).toBeInTheDocument()
     expect(screen.getByText('Stagnation')).toBeInTheDocument()

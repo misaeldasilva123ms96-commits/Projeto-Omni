@@ -231,6 +231,25 @@ describe('runtime inspector contracts', () => {
             fingerprint_id: 'abc123def456',
             recommended_decision_hint: 'RETRY',
             evidence_summary: 'fingerprint=abc123def456 | repeated_error | stagnation | progress_score=0 | stagnation_score=1 | stagnant_attempts=1 | distinct_errors=1 | hint=RETRY',
+            dry_run_retry_plan: {
+              plan_id: 'dry-retry-abc123',
+              plan_type: 'dry_run_retry',
+              advisory: true,
+              would_retry: true,
+              retry_reason: 'retry_eligible',
+              blocked: false,
+              block_reasons: [],
+              retry_eligibility_score: 1,
+              risk_level: 'low',
+              source_decision: 'RETRY',
+              fingerprint_id: 'abc123def456',
+              stagnation_score: 1,
+              progress_score: 0,
+              repeated_strategy_count: 0,
+              max_attempts_remaining: 1,
+              evidence_summary: 'fingerprint=abc123def456 | retry eligible',
+              created_at: '2026-06-27T12:00:00Z',
+            },
             session_state_diagnostics: {
               session_state_source: 'sqlite_hydrated',
               session_state_persistence_enabled: true,
@@ -267,6 +286,19 @@ describe('runtime inspector contracts', () => {
       expect(normalized.autonomy?.fingerprint_id).toBe('abc123def456')
       expect(normalized.autonomy?.recommended_decision_hint).toBe('RETRY')
       expect(normalized.autonomy?.evidence_summary).toContain('fingerprint=abc123def456')
+      expect(normalized.autonomy?.dry_run_retry_plan).toMatchObject({
+        plan_id: 'dry-retry-abc123',
+        plan_type: 'dry_run_retry',
+        advisory: true,
+        would_retry: true,
+        retry_reason: 'retry_eligible',
+        blocked: false,
+        retry_eligibility_score: 1,
+        risk_level: 'low',
+        source_decision: 'RETRY',
+        fingerprint_id: 'abc123def456',
+        max_attempts_remaining: 1,
+      })
       expect(normalized.autonomy?.session_state_diagnostics).toMatchObject({
         session_state_source: 'sqlite_hydrated',
         session_state_persistence_enabled: true,
@@ -333,6 +365,78 @@ describe('runtime inspector contracts', () => {
       expect(normalized.autonomy?.session_state_diagnostics?.session_state_last_error_category).toBe('[REDACTED]')
       expect(normalized.autonomy?.session_state_diagnostics?.cleanup_last_error_category).toBe('Bearer [REDACTED]')
       expect(normalized.autonomy?.session_state_diagnostics).not.toHaveProperty('raw_prompt')
+    })
+
+    it('normalizes dry-run retry plan safely', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'RETRY',
+            advisory: true,
+            dry_run_retry_plan: {
+              plan_id: 'dry-retry-safe',
+              plan_type: 'dry_run_retry',
+              advisory: true,
+              would_retry: false,
+              retry_reason: 'retry_blocked',
+              blocked: true,
+              block_reasons: ['risk_too_high', 'Bearer sk-proj-block'],
+              retry_eligibility_score: 0,
+              risk_level: 'high',
+              source_decision: 'RETRY',
+              fingerprint_id: 'fp-safe',
+              stagnation_score: 3,
+              progress_score: 0,
+              repeated_strategy_count: 2,
+              max_attempts_remaining: 0,
+              evidence_summary: 'Bearer sk-proj-evidence',
+              created_at: '2026-06-27T12:00:00Z',
+              raw_prompt: 'do not normalize',
+              raw_response: 'do not normalize',
+            },
+          },
+        },
+      })
+
+      const plan = normalized.autonomy?.dry_run_retry_plan
+      expect(plan).toMatchObject({
+        plan_id: 'dry-retry-safe',
+        plan_type: 'dry_run_retry',
+        advisory: true,
+        would_retry: false,
+        retry_reason: 'retry_blocked',
+        blocked: true,
+        retry_eligibility_score: 0,
+        risk_level: 'high',
+        source_decision: 'RETRY',
+        fingerprint_id: 'fp-safe',
+        stagnation_score: 3,
+        progress_score: 0,
+        repeated_strategy_count: 2,
+        max_attempts_remaining: 0,
+        created_at: '2026-06-27T12:00:00Z',
+      })
+      expect(plan?.block_reasons).toEqual(['risk_too_high', '[REDACTED]'])
+      expect(plan?.evidence_summary).toBe('Bearer [REDACTED]')
+      expect(plan).not.toHaveProperty('raw_prompt')
+      expect(plan).not.toHaveProperty('raw_response')
+    })
+
+    it('preserves empty dry-run retry plan state when missing', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'CONTINUE',
+            advisory: true,
+          },
+        },
+      })
+
+      expect(normalized.autonomy?.dry_run_retry_plan).toBeNull()
     })
 
     it('drops unknown autonomy session state diagnostic source', () => {
