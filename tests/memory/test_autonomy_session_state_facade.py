@@ -51,11 +51,14 @@ class AutonomySessionStateFacadeTest(unittest.TestCase):
         facade.initialize()
 
         facade.record_autonomy_session_state(self._record())
+        diagnostics = facade.get_autonomy_session_state_lifecycle_diagnostics("2026-06-27T00:00:00+00:00")
 
         self.assertFalse(facade.sqlite_enabled)
         self.assertIsNone(facade.get_autonomy_session_state("sess-1"))
         self.assertEqual(facade.list_autonomy_session_states(), [])
         self.assertEqual(facade.cleanup_expired_autonomy_session_states("2026-06-27T00:00:00+00:00"), 0)
+        self.assertFalse(diagnostics["expired_state_cleanup_supported"])
+        self.assertEqual(diagnostics["expired_state_count"], 0)
         self.assertEqual(facade.audit_records(), [])
 
     def test_sqlite_opt_in_records_and_reads_session_state(self) -> None:
@@ -93,6 +96,32 @@ class AutonomySessionStateFacadeTest(unittest.TestCase):
         self.assertEqual(deleted, 1)
         self.assertIsNone(facade.get_autonomy_session_state("old"))
         self.assertIsNotNone(facade.get_autonomy_session_state("fresh"))
+        diagnostics = facade.get_autonomy_session_state_lifecycle_diagnostics("2026-06-27T00:00:00+00:00")
+        self.assertTrue(diagnostics["expired_state_cleanup_supported"])
+        self.assertEqual(diagnostics["last_cleanup_deleted_count"], 1)
+        self.assertFalse(diagnostics["cleanup_degraded"])
+        self.assertEqual(diagnostics["expired_state_count"], 0)
+
+    def test_lifecycle_diagnostics_count_expired_without_cleanup(self) -> None:
+        facade = MemoryFacade(
+            enable_sqlite=True,
+            jsonl_path=self._audit_path,
+            sqlite_path=self._sqlite_path,
+        )
+        facade.initialize()
+        expired = self._record("old")
+        expired.expires_at = "2026-06-01T00:00:00+00:00"
+        fresh = self._record("fresh")
+        facade.record_autonomy_session_state(expired)
+        facade.record_autonomy_session_state(fresh)
+
+        diagnostics = facade.get_autonomy_session_state_lifecycle_diagnostics("2026-06-27T00:00:00+00:00")
+
+        self.assertTrue(diagnostics["expired_state_cleanup_supported"])
+        self.assertEqual(diagnostics["expired_state_count"], 1)
+        self.assertEqual(diagnostics["last_cleanup_deleted_count"], 0)
+        self.assertIsNone(facade.get_autonomy_session_state("old"))
+        self.assertIsNotNone(facade.get_autonomy_session_state("fresh"))
 
     def test_facade_degrades_safely_on_sqlite_init_failure(self) -> None:
         clash_file = self._tmp / "db-container"
@@ -110,6 +139,37 @@ class AutonomySessionStateFacadeTest(unittest.TestCase):
         self.assertIsNone(facade.get_autonomy_session_state("sess-1"))
         self.assertEqual(facade.list_autonomy_session_states(), [])
         self.assertEqual(facade.cleanup_expired_autonomy_session_states("2026-06-27T00:00:00+00:00"), 0)
+        diagnostics = facade.get_autonomy_session_state_lifecycle_diagnostics("2026-06-27T00:00:00+00:00")
+        self.assertFalse(diagnostics["expired_state_cleanup_supported"])
+        self.assertFalse(diagnostics["cleanup_degraded"])
+
+    def test_cleanup_failure_produces_safe_degraded_diagnostics(self) -> None:
+        facade = MemoryFacade(
+            enable_sqlite=True,
+            jsonl_path=self._audit_path,
+            sqlite_path=self._sqlite_path,
+        )
+        facade.initialize()
+        self.assertIsNotNone(facade._sqlite)
+
+        def fail_cleanup(_now: str = "") -> int:
+            raise RuntimeError("cleanup boom with sk-test-secret")
+
+        def fail_count(_now: str = "") -> int:
+            raise RuntimeError("count boom with sk-test-secret")
+
+        facade._sqlite.cleanup_expired_autonomy_session_states = fail_cleanup  # type: ignore[method-assign]
+        facade._sqlite.count_expired_autonomy_session_states = fail_count  # type: ignore[method-assign]
+
+        deleted = facade.cleanup_expired_autonomy_session_states("2026-06-27T00:00:00+00:00")
+        diagnostics = facade.get_autonomy_session_state_lifecycle_diagnostics("2026-06-27T00:00:00+00:00")
+
+        self.assertEqual(deleted, 0)
+        self.assertTrue(diagnostics["expired_state_cleanup_supported"])
+        self.assertTrue(diagnostics["cleanup_degraded"])
+        self.assertIn(diagnostics["cleanup_last_error_category"], {"cleanup_failed", "count_failed"})
+        self.assertNotIn("Traceback", str(diagnostics))
+        self.assertNotIn("sqlite", diagnostics["cleanup_last_error_category"].lower())
 
 
 if __name__ == "__main__":

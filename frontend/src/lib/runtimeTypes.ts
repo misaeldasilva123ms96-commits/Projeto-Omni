@@ -112,6 +112,13 @@ export type RuntimeAutonomySessionStateDiagnostics = {
   session_state_updated_at: string | null
   session_state_expires_at: string | null
   session_state_fields_count: number | null
+  expired_state_cleanup_supported: boolean | null
+  last_cleanup_attempted_at: string | null
+  last_cleanup_deleted_count: number | null
+  cleanup_degraded: boolean | null
+  cleanup_last_error_category: string | null
+  session_state_ttl_seconds: number | null
+  expired_state_count: number | null
 }
 
 export type AutonomyTimelineItem = {
@@ -217,6 +224,13 @@ export function normalizeAutonomySessionStateDiagnostics(
     session_state_updated_at: optionalTimestamp(value.session_state_updated_at),
     session_state_expires_at: optionalTimestamp(value.session_state_expires_at),
     session_state_fields_count: optionalNumber(value.session_state_fields_count),
+    expired_state_cleanup_supported: optionalBoolean(value.expired_state_cleanup_supported),
+    last_cleanup_attempted_at: optionalTimestamp(value.last_cleanup_attempted_at),
+    last_cleanup_deleted_count: optionalNumber(value.last_cleanup_deleted_count),
+    cleanup_degraded: optionalBoolean(value.cleanup_degraded),
+    cleanup_last_error_category: optionalString(value.cleanup_last_error_category),
+    session_state_ttl_seconds: optionalNumber(value.session_state_ttl_seconds),
+    expired_state_count: optionalNumber(value.expired_state_count),
   }
 }
 

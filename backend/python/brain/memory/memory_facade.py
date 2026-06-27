@@ -19,6 +19,7 @@ from .memory_models import (
     RuntimeEventRecord,
     SemanticFactRecord,
     redact_payload,
+    utc_now_iso,
 )
 from .sqlite_adapter import SQLiteAdapter
 
@@ -44,6 +45,15 @@ class MemoryFacade:
         self._jsonl: JSONLAuditMirror | None = None
         self._initialized = False
         self._init_error: str | None = None
+        self._autonomy_cleanup_diagnostics: dict[str, Any] = {
+            "expired_state_cleanup_supported": False,
+            "last_cleanup_attempted_at": "",
+            "last_cleanup_deleted_count": 0,
+            "cleanup_degraded": False,
+            "cleanup_last_error_category": "",
+            "session_state_ttl_seconds": 604800,
+            "expired_state_count": 0,
+        }
 
     def _resolve_sqlite_enabled(self, override: bool | None) -> bool:
         if override is not None:
@@ -243,12 +253,58 @@ class MemoryFacade:
 
     def cleanup_expired_autonomy_session_states(self, now: str | None = None) -> int:
         self._ensure_initialized()
+        attempted_at = utc_now_iso()
+        self._autonomy_cleanup_diagnostics["last_cleanup_attempted_at"] = attempted_at
         if self._sqlite is None:
+            self._autonomy_cleanup_diagnostics.update({
+                "expired_state_cleanup_supported": False,
+                "last_cleanup_deleted_count": 0,
+                "cleanup_degraded": False,
+                "cleanup_last_error_category": "",
+                "expired_state_count": 0,
+            })
             return 0
         try:
-            return self._sqlite.cleanup_expired_autonomy_session_states(now or "")
+            deleted = self._sqlite.cleanup_expired_autonomy_session_states(now or "")
+            expired_count = self._sqlite.count_expired_autonomy_session_states(now or "")
+            self._autonomy_cleanup_diagnostics.update({
+                "expired_state_cleanup_supported": True,
+                "last_cleanup_deleted_count": deleted,
+                "cleanup_degraded": False,
+                "cleanup_last_error_category": "",
+                "expired_state_count": expired_count,
+            })
+            return deleted
         except Exception:
+            self._autonomy_cleanup_diagnostics.update({
+                "expired_state_cleanup_supported": True,
+                "last_cleanup_deleted_count": 0,
+                "cleanup_degraded": True,
+                "cleanup_last_error_category": "cleanup_failed",
+            })
             return 0
+
+    def get_autonomy_session_state_lifecycle_diagnostics(
+        self,
+        now: str | None = None,
+    ) -> dict[str, Any]:
+        self._ensure_initialized()
+        diagnostics = dict(self._autonomy_cleanup_diagnostics)
+        diagnostics["expired_state_cleanup_supported"] = self._sqlite is not None
+        diagnostics["session_state_ttl_seconds"] = 604800
+        if self._sqlite is None:
+            diagnostics["expired_state_count"] = 0
+            return diagnostics
+        try:
+            diagnostics["expired_state_count"] = self._sqlite.count_expired_autonomy_session_states(now or "")
+            if diagnostics.get("cleanup_last_error_category") == "count_failed":
+                diagnostics["cleanup_last_error_category"] = ""
+                diagnostics["cleanup_degraded"] = False
+        except Exception:
+            diagnostics["expired_state_count"] = 0
+            diagnostics["cleanup_degraded"] = True
+            diagnostics["cleanup_last_error_category"] = "count_failed"
+        return diagnostics
 
     def query_runtime_events(self, session_id: str, limit: int = 50) -> list[dict[str, Any]]:
         self._ensure_initialized()

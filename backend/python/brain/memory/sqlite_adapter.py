@@ -361,6 +361,17 @@ class SQLiteAdapter:
             self._conn.commit()
             return int(cursor.rowcount if cursor.rowcount is not None else 0)
 
+    def count_expired_autonomy_session_states(self, now: str = "") -> int:
+        if self._conn is None:
+            return 0
+        cutoff = now or utc_now_iso()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM autonomy_session_states WHERE expires_at < ?",
+                (cutoff,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def table_count(self, table_name: str) -> int:
         if self._conn is None:
             return 0

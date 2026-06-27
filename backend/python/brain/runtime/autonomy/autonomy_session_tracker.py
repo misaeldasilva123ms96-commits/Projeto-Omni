@@ -45,6 +45,13 @@ _PROCESS_LOCAL_DIAGNOSTIC = {
     "session_state_updated_at": "",
     "session_state_expires_at": "",
     "session_state_fields_count": 0,
+    "expired_state_cleanup_supported": False,
+    "last_cleanup_attempted_at": "",
+    "last_cleanup_deleted_count": 0,
+    "cleanup_degraded": False,
+    "cleanup_last_error_category": "",
+    "session_state_ttl_seconds": 604800,
+    "expired_state_count": 0,
 }
 
 
@@ -88,7 +95,7 @@ class AutonomySessionTracker:
         last_error_category: str = "",
         state: AutonomySessionState | None = None,
     ) -> None:
-        self._session_diagnostics[session_id] = {
+        diagnostic = {
             "session_state_source": source,
             "session_state_persistence_enabled": persistence_enabled,
             "session_state_hydrated": hydrated,
@@ -98,6 +105,42 @@ class AutonomySessionTracker:
             "session_state_updated_at": state.updated_at if state else "",
             "session_state_expires_at": state.expires_at if state else "",
             "session_state_fields_count": _state_fields_count(state),
+        }
+        diagnostic.update(self._cleanup_lifecycle_diagnostics())
+        self._session_diagnostics[session_id] = diagnostic
+
+    def _cleanup_lifecycle_diagnostics(self) -> dict[str, Any]:
+        default = {
+            "expired_state_cleanup_supported": False,
+            "last_cleanup_attempted_at": "",
+            "last_cleanup_deleted_count": 0,
+            "cleanup_degraded": False,
+            "cleanup_last_error_category": "",
+            "session_state_ttl_seconds": 604800,
+            "expired_state_count": 0,
+        }
+        facade = self._memory_facade
+        if facade is None or not _HAS_MEMORY_CONTRACTS:
+            return default
+        getter = getattr(facade, "get_autonomy_session_state_lifecycle_diagnostics", None)
+        if getter is None:
+            return default
+        try:
+            raw = getter()
+        except Exception:
+            default["cleanup_degraded"] = True
+            default["cleanup_last_error_category"] = "diagnostics_failed"
+            return default
+        if not isinstance(raw, dict):
+            return default
+        return {
+            "expired_state_cleanup_supported": bool(raw.get("expired_state_cleanup_supported", False)),
+            "last_cleanup_attempted_at": _safe_diagnostic_string(raw.get("last_cleanup_attempted_at", "")),
+            "last_cleanup_deleted_count": _safe_int(raw.get("last_cleanup_deleted_count", 0)),
+            "cleanup_degraded": bool(raw.get("cleanup_degraded", False)),
+            "cleanup_last_error_category": _safe_diagnostic_string(raw.get("cleanup_last_error_category", "")),
+            "session_state_ttl_seconds": _safe_int(raw.get("session_state_ttl_seconds", 604800)),
+            "expired_state_count": _safe_int(raw.get("expired_state_count", 0)),
         }
 
     def _sqlite_persistence_enabled(self) -> bool:

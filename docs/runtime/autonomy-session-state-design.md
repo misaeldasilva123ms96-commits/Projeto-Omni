@@ -43,6 +43,12 @@ Cockpit Autonomia tab. Diagnostics are limited to categorical source, booleans,
 safe timestamps, numeric field count, and a redacted error category. No raw
 persisted session state is rendered.
 
+**Cleanup observability update:** `feature/autonomy-session-state-cleanup-observability`
+adds read-only lifecycle diagnostics for explicit cleanup support, last cleanup
+attempt metadata, deleted count, cleanup degradation, TTL seconds, and expired
+state count. No background cleanup job or autonomous cleanup scheduling is
+introduced.
+
 ## 2. Current State
 
 The current autonomy stack is advisory-only:
@@ -467,6 +473,13 @@ Implemented diagnostics use these safe fields:
 - `session_state_updated_at`
 - `session_state_expires_at`
 - `session_state_fields_count`
+- `expired_state_cleanup_supported`
+- `last_cleanup_attempted_at`
+- `last_cleanup_deleted_count`
+- `cleanup_degraded`
+- `cleanup_last_error_category`
+- `session_state_ttl_seconds`
+- `expired_state_count`
 
 ## 23. Risks
 
