@@ -136,9 +136,13 @@ UX rules:
 
 Proposed dry-run result fields:
 
+- `operation_id`
+- `operation_type`
 - `attempted`
 - `supported`
 - `dry_run`
+- `sqlite_path_fingerprint`
+- `sqlite_path_present`
 - `would_delete_count`
 - `deleted_count`
 - `degraded`
@@ -156,9 +160,13 @@ Example:
 {
   "status": "ok",
   "cleanup": {
+    "operation_id": "cleanup-6f3a2b8c9d10",
+    "operation_type": "cleanup_autonomy_session_states",
     "attempted": true,
     "supported": true,
     "dry_run": true,
+    "sqlite_path_fingerprint": "sha256:9f81b9f2c2e5a0d4",
+    "sqlite_path_present": true,
     "would_delete_count": 3,
     "deleted_count": 0,
     "degraded": false,
@@ -185,6 +193,8 @@ Recommended adapter behavior:
 - Use the same cutoff timestamp rules as destructive cleanup.
 - Return `supported=true` only when SQLite is enabled and connected.
 - Return `sqlite_enabled=true` and `sqlite_connected=true` when safe.
+- Return a stable fingerprint for an operator-supplied SQLite path, never the
+  raw path.
 - On read/count failure, return safe degraded metadata.
 
 ## 10. JSONL/Default Behavior
@@ -197,6 +207,8 @@ Expected JSONL/default dry-run result:
 - `attempted=true`
 - `supported=false`
 - `dry_run=true`
+- `sqlite_path_fingerprint` populated only when an operator-supplied SQLite path
+  is present
 - `would_delete_count=0`
 - `deleted_count=0`
 - `degraded=false`

@@ -21,9 +21,13 @@ from brain.runtime.autonomy.error_progress_tracker import SmartErrorProgressTrac
 from brain.runtime.autonomy.runtime_wiring import evaluate_autonomy  # noqa: E402
 
 _CLEANUP_RESULT_FIELDS = {
+    "operation_id",
+    "operation_type",
     "attempted",
     "supported",
     "dry_run",
+    "sqlite_path_fingerprint",
+    "sqlite_path_present",
     "would_delete_count",
     "deleted_count",
     "degraded",
@@ -99,6 +103,10 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
         self.assertEqual(result.error_category, "")
         self.assertFalse(result.sqlite_enabled)
         self.assertFalse(result.sqlite_connected)
+        self.assertFalse(result.sqlite_path_present)
+        self.assertEqual(result.sqlite_path_fingerprint, "")
+        self.assertEqual(result.operation_type, "cleanup_autonomy_session_states")
+        self.assertTrue(result.operation_id.startswith("cleanup-"))
         self.assertEqual(facade.audit_records(), [])
 
     def test_manual_cleanup_dry_run_noops_safely_when_sqlite_disabled(self) -> None:
@@ -120,6 +128,8 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
         self.assertEqual(result.error_category, "")
         self.assertFalse(result.sqlite_enabled)
         self.assertFalse(result.sqlite_connected)
+        self.assertFalse(result.sqlite_path_present)
+        self.assertEqual(result.sqlite_path_fingerprint, "")
         self.assertEqual(result.cutoff_time, "2026-06-27T00:00:00+00:00")
 
     def test_manual_cleanup_deletes_only_expired_rows_when_sqlite_enabled(self) -> None:
@@ -141,6 +151,8 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
         self.assertEqual(result.error_category, "")
         self.assertTrue(result.sqlite_enabled)
         self.assertTrue(result.sqlite_connected)
+        self.assertFalse(result.sqlite_path_present)
+        self.assertEqual(result.sqlite_path_fingerprint, "")
         self.assertIsNone(facade.get_autonomy_session_state("old"))
         self.assertIsNotNone(facade.get_autonomy_session_state("fresh"))
 
@@ -165,6 +177,8 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
         self.assertEqual(result.error_category, "")
         self.assertTrue(result.sqlite_enabled)
         self.assertTrue(result.sqlite_connected)
+        self.assertFalse(result.sqlite_path_present)
+        self.assertEqual(result.sqlite_path_fingerprint, "")
         self.assertEqual(result.cutoff_time, "2026-06-27T00:00:00+00:00")
         self.assertEqual(facade._sqlite.table_count("autonomy_session_states"), 2)
         self.assertIsNotNone(facade.get_autonomy_session_state("fresh"))
@@ -190,6 +204,29 @@ class AutonomySessionStateManualCleanupTest(unittest.TestCase):
         self.assertNotIn("raw_prompt", str(result))
         self.assertNotIn("raw_response", str(result))
         self.assertNotIn("traceback", str(result).lower())
+
+    def test_manual_cleanup_path_fingerprint_is_stable_and_safe(self) -> None:
+        facade = self._sqlite_facade()
+        raw_path = self._sqlite_path
+
+        first = cleanup_expired_autonomy_session_states_manual(
+            facade=facade,
+            now="2026-06-27T00:00:00+00:00",
+            dry_run=True,
+            sqlite_path=raw_path,
+        ).as_dict()
+        second = cleanup_expired_autonomy_session_states_manual(
+            facade=facade,
+            now="2026-06-27T00:00:00+00:00",
+            dry_run=True,
+            sqlite_path=raw_path,
+        ).as_dict()
+
+        self.assertTrue(first["sqlite_path_present"])
+        self.assertEqual(first["sqlite_path_fingerprint"], second["sqlite_path_fingerprint"])
+        self.assertTrue(str(first["sqlite_path_fingerprint"]).startswith("sha256:"))
+        self.assertNotIn(str(raw_path), str(first))
+        self.assertNotIn(raw_path.name, str(first))
 
     def test_manual_cleanup_failure_degrades_safely(self) -> None:
         result = cleanup_expired_autonomy_session_states_manual(
