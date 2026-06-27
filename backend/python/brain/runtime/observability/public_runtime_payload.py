@@ -67,6 +67,9 @@ PUBLIC_INSPECTION_KEYS = {
     "retryable",
     "internal_error_redacted",
     "public_summary",
+    "autonomy_evaluation",
+    "autonomy_controller_stats",
+    "autonomy_evidence",
 }
 
 _UNIX_PATH_RE = re.compile(r"(?<!\w)/(?:home|root|tmp|var|usr|etc)(?:/[^\s\"'`{}[\],;:]+)+")

@@ -214,6 +214,15 @@ class EvaluateAndAttachTest(unittest.TestCase):
         self.assertTrue(stats["advisory_mode_enabled"])
         self.assertIn("active_session_count", stats)
 
+    def test_attaches_read_only_autonomy_evidence_payload(self) -> None:
+        inspection: dict[str, Any] = {"signals": {}}
+        evaluate_and_attach(inspection, "s1", "good response")
+        self.assertIn("autonomy_evidence", inspection)
+        evidence = inspection["autonomy_evidence"]
+        self.assertTrue(evidence["read_only"])
+        self.assertEqual(evidence["mode"], "advisory-only")
+        self.assertIn("summary", evidence)
+
     def test_controller_stats_escalation(self) -> None:
         inspection: dict[str, Any] = {"signals": {}}
         safe_fallback = "Nao consegui processar isso ainda, mas estou aprendendo."

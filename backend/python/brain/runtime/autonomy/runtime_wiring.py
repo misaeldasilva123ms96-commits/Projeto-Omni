@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from .autonomy_controller import AutonomyController
+from .evidence_view import build_autonomy_evidence_payload
 from .autonomy_models import AutonomyContext
 from .autonomy_session_tracker import AutonomySessionTracker
 from .error_progress_tracker import SmartErrorProgressTracker
@@ -304,6 +305,14 @@ def get_autonomy_controller_stats() -> dict[str, Any]:
     return stats
 
 
+def get_autonomy_evidence_payload(
+    *,
+    session_id: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    return build_autonomy_evidence_payload(session_id=session_id, limit=limit)
+
+
 def evaluate_and_attach(
     inspection: dict[str, Any] | None,
     session_id: str,
@@ -315,10 +324,14 @@ def evaluate_and_attach(
             session_id=session_id,
             response=response,
         )
+        record_autonomy_evidence(result)
         if isinstance(inspection, dict):
             inspection["autonomy_evaluation"] = result
             inspection["autonomy_controller_stats"] = get_autonomy_controller_stats()
-        record_autonomy_evidence(result)
+            inspection["autonomy_evidence"] = get_autonomy_evidence_payload(
+                session_id=session_id,
+                limit=25,
+            )
     except Exception as exc:
         logger.debug("Autonomy evaluation failed (advisory-only, ignored): %s", exc)
 
