@@ -204,8 +204,8 @@ def test_ci_client_errors_are_partial_and_do_not_download_or_retry() -> None:
     github = FakeGitHubActionsClient(fail=True)
     result = _monitor(github=github)
     assert result.partial is True
-    assert result.success is True
-    assert result.monitored is True
+    assert result.success is False
+    assert result.monitored is False
     assert github.logs_called is False
     assert github.retry_called is False
     assert github.trigger_called is False
@@ -222,8 +222,10 @@ def test_status_normalization_for_failed_pending_and_neutral() -> None:
     assert pending.terminal is False
 
     neutral = _monitor(
-        _request(expected_required_checks=[]),
-        github=FakeGitHubActionsClient([{"name": "CodeQL", "status": "neutral", "required": False}]),
+        github=FakeGitHubActionsClient([
+            {"name": "build-and-test-js-python", "status": "success", "required": True},
+            {"name": "CodeQL", "status": "neutral", "required": False},
+        ]),
     )
     assert neutral.passed is True
     assert neutral.failed is False
