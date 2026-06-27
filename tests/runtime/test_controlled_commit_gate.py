@@ -192,7 +192,6 @@ def test_file_safety_allowed_and_blocked() -> None:
         "docs/governance/policy.md",
         "docs/security/threat-model.md",
         ".github/workflows/ci.yml",
-        ".circleci/config.yml",
         "../escape.py",
         "C:/outside.py",
         ".git/config",

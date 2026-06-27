@@ -64,7 +64,6 @@ _HUMAN_PREFIXES = (
     "docs/governance/",
     "docs/security/",
     ".github/workflows/",
-    ".circleci/",
 )
 _BLOCKED_OPERATIONS = {
     "delete_file",

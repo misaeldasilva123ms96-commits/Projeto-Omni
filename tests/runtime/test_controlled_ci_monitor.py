@@ -26,21 +26,6 @@ class FakeGitHubActionsClient:
         return {"checks": self.checks, "workflows": [{"name": "CI", "status": "success"}]}
 
 
-class FakeCircleCIClient:
-    def __init__(self, checks: list[dict[str, object]] | None = None, fail: bool = False) -> None:
-        self.calls: list[dict[str, object]] = []
-        self.checks = checks or [{"name": "ci/circleci: python-tests", "status": "success", "required": True}]
-        self.fail = fail
-        self.logs_called = False
-        self.retry_called = False
-        self.trigger_called = False
-
-    def get_circleci_status_snapshot(self, *, repository_full_name: str, head_branch: str, head_sha: str) -> dict[str, object]:
-        self.calls.append({"repository_full_name": repository_full_name, "head_branch": head_branch, "head_sha": head_sha})
-        if self.fail:
-            raise RuntimeError("temporary read failure")
-        return {"checks": self.checks, "workflows": [{"name": "python-tests", "status": "success"}]}
-
 
 def _gate(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
@@ -123,31 +108,28 @@ def _request(**overrides: object) -> dict[str, object]:
         "ci_monitor_gate_result": _gate(),
         "pr_creator_result": _creator(),
         "monitor_mode": "monitor_ci",
-        "expected_required_checks": ["build-and-test-js-python", "ci/circleci: python-tests"],
+        "expected_required_checks": ["build-and-test-js-python"],
     }
     payload.update(overrides)
     return payload
 
 
-def _monitor(request: dict[str, object] | None = None, github: FakeGitHubActionsClient | None = None, circle: FakeCircleCIClient | None = None):
+def _monitor(request: dict[str, object] | None = None, github: FakeGitHubActionsClient | None = None):
     return monitor_ci_status(
         request or _request(),
         github_actions_client=github or FakeGitHubActionsClient(),
-        circleci_client=circle or FakeCircleCIClient(),
     )
 
 
 def test_modes_block_or_dry_run_without_client_calls() -> None:
     github = FakeGitHubActionsClient()
-    circle = FakeCircleCIClient()
-    assert _monitor(_request(monitor_mode="disabled"), github, circle).blocked is True
-    assert _monitor(_request(monitor_mode="blocked"), github, circle).blocked is True
-    assert _monitor(_request(monitor_mode="unknown"), github, circle).blocked is True
-    dry = _monitor(_request(monitor_mode="dry_run"), github, circle)
+    assert _monitor(_request(monitor_mode="disabled"), github).blocked is True
+    assert _monitor(_request(monitor_mode="blocked"), github).blocked is True
+    assert _monitor(_request(monitor_mode="unknown"), github).blocked is True
+    dry = _monitor(_request(monitor_mode="dry_run"), github)
     assert dry.dry_run is True
     assert dry.monitored is False
     assert github.calls == []
-    assert circle.calls == []
 
 
 def test_monitor_ci_reads_fake_clients_and_marks_passed() -> None:
@@ -167,7 +149,6 @@ def test_monitor_ci_reads_fake_clients_and_marks_passed() -> None:
     assert result.runtime_truth["workflow_runs_fetched"] is True
     assert result.runtime_truth["check_runs_fetched"] is True
     assert result.runtime_truth["github_actions_read"] is True
-    assert result.runtime_truth["circleci_read"] is True
 
 
 def test_phase29_and_phase28_evidence_blocks_unsafe_inputs() -> None:
@@ -221,17 +202,13 @@ def test_pr_repository_branch_and_sha_safety() -> None:
 
 def test_ci_client_errors_are_partial_and_do_not_download_or_retry() -> None:
     github = FakeGitHubActionsClient(fail=True)
-    circle = FakeCircleCIClient()
-    result = _monitor(github=github, circle=circle)
+    result = _monitor(github=github)
     assert result.partial is True
     assert result.success is True
     assert result.monitored is True
     assert github.logs_called is False
     assert github.retry_called is False
     assert github.trigger_called is False
-    assert circle.logs_called is False
-    assert circle.retry_called is False
-    assert circle.trigger_called is False
 
 
 def test_status_normalization_for_failed_pending_and_neutral() -> None:
@@ -245,9 +222,8 @@ def test_status_normalization_for_failed_pending_and_neutral() -> None:
     assert pending.terminal is False
 
     neutral = _monitor(
-        _request(expected_required_checks=["ci/circleci: python-tests"]),
+        _request(expected_required_checks=[]),
         github=FakeGitHubActionsClient([{"name": "CodeQL", "status": "neutral", "required": False}]),
-        circle=FakeCircleCIClient(),
     )
     assert neutral.passed is True
     assert neutral.failed is False

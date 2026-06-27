@@ -2,7 +2,7 @@
 
 Phase 29 adds the CI Monitor Gate for the Omni Governed Knowledge Sandbox.
 
-The gate decides whether a PR created by Phase 28 is eligible for a future CI/check monitoring phase. It is metadata-only: it does not monitor CI, call GitHub APIs, call CircleCI APIs, execute `gh`, download logs, retry workflows, trigger workflows, start repair loops, mutate Git, push, merge, rebase, update PRs, or approve PRs.
+The gate decides whether a PR created by Phase 28 is eligible for a future CI/check monitoring phase. It is metadata-only: it does not monitor CI, call GitHub APIs, execute `gh`, download logs, retry workflows, trigger workflows, start repair loops, mutate Git, push, merge, rebase, update PRs, or approve PRs.
 
 Phase 30 consumes this gate evidence in the Controlled CI Monitor. That monitor may read bounded status snapshots through narrow injected clients, but it still cannot download logs, retry workflows, update PRs, merge, push, or start repair loops.
 
@@ -33,7 +33,7 @@ The gate may produce `ci_monitor_eligible=true` only in `evaluate_ci_monitor` mo
 - CI provider, workflow, and required-check metadata is safe.
 - No secret-like content is detected.
 
-`ci_monitor_eligible` and `ci_monitor_plan` are metadata only. `can_monitor_ci`, `can_call_github_api`, `can_call_circleci_api`, `can_download_logs`, `can_retry_workflows`, `can_start_repair_loop`, `can_merge`, and `can_auto_merge` remain false.
+`ci_monitor_eligible` and `ci_monitor_plan` are metadata only. `can_monitor_ci`, `can_call_github_api`, `can_download_logs`, `can_retry_workflows`, `can_start_repair_loop`, `can_merge`, and `can_auto_merge` remain false.
 
 ## Escalation
 

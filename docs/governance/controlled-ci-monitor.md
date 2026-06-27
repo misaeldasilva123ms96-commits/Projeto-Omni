@@ -14,7 +14,6 @@ The monitor requires clean Phase 29 CI Monitor Gate evidence, a created PR, an o
 ## Allowed Behavior
 
 - Read GitHub Actions/check status through narrow injected read-only clients.
-- Read CircleCI status through narrow injected read-only clients.
 - Normalize check status into `passed`, `failed`, `pending`, or `inconclusive`.
 - Produce Runtime Truth for every monitoring attempt.
 - Route passing CI to a future merge gate as metadata only.

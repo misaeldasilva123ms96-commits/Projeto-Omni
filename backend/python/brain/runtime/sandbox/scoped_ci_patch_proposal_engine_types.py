@@ -79,7 +79,7 @@ class ScopedCIPatchProposalEngineRequest:
     )
     blocked_file_roots: list[str] = field(
         default_factory=lambda: [
-            ".git", ".github/workflows", ".circleci",
+            ".git", ".github/workflows",
             "docs/security", "docs/governance", "vault/08_ADR",
             ".env", "secrets", "deploy", "billing", "production",
         ]

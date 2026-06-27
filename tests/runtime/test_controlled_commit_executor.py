@@ -208,7 +208,6 @@ def test_allowed_file_metadata_can_dry_run(path: str, git_repo: Path) -> None:
         "docs/governance/policy.md",
         "docs/security/threat-model.md",
         ".github/workflows/ci.yml",
-        ".circleci/config.yml",
         "../escape.py",
         "C:/outside/repo.py",
         ".git/config",

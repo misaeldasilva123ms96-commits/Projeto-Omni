@@ -78,7 +78,6 @@ class CIRepairPlannerRequest:
         default_factory=lambda: [
             ".git",
             ".github/workflows",
-            ".circleci",
             "docs/security",
             "docs/governance",
             "vault/08_ADR",

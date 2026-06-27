@@ -1,0 +1,60 @@
+name: Post-Merge Validation
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Full validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python test tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov
+
+      - name: Run Node tests
+        run: npm run test:node
+
+      - name: Run Python tests with coverage
+        run: |
+          python -m pytest -q tests/contracts tests/integration tests/runtime/test_orchestrator_decomposition.py tests/runtime/test_vault_readonly_access.py tests/runtime/test_human_approval_gate.py tests/runtime/test_autonomy_operating_model.py tests/runtime/test_safe_command_execution_gate.py tests/runtime/test_sandbox_command_runner.py tests/runtime/test_autonomous_test_runner_loop.py tests/runtime/test_autonomous_repair_planner.py tests/runtime/test_scoped_patch_proposal_engine.py tests/runtime/test_controlled_branch_patch_applier.py tests/runtime/test_post_patch_validation_loop.py tests/runtime/test_controlled_commit_gate.py tests/runtime/test_controlled_commit_executor.py tests/runtime/test_controlled_push_gate.py tests/runtime/test_controlled_push_executor.py tests/runtime/test_pr_creation_gate.py tests/runtime/test_controlled_pr_creator.py tests/runtime/test_ci_monitor_gate.py tests/runtime/test_controlled_ci_monitor.py --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-report=term
+
+      - name: Run Rust tests
+        working-directory: backend/rust
+        run: cargo test --locked
+
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build

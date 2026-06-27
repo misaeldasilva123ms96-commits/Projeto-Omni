@@ -23,7 +23,7 @@ class ControlledCIMonitorRequest:
     base_branch: str = "main"
     head_sha: Optional[str] = None
     commit_sha: Optional[str] = None
-    expected_ci_providers: list[str] = field(default_factory=lambda: ["github_actions", "circleci"])
+    expected_ci_providers: list[str] = field(default_factory=lambda: ["github_actions"])
     expected_workflows: list[str] = field(default_factory=list)
     expected_required_checks: list[str] = field(default_factory=list)
     polling_strategy: str = "single_snapshot"
@@ -41,7 +41,6 @@ class ControlledCIMonitorRequest:
     require_head_sha: bool = True
     allow_ci_monitoring: bool = True
     allow_github_actions_read: bool = True
-    allow_circleci_read: bool = True
     allow_log_download: bool = False
     allow_workflow_retry: bool = False
     allow_workflow_trigger: bool = False
@@ -87,7 +86,6 @@ class ControlledCIMonitorResult:
     aggregate_status: str
     aggregate_conclusion: str
     github_actions_status: dict[str, object]
-    circleci_status: dict[str, object]
     checks_observed: list[dict[str, object]]
     workflows_observed: list[dict[str, object]]
     required_checks_observed: list[dict[str, object]]

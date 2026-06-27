@@ -26,7 +26,7 @@ class CIMonitorGateRequest:
     base_sha: Optional[str] = None
     merge_commit_sha: Optional[str] = None
     commit_sha: Optional[str] = None
-    expected_ci_providers: list[str] = field(default_factory=lambda: ["github_actions", "circleci"])
+    expected_ci_providers: list[str] = field(default_factory=lambda: ["github_actions"])
     expected_workflows: list[str] = field(default_factory=list)
     expected_required_checks: list[str] = field(default_factory=list)
     allowed_statuses: list[str] = field(
@@ -55,7 +55,6 @@ class CIMonitorGateRequest:
     require_repository_safe: bool = True
     allow_ci_monitoring: bool = False
     allow_github_api: bool = False
-    allow_circleci_api: bool = False
     allow_log_download: bool = False
     allow_workflow_retry: bool = False
     allow_repair_loop: bool = False
@@ -121,7 +120,6 @@ class CIMonitorGateResult:
     required_pre_ci_monitor_checks: list[str]
     can_monitor_ci: bool
     can_call_github_api: bool
-    can_call_circleci_api: bool
     can_download_logs: bool
     can_retry_workflows: bool
     can_start_repair_loop: bool

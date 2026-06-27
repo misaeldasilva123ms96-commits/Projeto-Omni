@@ -104,7 +104,7 @@ def _request(**overrides: object) -> dict[str, object]:
         "push_executor_result": _push_executor(),
         "ci_monitor_gate_mode": "evaluate_ci_monitor",
         "expected_workflows": ["CI", "Omni Security CI"],
-        "expected_required_checks": ["build-and-test-js-python (24.x, 3.11)", "ci/circleci: python-tests"],
+        "expected_required_checks": ["build-and-test-js-python (24.x, 3.11)"],
     }
     payload.update(overrides)
     return payload
@@ -233,9 +233,9 @@ def test_pr_state_branch_repository_and_sha_safety() -> None:
 
 def test_ci_provider_workflow_plan_and_flags() -> None:
     assert evaluate_ci_monitor_gate(_request(expected_ci_providers=["github_actions"])).ci_monitor_eligible is True
-    assert evaluate_ci_monitor_gate(_request(expected_ci_providers=["circleci"])).ci_monitor_eligible is True
+    assert evaluate_ci_monitor_gate(_request(expected_ci_providers=["github_actions"])).ci_monitor_eligible is True
     assert evaluate_ci_monitor_gate(_request(expected_ci_providers=["jenkins"])).blocked is True
-    assert evaluate_ci_monitor_gate(_request(expected_ci_providers=["circleci;bad"])).blocked is True
+    assert evaluate_ci_monitor_gate(_request(expected_ci_providers=["github_actions;bad"])).blocked is True
     assert evaluate_ci_monitor_gate(_request(expected_workflows=["CI"])).ci_monitor_eligible is True
     assert evaluate_ci_monitor_gate(_request(expected_workflows=["OPENAI_API_KEY placeholder"])).redacted is True
     assert evaluate_ci_monitor_gate(_request(expected_workflows=["production deploy"])).blocked is True
@@ -246,7 +246,7 @@ def test_ci_provider_workflow_plan_and_flags() -> None:
     for flag in (
         "can_monitor_ci",
         "can_call_github_api",
-        "can_call_circleci_api",
+
         "can_download_logs",
         "can_retry_workflows",
         "can_start_repair_loop",

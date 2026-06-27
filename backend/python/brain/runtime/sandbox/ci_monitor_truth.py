@@ -53,7 +53,6 @@ class ControlledCIMonitorEvidence:
     workflow_runs_fetched: bool
     check_runs_fetched: bool
     github_actions_read: bool
-    circleci_read: bool
     logs_downloaded: bool
     workflow_retried: bool
     workflow_triggered: bool
@@ -135,7 +134,6 @@ def build_ci_monitor_evidence(
     workflow_runs_fetched: bool,
     check_runs_fetched: bool,
     github_actions_read: bool,
-    circleci_read: bool,
     secrets_detected: bool,
     human_intervention_required: bool,
     escalation_reason: str | None,
@@ -184,7 +182,6 @@ def build_ci_monitor_evidence(
         workflow_runs_fetched=workflow_runs_fetched,
         check_runs_fetched=check_runs_fetched,
         github_actions_read=github_actions_read,
-        circleci_read=circleci_read,
         logs_downloaded=False,
         workflow_retried=False,
         workflow_triggered=False,

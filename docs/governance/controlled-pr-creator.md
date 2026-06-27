@@ -22,7 +22,7 @@ The runtime must not hardcode tokens, read `.env`, expose authorization headers,
 
 ## Next Gate
 
-Phase 29 introduces the CI Monitor Gate. It consumes clean PR creator evidence and decides whether a created PR is eligible for future CI/check monitoring. Phase 29 remains metadata-only and does not call GitHub APIs, CircleCI APIs, download logs, retry workflows, or start repair loops.
+Phase 29 introduces the CI Monitor Gate. It consumes clean PR creator evidence and decides whether a created PR is eligible for future CI/check monitoring. Phase 29 remains metadata-only and does not call GitHub APIs, download logs, retry workflows, or start repair loops.
 
 ## Blocked Behavior
 
