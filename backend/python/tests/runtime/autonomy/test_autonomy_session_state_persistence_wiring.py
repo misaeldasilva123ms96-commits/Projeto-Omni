@@ -304,7 +304,11 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
             AutonomySessionTracker(memory_facade=_SpyFacade(sqlite_enabled=False, connected=False)),  # type: ignore[arg-type]
         )
 
-        diagnostic_keys = {"session_state_diagnostics", "dry_run_retry_plan"}
+        diagnostic_keys = {
+            "session_state_diagnostics",
+            "dry_run_retry_plan",
+            "dry_run_replan_plan",
+        }
         self.assertEqual(
             {k: v for k, v in sqlite_disabled.items() if k not in diagnostic_keys},
             {k: v for k, v in baseline.items() if k not in diagnostic_keys},

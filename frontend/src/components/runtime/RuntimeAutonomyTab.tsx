@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type {
   AutonomyTimelineItem,
+  RuntimeDryRunReplanPlan,
   RuntimeDryRunRetryPlan,
   RuntimeAutonomySessionStateDiagnostics,
   RuntimeAutonomyStats,
@@ -142,6 +143,50 @@ function DryRunRetryPlanPanel({ plan }: { plan: RuntimeDryRunRetryPlan | null })
         label="Max Attempts Remaining"
         value={plan?.max_attempts_remaining != null ? String(plan.max_attempts_remaining) : '—'}
       />
+      <DetailRow label="Created At" value={plan?.created_at ?? '—'} />
+      {plan?.evidence_summary ? (
+        <div className="py-2.5">
+          <span className="text-sm text-slate-300/70">Evidence Summary</span>
+          <p className="mt-1 text-sm text-white">
+            {redactRuntimeDebugText(plan.evidence_summary)}
+          </p>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function DryRunReplanPlanPanel({ plan }: { plan: RuntimeDryRunReplanPlan | null }) {
+  return (
+    <section className="rounded-[22px] border border-white/10 bg-black/15 px-4 py-3.5">
+      <h4 className="mb-1 text-sm font-medium text-white">Plano Dry-run REPLAN</h4>
+      <p className="mb-3 text-xs italic text-slate-400">
+        Plano dry-run somente leitura — nenhum replan executado.
+      </p>
+      {plan ? null : (
+        <p className="mb-2 text-sm text-slate-400">Nenhum plano dry-run REPLAN disponível.</p>
+      )}
+      <DetailRow label="Plan ID" value={plan?.plan_id ?? '—'} />
+      <DetailRow label="Plan Type" value={plan?.plan_type ?? '—'} />
+      <DetailRow label="Advisory" value={boolLabel(plan?.advisory ?? null)} />
+      <DetailRow label="Would Replan" value={boolLabel(plan?.would_replan ?? null)} />
+      <DetailRow label="Replan Reason" value={plan?.replan_reason ?? '—'} />
+      <DetailRow label="Blocked" value={boolLabel(plan?.blocked ?? null)} />
+      <DetailRow
+        label="Block Reasons"
+        value={plan?.block_reasons.length ? plan.block_reasons.join(', ') : '—'}
+      />
+      <DetailRow label="Eligibility Score" value={scoreLabel(plan?.replan_eligibility_score ?? null)} />
+      <DetailRow label="Risk Level" value={plan?.risk_level ?? '—'} />
+      <DetailRow label="Source Decision" value={plan?.source_decision ?? '—'} />
+      <DetailRow label="Fingerprint" value={plan?.fingerprint_id ?? '—'} />
+      <DetailRow label="Stagnation Score" value={scoreLabel(plan?.stagnation_score ?? null)} />
+      <DetailRow label="Progress Score" value={scoreLabel(plan?.progress_score ?? null)} />
+      <DetailRow
+        label="Repeated Strategies"
+        value={plan?.repeated_strategy_count != null ? String(plan.repeated_strategy_count) : '—'}
+      />
+      <DetailRow label="Suggested Strategy" value={plan?.suggested_strategy ?? '—'} />
       <DetailRow label="Created At" value={plan?.created_at ?? '—'} />
       {plan?.evidence_summary ? (
         <div className="py-2.5">
@@ -312,6 +357,7 @@ export function RuntimeAutonomyTab({ data, stats }: RuntimeAutonomyTabProps) {
 
           <SessionStateDiagnosticsPanel diagnostics={data.session_state_diagnostics} />
           <DryRunRetryPlanPanel plan={data.dry_run_retry_plan} />
+          <DryRunReplanPlanPanel plan={data.dry_run_replan_plan} />
         </>
       ) : null}
 

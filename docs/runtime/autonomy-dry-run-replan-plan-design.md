@@ -28,6 +28,13 @@ not wired into replan execution, does not rewrite prompts, does not call
 providers, does not repeat model calls, and does not change runtime responses
 or provider routing.
 
+**Observability update:** `feature/autonomy-dry-run-replan-plan-observability`
+may attach `autonomy_evaluation.dry_run_replan_plan` as sanitized read-only
+inspection metadata and render it in the Autonomia tab. The plan remains
+advisory evidence only and must not alter prompt construction, response
+construction, provider routing, tool execution, file writes, command execution,
+CI repair, or Git/PR automation.
+
 ## 2. Current Status
 
 The current autonomy mode is advisory-only and dry-run planning only.
@@ -428,7 +435,7 @@ Recommended rollout:
 4. Add optional read-only MemoryFacade evidence contract, if approved.
 5. Add optional runtime inspection attachment, if it cannot change runtime
    output, prompts, or provider routing.
-6. Add read-only Cockpit display, if needed.
+6. Add read-only Cockpit display with a clear "nenhum replan executado" label.
 7. Add evidence interpretation notes before any operator-facing rollout.
 8. Run focused autonomy, memory, security, and UI tests as applicable.
 9. Require a separate go/no-go review before any real replan execution design.
