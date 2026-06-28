@@ -93,6 +93,7 @@ export type RuntimeAutonomyStatus = {
   evidence_summary: string | null
   session_state_diagnostics: RuntimeAutonomySessionStateDiagnostics | null
   dry_run_retry_plan: RuntimeDryRunRetryPlan | null
+  dry_run_replan_plan: RuntimeDryRunReplanPlan | null
 }
 
 export type RuntimeDryRunRetryPlan = {
@@ -111,6 +112,26 @@ export type RuntimeDryRunRetryPlan = {
   progress_score: number | null
   repeated_strategy_count: number | null
   max_attempts_remaining: number | null
+  evidence_summary: string | null
+  created_at: string | null
+}
+
+export type RuntimeDryRunReplanPlan = {
+  plan_id: string | null
+  plan_type: 'dry_run_replan' | null
+  advisory: boolean | null
+  would_replan: boolean | null
+  replan_reason: string | null
+  blocked: boolean | null
+  block_reasons: string[]
+  replan_eligibility_score: number | null
+  risk_level: string | null
+  source_decision: string | null
+  fingerprint_id: string | null
+  stagnation_score: number | null
+  progress_score: number | null
+  repeated_strategy_count: number | null
+  suggested_strategy: string | null
   evidence_summary: string | null
   created_at: string | null
 }
@@ -287,6 +308,38 @@ export function normalizeDryRunRetryPlan(value: unknown): RuntimeDryRunRetryPlan
   }
 }
 
+export function normalizeDryRunReplanPlan(value: unknown): RuntimeDryRunReplanPlan | null {
+  if (!isRecord(value)) return null
+  const rawPlanType = optionalString(value.plan_type)
+  const planType = rawPlanType === 'dry_run_replan' ? rawPlanType : null
+  const rawBlockReasons = Array.isArray(value.block_reasons)
+    ? value.block_reasons
+      .filter((reason): reason is string => typeof reason === 'string')
+      .slice(0, 12)
+      .map(redactRuntimeDebugText)
+    : []
+
+  return {
+    plan_id: optionalString(value.plan_id),
+    plan_type: planType,
+    advisory: optionalBoolean(value.advisory),
+    would_replan: optionalBoolean(value.would_replan),
+    replan_reason: optionalString(value.replan_reason),
+    blocked: optionalBoolean(value.blocked),
+    block_reasons: rawBlockReasons,
+    replan_eligibility_score: optionalNumber(value.replan_eligibility_score),
+    risk_level: optionalString(value.risk_level),
+    source_decision: optionalString(value.source_decision),
+    fingerprint_id: optionalString(value.fingerprint_id),
+    stagnation_score: optionalNumber(value.stagnation_score),
+    progress_score: optionalNumber(value.progress_score),
+    repeated_strategy_count: optionalNumber(value.repeated_strategy_count),
+    suggested_strategy: optionalString(value.suggested_strategy),
+    evidence_summary: optionalString(value.evidence_summary),
+    created_at: optionalTimestamp(value.created_at),
+  }
+}
+
 export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus | null {
   if (!isRecord(value)) return null
   return {
@@ -305,6 +358,7 @@ export function normalizeAutonomyStatus(value: unknown): RuntimeAutonomyStatus |
     evidence_summary: optionalString(value.evidence_summary),
     session_state_diagnostics: normalizeAutonomySessionStateDiagnostics(value.session_state_diagnostics),
     dry_run_retry_plan: normalizeDryRunRetryPlan(value.dry_run_retry_plan),
+    dry_run_replan_plan: normalizeDryRunReplanPlan(value.dry_run_replan_plan),
   }
 }
 

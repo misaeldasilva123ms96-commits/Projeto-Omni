@@ -250,6 +250,25 @@ describe('runtime inspector contracts', () => {
               evidence_summary: 'fingerprint=abc123def456 | retry eligible',
               created_at: '2026-06-27T12:00:00Z',
             },
+            dry_run_replan_plan: {
+              plan_id: 'dry-replan-abc123',
+              plan_type: 'dry_run_replan',
+              advisory: true,
+              would_replan: true,
+              replan_reason: 'replan_eligible',
+              blocked: false,
+              block_reasons: [],
+              replan_eligibility_score: 0.9,
+              risk_level: 'low',
+              source_decision: 'REPLAN',
+              fingerprint_id: 'abc123def456',
+              stagnation_score: 4,
+              progress_score: 1,
+              repeated_strategy_count: 3,
+              suggested_strategy: 'change_safe_strategy_category',
+              evidence_summary: 'fingerprint=abc123def456 | replan eligible',
+              created_at: '2026-06-28T12:00:00Z',
+            },
             session_state_diagnostics: {
               session_state_source: 'sqlite_hydrated',
               session_state_persistence_enabled: true,
@@ -298,6 +317,19 @@ describe('runtime inspector contracts', () => {
         source_decision: 'RETRY',
         fingerprint_id: 'abc123def456',
         max_attempts_remaining: 1,
+      })
+      expect(normalized.autonomy?.dry_run_replan_plan).toMatchObject({
+        plan_id: 'dry-replan-abc123',
+        plan_type: 'dry_run_replan',
+        advisory: true,
+        would_replan: true,
+        replan_reason: 'replan_eligible',
+        blocked: false,
+        replan_eligibility_score: 0.9,
+        risk_level: 'low',
+        source_decision: 'REPLAN',
+        fingerprint_id: 'abc123def456',
+        suggested_strategy: 'change_safe_strategy_category',
       })
       expect(normalized.autonomy?.session_state_diagnostics).toMatchObject({
         session_state_source: 'sqlite_hydrated',
@@ -437,6 +469,66 @@ describe('runtime inspector contracts', () => {
       })
 
       expect(normalized.autonomy?.dry_run_retry_plan).toBeNull()
+      expect(normalized.autonomy?.dry_run_replan_plan).toBeNull()
+    })
+
+    it('normalizes dry-run replan plan safely', () => {
+      const normalized = normalizeRuntimeInspectorData({
+        matchedCommands: [],
+        matchedTools: [],
+        cognitiveRuntimeInspection: {
+          autonomy_evaluation: {
+            decision: 'REPLAN',
+            advisory: true,
+            dry_run_replan_plan: {
+              plan_id: 'dry-replan-safe',
+              plan_type: 'dry_run_replan',
+              advisory: true,
+              would_replan: false,
+              replan_reason: 'replan_blocked',
+              blocked: true,
+              block_reasons: ['prompt_rewrite_required', 'Bearer sk-proj-block'],
+              replan_eligibility_score: 0,
+              risk_level: 'high',
+              source_decision: 'REPLAN',
+              fingerprint_id: 'fp-safe',
+              stagnation_score: 4,
+              progress_score: 1,
+              repeated_strategy_count: 3,
+              suggested_strategy: 'change_safe_strategy_category',
+              evidence_summary: 'Bearer sk-proj-evidence',
+              created_at: '2026-06-28T12:00:00Z',
+              raw_prompt: 'do not normalize',
+              rewritten_prompt: 'do not normalize',
+              raw_response: 'do not normalize',
+            },
+          },
+        },
+      })
+
+      const plan = normalized.autonomy?.dry_run_replan_plan
+      expect(plan).toMatchObject({
+        plan_id: 'dry-replan-safe',
+        plan_type: 'dry_run_replan',
+        advisory: true,
+        would_replan: false,
+        replan_reason: 'replan_blocked',
+        blocked: true,
+        replan_eligibility_score: 0,
+        risk_level: 'high',
+        source_decision: 'REPLAN',
+        fingerprint_id: 'fp-safe',
+        stagnation_score: 4,
+        progress_score: 1,
+        repeated_strategy_count: 3,
+        suggested_strategy: 'change_safe_strategy_category',
+        created_at: '2026-06-28T12:00:00Z',
+      })
+      expect(plan?.block_reasons).toEqual(['prompt_rewrite_required', '[REDACTED]'])
+      expect(plan?.evidence_summary).toBe('Bearer [REDACTED]')
+      expect(plan).not.toHaveProperty('raw_prompt')
+      expect(plan).not.toHaveProperty('rewritten_prompt')
+      expect(plan).not.toHaveProperty('raw_response')
     })
 
     it('drops unknown autonomy session state diagnostic source', () => {

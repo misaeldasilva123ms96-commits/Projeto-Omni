@@ -30,6 +30,42 @@ from brain.runtime.autonomy import AutonomyContext, DecisionType
 SAFE_FALLBACK = "Nao consegui processar isso ainda, mas estou aprendendo."
 
 
+class _StaticPlan:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self._payload)
+
+
+class _SpyDryRunReplanPlanner:
+    def __init__(self, payload: dict[str, Any] | None = None) -> None:
+        self.calls = 0
+        self.payload = payload or {
+            "plan_id": "dry-replan-test",
+            "plan_type": "dry_run_replan",
+            "advisory": True,
+            "would_replan": False,
+            "replan_reason": "not_replan_decision",
+            "blocked": False,
+            "block_reasons": [],
+            "replan_eligibility_score": 0,
+            "risk_level": "low",
+            "source_decision": "CONTINUE",
+            "fingerprint_id": "",
+            "stagnation_score": 0,
+            "progress_score": 0,
+            "repeated_strategy_count": 0,
+            "suggested_strategy": "",
+            "evidence_summary": "",
+            "created_at": "2026-06-28T00:00:00Z",
+        }
+
+    def plan(self, **_: Any) -> _StaticPlan:
+        self.calls += 1
+        return _StaticPlan(self.payload)
+
+
 def _make_inspection(
     *,
     runtime_mode: str = "",
@@ -210,6 +246,40 @@ class EvaluateAutonomyTest(unittest.TestCase):
         self.assertNotIn("execute_retry", plan_text)
         self.assertNotIn("raw_response", plan_text)
 
+    def test_result_includes_read_only_dry_run_replan_plan(self) -> None:
+        inspection = _make_inspection(failure_class="timeout")
+        result = evaluate_autonomy(inspection, "s1", "ok")
+
+        plan = result.get("dry_run_replan_plan")
+        self.assertIsInstance(plan, dict)
+        self.assertEqual(plan.get("plan_type"), "dry_run_replan")
+        self.assertTrue(plan.get("advisory"))
+        self.assertIn("would_replan", plan)
+        self.assertIn("suggested_strategy", plan)
+
+    def test_dry_run_replan_plan_does_not_change_response_prompt_or_provider(self) -> None:
+        inspection = _make_inspection(failure_class="timeout", provider_actual="openai")
+        response = "stable runtime response"
+        inspection_before = dict(inspection)
+        planner = _SpyDryRunReplanPlanner()
+
+        result = evaluate_autonomy(
+            inspection,
+            "s1",
+            response,
+            dry_run_replan_planner=planner,  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(response, "stable runtime response")
+        self.assertEqual(inspection, inspection_before)
+        self.assertEqual(planner.calls, 1)
+        plan_text = str(result.get("dry_run_replan_plan", {})).lower()
+        self.assertNotIn("prompt_rewrite", plan_text)
+        self.assertNotIn("rewritten_prompt", plan_text)
+        self.assertNotIn("provider_call", plan_text)
+        self.assertNotIn("model_call", plan_text)
+        self.assertNotIn("raw_response", plan_text)
+
 
 class EvaluateAndAttachTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -284,6 +354,16 @@ class EvaluateAndAttachTest(unittest.TestCase):
         self.assertTrue(plan["advisory"])
         self.assertEqual(plan["source_decision"], DecisionType.RETRY.value)
         self.assertNotIn("raw_prompt", str(plan))
+
+    def test_attaches_dry_run_replan_plan_to_inspection(self) -> None:
+        inspection = _make_inspection(failure_class="timeout")
+        evaluate_and_attach(inspection, "s1", "ok")
+
+        plan = inspection["autonomy_evaluation"]["dry_run_replan_plan"]
+        self.assertEqual(plan["plan_type"], "dry_run_replan")
+        self.assertTrue(plan["advisory"])
+        self.assertNotIn("raw_prompt", str(plan))
+        self.assertNotIn("rewritten_prompt", str(plan))
 
 
 class SafetyDegradationTest(unittest.TestCase):

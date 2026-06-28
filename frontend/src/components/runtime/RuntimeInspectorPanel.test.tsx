@@ -536,6 +536,134 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getByText('Nenhum plano dry-run disponível.')).toBeInTheDocument()
   })
 
+  it('renders eligible dry-run replan plan diagnostics', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'REPLAN',
+          advisory: true,
+          reason: 'Stagnation detected.',
+          risk_level: 'low',
+          session_id: 's1',
+          dry_run_replan_plan: {
+            plan_id: 'dry-replan-eligible',
+            plan_type: 'dry_run_replan',
+            advisory: true,
+            would_replan: true,
+            replan_reason: 'replan_eligible',
+            blocked: false,
+            block_reasons: [],
+            replan_eligibility_score: 0.9,
+            risk_level: 'low',
+            source_decision: 'REPLAN',
+            fingerprint_id: 'abc123',
+            stagnation_score: 4,
+            progress_score: 1,
+            repeated_strategy_count: 3,
+            suggested_strategy: 'change_safe_strategy_category',
+            evidence_summary: 'fingerprint=abc123 | replan eligible',
+            created_at: '2026-06-28T12:00:00Z',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Plano dry-run somente leitura — nenhum replan executado.')).toBeInTheDocument()
+    expect(screen.getByText('Plano Dry-run REPLAN')).toBeInTheDocument()
+    expect(screen.getByText('dry-replan-eligible')).toBeInTheDocument()
+    expect(screen.getByText('replan_eligible')).toBeInTheDocument()
+    expect(screen.getByText('change_safe_strategy_category')).toBeInTheDocument()
+    expect(screen.getByText('fingerprint=abc123 | replan eligible')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /replan/i })).not.toBeInTheDocument()
+  })
+
+  it('renders blocked dry-run replan plan diagnostics', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'REPLAN',
+          advisory: true,
+          reason: 'High risk.',
+          risk_level: 'high',
+          session_id: 's1',
+          dry_run_replan_plan: {
+            plan_id: 'dry-replan-blocked',
+            plan_type: 'dry_run_replan',
+            advisory: true,
+            would_replan: false,
+            replan_reason: 'replan_blocked',
+            blocked: true,
+            block_reasons: ['risk_too_high', 'prompt_rewrite_required'],
+            replan_eligibility_score: 0,
+            risk_level: 'high',
+            source_decision: 'REPLAN',
+            fingerprint_id: 'abc123',
+            stagnation_score: 4,
+            progress_score: 1,
+            repeated_strategy_count: 3,
+            suggested_strategy: 'change_safe_strategy_category',
+            evidence_summary: 'blocked by prompt rewrite',
+            created_at: '2026-06-28T12:00:00Z',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('dry-replan-blocked')).toBeInTheDocument()
+    expect(screen.getByText('replan_blocked')).toBeInTheDocument()
+    expect(screen.getByText('risk_too_high, prompt_rewrite_required')).toBeInTheDocument()
+    expect(screen.getByText('blocked by prompt rewrite')).toBeInTheDocument()
+  })
+
+  it('shows empty dry-run replan plan state when metadata is missing', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        autonomy_evaluation: {
+          decision: 'CONTINUE',
+          advisory: true,
+          reason: 'ok',
+          risk_level: 'low',
+          session_id: 's1',
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Autonomia' }))
+
+    expect(screen.getByText('Nenhum plano dry-run REPLAN disponível.')).toBeInTheDocument()
+  })
+
   it('does not render forbidden session diagnostic fields or controls', async () => {
     const metadata: RuntimeMetadata = {
       matchedCommands: [],
@@ -591,6 +719,25 @@ describe('RuntimeInspectorPanel', () => {
             raw_response: 'do not render',
             provider_payload: 'do not render',
           },
+          dry_run_replan_plan: {
+            plan_id: 'dry-replan-safe',
+            plan_type: 'dry_run_replan',
+            advisory: true,
+            would_replan: false,
+            replan_reason: 'replan_blocked',
+            blocked: true,
+            block_reasons: ['Bearer sk-proj-replan-block'],
+            replan_eligibility_score: 0,
+            risk_level: 'high',
+            source_decision: 'REPLAN',
+            fingerprint_id: 'abc123',
+            suggested_strategy: 'Bearer sk-proj-strategy',
+            evidence_summary: 'Bearer sk-proj-replan-plan',
+            raw_prompt: 'do not render',
+            rewritten_prompt: 'do not render',
+            raw_response: 'do not render',
+            provider_payload: 'do not render',
+          },
         },
       },
     }
@@ -611,7 +758,11 @@ describe('RuntimeInspectorPanel', () => {
     expect(document.body.textContent).not.toContain('provider_payload')
     expect(document.body.textContent).not.toContain('sk-proj-plan')
     expect(document.body.textContent).not.toContain('sk-proj-block')
+    expect(document.body.textContent).not.toContain('sk-proj-replan-plan')
+    expect(document.body.textContent).not.toContain('sk-proj-replan-block')
+    expect(document.body.textContent).not.toContain('sk-proj-strategy')
     expect(screen.queryByRole('button', { name: 'RETRY' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'REPLAN' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'SELF_REPAIR' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'SWITCH_PROVIDER' })).not.toBeInTheDocument()
   })
