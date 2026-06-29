@@ -27,6 +27,13 @@ adds a sanitized `DryRunReplanPlanEvidenceRecord`, forced event type
 and lists, MemoryFacade record/list contracts, and SQLite opt-in storage
 contracts. Runtime persistence is not wired in this branch.
 
+**Runtime opt-in wiring update:**
+`feature/autonomy-dry-run-replan-persistence-runtime-opt-in-wiring` records
+sanitized dry-run REPLAN plan evidence through MemoryFacade only after the
+runtime has produced `dry_run_replan_plan` inspection metadata. Recording is
+best-effort audit metadata, degrades to safe diagnostics, and is not used as
+execution input.
+
 ## 2. Current Status
 
 The dry-run REPLAN stack currently includes:
