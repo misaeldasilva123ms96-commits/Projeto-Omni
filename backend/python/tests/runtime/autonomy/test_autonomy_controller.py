@@ -368,6 +368,18 @@ class ControllerIntegrationTest(unittest.TestCase):
         decision = ctrl.decide(ctx)
         self.assertIsInstance(decision, AutonomyDecision)
 
+    def test_controller_decide_records_single_receipt(self) -> None:
+        ctrl = AutonomyController()
+
+        decision = ctrl.decide(AutonomyContext())
+
+        self.assertEqual(ctrl.receipt_log.count(), 1)
+        receipt = ctrl.receipt_log.last()
+        self.assertIsNotNone(receipt)
+        if receipt:
+            self.assertEqual(receipt.decision_id, decision.decision_id)
+            self.assertTrue(receipt.advisory)
+
     def test_controller_tracks_receipts(self) -> None:
         ctrl = AutonomyController()
         ctx1 = AutonomyContext()
@@ -382,6 +394,9 @@ class ControllerIntegrationTest(unittest.TestCase):
         decision, receipt, escalation = ctrl.decide_with_report(ctx)
         self.assertEqual(decision.decision, DecisionType.ESCALATE_TO_MISAEL)
         self.assertIsNotNone(escalation)
+        self.assertEqual(ctrl.receipt_log.count(), 1)
+        self.assertEqual(receipt.decision_id, decision.decision_id)
+        self.assertTrue(receipt.advisory)
         if escalation:
             self.assertEqual(escalation.escalation_category, "secret_detected")
 
@@ -391,6 +406,26 @@ class ControllerIntegrationTest(unittest.TestCase):
         decision, receipt, escalation = ctrl.decide_with_report(ctx)
         self.assertEqual(decision.decision, DecisionType.CONTINUE)
         self.assertIsNone(escalation)
+        self.assertEqual(ctrl.receipt_log.count(), 1)
+        self.assertEqual(receipt.decision_id, decision.decision_id)
+        self.assertTrue(receipt.advisory)
+
+    def test_controller_decide_with_report_stats_count_single_evaluation(self) -> None:
+        ctrl = AutonomyController()
+
+        decision, receipt, escalation = ctrl.decide_with_report(
+            AutonomyContext(secret_detected=True)
+        )
+        stats = ctrl.get_controller_stats()
+
+        self.assertEqual(decision.decision, DecisionType.ESCALATE_TO_MISAEL)
+        self.assertIsNotNone(escalation)
+        self.assertEqual(receipt.decision_id, decision.decision_id)
+        self.assertEqual(ctrl.receipt_log.count(), 1)
+        self.assertEqual(stats["total_evaluations"], 1)
+        self.assertEqual(stats["escalation_count"], 1)
+        self.assertEqual(stats["decisions_by_type"], {"ESCALATE_TO_MISAEL": 1})
+        self.assertTrue(stats["advisory_mode_enabled"])
 
     def test_controller_custom_config(self) -> None:
         ctrl = AutonomyController(

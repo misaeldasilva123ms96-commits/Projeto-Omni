@@ -74,7 +74,9 @@ class AutonomyController:
         except Exception as exc:
             logger.debug("Failed to emit governance event: %s", exc)
 
-    def decide(self, ctx: AutonomyContext) -> AutonomyDecision:
+    def _decide_and_record(
+        self, ctx: AutonomyContext
+    ) -> tuple[AutonomyDecision, AutonomyReceipt]:
         decision = evaluate_policy(
             ctx,
             autonomy_level=self._autonomy_level,
@@ -86,6 +88,10 @@ class AutonomyController:
         receipt = build_receipt(decision)
         self._receipt_log.add(receipt)
         self._emit_event(ctx, decision)
+        return decision, receipt
+
+    def decide(self, ctx: AutonomyContext) -> AutonomyDecision:
+        decision, _receipt = self._decide_and_record(ctx)
         return decision
 
     def get_controller_stats(self) -> dict[str, Any]:
@@ -119,8 +125,7 @@ class AutonomyController:
         self,
         ctx: AutonomyContext,
     ) -> tuple[AutonomyDecision, AutonomyReceipt, EscalationReport | None]:
-        decision = self.decide(ctx)
-        receipt = self._receipt_log.last() or build_receipt(decision)
+        decision, receipt = self._decide_and_record(ctx)
         escalation: EscalationReport | None = None
         if decision.decision == DecisionType.ESCALATE_TO_MISAEL:
             escalation = build_escalation_report(decision, ctx)
