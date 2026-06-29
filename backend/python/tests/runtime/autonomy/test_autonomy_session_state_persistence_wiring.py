@@ -307,6 +307,7 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
         diagnostic_keys = {
             "session_state_diagnostics",
             "dry_run_retry_plan",
+            "dry_run_retry_plan_persistence",
             "dry_run_replan_plan",
             "dry_run_replan_plan_persistence",
         }
