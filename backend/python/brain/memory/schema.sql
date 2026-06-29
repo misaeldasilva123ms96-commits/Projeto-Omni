@@ -9,6 +9,7 @@
 --   - Provider attempts store metadata only (no raw key material).
 --   - Autonomy session state stores bounded advisory metadata only.
 --   - Dry-run replan evidence stores sanitized audit metadata only.
+--   - Dry-run retry evidence stores sanitized audit metadata only.
 
 -- =================================================================
 -- conversations: Tracks structured conversation records
@@ -204,3 +205,35 @@ CREATE INDEX IF NOT EXISTS idx_dry_run_replan_plan_evidence_created_at
     ON dry_run_replan_plan_evidence(created_at);
 CREATE INDEX IF NOT EXISTS idx_dry_run_replan_plan_evidence_session
     ON dry_run_replan_plan_evidence(session_id);
+
+-- =================================================================
+-- dry_run_retry_plan_evidence: Sanitized dry-run RETRY audit metadata
+-- =================================================================
+CREATE TABLE IF NOT EXISTS dry_run_retry_plan_evidence (
+    plan_id                  TEXT PRIMARY KEY,
+    event_type               TEXT NOT NULL,
+    plan_type                TEXT NOT NULL,
+    advisory                 INTEGER NOT NULL DEFAULT 1,
+    would_retry              INTEGER NOT NULL DEFAULT 0,
+    retry_reason             TEXT NOT NULL DEFAULT '',
+    blocked                  INTEGER NOT NULL DEFAULT 0,
+    block_reasons            TEXT NOT NULL DEFAULT '[]',
+    retry_eligibility_score  REAL NOT NULL DEFAULT 0.0,
+    risk_level               TEXT NOT NULL DEFAULT '',
+    source_decision          TEXT NOT NULL DEFAULT '',
+    fingerprint_id           TEXT NOT NULL DEFAULT '',
+    stagnation_score         INTEGER NOT NULL DEFAULT 0,
+    progress_score           INTEGER NOT NULL DEFAULT 0,
+    suggested_retry_strategy TEXT NOT NULL DEFAULT '',
+    evidence_summary         TEXT NOT NULL DEFAULT '',
+    created_at               TEXT NOT NULL,
+    recorded_at              TEXT NOT NULL,
+    session_id               TEXT NOT NULL DEFAULT '',
+    request_id               TEXT NOT NULL DEFAULT '',
+    trace_id                 TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_dry_run_retry_plan_evidence_created_at
+    ON dry_run_retry_plan_evidence(created_at);
+CREATE INDEX IF NOT EXISTS idx_dry_run_retry_plan_evidence_session
+    ON dry_run_retry_plan_evidence(session_id);

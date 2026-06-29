@@ -355,11 +355,17 @@ class AutonomySessionStateRecord:
 
 
 DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE = "dry_run_replan_plan_evidence"
+DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE = "dry_run_retry_plan_evidence"
 DRY_RUN_REPLAN_EVIDENCE_STRING_MAX = 120
 DRY_RUN_REPLAN_EVIDENCE_ID_MAX = 128
 DRY_RUN_REPLAN_EVIDENCE_SUMMARY_MAX = 240
 DRY_RUN_REPLAN_EVIDENCE_LIST_MAX = 20
 DRY_RUN_REPLAN_EVIDENCE_COUNT_MAX = 1_000_000
+DRY_RUN_RETRY_EVIDENCE_STRING_MAX = DRY_RUN_REPLAN_EVIDENCE_STRING_MAX
+DRY_RUN_RETRY_EVIDENCE_ID_MAX = DRY_RUN_REPLAN_EVIDENCE_ID_MAX
+DRY_RUN_RETRY_EVIDENCE_SUMMARY_MAX = DRY_RUN_REPLAN_EVIDENCE_SUMMARY_MAX
+DRY_RUN_RETRY_EVIDENCE_LIST_MAX = DRY_RUN_REPLAN_EVIDENCE_LIST_MAX
+DRY_RUN_RETRY_EVIDENCE_COUNT_MAX = DRY_RUN_REPLAN_EVIDENCE_COUNT_MAX
 
 _DRY_RUN_REPLAN_EVIDENCE_ALLOWED_FIELDS = frozenset({
     "event_type",
@@ -380,6 +386,30 @@ _DRY_RUN_REPLAN_EVIDENCE_ALLOWED_FIELDS = frozenset({
     "suggested_strategy",
     "evidence_summary",
     "created_at",
+    "session_id",
+    "request_id",
+    "trace_id",
+})
+
+_DRY_RUN_RETRY_EVIDENCE_ALLOWED_FIELDS = frozenset({
+    "event_type",
+    "plan_id",
+    "plan_type",
+    "advisory",
+    "would_retry",
+    "retry_reason",
+    "blocked",
+    "block_reasons",
+    "retry_eligibility_score",
+    "risk_level",
+    "source_decision",
+    "fingerprint_id",
+    "stagnation_score",
+    "progress_score",
+    "suggested_retry_strategy",
+    "evidence_summary",
+    "created_at",
+    "recorded_at",
     "session_id",
     "request_id",
     "trace_id",
@@ -427,6 +457,8 @@ _DRY_RUN_REPLAN_EVIDENCE_FORBIDDEN_FIELDS = frozenset({
     "repr",
 })
 
+_DRY_RUN_RETRY_EVIDENCE_FORBIDDEN_FIELDS = _DRY_RUN_REPLAN_EVIDENCE_FORBIDDEN_FIELDS
+
 
 def _safe_dry_run_replan_string(
     value: Any,
@@ -449,11 +481,25 @@ def _safe_dry_run_replan_string(
         "rewritten_prompt",
         "raw_response",
         "provider_payload",
+        "provider payload",
+        "raw prompt",
+        "raw response",
         "traceback",
         "stack trace",
         "stdout",
         "stderr",
         ".env",
+        "api key",
+        "api-key",
+        "headers",
+        "cookies",
+        "command args",
+        "file contents",
+        "tool output",
+        "raw receipt",
+        "raw exception",
+        "raw jsonl",
+        "database row",
     )
     if any(marker in lowered for marker in forbidden_markers):
         return "[REDACTED]"
@@ -610,6 +656,123 @@ class DryRunReplanPlanEvidenceRecord:
             "suggested_strategy": self.suggested_strategy,
             "evidence_summary": self.evidence_summary,
             "created_at": self.created_at,
+            "session_id": self.session_id,
+            "request_id": self.request_id,
+            "trace_id": self.trace_id,
+        }
+
+
+@dataclass(slots=True)
+class DryRunRetryPlanEvidenceRecord:
+    plan_id: str
+    plan_type: str = "dry_run_retry"
+    advisory: bool = True
+    would_retry: bool = False
+    retry_reason: str = ""
+    blocked: bool = False
+    block_reasons: list[str] = field(default_factory=list)
+    retry_eligibility_score: float = 0.0
+    risk_level: str = ""
+    source_decision: str = ""
+    fingerprint_id: str = ""
+    stagnation_score: int = 0
+    progress_score: int = 0
+    suggested_retry_strategy: str = ""
+    evidence_summary: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    recorded_at: str = field(default_factory=utc_now_iso)
+    session_id: str = ""
+    request_id: str = ""
+    trace_id: str = ""
+    event_type: str = DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE
+
+    def __post_init__(self) -> None:
+        self.event_type = DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE
+        self.plan_id = _safe_dry_run_replan_string(
+            self.plan_id,
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+        self.plan_type = _safe_dry_run_replan_string(self.plan_type, max_length=64) or "dry_run_retry"
+        self.advisory = True
+        self.would_retry = _safe_dry_run_replan_bool(self.would_retry)
+        self.retry_reason = _safe_dry_run_replan_string(self.retry_reason, max_length=64)
+        self.blocked = _safe_dry_run_replan_bool(self.blocked)
+        self.block_reasons = _safe_dry_run_replan_list(self.block_reasons)
+        self.retry_eligibility_score = _safe_dry_run_replan_score(self.retry_eligibility_score)
+        self.risk_level = _safe_dry_run_replan_string(self.risk_level, max_length=24)
+        self.source_decision = _safe_dry_run_replan_string(self.source_decision, max_length=48)
+        self.fingerprint_id = _safe_dry_run_replan_string(self.fingerprint_id, max_length=64)
+        self.stagnation_score = _safe_dry_run_replan_int(self.stagnation_score)
+        self.progress_score = _safe_dry_run_replan_int(self.progress_score)
+        self.suggested_retry_strategy = _safe_dry_run_replan_string(
+            self.suggested_retry_strategy,
+            max_length=64,
+        )
+        self.evidence_summary = _safe_dry_run_replan_string(
+            self.evidence_summary,
+            max_length=DRY_RUN_RETRY_EVIDENCE_SUMMARY_MAX,
+        )
+        self.created_at = _safe_dry_run_replan_string(
+            self.created_at,
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+        self.recorded_at = _safe_dry_run_replan_string(
+            self.recorded_at,
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+        self.session_id = _safe_dry_run_replan_string(
+            self.session_id,
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+        self.request_id = _safe_dry_run_replan_string(
+            self.request_id,
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+        self.trace_id = _safe_dry_run_replan_string(
+            self.trace_id,
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "DryRunRetryPlanEvidenceRecord | None":
+        if not isinstance(payload, dict):
+            return None
+        safe = {
+            key: value
+            for key, value in payload.items()
+            if key in _DRY_RUN_RETRY_EVIDENCE_ALLOWED_FIELDS
+            and key.lower() not in _DRY_RUN_RETRY_EVIDENCE_FORBIDDEN_FIELDS
+        }
+        plan_id = _safe_dry_run_replan_string(
+            safe.get("plan_id", ""),
+            max_length=DRY_RUN_RETRY_EVIDENCE_ID_MAX,
+        )
+        if not plan_id:
+            return None
+        safe["plan_id"] = plan_id
+        safe["event_type"] = DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE
+        return cls(**safe)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "event_type": DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE,
+            "plan_id": self.plan_id,
+            "plan_type": self.plan_type,
+            "advisory": True,
+            "would_retry": self.would_retry,
+            "retry_reason": self.retry_reason,
+            "blocked": self.blocked,
+            "block_reasons": list(self.block_reasons),
+            "retry_eligibility_score": self.retry_eligibility_score,
+            "risk_level": self.risk_level,
+            "source_decision": self.source_decision,
+            "fingerprint_id": self.fingerprint_id,
+            "stagnation_score": self.stagnation_score,
+            "progress_score": self.progress_score,
+            "suggested_retry_strategy": self.suggested_retry_strategy,
+            "evidence_summary": self.evidence_summary,
+            "created_at": self.created_at,
+            "recorded_at": self.recorded_at,
             "session_id": self.session_id,
             "request_id": self.request_id,
             "trace_id": self.trace_id,
