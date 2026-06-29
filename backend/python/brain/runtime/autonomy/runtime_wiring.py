@@ -24,7 +24,9 @@ try:
     from brain.memory.runtime_integration import get_memory_facade as _get_memory_facade
     from brain.memory.memory_models import (
         DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE,
+        DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE,
         DryRunReplanPlanEvidenceRecord,
+        DryRunRetryPlanEvidenceRecord,
         utc_now_iso,
     )
     _HAS_GOV_EVENTS = True
@@ -33,7 +35,9 @@ except ImportError:
     _record_governance_event = None  # type: ignore[assignment]
     _get_memory_facade = None  # type: ignore[assignment]
     DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE = "dry_run_replan_plan_evidence"
+    DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE = "dry_run_retry_plan_evidence"
     DryRunReplanPlanEvidenceRecord = None  # type: ignore[assignment]
+    DryRunRetryPlanEvidenceRecord = None  # type: ignore[assignment]
     utc_now_iso = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
@@ -303,6 +307,7 @@ def evaluate_autonomy(
         "dry_run_retry_plan": dry_run_retry_plan,
         "dry_run_replan_plan": dry_run_replan_plan,
     }
+    result["dry_run_retry_plan_persistence"] = record_dry_run_retry_plan_evidence(result)
     result["dry_run_replan_plan_persistence"] = record_dry_run_replan_plan_evidence(result)
 
     logger.debug(
@@ -408,6 +413,62 @@ def record_dry_run_replan_plan_evidence(result: dict[str, Any]) -> dict[str, Any
         return diagnostic
 
 
+def record_dry_run_retry_plan_evidence(result: dict[str, Any]) -> dict[str, Any]:
+    diagnostic = _dry_run_retry_plan_persistence_diagnostic(
+        attempted=False,
+        recorded=False,
+        degraded=False,
+        error_category="",
+        storage_mode="",
+        sqlite_enabled=False,
+    )
+    plan = result.get("dry_run_retry_plan") if isinstance(result, dict) else None
+    if not isinstance(plan, dict):
+        return diagnostic
+    diagnostic["attempted"] = True
+
+    if DryRunRetryPlanEvidenceRecord is None or _get_memory_facade is None:
+        diagnostic.update({
+            "degraded": True,
+            "error_category": "memory_unavailable",
+        })
+        return diagnostic
+
+    try:
+        facade = _get_memory_facade()
+        if facade is None:
+            diagnostic.update({
+                "degraded": True,
+                "error_category": "memory_unavailable",
+            })
+            return diagnostic
+
+        record = DryRunRetryPlanEvidenceRecord.from_dict({
+            **plan,
+            "session_id": result.get("session_id", ""),
+        })
+        if record is None:
+            diagnostic.update({
+                "degraded": True,
+                "error_category": "invalid_plan",
+            })
+            return diagnostic
+
+        facade.record_dry_run_retry_plan_evidence(record)
+        diagnostic.update({
+            "recorded": True,
+            "storage_mode": _safe_persistence_category(getattr(facade, "backend", "")),
+            "sqlite_enabled": bool(getattr(facade, "sqlite_enabled", False)),
+        })
+        return diagnostic
+    except Exception:
+        diagnostic.update({
+            "degraded": True,
+            "error_category": "record_failed",
+        })
+        return diagnostic
+
+
 def _dry_run_replan_plan_persistence_diagnostic(
     *,
     attempted: bool,
@@ -424,6 +485,28 @@ def _dry_run_replan_plan_persistence_diagnostic(
         "degraded": bool(degraded),
         "error_category": _safe_persistence_category(error_category),
         "event_type": DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE,
+        "storage_mode": _safe_persistence_category(storage_mode),
+        "sqlite_enabled": bool(sqlite_enabled),
+        "recorded_at": _safe_persistence_category(recorded_at, max_length=64),
+    }
+
+
+def _dry_run_retry_plan_persistence_diagnostic(
+    *,
+    attempted: bool,
+    recorded: bool,
+    degraded: bool,
+    error_category: str,
+    storage_mode: str,
+    sqlite_enabled: bool,
+) -> dict[str, Any]:
+    recorded_at = utc_now_iso() if utc_now_iso is not None else ""
+    return {
+        "attempted": bool(attempted),
+        "recorded": bool(recorded),
+        "degraded": bool(degraded),
+        "error_category": _safe_persistence_category(error_category),
+        "event_type": DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE,
         "storage_mode": _safe_persistence_category(storage_mode),
         "sqlite_enabled": bool(sqlite_enabled),
         "recorded_at": _safe_persistence_category(recorded_at, max_length=64),

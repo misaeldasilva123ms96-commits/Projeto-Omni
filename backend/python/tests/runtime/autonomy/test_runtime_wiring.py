@@ -77,10 +77,14 @@ class _RecordingMemoryFacade:
     sqlite_enabled = False
 
     def __init__(self) -> None:
-        self.records: list[Any] = []
+        self.replan_records: list[Any] = []
+        self.retry_records: list[Any] = []
 
     def record_dry_run_replan_plan_evidence(self, record: Any) -> None:
-        self.records.append(record)
+        self.replan_records.append(record)
+
+    def record_dry_run_retry_plan_evidence(self, record: Any) -> None:
+        self.retry_records.append(record)
 
 
 class _FailingMemoryFacade:
@@ -88,6 +92,9 @@ class _FailingMemoryFacade:
     sqlite_enabled = True
 
     def record_dry_run_replan_plan_evidence(self, record: Any) -> None:
+        raise RuntimeError("raw_prompt secret should not leak")
+
+    def record_dry_run_retry_plan_evidence(self, record: Any) -> None:
         raise RuntimeError("raw_prompt secret should not leak")
 
 
@@ -318,8 +325,8 @@ class EvaluateAutonomyTest(unittest.TestCase):
         finally:
             runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
 
-        self.assertEqual(len(facade.records), 1)
-        record_payload = facade.records[0].as_dict()
+        self.assertEqual(len(facade.replan_records), 1)
+        record_payload = facade.replan_records[0].as_dict()
         self.assertEqual(record_payload["event_type"], "dry_run_replan_plan_evidence")
         self.assertEqual(record_payload["session_id"], "session-1")
         self.assertNotIn("raw_prompt", str(record_payload))
@@ -343,7 +350,7 @@ class EvaluateAutonomyTest(unittest.TestCase):
         finally:
             runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
 
-        self.assertEqual(facade.records, [])
+        self.assertEqual(facade.replan_records, [])
         diagnostic = result["dry_run_replan_plan_persistence"]
         self.assertFalse(diagnostic["attempted"])
         self.assertFalse(diagnostic["recorded"])
@@ -387,6 +394,114 @@ class EvaluateAutonomyTest(unittest.TestCase):
             runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
 
         diagnostic = result["dry_run_replan_plan_persistence"]
+        self.assertEqual(
+            set(diagnostic.keys()),
+            {
+                "attempted",
+                "recorded",
+                "degraded",
+                "error_category",
+                "event_type",
+                "storage_mode",
+                "sqlite_enabled",
+                "recorded_at",
+            },
+        )
+        diagnostic_text = str(diagnostic).lower()
+        for forbidden in (
+            "prompt",
+            "rewritten",
+            "response",
+            "provider_payload",
+            "tool_output",
+            "api_key",
+            "token",
+            "secret",
+        ):
+            self.assertNotIn(forbidden, diagnostic_text)
+
+    def test_dry_run_retry_evidence_is_recorded_when_plan_exists(self) -> None:
+        facade = _RecordingMemoryFacade()
+        original_get_memory_facade = runtime_wiring._get_memory_facade
+        runtime_wiring._get_memory_facade = lambda: facade  # type: ignore[assignment]
+        try:
+            result = evaluate_autonomy(
+                _make_inspection(failure_class="timeout"),
+                "session-1",
+                "stable response",
+            )
+        finally:
+            runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
+
+        self.assertEqual(len(facade.retry_records), 1)
+        record_payload = facade.retry_records[0].as_dict()
+        self.assertEqual(record_payload["event_type"], "dry_run_retry_plan_evidence")
+        self.assertEqual(record_payload["session_id"], "session-1")
+        self.assertNotIn("raw_prompt", str(record_payload))
+        diagnostic = result["dry_run_retry_plan_persistence"]
+        self.assertTrue(diagnostic["attempted"])
+        self.assertTrue(diagnostic["recorded"])
+        self.assertFalse(diagnostic["degraded"])
+        self.assertEqual(diagnostic["event_type"], "dry_run_retry_plan_evidence")
+
+    def test_no_retry_evidence_record_attempted_when_plan_missing(self) -> None:
+        facade = _RecordingMemoryFacade()
+        original_get_memory_facade = runtime_wiring._get_memory_facade
+        runtime_wiring._get_memory_facade = lambda: facade  # type: ignore[assignment]
+        try:
+            result = evaluate_autonomy(
+                _make_inspection(failure_class="timeout"),
+                "session-1",
+                "stable response",
+                dry_run_retry_planner=_FailingDryRunReplanPlanner(),  # type: ignore[arg-type]
+            )
+        finally:
+            runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
+
+        self.assertEqual(facade.retry_records, [])
+        diagnostic = result["dry_run_retry_plan_persistence"]
+        self.assertFalse(diagnostic["attempted"])
+        self.assertFalse(diagnostic["recorded"])
+        self.assertFalse(diagnostic["degraded"])
+
+    def test_retry_evidence_persistence_failure_degrades_safely(self) -> None:
+        original_get_memory_facade = runtime_wiring._get_memory_facade
+        runtime_wiring._get_memory_facade = lambda: _FailingMemoryFacade()  # type: ignore[assignment]
+        response = "stable runtime response"
+        try:
+            result = evaluate_autonomy(
+                _make_inspection(failure_class="timeout", provider_actual="openai"),
+                "session-1",
+                response,
+            )
+        finally:
+            runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
+
+        self.assertEqual(response, "stable runtime response")
+        diagnostic = result["dry_run_retry_plan_persistence"]
+        self.assertTrue(diagnostic["attempted"])
+        self.assertFalse(diagnostic["recorded"])
+        self.assertTrue(diagnostic["degraded"])
+        self.assertEqual(diagnostic["error_category"], "record_failed")
+        diagnostic_text = str(diagnostic).lower()
+        self.assertNotIn("raw_prompt", diagnostic_text)
+        self.assertNotIn("secret", diagnostic_text)
+        self.assertNotIn("traceback", diagnostic_text)
+
+    def test_retry_persistence_diagnostics_are_safe_metadata_only(self) -> None:
+        facade = _RecordingMemoryFacade()
+        original_get_memory_facade = runtime_wiring._get_memory_facade
+        runtime_wiring._get_memory_facade = lambda: facade  # type: ignore[assignment]
+        try:
+            result = evaluate_autonomy(
+                _make_inspection(failure_class="timeout"),
+                "session-1",
+                "stable response",
+            )
+        finally:
+            runtime_wiring._get_memory_facade = original_get_memory_facade  # type: ignore[assignment]
+
+        diagnostic = result["dry_run_retry_plan_persistence"]
         self.assertEqual(
             set(diagnostic.keys()),
             {
