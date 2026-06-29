@@ -9,6 +9,7 @@ from typing import Any
 from .memory_models import (
     AutonomySessionStateRecord,
     ConversationRecord,
+    DryRunReplanPlanEvidenceRecord,
     EpisodeRecord,
     GovernanceEventRecord,
     LearningArtifactRecord,
@@ -134,6 +135,30 @@ CREATE TABLE IF NOT EXISTS autonomy_session_states (
     expires_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dry_run_replan_plan_evidence (
+    plan_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    plan_type TEXT NOT NULL,
+    advisory INTEGER NOT NULL DEFAULT 1,
+    would_replan INTEGER NOT NULL DEFAULT 0,
+    replan_reason TEXT NOT NULL DEFAULT '',
+    blocked INTEGER NOT NULL DEFAULT 0,
+    block_reasons TEXT NOT NULL DEFAULT '[]',
+    replan_eligibility_score REAL NOT NULL DEFAULT 0.0,
+    risk_level TEXT NOT NULL DEFAULT '',
+    source_decision TEXT NOT NULL DEFAULT '',
+    fingerprint_id TEXT NOT NULL DEFAULT '',
+    stagnation_score INTEGER NOT NULL DEFAULT 0,
+    progress_score INTEGER NOT NULL DEFAULT 0,
+    repeated_strategy_count INTEGER NOT NULL DEFAULT 0,
+    suggested_strategy TEXT NOT NULL DEFAULT '',
+    evidence_summary TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    trace_id TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_goal ON episodes(goal_id);
@@ -147,6 +172,8 @@ CREATE INDEX IF NOT EXISTS idx_governance_events_session ON governance_events(se
 CREATE INDEX IF NOT EXISTS idx_learning_artifacts_type ON learning_artifacts(artifact_type);
 CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_expires_at ON autonomy_session_states(expires_at);
 CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_updated_at ON autonomy_session_states(updated_at);
+CREATE INDEX IF NOT EXISTS idx_dry_run_replan_plan_evidence_created_at ON dry_run_replan_plan_evidence(created_at);
+CREATE INDEX IF NOT EXISTS idx_dry_run_replan_plan_evidence_session ON dry_run_replan_plan_evidence(session_id);
 """
 
 
@@ -310,6 +337,65 @@ class SQLiteAdapter:
             safe.expires_at,
         )
 
+    def insert_dry_run_replan_plan_evidence(self, record: DryRunReplanPlanEvidenceRecord) -> None:
+        safe = DryRunReplanPlanEvidenceRecord.from_dict(record.as_dict())
+        if safe is None:
+            return
+        self._execute(
+            "INSERT OR REPLACE INTO dry_run_replan_plan_evidence ("
+            "plan_id, event_type, plan_type, advisory, would_replan, "
+            "replan_reason, blocked, block_reasons, replan_eligibility_score, "
+            "risk_level, source_decision, fingerprint_id, stagnation_score, "
+            "progress_score, repeated_strategy_count, suggested_strategy, "
+            "evidence_summary, created_at, session_id, request_id, trace_id"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            safe.plan_id,
+            safe.event_type,
+            safe.plan_type,
+            1 if safe.advisory else 0,
+            1 if safe.would_replan else 0,
+            safe.replan_reason,
+            1 if safe.blocked else 0,
+            _json(safe.block_reasons),
+            safe.replan_eligibility_score,
+            safe.risk_level,
+            safe.source_decision,
+            safe.fingerprint_id,
+            safe.stagnation_score,
+            safe.progress_score,
+            safe.repeated_strategy_count,
+            safe.suggested_strategy,
+            safe.evidence_summary,
+            safe.created_at,
+            safe.session_id,
+            safe.request_id,
+            safe.trace_id,
+        )
+
+    def list_dry_run_replan_plan_evidence(
+        self,
+        limit: int = 50,
+        session_id: str = "",
+    ) -> list[DryRunReplanPlanEvidenceRecord]:
+        if session_id:
+            rows = self._fetchall(
+                "SELECT * FROM dry_run_replan_plan_evidence "
+                "WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
+                session_id,
+                max(1, limit),
+            )
+        else:
+            rows = self._fetchall(
+                "SELECT * FROM dry_run_replan_plan_evidence ORDER BY created_at DESC LIMIT ?",
+                max(1, limit),
+            )
+        records: list[DryRunReplanPlanEvidenceRecord] = []
+        for columns, row in rows:
+            record = _dry_run_replan_evidence_from_row(columns, row)
+            if record is not None:
+                records.append(record)
+        return records
+
     def query_runtime_events(self, session_id: str, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._fetchall(
             "SELECT * FROM runtime_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
@@ -448,3 +534,28 @@ def _autonomy_state_from_row(columns: list[str], row: sqlite3.Row) -> AutonomySe
         else:
             payload[col] = raw
     return AutonomySessionStateRecord.from_dict(payload)
+
+
+def _dry_run_replan_evidence_from_row(
+    columns: list[str],
+    row: sqlite3.Row,
+) -> DryRunReplanPlanEvidenceRecord | None:
+    payload: dict[str, Any] = {}
+    for idx, col in enumerate(columns):
+        raw = row[idx]
+        if col == "block_reasons":
+            if not isinstance(raw, str):
+                return None
+            try:
+                import json
+                decoded = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return None
+            if not isinstance(decoded, list):
+                return None
+            payload[col] = decoded
+        elif col in ("advisory", "would_replan", "blocked"):
+            payload[col] = bool(raw)
+        else:
+            payload[col] = raw
+    return DryRunReplanPlanEvidenceRecord.from_dict(payload)

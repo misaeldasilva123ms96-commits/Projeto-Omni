@@ -11,6 +11,8 @@ from .memory_models import (
     SAFE_DEFAULT_BACKEND,
     AutonomySessionStateRecord,
     ConversationRecord,
+    DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE,
+    DryRunReplanPlanEvidenceRecord,
     EpisodeRecord,
     GovernanceEventRecord,
     LearningArtifactRecord,
@@ -229,6 +231,50 @@ class MemoryFacade:
             self._sqlite.upsert_autonomy_session_state(safe)
         except Exception:
             pass
+
+    def record_dry_run_replan_plan_evidence(
+        self,
+        record: DryRunReplanPlanEvidenceRecord,
+    ) -> None:
+        self._ensure_initialized()
+        safe = DryRunReplanPlanEvidenceRecord.from_dict(record.as_dict())
+        if safe is None:
+            return
+        if self._sqlite is not None:
+            try:
+                self._sqlite.insert_dry_run_replan_plan_evidence(safe)
+            except Exception:
+                pass
+        if self._jsonl is not None:
+            try:
+                self._jsonl.append(DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE, safe.as_dict())
+            except Exception:
+                pass
+
+    def list_dry_run_replan_plan_evidence(
+        self,
+        limit: int = 50,
+        session_id: str | None = None,
+    ) -> list[DryRunReplanPlanEvidenceRecord]:
+        self._ensure_initialized()
+        if self._sqlite is None:
+            return []
+        safe_session_id = ""
+        if session_id:
+            safe_session = DryRunReplanPlanEvidenceRecord.from_dict({
+                "plan_id": "session-filter",
+                "session_id": session_id,
+            })
+            if safe_session is None:
+                return []
+            safe_session_id = safe_session.session_id
+        try:
+            return self._sqlite.list_dry_run_replan_plan_evidence(
+                limit=limit,
+                session_id=safe_session_id,
+            )
+        except Exception:
+            return []
 
     def get_autonomy_session_state(self, session_id: str) -> AutonomySessionStateRecord | None:
         self._ensure_initialized()

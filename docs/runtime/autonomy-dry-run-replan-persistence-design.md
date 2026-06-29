@@ -21,6 +21,12 @@ must not approve autonomous execution. Persistence is audit metadata only.
 
 This document does not implement persistence or change runtime behavior.
 
+**Contracts update:** `feature/autonomy-dry-run-replan-persistence-contracts`
+adds a sanitized `DryRunReplanPlanEvidenceRecord`, forced event type
+`dry_run_replan_plan_evidence`, allowlist-only serialization, bounded strings
+and lists, MemoryFacade record/list contracts, and SQLite opt-in storage
+contracts. Runtime persistence is not wired in this branch.
+
 ## 2. Current Status
 
 The dry-run REPLAN stack currently includes:
