@@ -17,11 +17,14 @@ jobs:
           node-version: 24
       - name: Install dependencies
         run: npm ci
-      - name: ESLint (root + frontend)
+      - name: ESLint (advisory, root + frontend)
         run: |
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
           npx eslint --ext .js,.mjs,.ts,.tsx . || true
-      - name: Prettier check
-        run: npx prettier --check "**/*.{js,ts,tsx,json,md}" || true
+      - name: Prettier check (advisory)
+        run: |
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          npx prettier --check "**/*.{js,ts,tsx,json,md}" || true
 
   py-lint:
     runs-on: ubuntu-latest
@@ -35,12 +38,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install black flake8 pylint
-      - name: Black check
-        run: black --check . || true
-      - name: Flake8
-        run: flake8 || true
-      - name: Pylint (select folders)
+      - name: Black check (advisory)
         run: |
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          black --check . || true
+      - name: Flake8 (advisory)
+        run: |
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          flake8 || true
+      - name: Pylint (advisory, select folders)
+        run: |
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
           pylint backend/python || true
 
   rust-clippy:
@@ -51,4 +59,4 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run clippy
         working-directory: backend/rust
-        run: cargo clippy --all-targets --all-features -- -D warnings || true
+        run: cargo clippy --all-targets --all-features -- -D warnings

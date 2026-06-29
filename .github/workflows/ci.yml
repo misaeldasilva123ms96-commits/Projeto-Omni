@@ -62,23 +62,28 @@ jobs:
         run: |
           python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability tests/runtime/test_orchestrator_decomposition.py tests/runtime/test_vault_readonly_access.py tests/runtime/test_human_approval_gate.py tests/runtime/test_autonomy_operating_model.py tests/runtime/test_safe_command_execution_gate.py tests/runtime/test_sandbox_command_runner.py tests/runtime/test_autonomous_test_runner_loop.py tests/runtime/test_autonomous_repair_planner.py tests/runtime/test_scoped_patch_proposal_engine.py tests/runtime/test_controlled_branch_patch_applier.py tests/runtime/test_post_patch_validation_loop.py tests/runtime/test_controlled_commit_gate.py tests/runtime/test_controlled_commit_executor.py tests/runtime/test_controlled_push_gate.py tests/runtime/test_controlled_push_executor.py tests/runtime/test_pr_creation_gate.py tests/runtime/test_controlled_pr_creator.py tests/runtime/test_ci_monitor_gate.py tests/runtime/test_controlled_ci_monitor.py --cov=brain --cov=backend/python/brain/runtime/sandbox --cov-report=term
 
-      - name: Validate frontend build
+      - name: Build frontend
         working-directory: frontend
-        run: |
-          npm run build
-          npm run typecheck || true
+        run: npm run build
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
 
       - name: Secret Scan (Gitleaks)
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Node audit
+      - name: Node audit (advisory)
         run: |
-          npm audit --audit-level=moderate || true
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          if ! npm audit --audit-level=moderate; then
+            echo "npm audit reported findings or returned a non-zero exit code."
+          fi
 
-      - name: Run security/validation scripts (light)
-        run: npm run validate:public-demo || true
+      - name: Validate public demo readiness
+        run: npm run validate:public-demo
 
   rust-tests:
     runs-on: ubuntu-latest
@@ -93,7 +98,14 @@ jobs:
         working-directory: backend/rust
         run: cargo test --locked --all
 
-      - name: Cargo audit
+      - name: Cargo audit (advisory)
         run: |
-          cargo install --locked cargo-audit || true
-          cd backend/rust && cargo audit || true
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          if ! cargo install --locked cargo-audit; then
+            echo "cargo-audit installation failed; leaving this advisory audit non-blocking."
+            exit 0
+          fi
+          cd backend/rust
+          if ! cargo audit; then
+            echo "cargo audit reported findings or returned a non-zero exit code."
+          fi

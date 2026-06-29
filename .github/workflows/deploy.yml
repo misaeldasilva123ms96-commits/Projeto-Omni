@@ -78,9 +78,27 @@ jobs:
           
       - name: Install deps
         run: npm ci
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend for Cloudflare Pages
+        working-directory: frontend
+        env:
+          VITE_OMNI_API_URL: ${{ secrets.VITE_OMNI_API_URL || 'https://projeto-omni.pages.dev' }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_PUBLIC_APP_URL: ${{ secrets.VITE_PUBLIC_APP_URL || 'https://projeto-omni.pages.dev' }}
+          VITE_BASE_URL: ${{ vars.VITE_BASE_URL || '/Projeto-Omni/' }}
+        run: npm run build
         
-      - name: Wrangler deploy (Cloudflare Workers)
+      - name: Wrangler deploy (Cloudflare Pages, optional token)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          npx wrangler deploy || true
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            npx wrangler pages deploy frontend/dist --project-name projeto-omni
+          else
+            echo "CLOUDFLARE_API_TOKEN not set - skipping deploy"
+          fi

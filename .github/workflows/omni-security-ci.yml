@@ -45,14 +45,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-cov
 
-      - name: Audit Node dependencies
+      - name: Audit Node dependencies (advisory)
         continue-on-error: true
-        run: npm audit --audit-level=high
+        run: |
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          npm audit --audit-level=high
 
       - name: Run security regression suite
         run: npm run test:security
 
-      - name: Run DevSkim
+      - name: Run DevSkim (advisory)
         uses: microsoft/DevSkim-Action@v1
         continue-on-error: true
 

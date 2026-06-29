@@ -201,7 +201,7 @@ mod tests {
     use serde_json::json;
     use std::{
         fs,
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::{Arc, OnceLock},
     };
     use tokio::sync::Mutex;
@@ -310,7 +310,7 @@ mod tests {
             .with_state(state)
     }
 
-    fn seed_run(project_root: &PathBuf, status: &str) {
+    fn seed_run(project_root: &Path, status: &str) {
         let path = project_root
             .join(".logs")
             .join("fusion-runtime")
