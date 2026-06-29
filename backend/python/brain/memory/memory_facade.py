@@ -4,6 +4,17 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .historical_audit_query_models import (
+    DRY_RUN_AUDIT_SCAN_LIMIT,
+    DryRunAuditEvidenceDetail,
+    DryRunAuditEvidenceItem,
+    DryRunAuditQueryRequest,
+    DryRunAuditQueryResponse,
+    apply_audit_query,
+    degraded_audit_response,
+    detail_from_item,
+    safe_audit_id,
+)
 from .jsonl_audit_mirror import JSONLAuditMirror
 from .memory_models import (
     MEMORY_BACKEND_JSONL,
@@ -321,6 +332,67 @@ class MemoryFacade:
             )
         except Exception:
             return []
+
+    def query_historical_dry_run_audit_evidence(
+        self,
+        request: DryRunAuditQueryRequest | dict[str, Any] | None = None,
+    ) -> DryRunAuditQueryResponse:
+        self._ensure_initialized()
+        query = request if isinstance(request, DryRunAuditQueryRequest) else DryRunAuditQueryRequest.from_dict(request)
+        if not query.valid:
+            return degraded_audit_response(
+                query,
+                error_category=query.error_category or "invalid_request",
+                warning="invalid_query_request",
+            )
+        if self._sqlite is None:
+            return degraded_audit_response(
+                query,
+                error_category="storage_unavailable",
+                warning="historical_audit_query_requires_sqlite",
+            )
+        try:
+            scan_limit = min(DRY_RUN_AUDIT_SCAN_LIMIT, max(query.limit + query.offset, query.limit))
+            items: list[DryRunAuditEvidenceItem] = []
+            for record in self._sqlite.list_dry_run_retry_plan_evidence(limit=scan_limit):
+                items.append(DryRunAuditEvidenceItem.from_retry_record(
+                    record,
+                    storage_mode=MEMORY_BACKEND_SQLITE,
+                    sqlite_enabled=self._sqlite_enabled,
+                ))
+            for record in self._sqlite.list_dry_run_replan_plan_evidence(limit=scan_limit):
+                items.append(DryRunAuditEvidenceItem.from_replan_record(
+                    record,
+                    storage_mode=MEMORY_BACKEND_SQLITE,
+                    sqlite_enabled=self._sqlite_enabled,
+                ))
+            return apply_audit_query(items, query)
+        except Exception:
+            return degraded_audit_response(
+                query,
+                error_category="query_failed",
+                warning="historical_audit_query_failed",
+            )
+
+    def get_historical_dry_run_audit_evidence_detail(
+        self,
+        plan_id: str,
+    ) -> DryRunAuditEvidenceDetail | None:
+        safe_plan_id = safe_audit_id(plan_id)
+        if not safe_plan_id:
+            return None
+        response = self.query_historical_dry_run_audit_evidence({
+            "limit": DRY_RUN_AUDIT_SCAN_LIMIT,
+            "offset": 0,
+            "sort_field": "recorded_at",
+            "sort_direction": "desc",
+        })
+        if response.degraded:
+            return None
+        for item in response.items:
+            if item.plan_id == safe_plan_id:
+                return detail_from_item(item)
+        return None
 
     def get_autonomy_session_state(self, session_id: str) -> AutonomySessionStateRecord | None:
         self._ensure_initialized()
