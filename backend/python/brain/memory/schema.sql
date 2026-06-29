@@ -8,6 +8,7 @@
 --   - Runtime events store evidence references, not full raw payloads.
 --   - Provider attempts store metadata only (no raw key material).
 --   - Autonomy session state stores bounded advisory metadata only.
+--   - Dry-run replan evidence stores sanitized audit metadata only.
 
 -- =================================================================
 -- conversations: Tracks structured conversation records
@@ -171,3 +172,35 @@ CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_expires_at
     ON autonomy_session_states(expires_at);
 CREATE INDEX IF NOT EXISTS idx_autonomy_session_states_updated_at
     ON autonomy_session_states(updated_at);
+
+-- =================================================================
+-- dry_run_replan_plan_evidence: Sanitized dry-run REPLAN audit metadata
+-- =================================================================
+CREATE TABLE IF NOT EXISTS dry_run_replan_plan_evidence (
+    plan_id                  TEXT PRIMARY KEY,
+    event_type               TEXT NOT NULL,
+    plan_type                TEXT NOT NULL,
+    advisory                 INTEGER NOT NULL DEFAULT 1,
+    would_replan             INTEGER NOT NULL DEFAULT 0,
+    replan_reason            TEXT NOT NULL DEFAULT '',
+    blocked                  INTEGER NOT NULL DEFAULT 0,
+    block_reasons            TEXT NOT NULL DEFAULT '[]',
+    replan_eligibility_score REAL NOT NULL DEFAULT 0.0,
+    risk_level               TEXT NOT NULL DEFAULT '',
+    source_decision          TEXT NOT NULL DEFAULT '',
+    fingerprint_id           TEXT NOT NULL DEFAULT '',
+    stagnation_score         INTEGER NOT NULL DEFAULT 0,
+    progress_score           INTEGER NOT NULL DEFAULT 0,
+    repeated_strategy_count  INTEGER NOT NULL DEFAULT 0,
+    suggested_strategy       TEXT NOT NULL DEFAULT '',
+    evidence_summary         TEXT NOT NULL DEFAULT '',
+    created_at               TEXT NOT NULL,
+    session_id               TEXT NOT NULL DEFAULT '',
+    request_id               TEXT NOT NULL DEFAULT '',
+    trace_id                 TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_dry_run_replan_plan_evidence_created_at
+    ON dry_run_replan_plan_evidence(created_at);
+CREATE INDEX IF NOT EXISTS idx_dry_run_replan_plan_evidence_session
+    ON dry_run_replan_plan_evidence(session_id);

@@ -354,6 +354,268 @@ class AutonomySessionStateRecord:
         }
 
 
+DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE = "dry_run_replan_plan_evidence"
+DRY_RUN_REPLAN_EVIDENCE_STRING_MAX = 120
+DRY_RUN_REPLAN_EVIDENCE_ID_MAX = 128
+DRY_RUN_REPLAN_EVIDENCE_SUMMARY_MAX = 240
+DRY_RUN_REPLAN_EVIDENCE_LIST_MAX = 20
+DRY_RUN_REPLAN_EVIDENCE_COUNT_MAX = 1_000_000
+
+_DRY_RUN_REPLAN_EVIDENCE_ALLOWED_FIELDS = frozenset({
+    "event_type",
+    "plan_id",
+    "plan_type",
+    "advisory",
+    "would_replan",
+    "replan_reason",
+    "blocked",
+    "block_reasons",
+    "replan_eligibility_score",
+    "risk_level",
+    "source_decision",
+    "fingerprint_id",
+    "stagnation_score",
+    "progress_score",
+    "repeated_strategy_count",
+    "suggested_strategy",
+    "evidence_summary",
+    "created_at",
+    "session_id",
+    "request_id",
+    "trace_id",
+})
+
+_DRY_RUN_REPLAN_EVIDENCE_FORBIDDEN_FIELDS = frozenset({
+    "raw_prompt",
+    "prompt",
+    "rewritten_prompt",
+    "raw_rewritten_prompt",
+    "raw_response",
+    "response",
+    "provider_payload",
+    "raw_provider_payload",
+    "provider_credentials",
+    "api_key",
+    "api-key",
+    "apikey",
+    "token",
+    "secret",
+    "password",
+    "credential",
+    "credentials",
+    "headers",
+    "cookies",
+    "stack_trace",
+    "stacktrace",
+    "traceback",
+    "stdout",
+    "stderr",
+    "command_args",
+    "args",
+    "file_contents",
+    "file_content",
+    ".env",
+    "env_content",
+    "tool_output",
+    "full_tool_output",
+    "raw_receipt",
+    "receipt",
+    "exception",
+    "raw_exception",
+    "context",
+    "raw_context",
+    "repr",
+})
+
+
+def _safe_dry_run_replan_string(
+    value: Any,
+    *,
+    max_length: int = DRY_RUN_REPLAN_EVIDENCE_STRING_MAX,
+) -> str:
+    if value is None:
+        return ""
+    text = str(value).replace("\x00", "").replace("\r", " ").replace("\n", " ").strip()
+    lowered = text.lower()
+    forbidden_markers = (
+        "sk-",
+        "api_key",
+        "authorization:",
+        "bearer ",
+        "token=",
+        "secret=",
+        "password=",
+        "raw_prompt",
+        "rewritten_prompt",
+        "raw_response",
+        "provider_payload",
+        "traceback",
+        "stack trace",
+        "stdout",
+        "stderr",
+        ".env",
+    )
+    if any(marker in lowered for marker in forbidden_markers):
+        return "[REDACTED]"
+    allowed_chars: list[str] = []
+    for char in text:
+        if char.isalnum() or char in ("_", "-", ".", ":", "/", "+", " "):
+            allowed_chars.append(char)
+    return "".join(allowed_chars)[:max_length]
+
+
+def _safe_dry_run_replan_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes")
+    return bool(value)
+
+
+def _safe_dry_run_replan_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(number, DRY_RUN_REPLAN_EVIDENCE_COUNT_MAX))
+
+
+def _safe_dry_run_replan_score(value: Any) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if score < 0:
+        return 0.0
+    if score > 1:
+        return 1.0
+    return round(score, 3)
+
+
+def _safe_dry_run_replan_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    safe: list[str] = []
+    for item in value:
+        text = _safe_dry_run_replan_string(item, max_length=64)
+        if text and text != "[REDACTED]":
+            safe.append(text)
+        if len(safe) >= DRY_RUN_REPLAN_EVIDENCE_LIST_MAX:
+            break
+    return safe
+
+
+@dataclass(slots=True)
+class DryRunReplanPlanEvidenceRecord:
+    plan_id: str
+    plan_type: str = "dry_run_replan"
+    advisory: bool = True
+    would_replan: bool = False
+    replan_reason: str = ""
+    blocked: bool = False
+    block_reasons: list[str] = field(default_factory=list)
+    replan_eligibility_score: float = 0.0
+    risk_level: str = ""
+    source_decision: str = ""
+    fingerprint_id: str = ""
+    stagnation_score: int = 0
+    progress_score: int = 0
+    repeated_strategy_count: int = 0
+    suggested_strategy: str = ""
+    evidence_summary: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    session_id: str = ""
+    request_id: str = ""
+    trace_id: str = ""
+    event_type: str = DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE
+
+    def __post_init__(self) -> None:
+        self.event_type = DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE
+        self.plan_id = _safe_dry_run_replan_string(
+            self.plan_id,
+            max_length=DRY_RUN_REPLAN_EVIDENCE_ID_MAX,
+        )
+        self.plan_type = _safe_dry_run_replan_string(self.plan_type, max_length=64) or "dry_run_replan"
+        self.advisory = True
+        self.would_replan = _safe_dry_run_replan_bool(self.would_replan)
+        self.replan_reason = _safe_dry_run_replan_string(self.replan_reason, max_length=64)
+        self.blocked = _safe_dry_run_replan_bool(self.blocked)
+        self.block_reasons = _safe_dry_run_replan_list(self.block_reasons)
+        self.replan_eligibility_score = _safe_dry_run_replan_score(self.replan_eligibility_score)
+        self.risk_level = _safe_dry_run_replan_string(self.risk_level, max_length=24)
+        self.source_decision = _safe_dry_run_replan_string(self.source_decision, max_length=48)
+        self.fingerprint_id = _safe_dry_run_replan_string(self.fingerprint_id, max_length=64)
+        self.stagnation_score = _safe_dry_run_replan_int(self.stagnation_score)
+        self.progress_score = _safe_dry_run_replan_int(self.progress_score)
+        self.repeated_strategy_count = _safe_dry_run_replan_int(self.repeated_strategy_count)
+        self.suggested_strategy = _safe_dry_run_replan_string(self.suggested_strategy, max_length=64)
+        self.evidence_summary = _safe_dry_run_replan_string(
+            self.evidence_summary,
+            max_length=DRY_RUN_REPLAN_EVIDENCE_SUMMARY_MAX,
+        )
+        self.created_at = _safe_dry_run_replan_string(
+            self.created_at,
+            max_length=DRY_RUN_REPLAN_EVIDENCE_ID_MAX,
+        )
+        self.session_id = _safe_dry_run_replan_string(
+            self.session_id,
+            max_length=DRY_RUN_REPLAN_EVIDENCE_ID_MAX,
+        )
+        self.request_id = _safe_dry_run_replan_string(
+            self.request_id,
+            max_length=DRY_RUN_REPLAN_EVIDENCE_ID_MAX,
+        )
+        self.trace_id = _safe_dry_run_replan_string(
+            self.trace_id,
+            max_length=DRY_RUN_REPLAN_EVIDENCE_ID_MAX,
+        )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "DryRunReplanPlanEvidenceRecord | None":
+        if not isinstance(payload, dict):
+            return None
+        safe = {
+            key: value
+            for key, value in payload.items()
+            if key in _DRY_RUN_REPLAN_EVIDENCE_ALLOWED_FIELDS
+            and key.lower() not in _DRY_RUN_REPLAN_EVIDENCE_FORBIDDEN_FIELDS
+        }
+        plan_id = _safe_dry_run_replan_string(
+            safe.get("plan_id", ""),
+            max_length=DRY_RUN_REPLAN_EVIDENCE_ID_MAX,
+        )
+        if not plan_id:
+            return None
+        safe["plan_id"] = plan_id
+        safe["event_type"] = DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE
+        return cls(**safe)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "event_type": DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE,
+            "plan_id": self.plan_id,
+            "plan_type": self.plan_type,
+            "advisory": True,
+            "would_replan": self.would_replan,
+            "replan_reason": self.replan_reason,
+            "blocked": self.blocked,
+            "block_reasons": list(self.block_reasons),
+            "replan_eligibility_score": self.replan_eligibility_score,
+            "risk_level": self.risk_level,
+            "source_decision": self.source_decision,
+            "fingerprint_id": self.fingerprint_id,
+            "stagnation_score": self.stagnation_score,
+            "progress_score": self.progress_score,
+            "repeated_strategy_count": self.repeated_strategy_count,
+            "suggested_strategy": self.suggested_strategy,
+            "evidence_summary": self.evidence_summary,
+            "created_at": self.created_at,
+            "session_id": self.session_id,
+            "request_id": self.request_id,
+            "trace_id": self.trace_id,
+        }
+
+
 SENSITIVE_KEYS = frozenset({
     "api_key", "api-key", "apikey",
     "token", "secret", "password",
