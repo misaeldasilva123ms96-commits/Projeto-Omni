@@ -308,6 +308,7 @@ class AutonomySessionStatePersistenceWiringTest(unittest.TestCase):
             "session_state_diagnostics",
             "dry_run_retry_plan",
             "dry_run_replan_plan",
+            "dry_run_replan_plan_persistence",
         }
         self.assertEqual(
             {k: v for k, v in sqlite_disabled.items() if k not in diagnostic_keys},
