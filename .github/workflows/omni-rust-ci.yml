@@ -30,8 +30,8 @@ jobs:
 
       - name: Run Clippy
         working-directory: backend/rust
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run Rust tests
         working-directory: backend/rust
-        run: cargo test
+        run: cargo test --locked --all

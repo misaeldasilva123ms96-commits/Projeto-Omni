@@ -47,21 +47,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Node audit
+      - name: Node audit (advisory)
         working-directory: ./
         run: |
           npm ci
-          npm audit --audit-level=moderate || true
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          if ! npm audit --audit-level=moderate; then
+            echo "npm audit reported findings or returned a non-zero exit code."
+          fi
 
-      - name: Python pip-audit
+      - name: Python pip-audit (advisory)
         run: |
           python -m pip install --upgrade pip
           pip install pip-audit
-          pip-audit --exit-code 1 || true
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          if ! pip-audit --exit-code 1; then
+            echo "pip-audit reported findings or returned a non-zero exit code."
+          fi
 
-      - name: Cargo audit (optional)
+      - name: Cargo audit (advisory)
         run: |
           sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
-          cargo install --locked cargo-audit || true
-          cd backend/rust || exit 0
-          cargo audit || true
+          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          if ! cargo install --locked cargo-audit; then
+            echo "cargo-audit installation failed; leaving this advisory audit non-blocking."
+            exit 0
+          fi
+          cd backend/rust
+          if ! cargo audit; then
+            echo "cargo audit reported findings or returned a non-zero exit code."
+          fi
