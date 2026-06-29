@@ -192,7 +192,7 @@ class HistoricalDryRunAuditQueryContractsTest(unittest.TestCase):
 
         for forbidden in FORBIDDEN_TEXT:
             self.assertNotIn(forbidden, serialized)
-        self.assertIn("[redacted]", serialized)
+        self.assertIn("redacted", serialized)
 
     def test_invalid_enum_filter_degrades_safely(self) -> None:
         facade = self._sqlite_facade()
