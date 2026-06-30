@@ -152,6 +152,13 @@ only after route-level tests prove:
 - The route cannot call runtime or provider/model code.
 - The route cannot trigger retry or replan execution.
 
+Implementation note for the contract phase: the repository currently has
+internal Python service routes, but this review does not identify a reusable
+auth/authorization pattern sufficient for exposing historical audit reads. The
+contract handlers must therefore remain unregistered and fail closed by
+default until a separate route-exposure branch adds real auth, authorization,
+rate limits, size limits, audit logging, and observability controls.
+
 ## 10. Handler Responsibility Review
 
 Future handlers may be responsible for:
