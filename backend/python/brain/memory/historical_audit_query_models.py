@@ -62,6 +62,8 @@ ALLOWED_SORT_FIELDS = frozenset({
     "recorded_at",
     "risk_level",
     "source_decision",
+    "plan_type",
+    "event_type",
 })
 ALLOWED_SORT_DIRECTIONS = frozenset({"asc", "desc"})
 BOOLEAN_FILTERS = frozenset({"blocked", "recorded", "degraded", "sqlite_enabled"})
@@ -117,6 +119,17 @@ _FORBIDDEN_MARKERS = (
     "raw jsonl",
     "headers",
     "cookies",
+)
+
+REQUIRED_AUDIT_QUERY_WARNINGS = (
+    "Query results are readonly audit metadata.",
+    "Query results are not approval.",
+    "Query results are not execution input.",
+    "would_retry/would_replan are not execution.",
+    "Eligibility scores are not permission.",
+    "Suggested strategies are not instructions.",
+    "Copy/export remains disabled.",
+    "Omni remains advisory-only.",
 )
 
 
@@ -508,7 +521,7 @@ class DryRunAuditQueryResponse:
             "items": [item.as_dict() for item in self.items],
             "page_info": self.page_info.as_dict(),
             "applied_filters": dict(self.applied_filters),
-            "warnings": list(self.warnings),
+            "warnings": _merge_required_warnings(self.warnings),
             "degraded": self.degraded,
             "generated_at": self.generated_at,
         }
@@ -623,3 +636,11 @@ def _sort_key(item: DryRunAuditEvidenceItem, sort_field: str) -> tuple[Any, str,
     else:
         primary = getattr(item, sort_field, "")
     return (primary, item.recorded_at, item.created_at, item.plan_id)
+
+
+def _merge_required_warnings(warnings: list[str]) -> list[str]:
+    merged: list[str] = []
+    for warning in (*REQUIRED_AUDIT_QUERY_WARNINGS, *warnings):
+        if warning not in merged:
+            merged.append(warning)
+    return merged
