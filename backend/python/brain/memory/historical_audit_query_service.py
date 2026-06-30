@@ -17,6 +17,16 @@ from .memory_models import utc_now_iso
 
 AuditLogger = Callable[[dict[str, Any]], None]
 
+SAFE_SERVICE_ERROR_CATEGORIES = frozenset({
+    "",
+    "invalid_request",
+    "invalid_filter",
+    "invalid_sort",
+    "storage_unavailable",
+    "query_failed",
+    "invalid_memoryfacade_response",
+})
+
 
 class HistoricalDryRunAuditMemoryFacade(Protocol):
     def query_historical_dry_run_audit_evidence(
@@ -59,7 +69,10 @@ class HistoricalDryRunAuditQueryService:
         if not request.valid:
             response = degraded_audit_response(
                 request,
-                error_category=request.error_category or "invalid_request",
+                error_category=_safe_error_category(
+                    request.error_category,
+                    default="invalid_request",
+                ),
                 warning="invalid_service_request",
             )
             self._log_query_event(
@@ -83,6 +96,12 @@ class HistoricalDryRunAuditQueryService:
             )
             return response
         if not isinstance(response, DryRunAuditQueryResponse):
+            response = degraded_audit_response(
+                request,
+                error_category="invalid_memoryfacade_response",
+                warning="invalid_memoryfacade_response",
+            )
+        elif response.degraded and not _is_safe_error_category(response.error_category):
             response = degraded_audit_response(
                 request,
                 error_category="invalid_memoryfacade_response",
@@ -155,7 +174,10 @@ class HistoricalDryRunAuditQueryService:
             "generated_at": utc_now_iso(),
             "degraded": bool(response.degraded),
             "error_category": (
-                safe_audit_string(response.error_category, max_length=64)
+                _safe_error_category(
+                    response.error_category,
+                    default="invalid_memoryfacade_response",
+                )
                 if response.degraded
                 else ""
             ),
@@ -182,7 +204,12 @@ class HistoricalDryRunAuditQueryService:
             "generated_at": utc_now_iso(),
             "degraded": bool(degraded),
             "error_category": (
-                safe_audit_string(error_category, max_length=64) if degraded else ""
+                _safe_error_category(
+                    error_category,
+                    default="invalid_request",
+                )
+                if degraded
+                else ""
             ),
         }
         self._emit_audit_event(event)
@@ -220,3 +247,14 @@ def get_historical_dry_run_audit_detail(
         audit_logger=audit_logger,
     )
     return service.get_historical_dry_run_audit_detail(plan_id)
+
+
+def _is_safe_error_category(error_category: str) -> bool:
+    return error_category in SAFE_SERVICE_ERROR_CATEGORIES
+
+
+def _safe_error_category(error_category: str, *, default: str) -> str:
+    category = safe_audit_string(error_category, max_length=64)
+    if category in SAFE_SERVICE_ERROR_CATEGORIES:
+        return category
+    return default
