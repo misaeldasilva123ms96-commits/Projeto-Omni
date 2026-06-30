@@ -14,6 +14,7 @@ from brain.memory.historical_audit_query_models import (  # noqa: E402
     DryRunAuditPageInfo,
     DryRunAuditQueryRequest,
     DryRunAuditQueryResponse,
+    REQUIRED_AUDIT_QUERY_WARNINGS,
 )
 from brain.memory.historical_audit_query_service import (  # noqa: E402
     HistoricalDryRunAuditQueryService,
@@ -211,6 +212,18 @@ class HistoricalDryRunAuditQueryServiceTest(unittest.TestCase):
         self.assertFalse(bad_sort.valid)
         self.assertEqual(bad_sort.error_category, "invalid_sort")
 
+    def test_service_preserves_max_page_size_and_required_warnings(self) -> None:
+        facade = _MemoryFacadeSpy()
+        request = DryRunAuditQueryRequest.from_dict({"limit": 1000})
+
+        response = HistoricalDryRunAuditQueryService(facade).query_historical_dry_run_audit(
+            request
+        ).as_dict()
+
+        self.assertEqual(facade.query_calls[0].limit, 100)
+        for warning in REQUIRED_AUDIT_QUERY_WARNINGS:
+            self.assertIn(warning, response["warnings"])
+
     def test_service_output_contains_only_safe_response_fields(self) -> None:
         facade = _MemoryFacadeSpy()
         response = HistoricalDryRunAuditQueryService(facade).query_historical_dry_run_audit(
@@ -282,6 +295,42 @@ class HistoricalDryRunAuditQueryServiceTest(unittest.TestCase):
         self.assertTrue(response["degraded"])
         self.assertEqual(response["error_category"], "invalid_memoryfacade_response")
         self.assertNotIn("provider_payload", str(response).lower())
+
+    def test_unsafe_request_error_category_is_replaced(self) -> None:
+        facade = _MemoryFacadeSpy()
+        request = DryRunAuditQueryRequest()
+        request.valid = False
+        request.error_category = "raw sql select * from database row"
+
+        response = HistoricalDryRunAuditQueryService(facade).query_historical_dry_run_audit(
+            request
+        ).as_dict()
+        serialized = str(response).lower()
+
+        self.assertTrue(response["degraded"])
+        self.assertEqual(response["error_category"], "invalid_request")
+        self.assertEqual(facade.query_calls, [])
+        for forbidden in FORBIDDEN_TEXT:
+            self.assertNotIn(forbidden, serialized)
+
+    def test_unsafe_memory_facade_error_category_is_replaced(self) -> None:
+        unsafe_response = DryRunAuditQueryResponse(
+            items=[],
+            page_info=DryRunAuditPageInfo(limit=25, offset=0, returned_count=0),
+            degraded=True,
+            error_category="raw jsonl raw sql database row",
+        )
+        facade = _MemoryFacadeSpy(response=unsafe_response)
+
+        response = HistoricalDryRunAuditQueryService(facade).query_historical_dry_run_audit(
+            DryRunAuditQueryRequest()
+        ).as_dict()
+        serialized = str(response).lower()
+
+        self.assertTrue(response["degraded"])
+        self.assertEqual(response["error_category"], "invalid_memoryfacade_response")
+        for forbidden in FORBIDDEN_TEXT:
+            self.assertNotIn(forbidden, serialized)
 
     def test_audit_logger_receives_safe_metadata_only(self) -> None:
         audit_events: list[dict[str, Any]] = []
