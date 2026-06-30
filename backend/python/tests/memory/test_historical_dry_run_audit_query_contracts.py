@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.memory.historical_audit_query_models import (  # noqa: E402
     DRY_RUN_AUDIT_MAX_LIMIT,
     DryRunAuditQueryRequest,
+    REQUIRED_AUDIT_QUERY_WARNINGS,
 )
 from brain.memory.memory_facade import MemoryFacade  # noqa: E402
 from brain.memory.memory_models import (  # noqa: E402
@@ -241,6 +242,16 @@ class HistoricalDryRunAuditQueryContractsTest(unittest.TestCase):
         self.assertEqual(request.limit, DRY_RUN_AUDIT_MAX_LIMIT)
 
     def test_sort_field_and_direction_are_allowlisted(self) -> None:
+        for sort_field in (
+            "created_at",
+            "recorded_at",
+            "risk_level",
+            "source_decision",
+            "plan_type",
+            "event_type",
+        ):
+            self.assertTrue(DryRunAuditQueryRequest.from_dict({"sort_field": sort_field}).valid)
+
         bad_field = DryRunAuditQueryRequest.from_dict({"sort_field": "raw_sql"})
         bad_direction = DryRunAuditQueryRequest.from_dict({"sort_direction": "drop table"})
 
@@ -248,6 +259,15 @@ class HistoricalDryRunAuditQueryContractsTest(unittest.TestCase):
         self.assertEqual(bad_field.error_category, "invalid_sort")
         self.assertFalse(bad_direction.valid)
         self.assertEqual(bad_direction.error_category, "invalid_sort")
+
+    def test_response_includes_required_advisory_warnings(self) -> None:
+        facade = self._sqlite_facade()
+        self._record_retry(facade)
+
+        payload = facade.query_historical_dry_run_audit_evidence({"limit": 1}).as_dict()
+
+        for warning in REQUIRED_AUDIT_QUERY_WARNINGS:
+            self.assertIn(warning, payload["warnings"])
 
     def test_ordering_is_deterministic(self) -> None:
         facade = self._sqlite_facade()
