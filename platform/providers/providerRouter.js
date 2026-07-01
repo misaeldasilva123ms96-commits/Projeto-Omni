@@ -142,11 +142,109 @@ const DEFAULT_FALLBACK_CHAIN = Object.freeze([
   'local-heuristic',
 ]);
 
+const PROVIDER_AUTO_ROUTING_MODES = Object.freeze([
+  'auto',
+  'auto_fast',
+  'auto_cheap',
+  'auto_coding',
+  'auto_safe',
+]);
+
+const AUTO_ROUTING_MODE_WEIGHTS = Object.freeze({
+  auto: Object.freeze({
+    priority: 0.22,
+    availability: 0.24,
+    latency: 0.18,
+    cost: 0.18,
+    coding: 0.1,
+    safety: 0.08,
+  }),
+  auto_fast: Object.freeze({
+    priority: 0.08,
+    availability: 0.18,
+    latency: 0.48,
+    cost: 0.08,
+    coding: 0.08,
+    safety: 0.1,
+  }),
+  auto_cheap: Object.freeze({
+    priority: 0.08,
+    availability: 0.18,
+    latency: 0.08,
+    cost: 0.5,
+    coding: 0.06,
+    safety: 0.1,
+  }),
+  auto_coding: Object.freeze({
+    priority: 0.08,
+    availability: 0.18,
+    latency: 0.1,
+    cost: 0.08,
+    coding: 0.46,
+    safety: 0.1,
+  }),
+  auto_safe: Object.freeze({
+    priority: 0.12,
+    availability: 0.2,
+    latency: 0.08,
+    cost: 0.08,
+    coding: 0.06,
+    safety: 0.46,
+  }),
+});
+
+const PROVIDER_AUTO_ROUTING_SIGNALS = Object.freeze({
+  groq: Object.freeze({
+    latency: 0.9,
+    cost: 0.9,
+    coding: 0.68,
+    safety: 0.72,
+  }),
+  openrouter: Object.freeze({
+    latency: 0.7,
+    cost: 0.82,
+    coding: 0.74,
+    safety: 0.76,
+  }),
+  openai: Object.freeze({
+    latency: 0.68,
+    cost: 0.58,
+    coding: 0.84,
+    safety: 0.9,
+  }),
+  anthropic: Object.freeze({
+    latency: 0.56,
+    cost: 0.54,
+    coding: 0.94,
+    safety: 1,
+  }),
+  gemini: Object.freeze({
+    latency: 0.78,
+    cost: 0.78,
+    coding: 0.72,
+    safety: 0.82,
+  }),
+  ollama: Object.freeze({
+    latency: 0.5,
+    cost: 1,
+    coding: 0.62,
+    safety: 0.68,
+  }),
+  lmstudio: Object.freeze({
+    latency: 0.48,
+    cost: 1,
+    coding: 0.62,
+    safety: 0.68,
+  }),
+});
+
 const FALLBACK_REASONS = Object.freeze({
   REQUESTED_PROVIDER_UNSUPPORTED: 'requested_provider_unsupported',
   REQUESTED_PROVIDER_UNAVAILABLE: 'requested_provider_unavailable',
   NO_REMOTE_PROVIDER_AVAILABLE: 'no_remote_provider_available',
   BYOK_PROVIDER_UNAVAILABLE: 'byok_credentials_incomplete',
+  AUTO_ROUTING_NO_CANDIDATE: 'auto_routing_no_valid_candidate',
+  POLICY_BLOCKED: 'policy_blocked',
 });
 
 function normalizeProviderName(value) {
@@ -154,8 +252,56 @@ function normalizeProviderName(value) {
   return normalized || null;
 }
 
+function normalizeRoutingMode(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[-/]+/g, '_');
+  return PROVIDER_AUTO_ROUTING_MODES.includes(normalized) ? normalized : 'legacy';
+}
+
+function cleanReason(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 96);
+}
+
+function safeProviderModel(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[^\w .:/@+-]/g, '')
+    .slice(0, 128);
+}
+
 function isTruthyEnv(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
+function readProviderRoutingMode() {
+  return normalizeRoutingMode(
+    process.env.OMNI_PROVIDER_ROUTING_MODE || process.env.OMINI_PROVIDER_ROUTING_MODE,
+  );
+}
+
+function normalizePolicyResult(value) {
+  if (value == null || value === '') {
+    return 'allow';
+  }
+  if (typeof value === 'string') {
+    return ['allow', 'allowed', 'pass', 'ok'].includes(value.trim().toLowerCase())
+      ? 'allow'
+      : 'block';
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'allow' : 'block';
+  }
+  if (typeof value === 'object') {
+    if (value.allowed === false || value.blocked === true || value.decision === 'block') {
+      return 'block';
+    }
+    return 'allow';
+  }
+  return 'block';
 }
 
 function readByokSessionPolicy() {
@@ -166,6 +312,163 @@ function readByokSessionPolicy() {
     active,
     providerName: active ? provider : null,
     failClosed: active && failClosed,
+  };
+}
+
+function providerSignal(provider, signalName) {
+  const signals = PROVIDER_AUTO_ROUTING_SIGNALS[provider?.name] || {};
+  const value = Number(signals[signalName]);
+  if (!Number.isFinite(value)) {
+    return signalName === 'availability' ? (provider?.available ? 1 : 0) : 0.5;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function prioritySignal(provider) {
+  const priority = Number(provider?.priority || 99);
+  if (!Number.isFinite(priority)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, 1 - ((priority - 1) / 100)));
+}
+
+function rejection(provider, reason) {
+  return {
+    provider: normalizeProviderName(provider?.name) || 'unknown',
+    model: safeProviderModel(provider?.model),
+    reason: cleanReason(reason || 'rejected'),
+  };
+}
+
+function candidateSnapshot(provider, mode, score = 0) {
+  return {
+    provider: normalizeProviderName(provider?.name) || 'unknown',
+    model: safeProviderModel(provider?.model),
+    mode,
+    score: Number(Number(score || 0).toFixed(4)),
+    available: Boolean(provider?.available),
+    policy_result: 'allow',
+  };
+}
+
+function scoreProviderCandidate(provider, mode) {
+  const weights = AUTO_ROUTING_MODE_WEIGHTS[mode] || AUTO_ROUTING_MODE_WEIGHTS.auto;
+  const score =
+    (weights.priority * prioritySignal(provider))
+    + (weights.availability * (provider?.available ? 1 : 0))
+    + (weights.latency * providerSignal(provider, 'latency'))
+    + (weights.cost * providerSignal(provider, 'cost'))
+    + (weights.coding * providerSignal(provider, 'coding'))
+    + (weights.safety * providerSignal(provider, 'safety'));
+  return Math.max(0, Math.min(1, score));
+}
+
+function buildAutoRoutingDecision({
+  routingMode = 'auto',
+  selected = null,
+  candidates = [],
+  rejected = [],
+  reason = '',
+  fallbackUsed = false,
+  failClosedReason = '',
+  policyResult = 'allow',
+} = {}) {
+  return {
+    routing_mode: routingMode,
+    selected_provider: normalizeProviderName(selected?.name) || null,
+    selected_model: safeProviderModel(selected?.model),
+    candidate_count: Array.isArray(candidates) ? candidates.length : 0,
+    decision_reason: cleanReason(reason || (selected ? 'selected_highest_score' : 'no_valid_candidate')),
+    fallback_used: Boolean(fallbackUsed),
+    rejected_candidates: Array.isArray(rejected) ? rejected.slice(0, 16) : [],
+    rejected_reasons: Array.isArray(rejected)
+      ? rejected.map(item => cleanReason(item.reason)).filter(Boolean).slice(0, 16)
+      : [],
+    fail_closed_reason: cleanReason(failClosedReason),
+    policy_result: normalizePolicyResult(policyResult),
+    created_at: new Date().toISOString(),
+  };
+}
+
+function selectAutoProvider({ providers = [], routingMode = 'auto', byokPolicy, policyResult = 'allow' } = {}) {
+  const normalizedPolicy = normalizePolicyResult(policyResult);
+  const rejected = [];
+
+  if (normalizedPolicy !== 'allow') {
+    for (const provider of providers) {
+      rejected.push(rejection(provider, FALLBACK_REASONS.POLICY_BLOCKED));
+    }
+    return {
+      selected: null,
+      candidates: [],
+      rejected,
+      decision: buildAutoRoutingDecision({
+        routingMode,
+        rejected,
+        reason: FALLBACK_REASONS.POLICY_BLOCKED,
+        failClosedReason: FALLBACK_REASONS.POLICY_BLOCKED,
+        policyResult: normalizedPolicy,
+      }),
+    };
+  }
+
+  const scopedProviders = byokPolicy?.active
+    ? providers.filter(provider => provider.name === byokPolicy.providerName)
+    : providers;
+  const candidates = [];
+  for (const provider of scopedProviders) {
+    if (!provider?.registered) {
+      rejected.push(rejection(provider, 'provider_not_registered'));
+      continue;
+    }
+    if (!provider.adapter_implemented || provider.execution_status === 'unsupported') {
+      rejected.push(rejection(provider, 'provider_adapter_unavailable'));
+      continue;
+    }
+    if (!provider.model_configured) {
+      rejected.push(rejection(provider, 'model_unavailable'));
+      continue;
+    }
+    if (!provider.executable || !provider.available) {
+      rejected.push(rejection(provider, byokPolicy?.active ? FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE : 'provider_unavailable'));
+      continue;
+    }
+    if (provider.kind === 'embedded') {
+      rejected.push(rejection(provider, 'embedded_provider_not_auto_candidate'));
+      continue;
+    }
+    const score = scoreProviderCandidate(provider, routingMode);
+    candidates.push({
+      provider,
+      score,
+      snapshot: candidateSnapshot(provider, routingMode, score),
+    });
+  }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
+    return (a.provider.priority || 99) - (b.provider.priority || 99);
+  });
+  const selected = candidates[0]?.provider || null;
+  const failClosedReason = selected ? '' : (
+    byokPolicy?.active ? FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE : FALLBACK_REASONS.AUTO_ROUTING_NO_CANDIDATE
+  );
+
+  return {
+    selected,
+    candidates: candidates.map(item => item.snapshot),
+    rejected,
+    decision: buildAutoRoutingDecision({
+      routingMode,
+      selected,
+      candidates: candidates.map(item => item.snapshot),
+      rejected,
+      reason: selected ? 'selected_highest_score' : failClosedReason,
+      failClosedReason,
+      policyResult: normalizedPolicy,
+    }),
   };
 }
 
@@ -206,7 +509,7 @@ function getProviderRegistry({ includeEmbeddedLocal = false } = {}) {
  * Comma-separated logical ids from Python (validated keys only). Used for routing order hints.
  */
 function parseOmniAvailableProviders() {
-  const raw = envValue('OMINI_AVAILABLE_PROVIDERS');
+  const raw = envValue('OMNI_AVAILABLE_PROVIDERS') || envValue('OMINI_AVAILABLE_PROVIDERS');
   if (!raw) {
     return null;
   }
@@ -295,6 +598,8 @@ function buildRouteOutcome({
   byokSessionMode = false,
   byokProviderName = null,
   byokFailClosed = false,
+  routingMode = 'legacy',
+  autoRoutingDecision = null,
 } = {}) {
   return {
     requestedProviderName,
@@ -312,10 +617,18 @@ function buildRouteOutcome({
     byokSessionMode: Boolean(byokSessionMode),
     byokProviderName,
     byokFailClosed: Boolean(byokFailClosed),
+    routingMode,
+    autoRoutingDecision,
   };
 }
 
-function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
+function resolveProviderRoute({
+  complexity = 'simple',
+  preferred = '',
+  routingMode = '',
+  policyResult = 'allow',
+} = {}) {
+  const normalizedRoutingMode = normalizeRoutingMode(routingMode || readProviderRoutingMode());
   const byokPolicy = readByokSessionPolicy();
   const registry = getProviderRegistry({ includeEmbeddedLocal: true });
   const providersByName = new Map(registry.map(provider => [provider.name, provider]));
@@ -328,6 +641,42 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
     : normalizeProviderName(preferred);
   const requestedProvider = requestedProviderName ? providersByName.get(requestedProviderName) : null;
 
+  if (normalizedRoutingMode !== 'legacy') {
+    const autoRoute = selectAutoProvider({
+      providers: registry,
+      routingMode: normalizedRoutingMode,
+      byokPolicy,
+      policyResult,
+    });
+    if (autoRoute.selected) {
+      return buildRouteOutcome({
+        requestedProviderName,
+        selectedProviderName: autoRoute.selected.name,
+        executionProvider: { ...autoRoute.selected },
+        noRemoteProviderAvailable,
+        byokSessionMode: Boolean(byokPolicy.active),
+        byokProviderName: byokPolicy.active ? byokPolicy.providerName : null,
+        byokFailClosed: Boolean(byokPolicy.failClosed),
+        routingMode: normalizedRoutingMode,
+        autoRoutingDecision: autoRoute.decision,
+      });
+    }
+
+    return buildRouteOutcome({
+      requestedProviderName,
+      selectedProviderName: requestedProviderName,
+      fallbackTriggered: false,
+      fallbackReason: autoRoute.decision.fail_closed_reason || FALLBACK_REASONS.AUTO_ROUTING_NO_CANDIDATE,
+      noRemoteProviderAvailable,
+      noProviderAvailable: true,
+      byokSessionMode: Boolean(byokPolicy.active),
+      byokProviderName: byokPolicy.active ? byokPolicy.providerName : null,
+      byokFailClosed: Boolean(byokPolicy.failClosed),
+      routingMode: normalizedRoutingMode,
+      autoRoutingDecision: autoRoute.decision,
+    });
+  }
+
   if (byokPolicy.active) {
     if (requestedProvider?.executable && requestedProvider.kind !== 'embedded') {
       return buildRouteOutcome({
@@ -338,6 +687,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
         byokSessionMode: true,
         byokProviderName: requestedProvider.name,
         byokFailClosed: byokPolicy.failClosed,
+        routingMode: normalizedRoutingMode,
       });
     }
     return buildRouteOutcome({
@@ -350,6 +700,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
       byokSessionMode: true,
       byokProviderName: requestedProviderName,
       byokFailClosed: byokPolicy.failClosed,
+      routingMode: normalizedRoutingMode,
     });
   }
 
@@ -360,6 +711,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
         selectedProviderName: requestedProvider.name,
         localFallbackProvider: { ...requestedProvider },
         noRemoteProviderAvailable,
+        routingMode: normalizedRoutingMode,
       });
     }
     return buildRouteOutcome({
@@ -367,6 +719,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
       selectedProviderName: requestedProvider.name,
       executionProvider: { ...requestedProvider },
       noRemoteProviderAvailable,
+      routingMode: normalizedRoutingMode,
     });
   }
 
@@ -383,6 +736,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
       fallbackReason: fallbackReasonForRequestedProvider(requestedProvider),
       noRemoteProviderAvailable,
       noProviderAvailable: !selected,
+      routingMode: normalizedRoutingMode,
     });
   }
 
@@ -394,6 +748,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
       selectedProviderName: selectedProvider.name,
       executionProvider: { ...selectedProvider },
       noRemoteProviderAvailable,
+      routingMode: normalizedRoutingMode,
     });
   }
 
@@ -408,6 +763,7 @@ function resolveProviderRoute({ complexity = 'simple', preferred = '' } = {}) {
     fallbackReason: FALLBACK_REASONS.NO_REMOTE_PROVIDER_AVAILABLE,
     noRemoteProviderAvailable: true,
     noProviderAvailable: !selected,
+    routingMode: normalizedRoutingMode,
   });
 }
 
@@ -475,6 +831,7 @@ function chooseProvider({ complexity = 'simple', preferred = '' } = {}) {
 module.exports = {
   DEFAULT_FALLBACK_CHAIN,
   FALLBACK_REASONS,
+  PROVIDER_AUTO_ROUTING_MODES,
   buildProviderDiagnostics,
   chooseProvider,
   getAvailableProviders,

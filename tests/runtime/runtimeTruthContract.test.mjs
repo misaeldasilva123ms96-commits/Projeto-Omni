@@ -19,7 +19,10 @@ const providerEnvKeys = [
   'DEEPSEEK_API_KEY',
   'OLLAMA_URL',
   'LMSTUDIO_URL',
+  'OMNI_AVAILABLE_PROVIDERS',
   'OMINI_AVAILABLE_PROVIDERS',
+  'OMNI_PROVIDER_ROUTING_MODE',
+  'OMINI_PROVIDER_ROUTING_MODE',
   'OMNI_BYOK_SESSION_MODE',
   'OMNI_BYOK_PROVIDER',
   'OMNI_BYOK_FAIL_CLOSED',
@@ -157,6 +160,36 @@ function testTruthHelperModes() {
     fallbackTriggered: true,
   })
   assert.notEqual(fallback.runtime_mode, RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME)
+
+  const autoRouting = buildRuntimeTruth({
+    runtimeMode: RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE,
+    runtimeReason: 'auto_routing_no_valid_candidate',
+    intentInfo: inferIntentWithSource('resuma este texto'),
+    providerAutoRouting: {
+      routing_mode: 'auto_safe',
+      selected_provider: '',
+      selected_model: '',
+      candidate_count: 0,
+      decision_reason: 'auto_routing_no_valid_candidate',
+      fallback_used: false,
+      rejected_candidates: [
+        {
+          provider: 'openai',
+          model: 'gpt-4.1',
+          reason: 'provider_unavailable',
+          secret: 'sk-test-runtime-truth-secret',
+        },
+      ],
+      fail_closed_reason: 'auto_routing_no_valid_candidate',
+      policy_result: 'allow',
+      api_key: 'sk-test-runtime-truth-secret',
+      created_at: '2026-07-01T00:00:00.000Z',
+    },
+  })
+  assert.equal(autoRouting.provider_auto_routing.routing_mode, 'auto_safe')
+  assert.equal(autoRouting.provider_auto_routing.selected_provider, null)
+  assert.equal(autoRouting.provider_auto_routing.fail_closed_reason, 'auto_routing_no_valid_candidate')
+  assert.equal(JSON.stringify(autoRouting).includes('sk-test-runtime-truth-secret'), false)
 }
 
 async function testNoRemoteProviderFallbackTruth() {
@@ -221,6 +254,57 @@ async function testByokFailClosedDoesNotFallbackToSystemProvider() {
     const groq = diagnostics.find(row => row.provider === 'groq')
     assert.equal(groq.attempted, false)
   } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+async function testAutoRoutingNoCandidateFailsClosedPublicly() {
+  const saved = Object.fromEntries(providerEnvKeys.map(key => [key, process.env[key]]))
+  const savedFetch = globalThis.fetch
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+  process.env.OMNI_PROVIDER_ROUTING_MODE = 'auto'
+  process.env.GROQ_API_KEY = ''
+  let fetchCalls = 0
+  globalThis.fetch = async () => {
+    fetchCalls += 1
+    throw new Error('fetch must not be called when auto routing has no candidate')
+  }
+  try {
+    const engine = new QueryEngineAuthority()
+    const result = await engine.submitMessage({
+      message: 'Explique este projeto em uma frase curta.',
+      memoryContext: {},
+      history: [],
+      summary: '',
+      capabilities: [],
+      session: { session_id: 'truth-contract-auto-routing-no-candidate' },
+      cwd: process.cwd(),
+    })
+    const serialized = JSON.stringify(result)
+
+    assert.equal(fetchCalls, 0)
+    assert.equal(result.selected_provider, '')
+    assert.equal(result.executed_provider, '')
+    assert.equal(result.provider_failed, true)
+    assert.equal(result.failure_class, 'provider_auto_routing_failed')
+    assert.equal(result.failure_reason, 'auto_routing_no_valid_candidate')
+    assert.equal(result.runtime_truth.runtime_mode, RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE)
+    assert.equal(result.runtime_truth.provider_auto_routing.routing_mode, 'auto')
+    assert.equal(result.runtime_truth.provider_auto_routing.selected_provider, null)
+    assert.equal(result.runtime_truth.provider_auto_routing.fail_closed_reason, 'auto_routing_no_valid_candidate')
+    assert.equal(result.runtime_truth.provider_auto_routing.fallback_used, false)
+    assert.equal(serialized.includes('api_key'), false)
+    assertNoForbiddenPublicFragments(result, ['api_key', 'stack'], 'auto routing no candidate')
+  } finally {
+    globalThis.fetch = savedFetch
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) {
         delete process.env[key]
@@ -535,6 +619,7 @@ async function testByokUnknownProviderHintFailsClosedPublicly() {
 
 await testGreetingMatcherTruth()
 await testNoRemoteProviderFallbackTruth()
+await testAutoRoutingNoCandidateFailsClosedPublicly()
 await testByokFailClosedDoesNotFallbackToSystemProvider()
 await testByokHappyPathUsesSessionProviderOnly()
 await testByokProviderFailureDoesNotFallbackToSystemProvider()

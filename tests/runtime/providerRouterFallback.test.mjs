@@ -21,7 +21,10 @@ const providerEnvKeys = [
   'OLLAMA_MODEL',
   'LMSTUDIO_URL',
   'LMSTUDIO_MODEL',
+  'OMNI_AVAILABLE_PROVIDERS',
   'OMINI_AVAILABLE_PROVIDERS',
+  'OMNI_PROVIDER_ROUTING_MODE',
+  'OMINI_PROVIDER_ROUTING_MODE',
   'OMNI_BYOK_SESSION_MODE',
   'OMNI_BYOK_PROVIDER',
   'OMNI_BYOK_FAIL_CLOSED',
@@ -577,6 +580,91 @@ withProviderEnv({
     const route = resolveProviderRoute(testCase.input);
     assertRoute(route, testCase.expected);
   });
+});
+
+withProviderEnv({
+  GROQ_API_KEY: 'groq-auto-fast-key',
+  OPENAI_API_KEY: 'openai-auto-fast-key',
+}, ({ PROVIDER_AUTO_ROUTING_MODES, resolveProviderRoute }) => {
+  assert.deepEqual(PROVIDER_AUTO_ROUTING_MODES, ['auto', 'auto_fast', 'auto_cheap', 'auto_coding', 'auto_safe']);
+  const route = resolveProviderRoute({ routingMode: 'auto_fast' });
+  assert.equal(route.routingMode, 'auto_fast');
+  assert.equal(route.selectedProviderName, 'groq');
+  assert.equal(route.executionProviderName, 'groq');
+  assert.equal(route.autoRoutingDecision.routing_mode, 'auto_fast');
+  assert.equal(route.autoRoutingDecision.selected_provider, 'groq');
+  assert.equal(route.autoRoutingDecision.fail_closed_reason, '');
+  assert.equal(route.autoRoutingDecision.policy_result, 'allow');
+});
+
+withProviderEnv({
+  GROQ_API_KEY: 'groq-auto-cheap-key',
+  OPENROUTER_API_KEY: 'openrouter-auto-cheap-key',
+  OPENAI_API_KEY: 'openai-auto-cheap-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ routingMode: 'auto_cheap' });
+  assert.equal(route.selectedProviderName, 'groq');
+  assert.equal(route.executionProviderName, 'groq');
+  assert.equal(route.autoRoutingDecision.decision_reason, 'selected_highest_score');
+});
+
+withProviderEnv({
+  ANTHROPIC_API_KEY: 'anthropic-auto-coding-key',
+  OPENAI_API_KEY: 'openai-auto-coding-key',
+  GROQ_API_KEY: 'groq-auto-coding-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ routingMode: 'auto_coding' });
+  assert.equal(route.selectedProviderName, 'anthropic');
+  assert.equal(route.executionProviderName, 'anthropic');
+});
+
+withProviderEnv({
+  ANTHROPIC_API_KEY: 'anthropic-auto-safe-key',
+  OPENAI_API_KEY: 'openai-auto-safe-key',
+  GROQ_API_KEY: 'groq-auto-safe-key',
+}, ({ resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ routingMode: 'auto_safe' });
+  assert.equal(route.selectedProviderName, 'anthropic');
+  assert.equal(route.executionProviderName, 'anthropic');
+});
+
+withProviderEnv({
+  GROQ_API_KEY: 'groq-auto-policy-key',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ routingMode: 'auto', policyResult: 'block' });
+  assert.equal(route.executionProviderName, null);
+  assert.equal(route.noProviderAvailable, true);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.POLICY_BLOCKED);
+  assert.equal(route.autoRoutingDecision.fail_closed_reason, FALLBACK_REASONS.POLICY_BLOCKED);
+  assert.equal(route.autoRoutingDecision.policy_result, 'block');
+  assert.equal(JSON.stringify(route).includes('groq-auto-policy-key'), false);
+});
+
+withProviderEnv({
+  OMNI_BYOK_SESSION_MODE: 'true',
+  OMNI_BYOK_PROVIDER: 'openai',
+  OMNI_BYOK_FAIL_CLOSED: 'true',
+  GROQ_API_KEY: 'system-groq-auto-key',
+}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ routingMode: 'auto_safe' });
+  assert.equal(route.requestedProviderName, 'openai');
+  assert.equal(route.executionProviderName, null);
+  assert.equal(route.noProviderAvailable, true);
+  assert.equal(route.fallbackTriggered, false);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE);
+  assert.equal(route.autoRoutingDecision.fail_closed_reason, FALLBACK_REASONS.BYOK_PROVIDER_UNAVAILABLE);
+  assert.equal(JSON.stringify(route).includes('system-groq-auto-key'), false);
+});
+
+withProviderEnv({}, ({ FALLBACK_REASONS, resolveProviderRoute }) => {
+  const route = resolveProviderRoute({ routingMode: 'auto' });
+  assert.equal(route.executionProviderName, null);
+  assert.equal(route.localFallbackProviderName, null);
+  assert.equal(route.noProviderAvailable, true);
+  assert.equal(route.fallbackReason, FALLBACK_REASONS.AUTO_ROUTING_NO_CANDIDATE);
+  assert.equal(route.autoRoutingDecision.fail_closed_reason, FALLBACK_REASONS.AUTO_ROUTING_NO_CANDIDATE);
+  assert.equal(route.autoRoutingDecision.rejected_candidates.some(item => item.reason === 'provider_unavailable'), true);
 });
 
 console.log('providerRouterFallback tests passed');
