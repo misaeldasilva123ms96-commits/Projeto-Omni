@@ -325,12 +325,14 @@ function buildRuntimeTruth({
   fallbackTriggered = false,
   nodeInvoked = true,
   nodeExitCode = 0,
+  providerAutoRouting = null,
 }) {
   const truthMode = fallbackTriggered && runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME
     ? RUNTIME_TRUTH_MODES.SAFE_FALLBACK
     : runtimeMode;
   const errorCode = runtimeTruthErrorCode(truthMode);
   const publicError = errorCode ? buildPublicError(errorCode) : {};
+  const safeAutoRouting = sanitizeProviderAutoRoutingTruth(providerAutoRouting);
   return {
     runtime_mode: truthMode,
     runtime_reason: String(runtimeReason || '').trim(),
@@ -355,6 +357,35 @@ function buildRuntimeTruth({
     retryable: Boolean(publicError.retryable),
     internal_error_redacted: publicError.internal_error_redacted !== false,
     public_summary: buildRuntimeTruthSummary(truthMode),
+    ...(safeAutoRouting ? { provider_auto_routing: safeAutoRouting } : {}),
+  };
+}
+
+function sanitizeProviderAutoRoutingTruth(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const rejected = Array.isArray(value.rejected_candidates)
+    ? value.rejected_candidates.map(item => ({
+      provider: String(item?.provider || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]/g, '').slice(0, 64),
+      model: String(item?.model || '').trim().replace(/[^\w .:/@+-]/g, '').slice(0, 128),
+      reason: String(item?.reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+    })).slice(0, 16)
+    : [];
+  return {
+    routing_mode: String(value.routing_mode || '').trim().toLowerCase().replace(/[^a-z0-9_:-]/g, '').slice(0, 32),
+    selected_provider: String(value.selected_provider || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]/g, '').slice(0, 64) || null,
+    selected_model: String(value.selected_model || '').trim().replace(/[^\w .:/@+-]/g, '').slice(0, 128),
+    candidate_count: Math.max(0, Math.min(64, Number(value.candidate_count) || 0)),
+    decision_reason: String(value.decision_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+    fallback_used: Boolean(value.fallback_used),
+    rejected_candidates: rejected,
+    rejected_reasons: Array.isArray(value.rejected_reasons)
+      ? value.rejected_reasons.map(item => String(item || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96)).filter(Boolean).slice(0, 16)
+      : rejected.map(item => item.reason).filter(Boolean),
+    fail_closed_reason: String(value.fail_closed_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+    policy_result: String(value.policy_result || '').trim().toLowerCase() === 'allow' ? 'allow' : 'block',
+    created_at: String(value.created_at || '').trim().replace(/[^\dTZ:.\-]/g, '').slice(0, 32),
   };
 }
 
@@ -569,6 +600,13 @@ function readPolicyPreferredProvider() {
   return env && env.recommended ? env.recommended : '';
 }
 
+function readProviderRoutingMode() {
+  return String(process.env.OMNI_PROVIDER_ROUTING_MODE || process.env.OMINI_PROVIDER_ROUTING_MODE || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-/]+/g, '_');
+}
+
 function buildActionAudit(workspace, delegation) {
   return {
     source_map: getFusionSourceMap(workspace),
@@ -719,12 +757,20 @@ class QueryEngineAuthority {
     const intent = intentInfo.intent;
     const complexity = inferComplexity(message);
     const hintEnv = readPolicyHintEnvelope();
-    const providerRoute = resolveProviderRoute({ complexity, preferred: readPolicyPreferredProvider() });
+    const providerRoute = resolveProviderRoute({
+      complexity,
+      preferred: readPolicyPreferredProvider(),
+      routingMode: readProviderRoutingMode(),
+    });
     const provider = providerRoute.executionProvider
       || providerRoute.localFallbackProvider
       || providerRoute.fallbackProvider
       || { name: 'local-heuristic', model: 'native-heuristic' };
-    const selectedProviderName = providerRoute.selectedProviderName || (provider && provider.name ? provider.name : '');
+    const selectedProviderName = providerRoute.selectedProviderName || (
+      providerRoute.routingMode !== 'legacy' && providerRoute.noProviderAvailable
+        ? ''
+        : (provider && provider.name ? provider.name : '')
+    );
     let llmProviderAttempted = false;
     let llmProviderSucceeded = false;
     const memoryLayers = buildMemoryLayers({ memoryContext, history, session });
@@ -929,6 +975,22 @@ class QueryEngineAuthority {
       const remoteProviderModel = String(remoteProviderResult?.llm_model_used || remoteProviderResult?.model || '').trim();
       const byokRouteUnavailable = Boolean(byokFailClosed && !providerRoute.executionProvider);
       const byokExecutionFailed = Boolean(byokFailClosed && (byokRouteUnavailable || remoteProviderFailed));
+      const autoRoutingFailClosed = Boolean(
+        providerRoute.routingMode !== 'legacy'
+        && providerRoute.noProviderAvailable
+        && providerRoute.autoRoutingDecision?.fail_closed_reason,
+      );
+      const providerExecutionFailed = Boolean(byokExecutionFailed || autoRoutingFailClosed);
+      const providerFailureClass = byokExecutionFailed
+        ? 'byok_execution_failed'
+        : autoRoutingFailClosed
+        ? 'provider_auto_routing_failed'
+        : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '';
+      const providerFailureReason = byokExecutionFailed
+        ? (byokRouteUnavailable ? (executionFallbackReason || 'byok_credentials_incomplete') : (remoteProviderError || 'byok_execution_failed'))
+        : autoRoutingFailClosed
+        ? providerRoute.autoRoutingDecision.fail_closed_reason
+        : remoteProviderFailed ? remoteProviderError : '';
       const byokFailureReason = byokRouteUnavailable
         ? (executionFallbackReason || 'byok_credentials_incomplete')
         : (remoteProviderError || 'byok_execution_failed');
@@ -944,6 +1006,8 @@ class QueryEngineAuthority {
       });
       const directResponse = byokExecutionFailed
         ? BYOK_FAIL_CLOSED_RESPONSE
+        : autoRoutingFailClosed
+        ? '[degraded:provider_auto_routing] Nenhum provedor elegivel passou pelas regras de roteamento automatico.'
         : llmProviderSucceeded
         ? remoteProviderResult.responseText
         : synthesizeGroundedResponse({
@@ -1001,39 +1065,31 @@ class QueryEngineAuthority {
           actualProviderName: executedProviderName,
           attemptedProviderName: llmProviderAttempted ? remoteProviderName : '',
           succeededProviderName: executedProviderName,
-          failureClass: byokExecutionFailed
-            ? 'byok_execution_failed'
-            : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
-          failureReason: byokExecutionFailed
-            ? byokFailureReason
-            : remoteProviderFailed ? remoteProviderError : '',
+          failureClass: providerFailureClass,
+          failureReason: providerFailureReason,
           latencyMs: llmProviderAttempted ? remoteProviderLatency : null,
         }),
         toolCalls: actionsWithPolicy.map(a => a.selected_tool).filter(t => t && t !== 'none'),
         strategyActual: String(intent),
-        executionMode: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
+        executionMode: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : autoRoutingFailClosed ? 'provider_auto_routing_fail_closed' : 'no_tool_local',
         fallbackPath: executionFallbackPath,
-        providerFailed: remoteProviderFailed || byokExecutionFailed,
-        failureClass: byokExecutionFailed
-          ? 'byok_execution_failed'
-          : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
-        failureReason: byokExecutionFailed
-          ? byokFailureReason
-          : remoteProviderFailed ? remoteProviderError : executionFallbackReason,
-        provenanceSource: llmProviderSucceeded ? 'remote_provider_executor' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
+        providerFailed: remoteProviderFailed || providerExecutionFailed,
+        failureClass: providerFailureClass,
+        failureReason: providerFailureReason || executionFallbackReason,
+        provenanceSource: llmProviderSucceeded ? 'remote_provider_executor' : byokExecutionFailed ? 'byok_fail_closed' : autoRoutingFailClosed ? 'provider_auto_routing' : 'no_tool_local',
         latencyBreakdownMs: { authority_ms: Date.now() - authorityStarted },
         policyHintEnvelope: hintEnv,
       });
       const noToolMode = llmProviderSucceeded
         ? RUNTIME_TRUTH_MODES.PARTIAL_COGNITIVE
-        : byokExecutionFailed
+        : providerExecutionFailed
         ? RUNTIME_TRUTH_MODES.PROVIDER_UNAVAILABLE
         : directMemoryResponse
         ? RUNTIME_TRUTH_MODES.MEMORY_ONLY_RESPONSE
         : RUNTIME_TRUTH_MODES.RULE_BASED_INTENT;
       const noToolReason = llmProviderSucceeded
         ? 'remote_provider_response'
-        : byokExecutionFailed ? byokFailureReason
+        : providerExecutionFailed ? (providerFailureReason || byokFailureReason)
         : directMemoryResponse ? 'memory_only_response' : 'all_actions_tool_none';
       return attachProvenanceMetadata(attachRuntimeTruth({
         response: directResponse,
@@ -1046,12 +1102,12 @@ class QueryEngineAuthority {
         llm_fallback_reason: executionFallbackReason,
         fallback_triggered: executionFallbackUsed,
         fallback_reason: executionFallbackReason,
-        provider_failed: remoteProviderFailed || byokExecutionFailed,
-        failure_class: byokExecutionFailed ? 'byok_execution_failed' : remoteProviderFailed ? `provider_${remoteProviderError || 'failed'}` : '',
-        failure_reason: byokExecutionFailed ? byokFailureReason : remoteProviderFailed ? remoteProviderError : '',
+        provider_failed: remoteProviderFailed || providerExecutionFailed,
+        failure_class: providerFailureClass,
+        failure_reason: providerFailureReason,
         cognitive_runtime_hint: {
-          lane: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : 'no_tool_local',
-          detail: llmProviderSucceeded ? 'remote_provider_chat_completion' : byokExecutionFailed ? byokFailureReason : 'all_actions_tool_none',
+          lane: llmProviderSucceeded ? 'remote_provider_response' : byokExecutionFailed ? 'byok_fail_closed' : autoRoutingFailClosed ? 'provider_auto_routing_fail_closed' : 'no_tool_local',
+          detail: llmProviderSucceeded ? 'remote_provider_chat_completion' : providerExecutionFailed ? (providerFailureReason || byokFailureReason) : 'all_actions_tool_none',
         },
         confidence: 0.92,
         memory: {
@@ -1077,6 +1133,7 @@ class QueryEngineAuthority {
         toolExecuted: false,
         fallbackTriggered: executionFallbackUsed,
         nodeInvoked: true,
+        providerAutoRouting: providerRoute.autoRoutingDecision,
       })), epNoTool);
     }
 
@@ -1183,6 +1240,7 @@ class QueryEngineAuthority {
         toolExecuted: false,
         toolStatus: 'pending_bridge',
         nodeInvoked: true,
+        providerAutoRouting: providerRoute.autoRoutingDecision,
       })), epBridge);
     }
 
@@ -1463,6 +1521,7 @@ class QueryEngineAuthority {
       toolStatus: toolBlocked ? 'blocked' : toolExecuted ? 'executed' : toolInvoked ? 'failed' : 'not_invoked',
       fallbackTriggered: false,
       nodeInvoked: true,
+      providerAutoRouting: providerRoute.autoRoutingDecision,
     })), epRun);
   }
 }
