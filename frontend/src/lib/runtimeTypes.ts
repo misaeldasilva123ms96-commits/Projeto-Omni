@@ -60,6 +60,26 @@ export type RuntimeMemoryStatus = {
   matched_commands: string[]
 }
 
+export type RuntimeProviderAutoRoutingCandidate = {
+  provider: string | null
+  model: string | null
+  reason: string | null
+}
+
+export type RuntimeProviderAutoRouting = {
+  routing_mode: string | null
+  selected_provider: string | null
+  selected_model: string | null
+  decision_reason: string | null
+  fallback_used: boolean | null
+  candidate_count: number | null
+  rejected_candidates: RuntimeProviderAutoRoutingCandidate[]
+  rejected_reasons: string[]
+  fail_closed_reason: string | null
+  policy_result: string | null
+  created_at: string | null
+}
+
 export type RuntimeAutonomyStats = {
   total_evaluations: number | null
   decisions_by_type: Record<string, number> | null
@@ -188,6 +208,7 @@ export type RuntimeInspectorData = {
   tools: ToolExecutionDiagnostic[]
   provider: RuntimeProviderStatus | null
   providers: RuntimeProviderStatus[]
+  provider_auto_routing?: RuntimeProviderAutoRouting | null
   memory: RuntimeMemoryStatus | null
   oil: RuntimeOilSkeleton | null
   autonomy: RuntimeAutonomyStatus | null
@@ -216,6 +237,46 @@ function optionalBoolean(value: unknown): boolean | null {
 
 function optionalNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function normalizeProviderAutoRoutingCandidate(value: unknown): RuntimeProviderAutoRoutingCandidate | null {
+  if (!isRecord(value)) return null
+  const provider = optionalString(value.provider)
+  const model = optionalString(value.model)
+  const reason = optionalString(value.reason)
+  if (!provider && !model && !reason) return null
+  return { provider, model, reason }
+}
+
+export function normalizeProviderAutoRouting(value: unknown): RuntimeProviderAutoRouting | null {
+  if (!isRecord(value)) return null
+  const rejectedCandidates = Array.isArray(value.rejected_candidates)
+    ? value.rejected_candidates
+      .map(normalizeProviderAutoRoutingCandidate)
+      .filter((candidate): candidate is RuntimeProviderAutoRoutingCandidate => candidate !== null)
+      .slice(0, 16)
+    : []
+  const rejectedReasons = Array.isArray(value.rejected_reasons)
+    ? value.rejected_reasons
+      .filter((reason): reason is string => typeof reason === 'string')
+      .map(redactRuntimeDebugText)
+      .filter(Boolean)
+      .slice(0, 16)
+    : []
+
+  return {
+    routing_mode: optionalString(value.routing_mode),
+    selected_provider: optionalString(value.selected_provider),
+    selected_model: optionalString(value.selected_model),
+    decision_reason: optionalString(value.decision_reason),
+    fallback_used: optionalBoolean(value.fallback_used),
+    candidate_count: optionalNumber(value.candidate_count),
+    rejected_candidates: rejectedCandidates,
+    rejected_reasons: rejectedReasons,
+    fail_closed_reason: optionalString(value.fail_closed_reason),
+    policy_result: optionalString(value.policy_result),
+    created_at: optionalTimestamp(value.created_at),
+  }
 }
 
 function firstBoolean(...values: unknown[]): boolean | null {
@@ -437,6 +498,7 @@ export function normalizeRuntimeInspectorData(
   const runtimeTruth = isRecord(inspection.runtime_truth)
     ? inspection.runtime_truth
     : {}
+  const providerAutoRouting = normalizeProviderAutoRouting(runtimeTruth.provider_auto_routing)
   const governanceSource = inspection.governance
     ?? (inspection.governance_decision
       || inspection.risk_level
@@ -573,6 +635,7 @@ export function normalizeRuntimeInspectorData(
     tools,
     provider,
     providers: providers.length ? providers : provider ? [provider] : [],
+    provider_auto_routing: providerAutoRouting,
     memory: memoryStatus || matchedTools.length || matchedCommands.length
       ? {
           status: memoryStatus,

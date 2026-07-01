@@ -1089,4 +1089,123 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getByText('Saída: 200')).toBeInTheDocument()
     expect(screen.getByText('Total: 1.200')).toBeInTheDocument()
   })
+
+  it('renders provider auto-routing decision on the Provider tab', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      providerDiagnostics: [{
+        provider: 'anthropic',
+        model: 'claude-safe',
+        attempted: true,
+        succeeded: true,
+      }],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto_safe',
+            selected_provider: 'anthropic',
+            selected_model: 'claude-safe',
+            decision_reason: 'selected_highest_score',
+            fallback_used: false,
+            candidate_count: 2,
+            rejected_candidates: [{
+              provider: 'openai',
+              model: 'gpt-4.1',
+              reason: 'provider_unavailable',
+              api_key: 'sk-proj-should-not-render',
+            }],
+            rejected_reasons: ['provider_unavailable'],
+            fail_closed_reason: '',
+            policy_result: 'allow',
+            created_at: '2026-07-01T22:00:00.000Z',
+            headers: { authorization: 'Bearer should-not-render' },
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getByText('Provider Auto Routing')).toBeInTheDocument()
+    expect(screen.getByText('Decisão normal')).toBeInTheDocument()
+    expect(screen.getByText('auto_safe')).toBeInTheDocument()
+    expect(screen.getAllByText('anthropic').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('claude-safe').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('selected_highest_score')).toBeInTheDocument()
+    expect(screen.getByText('Candidatos rejeitados')).toBeInTheDocument()
+    expect(document.body.textContent).toContain('openai')
+    expect(document.body.textContent).toContain('provider_unavailable')
+    expect(document.body.textContent).not.toContain('should-not-render')
+    expect(document.body.textContent).not.toContain('api_key')
+    expect(document.body.textContent).not.toContain('authorization')
+  })
+
+  it('renders provider auto-routing fallback and fail-closed states safely', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto',
+            selected_provider: '',
+            selected_model: '',
+            decision_reason: 'auto_routing_no_valid_candidate',
+            fallback_used: true,
+            candidate_count: 0,
+            rejected_candidates: [{
+              provider: 'groq',
+              model: 'llama-3.3-70b-versatile',
+              reason: 'provider_unavailable',
+            }],
+            rejected_reasons: ['provider_unavailable'],
+            fail_closed_reason: 'auto_routing_no_valid_candidate',
+            policy_result: 'allow',
+            created_at: '2026-07-01T22:00:00.000Z',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getAllByText('Fail-closed').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('auto_routing_no_valid_candidate').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('sem referência disponível')).toBeInTheDocument()
+    expect(screen.getByText('não disponível')).toBeInTheDocument()
+  })
+
+  it('keeps Provider tab compatible when provider auto-routing is absent', async () => {
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata({
+          matchedCommands: [],
+          matchedTools: [],
+          providerDiagnostics: [{ provider: 'groq', attempted: true, succeeded: true }],
+        })}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getByText('Provider Auto Routing')).toBeInTheDocument()
+    expect(screen.getByText('sem auto-routing disponível')).toBeInTheDocument()
+    expect(screen.getByText('groq')).toBeInTheDocument()
+  })
 })
