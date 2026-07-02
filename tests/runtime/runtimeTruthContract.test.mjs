@@ -190,6 +190,31 @@ function testTruthHelperModes() {
   assert.equal(autoRouting.provider_auto_routing.selected_provider, null)
   assert.equal(autoRouting.provider_auto_routing.fail_closed_reason, 'auto_routing_no_valid_candidate')
   assert.equal(JSON.stringify(autoRouting).includes('sk-test-runtime-truth-secret'), false)
+
+  const tokenCompression = buildRuntimeTruth({
+    runtimeMode: RUNTIME_TRUTH_MODES.TOOL_EXECUTED,
+    runtimeReason: 'node_local_tool_run',
+    intentInfo: inferIntentWithSource('resuma saida de teste'),
+    toolInvoked: true,
+    toolExecuted: true,
+    toolStatus: 'executed',
+    tokenCompression: {
+      compression_mode: 'standard',
+      input_size: 1200,
+      output_size: 320,
+      compression_ratio: 0.2667,
+      strategy_used: 'standard_head_tail_dedupe',
+      redaction_applied: true,
+      skipped_reason: '',
+      fail_closed_reason: '',
+      api_key: 'sk-test-runtime-truth-secret',
+      raw_payload: 'stack trace Authorization Bearer sk-test-runtime-truth-secret',
+    },
+  })
+  assert.equal(tokenCompression.token_compression.compression_mode, 'standard')
+  assert.equal(tokenCompression.token_compression.strategy_used, 'standard_head_tail_dedupe')
+  assert.equal(JSON.stringify(tokenCompression).includes('sk-test-runtime-truth-secret'), false)
+  assertNoForbiddenPublicFragments(tokenCompression, ['raw_payload'], 'token compression metadata')
 }
 
 async function testNoRemoteProviderFallbackTruth() {

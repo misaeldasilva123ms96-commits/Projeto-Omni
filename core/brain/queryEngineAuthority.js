@@ -326,6 +326,7 @@ function buildRuntimeTruth({
   nodeInvoked = true,
   nodeExitCode = 0,
   providerAutoRouting = null,
+  tokenCompression = null,
 }) {
   const truthMode = fallbackTriggered && runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME
     ? RUNTIME_TRUTH_MODES.SAFE_FALLBACK
@@ -333,6 +334,7 @@ function buildRuntimeTruth({
   const errorCode = runtimeTruthErrorCode(truthMode);
   const publicError = errorCode ? buildPublicError(errorCode) : {};
   const safeAutoRouting = sanitizeProviderAutoRoutingTruth(providerAutoRouting);
+  const safeTokenCompression = sanitizeTokenCompressionTruth(tokenCompression);
   return {
     runtime_mode: truthMode,
     runtime_reason: String(runtimeReason || '').trim(),
@@ -358,6 +360,7 @@ function buildRuntimeTruth({
     internal_error_redacted: publicError.internal_error_redacted !== false,
     public_summary: buildRuntimeTruthSummary(truthMode),
     ...(safeAutoRouting ? { provider_auto_routing: safeAutoRouting } : {}),
+    ...(safeTokenCompression ? { token_compression: safeTokenCompression } : {}),
   };
 }
 
@@ -386,6 +389,28 @@ function sanitizeProviderAutoRoutingTruth(value) {
     fail_closed_reason: String(value.fail_closed_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
     policy_result: String(value.policy_result || '').trim().toLowerCase() === 'allow' ? 'allow' : 'block',
     created_at: String(value.created_at || '').trim().replace(/[^\dTZ:.\-]/g, '').slice(0, 32),
+  };
+}
+
+function sanitizeTokenCompressionTruth(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const inputSize = Math.max(0, Math.min(100_000_000, Number(value.input_size) || 0));
+  const outputSize = Math.max(0, Math.min(100_000_000, Number(value.output_size) || 0));
+  const ratio = Number.isFinite(Number(value.compression_ratio))
+    ? Math.max(0, Math.min(1, Number(value.compression_ratio)))
+    : inputSize > 0 ? Number((outputSize / inputSize).toFixed(4)) : 1;
+
+  return {
+    compression_mode: String(value.compression_mode || '').trim().toLowerCase().replace(/[^a-z0-9_:-]/g, '').slice(0, 32),
+    input_size: inputSize,
+    output_size: outputSize,
+    compression_ratio: ratio,
+    strategy_used: String(value.strategy_used || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 64),
+    redaction_applied: Boolean(value.redaction_applied),
+    skipped_reason: String(value.skipped_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+    fail_closed_reason: String(value.fail_closed_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
   };
 }
 
