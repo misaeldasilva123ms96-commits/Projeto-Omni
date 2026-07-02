@@ -327,6 +327,7 @@ function buildRuntimeTruth({
   nodeExitCode = 0,
   providerAutoRouting = null,
   tokenCompression = null,
+  governedAgentGateway = null,
 }) {
   const truthMode = fallbackTriggered && runtimeMode === RUNTIME_TRUTH_MODES.FULL_COGNITIVE_RUNTIME
     ? RUNTIME_TRUTH_MODES.SAFE_FALLBACK
@@ -335,6 +336,7 @@ function buildRuntimeTruth({
   const publicError = errorCode ? buildPublicError(errorCode) : {};
   const safeAutoRouting = sanitizeProviderAutoRoutingTruth(providerAutoRouting);
   const safeTokenCompression = sanitizeTokenCompressionTruth(tokenCompression);
+  const safeGovernedAgentGateway = sanitizeGovernedAgentGatewayTruth(governedAgentGateway);
   return {
     runtime_mode: truthMode,
     runtime_reason: String(runtimeReason || '').trim(),
@@ -361,6 +363,7 @@ function buildRuntimeTruth({
     public_summary: buildRuntimeTruthSummary(truthMode),
     ...(safeAutoRouting ? { provider_auto_routing: safeAutoRouting } : {}),
     ...(safeTokenCompression ? { token_compression: safeTokenCompression } : {}),
+    ...(safeGovernedAgentGateway ? { governed_agent_gateway: safeGovernedAgentGateway } : {}),
   };
 }
 
@@ -411,6 +414,31 @@ function sanitizeTokenCompressionTruth(value) {
     redaction_applied: Boolean(value.redaction_applied),
     skipped_reason: String(value.skipped_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
     fail_closed_reason: String(value.fail_closed_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+  };
+}
+
+function sanitizeGovernedAgentGatewayTruth(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  return {
+    agent_id: String(value.agent_id || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+    agent_type: String(value.agent_type || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 64),
+    requested_capability: String(value.requested_capability || '').trim().toLowerCase().replace(/[^a-z0-9_:-]+/g, '_').slice(0, 64),
+    decision: String(value.decision || '').trim().toLowerCase() === 'allow' ? 'allow' : 'deny',
+    decision_reason: String(value.decision_reason || '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '_').slice(0, 96),
+    denied_capabilities: Array.isArray(value.denied_capabilities)
+      ? value.denied_capabilities
+        .map(item => String(item || '').trim().toLowerCase().replace(/[^a-z0-9_:-]+/g, '_').slice(0, 64))
+        .filter(Boolean)
+        .slice(0, 16)
+      : [],
+    risk_level: ['low', 'medium', 'high'].includes(String(value.risk_level || '').trim().toLowerCase())
+      ? String(value.risk_level || '').trim().toLowerCase()
+      : 'high',
+    policy_result: String(value.policy_result || '').trim().toLowerCase() === 'allow' ? 'allow' : 'block',
+    created_at: String(value.created_at || '').trim().replace(/[^\dTZ:.\-]/g, '').slice(0, 32),
   };
 }
 
