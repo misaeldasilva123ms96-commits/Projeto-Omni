@@ -6,6 +6,8 @@ on:
   workflow_dispatch: {}
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -39,6 +41,9 @@ jobs:
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
 
   dependency-and-audit:
     name: Dependency & Runtime Audit
@@ -47,33 +52,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Node audit (advisory)
+      - name: Node audit (blocking high/critical)
         working-directory: ./
         run: |
           npm ci
-          echo "ADVISORY ONLY: this audit is non-blocking by design."
-          if ! npm audit --audit-level=moderate; then
-            echo "npm audit reported findings or returned a non-zero exit code."
+          echo "Blocking security gate: fail PR/main on npm high or critical advisories."
+          npm audit --audit-level=high
+          if [ -f frontend/package-lock.json ]; then
+            cd frontend
+            npm ci
+            npm audit --audit-level=high
           fi
 
-      - name: Python pip-audit (advisory)
+      - name: Python pip-audit (blocking advisory audit)
         run: |
           python -m pip install --upgrade pip
           pip install pip-audit
-          echo "ADVISORY ONLY: this audit is non-blocking by design."
-          if ! pip-audit --exit-code 1; then
-            echo "pip-audit reported findings or returned a non-zero exit code."
-          fi
+          echo "Blocking security gate where pip-audit can verify installed Python dependency advisories."
+          pip-audit -r backend/python/requirements.txt
 
-      - name: Cargo audit (advisory)
+      - name: Cargo audit (blocking when installed)
         run: |
           sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
-          echo "ADVISORY ONLY: this audit is non-blocking by design."
+          echo "Advisory audit vs blocking gate: installation failures are inconclusive infrastructure results; installed cargo-audit findings block."
           if ! cargo install --locked cargo-audit; then
-            echo "cargo-audit installation failed; leaving this advisory audit non-blocking."
+            echo "::warning::cargo-audit installation failed; Rust advisory audit is inconclusive for this run."
             exit 0
           fi
           cd backend/rust
-          if ! cargo audit; then
-            echo "cargo audit reported findings or returned a non-zero exit code."
-          fi
+          cargo audit

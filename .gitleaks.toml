@@ -1,0 +1,14 @@
+title = "Projeto Omni Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known redaction and credential-store test fixtures with sentinel values only."
+paths = [
+  '''tests/config/test_encrypted_credential_store\.py''',
+  '''tests/runtime/test_secrets_config_hardening\.py''',
+  '''data/evals/safety_eval\.jsonl''',
+  '''tests/hardening/test_learning_redaction\.py''',
+  '''tests/security/test_security_regression\.py''',
+]

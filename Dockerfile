@@ -25,6 +25,8 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates \
+    && groupadd --system omni \
+    && useradd --system --gid omni --home-dir /app --shell /usr/sbin/nologin omni \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv
@@ -54,7 +56,10 @@ COPY storage ./storage
 COPY src ./src
 COPY contract ./contract
 COPY --from=rust-builder /build/backend/rust/target/release/omini-api /usr/local/bin/omini-api
+RUN chmod 0755 /usr/local/bin/omini-api \
+    && chown -R omni:omni /app /opt/venv
 
+USER omni
 EXPOSE 3001
 
 CMD ["omini-api"]
