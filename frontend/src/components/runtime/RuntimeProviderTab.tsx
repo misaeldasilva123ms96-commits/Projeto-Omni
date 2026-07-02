@@ -1,5 +1,5 @@
 import type { RuntimeProviderStatus } from '../../lib/providerTypes'
-import type { RuntimeProviderAutoRouting } from '../../lib/runtimeTypes'
+import type { RuntimeProviderAutoRouting, RuntimeProviderUsageSummary } from '../../lib/runtimeTypes'
 import { RuntimeLinkAction } from './RuntimeLinkAction'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
 import { TokenUsageMeter } from '../tokens/TokenUsageMeter'
@@ -7,6 +7,7 @@ import { TokenUsageMeter } from '../tokens/TokenUsageMeter'
 type RuntimeProviderTabProps = {
   data: RuntimeProviderStatus[]
   autoRouting: RuntimeProviderAutoRouting | null
+  usageSummary: RuntimeProviderUsageSummary[]
   providerHref: string | null
 }
 
@@ -92,6 +93,108 @@ function FieldRow({ label, value }: { label: string, value: string | number | bo
   )
 }
 
+function formatNumber(value: number | null): string {
+  return value == null ? 'não disponível' : new Intl.NumberFormat('pt-BR').format(value)
+}
+
+function formatCost(value: number | null): string {
+  return value == null
+    ? 'não disponível'
+    : new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4, minimumFractionDigits: 0 }).format(value)
+}
+
+function UsageStatePill({ summary }: { summary: RuntimeProviderUsageSummary }) {
+  const hasError = Boolean(summary.last_error_reason)
+  const unavailable = summary.status === 'unavailable' || summary.health === 'unavailable'
+  const partial = summary.quota_status == null || summary.estimated_cost == null
+  const label = hasError
+    ? 'erro sanitizado'
+    : unavailable
+      ? 'provider indisponível'
+      : partial
+        ? 'dados parciais'
+        : 'dados disponíveis'
+  const className = hasError || unavailable
+    ? 'border-red-400/30 bg-red-500/10 text-red-200'
+    : partial
+      ? 'border-amber-400/30 bg-amber-500/10 text-amber-200'
+      : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
+      {label}
+    </span>
+  )
+}
+
+function ProviderUsageSummarySection({ summaries }: { summaries: RuntimeProviderUsageSummary[] }) {
+  if (!summaries.length) {
+    return (
+      <section className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-white">Provider Quota & Cost</h3>
+            <p className="mt-1 text-xs text-slate-400">sem dados</p>
+          </div>
+          <span className="rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-0.5 text-xs font-medium text-slate-300">
+            não disponível
+          </span>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium text-white">Provider Quota & Cost</h3>
+          <p className="mt-1 text-xs text-slate-400">dados internos sanitizados</p>
+        </div>
+        <span className="rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-0.5 text-xs font-medium text-slate-300">
+          billing real indisponível
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {summaries.map((summary, index) => (
+          <div key={`${summary.provider ?? 'provider'}-${summary.model ?? 'model'}-${index}`} className="rounded-lg bg-black/20 px-2 py-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-medium text-slate-100">
+                  {redactRuntimeDebugText(summary.provider ?? '') || 'provider não disponível'}
+                </div>
+                <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                  {redactRuntimeDebugText(summary.model ?? '') || 'modelo não disponível'}
+                </div>
+              </div>
+              <UsageStatePill summary={summary} />
+            </div>
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+              <FieldRow label="Status" value={summary.status} />
+              <FieldRow label="Health" value={summary.health} />
+              <FieldRow label="Custo estimado" value={formatCost(summary.estimated_cost)} />
+              <FieldRow label="Quota" value={summary.quota_status ?? 'quota não configurada'} />
+              <FieldRow label="Restante" value={formatNumber(summary.quota_remaining)} />
+              <FieldRow label="Reset" value={summary.quota_reset_at ?? 'não disponível'} />
+              <FieldRow label="Latência" value={summary.last_latency_ms == null ? 'não disponível' : `${summary.last_latency_ms}ms`} />
+              <FieldRow label="Auto-routing" value={summary.selected_by_auto_routing} />
+              <FieldRow label="Modo" value={summary.routing_mode} />
+              <FieldRow label="Fallbacks" value={summary.fallback_count} />
+              <FieldRow label="Atualizado" value={summary.updated_at ?? 'não disponível'} />
+            </div>
+            {summary.last_error_reason ? (
+              <p className="mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-2 py-1 text-xs text-red-200">
+                {redactRuntimeDebugText(summary.last_error_reason)}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function ProviderAutoRoutingSection({ autoRouting }: { autoRouting: RuntimeProviderAutoRouting | null }) {
   if (!autoRouting) {
     return (
@@ -161,11 +264,12 @@ function ProviderAutoRoutingSection({ autoRouting }: { autoRouting: RuntimeProvi
   )
 }
 
-export function RuntimeProviderTab({ data, autoRouting, providerHref }: RuntimeProviderTabProps) {
+export function RuntimeProviderTab({ data, autoRouting, usageSummary, providerHref }: RuntimeProviderTabProps) {
   if (!data.length) {
     return (
       <div className="space-y-3">
         <ProviderAutoRoutingSection autoRouting={autoRouting} />
+        <ProviderUsageSummarySection summaries={usageSummary} />
         <p className="text-sm text-slate-400">não disponível</p>
         <RuntimeLinkAction
           href={providerHref}
@@ -179,6 +283,7 @@ export function RuntimeProviderTab({ data, autoRouting, providerHref }: RuntimeP
   return (
     <div className="space-y-3">
       <ProviderAutoRoutingSection autoRouting={autoRouting} />
+      <ProviderUsageSummarySection summaries={usageSummary} />
       {data.map((provider, index) => (
         <ProviderCard key={index} provider={provider} />
       ))}

@@ -16,7 +16,7 @@ describe('RuntimeInspectorPanel', () => {
 
     for (const tab of ['Summary', 'Governance', 'Autonomia', 'Tools', 'Provider', 'Memory', 'OIL', 'Logs']) {
       await userEvent.click(screen.getByRole('tab', { name: tab }))
-      expect(screen.getByText('não disponível')).toBeInTheDocument()
+      expect(screen.getAllByText('não disponível').length).toBeGreaterThanOrEqual(1)
     }
   })
 
@@ -1136,7 +1136,7 @@ describe('RuntimeInspectorPanel', () => {
 
     expect(screen.getByText('Provider Auto Routing')).toBeInTheDocument()
     expect(screen.getByText('Decisão normal')).toBeInTheDocument()
-    expect(screen.getByText('auto_safe')).toBeInTheDocument()
+    expect(screen.getAllByText('auto_safe').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('anthropic').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('claude-safe').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('selected_highest_score')).toBeInTheDocument()
@@ -1146,6 +1146,141 @@ describe('RuntimeInspectorPanel', () => {
     expect(document.body.textContent).not.toContain('should-not-render')
     expect(document.body.textContent).not.toContain('api_key')
     expect(document.body.textContent).not.toContain('authorization')
+  })
+
+  it('renders provider quota and cost summary from safe runtime truth', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto_cheap',
+            selected_provider: 'openai',
+            selected_model: 'gpt-safe',
+            fallback_used: false,
+          },
+          provider_usage_summary: [{
+            provider: 'openai',
+            model: 'gpt-safe',
+            status: 'available',
+            health: 'healthy',
+            estimated_cost: 0.0123,
+            quota_status: 'configured',
+            quota_remaining: 1200,
+            quota_reset_at: '2026-07-02T12:00:00.000Z',
+            last_latency_ms: 88,
+            routing_mode: 'auto_cheap',
+            selected_by_auto_routing: true,
+            fallback_count: 2,
+            updated_at: '2026-07-02T11:30:00.000Z',
+          }],
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getByText('Provider Quota & Cost')).toBeInTheDocument()
+    expect(screen.getByText('dados disponíveis')).toBeInTheDocument()
+    expect(screen.getByText('billing real indisponível')).toBeInTheDocument()
+    expect(screen.getAllByText('openai').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('gpt-safe').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('0,0123')).toBeInTheDocument()
+    expect(screen.getByText('configured')).toBeInTheDocument()
+    expect(screen.getByText('1.200')).toBeInTheDocument()
+    expect(screen.getByText('88ms')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+  })
+
+  it('renders quota and cost unavailable states without inventing billing data', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      providerDiagnostics: [{
+        provider: 'anthropic',
+        model: 'claude-safe',
+        attempted: true,
+        succeeded: true,
+        latency_ms: 41,
+      }],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto_safe',
+            selected_provider: 'anthropic',
+            selected_model: 'claude-safe',
+            fallback_used: true,
+            created_at: '2026-07-02T12:00:00.000Z',
+          },
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getByText('dados parciais')).toBeInTheDocument()
+    expect(screen.getAllByText('quota não configurada').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('não disponível').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('41ms').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('auto_safe').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Sim').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders provider quota errors sanitized and does not render secrets', async () => {
+    const metadata: RuntimeMetadata = {
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_usage_summary: [{
+            provider: 'groq',
+            model: 'llama-safe',
+            status: 'unavailable',
+            health: 'unavailable',
+            quota_status: 'not_configured',
+            last_error_reason: 'Authorization Bearer should-not-render',
+            selected_by_auto_routing: false,
+            fallback_count: 3,
+            api_key: 'sk-proj-should-not-render',
+            headers: { authorization: 'Bearer should-not-render' },
+            raw_payload: 'should-not-render',
+          }],
+        },
+      },
+    }
+
+    render(
+      <RuntimeInspectorPanel
+        data={normalizeStoredRuntimeMetadata(metadata)}
+        requestState="idle"
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Provider' }))
+
+    expect(screen.getByText('erro sanitizado')).toBeInTheDocument()
+    expect(document.body.textContent).toContain('[REDACTED]')
+    expect(screen.getByText('not_configured')).toBeInTheDocument()
+    expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1)
+    expect(document.body.textContent).not.toContain('should-not-render')
+    expect(document.body.textContent).not.toContain('api_key')
+    expect(document.body.textContent).not.toContain('authorization')
+    expect(document.body.textContent).not.toContain('raw_payload')
   })
 
   it('renders provider auto-routing fallback and fail-closed states safely', async () => {
@@ -1187,7 +1322,7 @@ describe('RuntimeInspectorPanel', () => {
     expect(screen.getAllByText('Fail-closed').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('auto_routing_no_valid_candidate').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('sem referência disponível')).toBeInTheDocument()
-    expect(screen.getByText('não disponível')).toBeInTheDocument()
+    expect(screen.getAllByText('não disponível').length).toBeGreaterThanOrEqual(1)
   })
 
   it('keeps Provider tab compatible when provider auto-routing is absent', async () => {
@@ -1206,6 +1341,6 @@ describe('RuntimeInspectorPanel', () => {
 
     expect(screen.getByText('Provider Auto Routing')).toBeInTheDocument()
     expect(screen.getByText('sem auto-routing disponível')).toBeInTheDocument()
-    expect(screen.getByText('groq')).toBeInTheDocument()
+    expect(screen.getAllByText('groq').length).toBeGreaterThanOrEqual(1)
   })
 })
