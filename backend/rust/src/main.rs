@@ -17,7 +17,10 @@ use std::{
 use axum::{
     body::Bytes,
     extract::{Path as AxumPath, State},
-    http::{header::CONTENT_TYPE, HeaderMap, Request, StatusCode},
+    http::{
+        header::{AUTHORIZATION, CONTENT_TYPE},
+        HeaderMap, HeaderValue, Method, Request, StatusCode,
+    },
     middleware::from_fn_with_state,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -41,7 +44,10 @@ use tokio::{
     sync::RwLock,
     time::timeout,
 };
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
@@ -498,6 +504,145 @@ struct PublicStrategySummaryV1 {
     timestamp_ms: u64,
 }
 
+const DEFAULT_LOCAL_CORS_ORIGINS: [&str; 3] = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CorsOriginConfig {
+    origins: Vec<HeaderValue>,
+    wildcard: bool,
+    local_defaults_applied: bool,
+}
+
+fn env_truthy(name: &str) -> bool {
+    env::var(name)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn is_local_or_demo_cors_mode() -> bool {
+    if env_truthy("OMNI_PUBLIC_DEMO_MODE") || env_truthy("OMINI_PUBLIC_DEMO_MODE") {
+        return true;
+    }
+
+    ["OMNI_ENV", "OMINI_ENV", "APP_ENV", "RUST_ENV"]
+        .into_iter()
+        .filter_map(|name| env::var(name).ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .any(|value| {
+            matches!(
+                value.as_str(),
+                "local" | "dev" | "development" | "test" | "demo"
+            )
+        })
+}
+
+fn configured_cors_origins() -> Option<String> {
+    env::var("OMNI_ALLOWED_ORIGINS")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            env::var("OMINI_ALLOWED_ORIGINS")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+}
+
+fn parse_cors_origin_list(raw: &str, allow_wildcard: bool) -> (Vec<HeaderValue>, bool) {
+    let mut origins = Vec::new();
+    let mut wildcard = false;
+
+    for item in raw.split(',') {
+        let origin = item.trim();
+        if origin.is_empty() {
+            continue;
+        }
+        if origin == "*" {
+            if allow_wildcard {
+                wildcard = true;
+            }
+            continue;
+        }
+        if let Ok(header_value) = HeaderValue::from_str(origin) {
+            origins.push(header_value);
+        }
+    }
+
+    (origins, wildcard)
+}
+
+fn resolve_cors_origin_config() -> CorsOriginConfig {
+    let local_or_demo = is_local_or_demo_cors_mode();
+    if let Some(raw) = configured_cors_origins() {
+        let (origins, wildcard) = parse_cors_origin_list(&raw, local_or_demo);
+        return CorsOriginConfig {
+            origins,
+            wildcard,
+            local_defaults_applied: false,
+        };
+    }
+
+    if local_or_demo {
+        let origins = DEFAULT_LOCAL_CORS_ORIGINS
+            .iter()
+            .filter_map(|origin| HeaderValue::from_str(origin).ok())
+            .collect();
+        return CorsOriginConfig {
+            origins,
+            wildcard: false,
+            local_defaults_applied: true,
+        };
+    }
+
+    CorsOriginConfig {
+        origins: Vec::new(),
+        wildcard: false,
+        local_defaults_applied: false,
+    }
+}
+
+fn build_cors_layer() -> CorsLayer {
+    let config = resolve_cors_origin_config();
+    let layer = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+
+    if config.wildcard {
+        layer.allow_origin(AllowOrigin::any())
+    } else if !config.origins.is_empty() {
+        layer.allow_origin(AllowOrigin::list(config.origins))
+    } else {
+        layer
+    }
+}
+
+fn protected_internal_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/internal/runtime-signals", get(runtime_signals))
+        .route("/internal/swarm-log", get(swarm_log))
+        .route("/internal/strategy-state", get(strategy_state))
+        .route("/internal/milestones", get(milestones))
+        .route("/internal/pr-summaries", get(pr_summaries))
+        .route_layer(from_fn_with_state(state, require_supabase_auth))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
     init_tracing();
@@ -638,11 +783,11 @@ async fn main() -> Result<(), AppError> {
             post(settings_test_provider),
         )
         .route_layer(from_fn_with_state(state.clone(), require_supabase_auth));
+    let protected_internal = protected_internal_router(state.clone());
 
     // --- Route map (see `docs/backend/public-api-roadmap.md`) ---
-    // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary (telemetry wave 1)
-    // Internal (no auth middleware): /internal/*
-    // Protected (Supabase JWT): /api/observability/*, /api/control/*, /api/v1/operator/*, /api/v1/settings/*
+    // Public: /health, /chat, /api/v1/chat, /api/v1/status, /api/v1/*/summary
+    // Protected: /api/observability/, /api/control/, /api/v1/operator/, /api/v1/settings/, /internal/
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/status", get(public_v1_status))
@@ -661,17 +806,13 @@ async fn main() -> Result<(), AppError> {
         .route("/api/v1/strategy/summary", get(public_v1_strategy_summary))
         .route("/api/v1/chat", post(public_v1_chat))
         .route("/chat", post(chat))
-        .route("/internal/runtime-signals", get(runtime_signals))
-        .route("/internal/swarm-log", get(swarm_log))
-        .route("/internal/strategy-state", get(strategy_state))
-        .route("/internal/milestones", get(milestones))
-        .route("/internal/pr-summaries", get(pr_summaries))
         .merge(protected_observability)
         .merge(protected_observability_stream)
         .merge(protected_operator)
         .merge(protected_control)
         .merge(protected_settings)
-        .layer(CorsLayer::permissive())
+        .merge(protected_internal)
+        .layer(build_cors_layer())
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
                 tracing::info_span!(
@@ -3832,6 +3973,212 @@ mod tests {
             .uri(path)
             .body(Body::empty())
             .expect("request")
+    }
+
+    fn get_request_with_bearer(path: &str, token: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    fn public_status_router(state: AppState) -> Router {
+        Router::new()
+            .route("/health", get(health))
+            .route("/api/v1/status", get(public_v1_status))
+            .with_state(state)
+    }
+
+    fn with_clean_cors_env(vars: &[(&str, &str)], test: impl FnOnce()) {
+        let lock = ENV_TEST_LOCK.get_or_init(|| StdMutex::new(()));
+        let _guard = lock.lock().expect("env lock");
+        let keys = [
+            "OMNI_ALLOWED_ORIGINS",
+            "OMINI_ALLOWED_ORIGINS",
+            "OMNI_PUBLIC_DEMO_MODE",
+            "OMINI_PUBLIC_DEMO_MODE",
+            "OMNI_ENV",
+            "OMINI_ENV",
+            "APP_ENV",
+            "RUST_ENV",
+        ];
+        let saved: Vec<(&str, Option<String>)> =
+            keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+        for (key, value) in vars {
+            env::set_var(key, value);
+        }
+
+        test();
+
+        for (key, value) in saved {
+            match value {
+                Some(value) => env::set_var(key, value),
+                None => env::remove_var(key),
+            }
+        }
+    }
+
+    fn header_values_as_strings(values: &[HeaderValue]) -> Vec<String> {
+        values
+            .iter()
+            .map(|value| value.to_str().expect("origin header").to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn security_audit_internal_routes_require_supabase_auth() {
+        let state = build_test_state(
+            temp_script("print('{\"response\":\"unused\"}')\n", "internal-auth"),
+            15_000,
+        );
+        let app = protected_internal_router(state.clone()).with_state(state);
+
+        for path in [
+            "/internal/runtime-signals",
+            "/internal/swarm-log",
+            "/internal/strategy-state",
+            "/internal/milestones",
+            "/internal/pr-summaries",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(get_request(path))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn security_audit_internal_routes_reject_invalid_bearer_token() {
+        let state = build_test_state(
+            temp_script(
+                "print('{\"response\":\"unused\"}')\n",
+                "internal-invalid-token",
+            ),
+            15_000,
+        );
+        let app = protected_internal_router(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(get_request_with_bearer(
+                "/internal/runtime-signals",
+                "not-a-valid-jwt",
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn security_audit_public_routes_remain_public_without_bearer_token() {
+        let state = build_test_state(
+            temp_script("print('{\"response\":\"unused\"}')\n", "public-routes"),
+            15_000,
+        );
+        let app = public_status_router(state);
+
+        for path in ["/health", "/api/v1/status"] {
+            let response = app
+                .clone()
+                .oneshot(get_request(path))
+                .await
+                .expect("response");
+            assert_ne!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+        }
+    }
+
+    #[test]
+    fn security_audit_cors_uses_canonical_allowed_origins() {
+        with_clean_cors_env(
+            &[(
+                "OMNI_ALLOWED_ORIGINS",
+                "https://app.example.com, http://localhost:5173",
+            )],
+            || {
+                let config = resolve_cors_origin_config();
+                assert_eq!(
+                    header_values_as_strings(&config.origins),
+                    vec![
+                        "https://app.example.com".to_string(),
+                        "http://localhost:5173".to_string()
+                    ]
+                );
+                assert!(!config.wildcard);
+                assert!(!config.local_defaults_applied);
+            },
+        );
+    }
+
+    #[test]
+    fn security_audit_cors_supports_legacy_omini_alias() {
+        with_clean_cors_env(
+            &[("OMINI_ALLOWED_ORIGINS", "https://legacy.example.com")],
+            || {
+                let config = resolve_cors_origin_config();
+                assert_eq!(
+                    header_values_as_strings(&config.origins),
+                    vec!["https://legacy.example.com".to_string()]
+                );
+                assert!(!config.wildcard);
+            },
+        );
+    }
+
+    #[test]
+    fn security_audit_cors_is_fail_closed_without_production_origins() {
+        with_clean_cors_env(&[], || {
+            let config = resolve_cors_origin_config();
+            assert!(config.origins.is_empty());
+            assert!(!config.wildcard);
+            assert!(!config.local_defaults_applied);
+        });
+    }
+
+    #[test]
+    fn security_audit_cors_applies_local_defaults_only_in_local_or_demo_mode() {
+        with_clean_cors_env(&[("OMNI_ENV", "development")], || {
+            let config = resolve_cors_origin_config();
+            assert_eq!(
+                header_values_as_strings(&config.origins),
+                DEFAULT_LOCAL_CORS_ORIGINS
+                    .iter()
+                    .map(|value| value.to_string())
+                    .collect::<Vec<_>>()
+            );
+            assert!(config.local_defaults_applied);
+            assert!(!config.wildcard);
+        });
+    }
+
+    #[test]
+    fn security_audit_cors_blocks_wildcard_outside_demo_mode() {
+        with_clean_cors_env(&[("OMNI_ALLOWED_ORIGINS", "*")], || {
+            let config = resolve_cors_origin_config();
+            assert!(config.origins.is_empty());
+            assert!(!config.wildcard);
+        });
+    }
+
+    #[test]
+    fn security_audit_cors_allows_wildcard_only_in_public_demo_mode() {
+        with_clean_cors_env(
+            &[
+                ("OMNI_ALLOWED_ORIGINS", "*"),
+                ("OMNI_PUBLIC_DEMO_MODE", "true"),
+            ],
+            || {
+                let config = resolve_cors_origin_config();
+                assert!(config.origins.is_empty());
+                assert!(config.wildcard);
+            },
+        );
     }
 
     async fn assert_python_not_invoked(state: &AppState) {

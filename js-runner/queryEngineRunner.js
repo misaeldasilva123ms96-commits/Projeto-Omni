@@ -209,7 +209,18 @@ function collectMemoryFiles(dirPath) {
   return entries;
 }
 
+function isAgentMemoryEnabled() {
+  if (isPublicDemoMode()) {
+    return false;
+  }
+  return String(process.env.OMNI_ENABLE_AGENT_MEMORY || '').trim().toLowerCase() === 'true';
+}
+
 function loadAgentMemoryContext() {
+  if (!isAgentMemoryEnabled()) {
+    return '';
+  }
+
   const workspaceRoot = getWorkspaceRoot();
   const candidateDirs = [
     path.join(workspaceRoot, '.claude', 'agent-memory'),
@@ -765,6 +776,7 @@ module.exports = {
   getQueryEngineCandidates,
   getPackagedQueryEngineCandidate,
   getWorkspaceRoot,
+  isAgentMemoryEnabled,
   inferFallbackMetadata,
   isDebugLoggingEnabled,
   loadAgentMemoryContext,

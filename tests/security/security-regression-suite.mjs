@@ -85,6 +85,22 @@ const commands = [
     cwd: path.join(projectRoot, 'backend', 'rust'),
   },
   {
+    label: 'security audit rust internal route auth and cors',
+    command: 'cargo',
+    args: ['test', 'security_audit_', '--', '--nocapture'],
+    cwd: path.join(projectRoot, 'backend', 'rust'),
+  },
+  {
+    label: 'security audit agent memory hardening',
+    command: 'node',
+    args: ['tests/runtime/queryEngineRunnerAgentMemory.test.mjs'],
+  },
+  {
+    label: 'security audit dockerfile non-root runtime',
+    command: 'node',
+    args: ['tests/runtime/dockerfileSecurity.test.mjs'],
+  },
+  {
     label: 'phase-6 public demo container static validation',
     command: 'node',
     args: ['tests/runtime/containerPublicDemo.validation.mjs'],
