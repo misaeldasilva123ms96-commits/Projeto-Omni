@@ -56,7 +56,11 @@ export function RuntimeInspectorPanel({ data, requestState }: RuntimeInspectorPa
         ) : activeTab === 'tools' ? (
           <RuntimeToolsTab data={data?.tools ?? []} executionHref={links.tool} />
         ) : activeTab === 'provider' ? (
-          <RuntimeProviderTab data={data?.providers ?? []} providerHref={links.provider} />
+          <RuntimeProviderTab
+            data={data?.providers ?? []}
+            autoRouting={data?.provider_auto_routing ?? null}
+            providerHref={links.provider}
+          />
         ) : activeTab === 'memory' ? (
           <RuntimeMemoryTab data={data?.memory ?? null} />
         ) : activeTab === 'autonomy' ? (

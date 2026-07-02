@@ -88,6 +88,74 @@ describe('runtime inspector contracts', () => {
     expect(normalized.oil?.input).toEqual({ prompt: 'safe' })
   })
 
+  it('normalizes provider auto-routing runtime truth with an allowlisted public contract', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto_safe',
+            selected_provider: 'anthropic',
+            selected_model: 'claude-safe',
+            decision_reason: 'selected_highest_score',
+            fallback_used: false,
+            candidate_count: 2,
+            rejected_candidates: [
+              {
+                provider: 'openai',
+                model: 'gpt-4.1',
+                reason: 'provider_unavailable',
+                api_key: 'sk-proj-should-not-render',
+              },
+            ],
+            rejected_reasons: ['provider_unavailable'],
+            fail_closed_reason: '',
+            policy_result: 'allow',
+            created_at: '2026-07-01T22:00:00.000Z',
+            headers: { authorization: 'Bearer should-not-render' },
+            env: 'OPENAI_API_KEY=should-not-render',
+          },
+        },
+      },
+    })
+
+    expect(normalized.provider_auto_routing).toMatchObject({
+      routing_mode: 'auto_safe',
+      selected_provider: 'anthropic',
+      selected_model: 'claude-safe',
+      decision_reason: 'selected_highest_score',
+      fallback_used: false,
+      candidate_count: 2,
+      rejected_reasons: ['provider_unavailable'],
+      fail_closed_reason: null,
+      policy_result: 'allow',
+      created_at: '2026-07-01T22:00:00.000Z',
+    })
+    expect(normalized.provider_auto_routing?.rejected_candidates).toEqual([{
+      provider: 'openai',
+      model: 'gpt-4.1',
+      reason: 'provider_unavailable',
+    }])
+    expect(JSON.stringify(normalized.provider_auto_routing)).not.toContain('should-not-render')
+    expect(JSON.stringify(normalized.provider_auto_routing)).not.toContain('api_key')
+    expect(JSON.stringify(normalized.provider_auto_routing)).not.toContain('authorization')
+  })
+
+  it('keeps provider auto-routing absent when runtime truth omits it', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          runtime_mode: 'RULE_BASED_INTENT',
+        },
+      },
+    })
+
+    expect(normalized.provider_auto_routing).toBeNull()
+  })
+
   it('returns safe empty contracts when metadata is unavailable', () => {
     const normalized = normalizeRuntimeInspectorData(null)
 
@@ -95,6 +163,7 @@ describe('runtime inspector contracts', () => {
     expect(normalized.summary.runtime_reason).toBeNull()
     expect(normalized.governance).toBeNull()
     expect(normalized.provider).toBeNull()
+    expect(normalized.provider_auto_routing).toBeNull()
     expect(normalized.tools).toEqual([])
     expect(normalized.memory).toBeNull()
     expect(normalized.oil).toBeNull()
