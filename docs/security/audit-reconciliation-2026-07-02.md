@@ -86,3 +86,40 @@ trufflehog git file://. --only-verified
 - Agent memory remains available with explicit `OMNI_ENABLE_AGENT_MEMORY=true`; operators must keep that opt-in disabled for public/demo surfaces.
 - The Gitleaks allowlist intentionally covers only known test/eval fixture paths; new production findings must not be allowlisted without separate review.
 - Advisory databases change over time, so dependency and secret scanner results must be rerun close to merge.
+
+## Follow-up after remote Security Checks
+
+The first remote `Security Checks` run for PR #510 failed in two places:
+
+- `Secret Scan (Gitleaks)` failed before scanning because `gitleaks/gitleaks-action@v3` requires `GITHUB_TOKEN` for pull request scans. The log did not report a secret finding, rule, file, or commit. The workflow now passes `GITHUB_TOKEN` and explicitly sets `GITLEAKS_CONFIG=.gitleaks.toml`.
+- `Dependency & Runtime Audit` failed in `cargo audit` with `RUSTSEC-2023-0071`, `rsa 0.9.10`, "Marvin Attack: potential key recovery through timing sidechannels", severity 5.9 medium, with no fixed upgrade available. The dependency path was `omini-api -> jsonwebtoken 10.4.0 -> rsa 0.9.10`.
+
+The Rust code only validates and creates Supabase JWTs with `Algorithm::HS256`. The `rsa` dependency is pulled by `jsonwebtoken`'s broad `rust_crypto` feature set, but the current runtime does not expose RSA verification or decryption paths: validation is created with `Algorithm::HS256` and constrained with `validation.algorithms = vec![Algorithm::HS256]`.
+
+Two remediation options were tested:
+
+- `jsonwebtoken` with only `hmac`/`sha2` removed `rsa`, but failed runtime tests because `jsonwebtoken` 10 requires exactly one process-level crypto provider feature.
+- `jsonwebtoken` with `aws_lc_rs` removed `rsa`, but failed local Windows builds because `aws-lc-sys` required NASM/C toolchain behavior not available in this environment.
+
+Because upstream reports no fixed `rsa` upgrade for `RUSTSEC-2023-0071`, this PR uses a narrow `cargo audit` ignore for only `RUSTSEC-2023-0071` in `backend/rust/.cargo/audit.toml`, with an inline justification tied to HS256-only use. This is not a broad ignore. The tracking requirement is this document plus the inline audit config; remove the ignore when `jsonwebtoken` exposes an HS256-only provider path that preserves local Windows and CI builds.
+
+Commands executed during the follow-up:
+
+```bash
+gh run view 28605883552 --job 84825849454 --log
+gh run view 28605883552 --job 84825849522 --log
+gh api repos/gitleaks/gitleaks-action/contents/README.md?ref=v3
+cd backend/rust && cargo tree -i rsa
+cd backend/rust && cargo tree -e features -i jsonwebtoken
+cd backend/rust && cargo update
+cd backend/rust && cargo audit
+```
+
+No secret rotation was required from the remote Gitleaks failure because the job failed on missing action token configuration and did not report a redacted secret finding. The local Gitleaks scan must still pass before merge, and any future verified real secret finding must trigger rotation according to the provider's incident procedure.
+
+Remaining risks after this follow-up:
+
+- `RUSTSEC-2023-0071` remains present in the dependency graph but is ignored narrowly because the current runtime is HS256-only and no upstream fixed upgrade exists.
+- The `backend/rust/.cargo/audit.toml` ignore must be revisited on every `jsonwebtoken` or Rust crypto dependency update.
+- The remote Gitleaks job must be rerun by pushing this follow-up commit to confirm the action accepts the token/config settings.
+- The PR should remain draft until the full remote `Security Checks` workflow is green.

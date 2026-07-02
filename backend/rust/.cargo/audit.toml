@@ -1,0 +1,9 @@
+[advisories]
+# RUSTSEC-2023-0071 affects the `rsa` crate via `jsonwebtoken`'s broad
+# rust_crypto feature set. Current Omni Supabase JWT validation is constrained
+# to HS256/HMAC only (`Validation::new(Algorithm::HS256)` and
+# `validation.algorithms = vec![Algorithm::HS256]`), so no RSA verification or
+# decryption path is exposed by this runtime. Keep this ignore narrow and remove
+# it when jsonwebtoken offers an HS256-only provider path that preserves local
+# Windows and CI builds.
+ignore = ["RUSTSEC-2023-0071"]
