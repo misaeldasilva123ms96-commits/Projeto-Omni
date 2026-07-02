@@ -156,6 +156,103 @@ describe('runtime inspector contracts', () => {
     expect(normalized.provider_auto_routing).toBeNull()
   })
 
+  it('normalizes provider usage summary with an allowlisted public contract', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto_cheap',
+            selected_provider: 'openai',
+            selected_model: 'gpt-safe',
+            fallback_used: false,
+          },
+          provider_usage_summary: [{
+            provider: 'openai',
+            model: 'gpt-safe',
+            status: 'available',
+            health: 'healthy',
+            estimated_cost: 0.0123,
+            quota_status: 'configured',
+            quota_remaining: 1200,
+            quota_reset_at: '2026-07-02T12:00:00.000Z',
+            last_latency_ms: 88,
+            last_error_reason: 'Bearer should-not-render',
+            routing_mode: 'auto_cheap',
+            selected_by_auto_routing: true,
+            fallback_count: 2,
+            updated_at: '2026-07-02T11:30:00.000Z',
+            api_key: 'sk-proj-should-not-render',
+            headers: { authorization: 'Bearer should-not-render' },
+            raw_payload: 'should-not-render',
+          }],
+        },
+      },
+    })
+
+    expect(normalized.provider_usage_summary).toEqual([{
+      provider: 'openai',
+      model: 'gpt-safe',
+      status: 'available',
+      health: 'healthy',
+      estimated_cost: 0.0123,
+      quota_status: 'configured',
+      quota_remaining: 1200,
+      quota_reset_at: '2026-07-02T12:00:00.000Z',
+      last_latency_ms: 88,
+      last_error_reason: '[REDACTED]',
+      routing_mode: 'auto_cheap',
+      selected_by_auto_routing: true,
+      fallback_count: 2,
+      updated_at: '2026-07-02T11:30:00.000Z',
+    }])
+    expect(JSON.stringify(normalized.provider_usage_summary)).not.toContain('should-not-render')
+    expect(JSON.stringify(normalized.provider_usage_summary)).not.toContain('api_key')
+    expect(JSON.stringify(normalized.provider_usage_summary)).not.toContain('authorization')
+    expect(JSON.stringify(normalized.provider_usage_summary)).not.toContain('raw_payload')
+  })
+
+  it('derives provider usage summary from provider diagnostics and auto-routing when explicit usage is absent', () => {
+    const normalized = normalizeRuntimeInspectorData({
+      matchedCommands: [],
+      matchedTools: [],
+      providerDiagnostics: [{
+        provider: 'anthropic',
+        model: 'claude-safe',
+        attempted: true,
+        succeeded: true,
+        latency_ms: 41,
+      }],
+      cognitiveRuntimeInspection: {
+        runtime_truth: {
+          provider_auto_routing: {
+            routing_mode: 'auto_safe',
+            selected_provider: 'anthropic',
+            selected_model: 'claude-safe',
+            fallback_used: true,
+            created_at: '2026-07-02T12:00:00.000Z',
+          },
+        },
+      },
+    })
+
+    expect(normalized.provider_usage_summary?.[0]).toMatchObject({
+      provider: 'anthropic',
+      model: 'claude-safe',
+      status: 'available',
+      health: 'healthy',
+      estimated_cost: null,
+      quota_status: null,
+      quota_remaining: null,
+      last_latency_ms: 41,
+      routing_mode: 'auto_safe',
+      selected_by_auto_routing: true,
+      fallback_count: 1,
+      updated_at: '2026-07-02T12:00:00.000Z',
+    })
+  })
+
   it('returns safe empty contracts when metadata is unavailable', () => {
     const normalized = normalizeRuntimeInspectorData(null)
 
@@ -164,6 +261,7 @@ describe('runtime inspector contracts', () => {
     expect(normalized.governance).toBeNull()
     expect(normalized.provider).toBeNull()
     expect(normalized.provider_auto_routing).toBeNull()
+    expect(normalized.provider_usage_summary).toEqual([])
     expect(normalized.tools).toEqual([])
     expect(normalized.memory).toBeNull()
     expect(normalized.oil).toBeNull()

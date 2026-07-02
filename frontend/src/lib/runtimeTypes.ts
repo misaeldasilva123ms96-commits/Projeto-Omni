@@ -80,6 +80,23 @@ export type RuntimeProviderAutoRouting = {
   created_at: string | null
 }
 
+export type RuntimeProviderUsageSummary = {
+  provider: string | null
+  model: string | null
+  status: string | null
+  health: string | null
+  estimated_cost: number | null
+  quota_status: string | null
+  quota_remaining: number | null
+  quota_reset_at: string | null
+  last_latency_ms: number | null
+  last_error_reason: string | null
+  routing_mode: string | null
+  selected_by_auto_routing: boolean | null
+  fallback_count: number | null
+  updated_at: string | null
+}
+
 export type RuntimeAutonomyStats = {
   total_evaluations: number | null
   decisions_by_type: Record<string, number> | null
@@ -209,6 +226,7 @@ export type RuntimeInspectorData = {
   provider: RuntimeProviderStatus | null
   providers: RuntimeProviderStatus[]
   provider_auto_routing?: RuntimeProviderAutoRouting | null
+  provider_usage_summary?: RuntimeProviderUsageSummary[]
   memory: RuntimeMemoryStatus | null
   oil: RuntimeOilSkeleton | null
   autonomy: RuntimeAutonomyStatus | null
@@ -229,6 +247,15 @@ function optionalTimestamp(value: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)
     ? value
     : redactRuntimeDebugText(value)
+}
+
+function optionalSafeReason(value: unknown): string | null {
+  const redacted = optionalString(value)
+  if (!redacted) return null
+  const withoutHeaderNames = redacted
+    .replace(/\b(?:authorization|x-api-key|api[_-]?key|headers?|env|cookie|set-cookie)\b/gi, '[REDACTED]')
+    .trim()
+  return withoutHeaderNames || null
 }
 
 function optionalBoolean(value: unknown): boolean | null {
@@ -277,6 +304,141 @@ export function normalizeProviderAutoRouting(value: unknown): RuntimeProviderAut
     policy_result: optionalString(value.policy_result),
     created_at: optionalTimestamp(value.created_at),
   }
+}
+
+function normalizeProviderUsageSummary(
+  value: unknown,
+  autoRouting: RuntimeProviderAutoRouting | null,
+): RuntimeProviderUsageSummary | null {
+  if (!isRecord(value)) return null
+  const provider = optionalString(value.provider)
+  const model = optionalString(value.model)
+  const status = optionalString(value.status)
+  const health = optionalString(value.health)
+  const lastErrorReason = optionalSafeReason(value.last_error_reason)
+  const routingMode = optionalString(value.routing_mode) ?? autoRouting?.routing_mode ?? null
+  const selectedByAutoRouting = optionalBoolean(value.selected_by_auto_routing)
+    ?? (provider && autoRouting?.selected_provider
+      ? provider === autoRouting.selected_provider
+      : null)
+
+  if (
+    !provider
+    && !model
+    && !status
+    && !health
+    && lastErrorReason == null
+    && optionalNumber(value.estimated_cost) == null
+    && optionalString(value.quota_status) == null
+  ) {
+    return null
+  }
+
+  return {
+    provider,
+    model,
+    status,
+    health,
+    estimated_cost: optionalNumber(value.estimated_cost),
+    quota_status: optionalString(value.quota_status),
+    quota_remaining: optionalNumber(value.quota_remaining),
+    quota_reset_at: optionalTimestamp(value.quota_reset_at),
+    last_latency_ms: optionalNumber(value.last_latency_ms),
+    last_error_reason: lastErrorReason,
+    routing_mode: routingMode,
+    selected_by_auto_routing: selectedByAutoRouting,
+    fallback_count: optionalNumber(value.fallback_count),
+    updated_at: optionalTimestamp(value.updated_at),
+  }
+}
+
+function providerStatusLabel(provider: RuntimeProviderStatus): string | null {
+  if (provider.succeeded === true) return 'available'
+  if (provider.attempted && provider.succeeded === false) return 'error'
+  if (provider.attempted) return 'partial'
+  return 'not_available'
+}
+
+function providerHealthLabel(provider: RuntimeProviderStatus): string | null {
+  if (provider.succeeded === true) return 'healthy'
+  if (provider.failure_reason || provider.succeeded === false) return 'unavailable'
+  return 'unknown'
+}
+
+function deriveProviderUsageFromStatus(
+  provider: RuntimeProviderStatus,
+  autoRouting: RuntimeProviderAutoRouting | null,
+): RuntimeProviderUsageSummary | null {
+  if (!provider.provider_name && !provider.model && !provider.failure_reason) return null
+  const selectedByAutoRouting = Boolean(
+    provider.provider_name
+    && autoRouting?.selected_provider
+    && provider.provider_name === autoRouting.selected_provider,
+  )
+  return {
+    provider: provider.provider_name,
+    model: provider.model,
+    status: providerStatusLabel(provider),
+    health: providerHealthLabel(provider),
+    estimated_cost: null,
+    quota_status: null,
+    quota_remaining: null,
+    quota_reset_at: null,
+    last_latency_ms: provider.latency_ms,
+    last_error_reason: provider.failure_reason,
+    routing_mode: autoRouting?.routing_mode ?? null,
+    selected_by_auto_routing: autoRouting?.selected_provider ? selectedByAutoRouting : null,
+    fallback_count: autoRouting?.fallback_used && selectedByAutoRouting ? 1 : 0,
+    updated_at: autoRouting?.created_at ?? null,
+  }
+}
+
+function deriveProviderUsageFromAutoRouting(
+  autoRouting: RuntimeProviderAutoRouting | null,
+): RuntimeProviderUsageSummary[] {
+  if (!autoRouting) return []
+  if (!autoRouting.selected_provider && !autoRouting.fail_closed_reason) return []
+  return [{
+    provider: autoRouting.selected_provider,
+    model: autoRouting.selected_model,
+    status: autoRouting.fail_closed_reason ? 'unavailable' : 'available',
+    health: autoRouting.fail_closed_reason ? 'unavailable' : 'unknown',
+    estimated_cost: null,
+    quota_status: null,
+    quota_remaining: null,
+    quota_reset_at: null,
+    last_latency_ms: null,
+    last_error_reason: autoRouting.fail_closed_reason || autoRouting.decision_reason,
+    routing_mode: autoRouting.routing_mode,
+    selected_by_auto_routing: Boolean(autoRouting.selected_provider),
+    fallback_count: autoRouting.fallback_used ? 1 : 0,
+    updated_at: autoRouting.created_at,
+  }]
+}
+
+function normalizeProviderUsageSummaries(
+  value: unknown,
+  providers: RuntimeProviderStatus[],
+  autoRouting: RuntimeProviderAutoRouting | null,
+): RuntimeProviderUsageSummary[] {
+  const explicit = Array.isArray(value)
+    ? value
+    : isRecord(value)
+      ? [value]
+      : []
+  const normalizedExplicit = explicit
+    .map((item) => normalizeProviderUsageSummary(item, autoRouting))
+    .filter((item): item is RuntimeProviderUsageSummary => item !== null)
+    .slice(0, 16)
+  if (normalizedExplicit.length) return normalizedExplicit
+
+  const derivedFromProviders = providers
+    .map((provider) => deriveProviderUsageFromStatus(provider, autoRouting))
+    .filter((item): item is RuntimeProviderUsageSummary => item !== null)
+    .slice(0, 16)
+  if (derivedFromProviders.length) return derivedFromProviders
+
+  return deriveProviderUsageFromAutoRouting(autoRouting)
 }
 
 function firstBoolean(...values: unknown[]): boolean | null {
@@ -548,6 +710,11 @@ export function normalizeRuntimeInspectorData(
   const providers = (metadata?.providerDiagnostics ?? [])
     .map((item) => normalizeProviderStatus(item, item))
     .filter((item): item is RuntimeProviderStatus => item !== null)
+  const providerUsageSummary = normalizeProviderUsageSummaries(
+    runtimeTruth.provider_usage_summary ?? inspection.provider_usage_summary,
+    providers.length ? providers : provider ? [provider] : [],
+    providerAutoRouting,
+  )
   const tools = (metadata?.toolDiagnostics
     ?? (metadata?.toolExecution ? [metadata.toolExecution] : [])
   ).map((tool) => ({
@@ -636,6 +803,7 @@ export function normalizeRuntimeInspectorData(
     provider,
     providers: providers.length ? providers : provider ? [provider] : [],
     provider_auto_routing: providerAutoRouting,
+    provider_usage_summary: providerUsageSummary,
     memory: memoryStatus || matchedTools.length || matchedCommands.length
       ? {
           status: memoryStatus,
