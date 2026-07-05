@@ -1,6 +1,7 @@
 mod error;
 mod observability;
 mod observability_auth;
+mod protected_historical_audit;
 mod run_control;
 
 use std::{
