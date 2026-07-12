@@ -23,10 +23,13 @@ create table if not exists public.omni_capability_grants (
   ),
   constraint omni_capability_grants_metadata_object_check check (
     jsonb_typeof(metadata) = 'object'
+  ),
+  constraint omni_capability_grants_metadata_size_check check (
+    octet_length(metadata::text) <= 8192
   )
 );
 
-create unique index if not exists omni_capability_grants_one_effective_active_idx
+create index if not exists omni_capability_grants_active_lookup_idx
   on public.omni_capability_grants (supabase_sub, capability)
   where active = true and revoked_at is null;
 

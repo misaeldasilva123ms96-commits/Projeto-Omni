@@ -18,11 +18,11 @@ The implementation adds a Supabase grant-table migration, a Rust capability reso
 
 The migration creates `public.omni_capability_grants` as a server-owned capability grant table.
 
-The first and only approved capability is constrained to the exact value `historical_audit:read`. The table stores `supabase_sub`, active/revoked/expiration state, created/updated metadata, review metadata, and bounded JSON metadata.
+The first and only approved capability is constrained to the exact value `historical_audit:read`. The table stores `supabase_sub`, active/revoked/expiration state, created/updated metadata, review metadata, and JSON metadata bounded by `omni_capability_grants_metadata_size_check`.
 
 RLS is enabled. No anon/authenticated client policies are added. The table comments document that browser clients must not directly read or mutate capability grants.
 
-The migration adds lookup, capability, expiration, updated-at, and effective active-grant uniqueness indexes. The uniqueness constraint prevents more than one active, non-revoked grant per `(supabase_sub, capability)`.
+The migration adds lookup, active lookup, capability, expiration, and updated-at indexes. It intentionally does not enforce uniqueness with a temporal predicate because expired historical grants must be able to coexist with one current effective grant. Duplicate current effective grants deny in the Rust resolver. The metadata size check limits `metadata::text` to 8192 bytes.
 
 ## 4 Resolver Result
 
@@ -92,3 +92,15 @@ Existing protected historical audit tests continue to cover disabled route prece
 This branch intentionally does not implement a live Supabase HTTP/PostgREST client or RPC call. The repository trait is the server-side boundary for the later reviewed source adapter. The default production resolver remains misconfigured/unavailable and denies closed until a future branch explicitly adds server-only source configuration and keeps the route exposure controls approved.
 
 The route switch remains disabled by default, and the router remains unwired.
+
+## 10 Migration Validation Status
+
+Supabase preview branch validation was not available in this local environment.
+
+Local migration validation was attempted with Docker Postgres because the repository has no dedicated Supabase migration CI step, `supabase` CLI is not installed, and `psql` is not installed. Docker Desktop was started, but `docker info` timed out and the Docker daemon did not become available. No database migration success is claimed from this environment.
+
+Static review updates made during this fix:
+
+- `omni_capability_grants_metadata_size_check` bounds `metadata::text` to 8192 bytes.
+- Active grant indexing is non-unique so expired historical grants can coexist with a current effective grant.
+- Duplicate current effective grants remain fail-closed in the Rust resolver.

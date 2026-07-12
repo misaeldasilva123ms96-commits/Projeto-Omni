@@ -179,10 +179,9 @@ impl HistoricalAuditCapabilityResolver {
             );
         }
 
-        let mut effective_active = 0usize;
+        let mut effective_grants = 0usize;
         let mut saw_revoked = false;
         let mut saw_expired = false;
-        let mut saw_inactive = false;
 
         for record in records {
             if !is_safe_supabase_sub(&record.supabase_sub)
@@ -204,16 +203,13 @@ impl HistoricalAuditCapabilityResolver {
                 continue;
             }
             if !record.active {
-                saw_inactive = true;
                 continue;
             }
-            effective_active += 1;
+            effective_grants += 1;
         }
 
-        match effective_active {
-            1 if !saw_revoked && !saw_expired && !saw_inactive => {
-                CapabilityDecision::allow(source_mode)
-            }
+        match effective_grants {
+            1 => CapabilityDecision::allow(source_mode),
             count if count > 1 => {
                 CapabilityDecision::deny("duplicate_capability_grant", source_mode)
             }
@@ -319,6 +315,28 @@ mod tests {
         )
     }
 
+    fn revoked_grant() -> CapabilityGrantRecord {
+        let mut grant =
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read");
+        grant.active = false;
+        grant.revoked_at_ms = Some(900);
+        grant
+    }
+
+    fn expired_grant() -> CapabilityGrantRecord {
+        let mut grant =
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read");
+        grant.expires_at_ms = Some(999);
+        grant
+    }
+
+    fn inactive_grant() -> CapabilityGrantRecord {
+        let mut grant =
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read");
+        grant.active = false;
+        grant
+    }
+
     #[test]
     fn capability_resolver_allows_only_exact_active_server_side_grant() {
         let decision = resolver(CapabilityGrantLookup::Records(vec![
@@ -356,31 +374,22 @@ mod tests {
 
     #[test]
     fn capability_resolver_denies_revoked_expired_inactive_and_duplicate_grants() {
-        let mut revoked =
-            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read");
-        revoked.revoked_at_ms = Some(900);
         assert_eq!(
-            resolver(CapabilityGrantLookup::Records(vec![revoked]))
+            resolver(CapabilityGrantLookup::Records(vec![revoked_grant()]))
                 .authorize_at("operator-123", 1_000)
                 .reason,
             "revoked_historical_audit_readonly_capability"
         );
 
-        let mut expired =
-            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read");
-        expired.expires_at_ms = Some(999);
         assert_eq!(
-            resolver(CapabilityGrantLookup::Records(vec![expired]))
+            resolver(CapabilityGrantLookup::Records(vec![expired_grant()]))
                 .authorize_at("operator-123", 1_000)
                 .reason,
             "expired_historical_audit_readonly_capability"
         );
 
-        let mut inactive =
-            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read");
-        inactive.active = false;
         assert_eq!(
-            resolver(CapabilityGrantLookup::Records(vec![inactive]))
+            resolver(CapabilityGrantLookup::Records(vec![inactive_grant()]))
                 .authorize_at("operator-123", 1_000)
                 .reason,
             "missing_historical_audit_readonly_capability"
@@ -394,6 +403,78 @@ mod tests {
             .authorize_at("operator-123", 1_000)
             .reason,
             "duplicate_capability_grant"
+        );
+    }
+
+    #[test]
+    fn capability_resolver_allows_active_grant_with_expired_historical_grant() {
+        let decision = resolver(CapabilityGrantLookup::Records(vec![
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read"),
+            expired_grant(),
+        ]))
+        .authorize_at("operator-123", 1_000);
+
+        assert!(decision.allowed);
+        assert_eq!(decision.reason, "historical_audit_readonly_authorized");
+    }
+
+    #[test]
+    fn capability_resolver_allows_active_grant_with_revoked_historical_grant() {
+        let decision = resolver(CapabilityGrantLookup::Records(vec![
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read"),
+            revoked_grant(),
+        ]))
+        .authorize_at("operator-123", 1_000);
+
+        assert!(decision.allowed);
+        assert_eq!(decision.reason, "historical_audit_readonly_authorized");
+    }
+
+    #[test]
+    fn capability_resolver_allows_active_grant_with_inactive_historical_grant() {
+        let decision = resolver(CapabilityGrantLookup::Records(vec![
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read"),
+            inactive_grant(),
+        ]))
+        .authorize_at("operator-123", 1_000);
+
+        assert!(decision.allowed);
+        assert_eq!(decision.reason, "historical_audit_readonly_authorized");
+    }
+
+    #[test]
+    fn capability_resolver_denies_two_effective_active_grants() {
+        let decision = resolver(CapabilityGrantLookup::Records(vec![
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read"),
+            CapabilityGrantRecord::active_grant("operator-123", "historical_audit:read"),
+        ]))
+        .authorize_at("operator-123", 1_000);
+
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "duplicate_capability_grant");
+    }
+
+    #[test]
+    fn capability_resolver_denies_only_expired_grants() {
+        let decision = resolver(CapabilityGrantLookup::Records(vec![expired_grant()]))
+            .authorize_at("operator-123", 1_000);
+
+        assert!(!decision.allowed);
+        assert_eq!(
+            decision.reason,
+            "expired_historical_audit_readonly_capability"
+        );
+    }
+
+    #[test]
+    fn capability_resolver_denies_only_revoked_grants() {
+        let decision = resolver(CapabilityGrantLookup::Records(vec![revoked_grant()]))
+            .authorize_at("operator-123", 1_000);
+
+        assert!(!decision.allowed);
+        assert_eq!(
+            decision.reason,
+            "revoked_historical_audit_readonly_capability"
         );
     }
 
