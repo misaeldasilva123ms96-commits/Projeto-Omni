@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -17,7 +17,17 @@ use axum::{
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::{observability_auth::require_supabase_auth, AppState};
+use crate::{
+    historical_audit_capability::{
+        CapabilityDecision, HistoricalAuditCapabilityResolver,
+        HISTORICAL_AUDIT_CAPABILITY_SOURCE_MODE_UNAVAILABLE,
+    },
+    observability_auth::require_supabase_auth,
+    AppState,
+};
+
+#[cfg(test)]
+use crate::historical_audit_capability::StaticTestCapabilityGrantRepository;
 
 pub(crate) const HISTORICAL_AUDIT_READONLY_CAPABILITY: &str = "historical_audit:read";
 pub(crate) const HISTORICAL_AUDIT_LIST_PATH: &str = "/protected/internal/audit/dry-run";
@@ -104,10 +114,10 @@ const FORBIDDEN_OUTPUT_MARKERS: &[&str] = &[
     "raw_repr",
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct HistoricalAuditRouteConfig {
     route_enabled: bool,
-    authorized_callers: HashSet<String>,
+    capability_resolver: HistoricalAuditCapabilityResolver,
     max_query_params: usize,
     max_param_length: usize,
     max_plan_id_length: usize,
@@ -121,7 +131,9 @@ impl Default for HistoricalAuditRouteConfig {
     fn default() -> Self {
         Self {
             route_enabled: false,
-            authorized_callers: HashSet::new(),
+            capability_resolver: HistoricalAuditCapabilityResolver::unavailable(
+                HISTORICAL_AUDIT_READONLY_CAPABILITY,
+            ),
             max_query_params: DEFAULT_MAX_QUERY_PARAMS,
             max_param_length: DEFAULT_MAX_PARAM_LENGTH,
             max_plan_id_length: DEFAULT_MAX_PLAN_ID_LENGTH,
@@ -138,7 +150,10 @@ impl HistoricalAuditRouteConfig {
     fn enabled_for_test_callers(callers: &[&str]) -> Self {
         Self {
             route_enabled: true,
-            authorized_callers: callers.iter().map(|caller| (*caller).to_string()).collect(),
+            capability_resolver: HistoricalAuditCapabilityResolver::new(
+                Arc::new(StaticTestCapabilityGrantRepository::new(callers)),
+                HISTORICAL_AUDIT_READONLY_CAPABILITY,
+            ),
             ..Self::default()
         }
     }
@@ -155,7 +170,6 @@ impl HistoricalAuditRouteConfig {
     }
 }
 
-#[derive(Debug)]
 struct HistoricalAuditRouteState {
     config: HistoricalAuditRouteConfig,
     rate_limiter: Mutex<HashMap<String, VecDeque<Instant>>>,
@@ -171,18 +185,13 @@ impl HistoricalAuditRouteState {
 
     fn authorize(&self, caller_id: &str) -> GuardDecision {
         if !self.config.route_enabled {
-            return GuardDecision::deny(StatusCode::NOT_FOUND, "route_disabled");
-        }
-        if !is_safe_id(caller_id, 128) {
-            return GuardDecision::deny(StatusCode::UNAUTHORIZED, "missing_caller_identity");
-        }
-        if !self.config.authorized_callers.contains(caller_id) {
             return GuardDecision::deny(
-                StatusCode::FORBIDDEN,
-                "missing_historical_audit_readonly_capability",
+                StatusCode::NOT_FOUND,
+                "route_disabled",
+                HISTORICAL_AUDIT_CAPABILITY_SOURCE_MODE_UNAVAILABLE,
             );
         }
-        GuardDecision::allow("historical_audit_readonly_authorized")
+        capability_decision_to_guard(self.config.capability_resolver.authorize(caller_id))
     }
 
     fn check_rate_limit(&self, caller_id: &str, now: Instant) -> GuardDecision {
@@ -201,10 +210,14 @@ impl HistoricalAuditRouteState {
             hits.pop_front();
         }
         if hits.len() >= limit {
-            return GuardDecision::deny(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
+            return GuardDecision::deny(
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                "route_guard",
+            );
         }
         hits.push_back(now);
-        GuardDecision::allow("rate_limit_accepted")
+        GuardDecision::allow("rate_limit_accepted", "route_guard")
     }
 }
 
@@ -213,23 +226,49 @@ struct GuardDecision {
     allowed: bool,
     status: StatusCode,
     reason: &'static str,
+    capability_source_mode: &'static str,
 }
 
 impl GuardDecision {
-    fn allow(reason: &'static str) -> Self {
+    fn allow(reason: &'static str, capability_source_mode: &'static str) -> Self {
         Self {
             allowed: true,
             status: StatusCode::OK,
             reason,
+            capability_source_mode,
         }
     }
 
-    fn deny(status: StatusCode, reason: &'static str) -> Self {
+    fn deny(
+        status: StatusCode,
+        reason: &'static str,
+        capability_source_mode: &'static str,
+    ) -> Self {
         Self {
             allowed: false,
             status,
             reason,
+            capability_source_mode,
         }
+    }
+}
+
+fn capability_decision_to_guard(decision: CapabilityDecision) -> GuardDecision {
+    let status = if decision.allowed {
+        StatusCode::OK
+    } else if matches!(
+        decision.reason,
+        "missing_caller_identity" | "invalid_caller_identity"
+    ) {
+        StatusCode::UNAUTHORIZED
+    } else {
+        StatusCode::FORBIDDEN
+    };
+    GuardDecision {
+        allowed: decision.allowed,
+        status,
+        reason: decision.reason,
+        capability_source_mode: decision.source_mode,
     }
 }
 
@@ -272,6 +311,7 @@ struct SafeAuditMetadata {
     caller_source: &'static str,
     decision_allowed: bool,
     decision_reason: &'static str,
+    capability_source_mode: &'static str,
     query_keys: Vec<String>,
     page_size: Option<usize>,
 }
@@ -282,6 +322,7 @@ struct SafeObservabilityMetadata {
     operation_name: &'static str,
     decision_allowed: bool,
     decision_reason: &'static str,
+    capability_source_mode: &'static str,
     status_code: u16,
     route_enabled: bool,
     rate_limit_max_requests: usize,
@@ -311,7 +352,11 @@ async fn list_dry_run_audit(
             &route_state,
             "list_historical_dry_run_audit",
             "",
-            GuardDecision::deny(StatusCode::UNAUTHORIZED, "missing_caller_identity"),
+            GuardDecision::deny(
+                StatusCode::UNAUTHORIZED,
+                "missing_caller_identity",
+                "supabase_sub",
+            ),
             query_keys(&query),
             page_size(&query),
         );
@@ -373,7 +418,11 @@ async fn get_dry_run_audit_detail(
             &route_state,
             "get_historical_dry_run_audit_detail",
             "",
-            GuardDecision::deny(StatusCode::UNAUTHORIZED, "missing_caller_identity"),
+            GuardDecision::deny(
+                StatusCode::UNAUTHORIZED,
+                "missing_caller_identity",
+                "supabase_sub",
+            ),
             vec!["plan_id".to_string()],
             None,
         );
@@ -429,7 +478,11 @@ fn validate_list_query(
     query: &HashMap<String, String>,
 ) -> GuardDecision {
     if query.len() > config.max_query_params {
-        return GuardDecision::deny(StatusCode::BAD_REQUEST, "too_many_query_params");
+        return GuardDecision::deny(
+            StatusCode::BAD_REQUEST,
+            "too_many_query_params",
+            "route_guard",
+        );
     }
 
     let mut filter_count = 0;
@@ -437,10 +490,18 @@ fn validate_list_query(
         let key_allowed = CONTROL_QUERY_PARAMS.contains(&key.as_str());
         let filter_allowed = ALLOWED_FILTERS.contains(&key.as_str());
         if !key_allowed && !filter_allowed {
-            return GuardDecision::deny(StatusCode::BAD_REQUEST, "unsupported_query_param");
+            return GuardDecision::deny(
+                StatusCode::BAD_REQUEST,
+                "unsupported_query_param",
+                "route_guard",
+            );
         }
         if value.len() > config.max_param_length {
-            return GuardDecision::deny(StatusCode::BAD_REQUEST, "query_param_too_large");
+            return GuardDecision::deny(
+                StatusCode::BAD_REQUEST,
+                "query_param_too_large",
+                "route_guard",
+            );
         }
         if filter_allowed {
             filter_count += 1;
@@ -448,37 +509,53 @@ fn validate_list_query(
     }
 
     if filter_count > config.max_filters {
-        return GuardDecision::deny(StatusCode::BAD_REQUEST, "too_many_filters");
+        return GuardDecision::deny(StatusCode::BAD_REQUEST, "too_many_filters", "route_guard");
     }
     if let Some(sort_by) = query.get("sort_by") {
         if !ALLOWED_SORT_FIELDS.contains(&sort_by.as_str()) {
-            return GuardDecision::deny(StatusCode::BAD_REQUEST, "unsupported_sort_field");
+            return GuardDecision::deny(
+                StatusCode::BAD_REQUEST,
+                "unsupported_sort_field",
+                "route_guard",
+            );
         }
     }
     if let Some(sort_direction) = query.get("sort_direction") {
         if !ALLOWED_SORT_DIRECTIONS.contains(&sort_direction.as_str()) {
-            return GuardDecision::deny(StatusCode::BAD_REQUEST, "unsupported_sort_direction");
+            return GuardDecision::deny(
+                StatusCode::BAD_REQUEST,
+                "unsupported_sort_direction",
+                "route_guard",
+            );
         }
     }
     if let Some(limit) = query.get("limit") {
         if parse_bounded_usize(limit, 1, config.max_page_size).is_none() {
-            return GuardDecision::deny(StatusCode::BAD_REQUEST, "limit_out_of_bounds");
+            return GuardDecision::deny(
+                StatusCode::BAD_REQUEST,
+                "limit_out_of_bounds",
+                "route_guard",
+            );
         }
     }
     if let Some(offset) = query.get("offset") {
         if parse_bounded_usize(offset, 0, 10_000).is_none() {
-            return GuardDecision::deny(StatusCode::BAD_REQUEST, "offset_out_of_bounds");
+            return GuardDecision::deny(
+                StatusCode::BAD_REQUEST,
+                "offset_out_of_bounds",
+                "route_guard",
+            );
         }
     }
 
-    GuardDecision::allow("query_complexity_accepted")
+    GuardDecision::allow("query_complexity_accepted", "route_guard")
 }
 
 fn validate_plan_id(config: &HistoricalAuditRouteConfig, plan_id: &str) -> GuardDecision {
     if !is_safe_id(plan_id, config.max_plan_id_length) {
-        return GuardDecision::deny(StatusCode::BAD_REQUEST, "invalid_plan_id");
+        return GuardDecision::deny(StatusCode::BAD_REQUEST, "invalid_plan_id", "route_guard");
     }
-    GuardDecision::allow("detail_query_complexity_accepted")
+    GuardDecision::allow("detail_query_complexity_accepted", "route_guard")
 }
 
 fn denied_envelope(
@@ -517,6 +594,7 @@ fn placeholder_envelope(
     let decision = GuardDecision::deny(
         StatusCode::NOT_IMPLEMENTED,
         "service_delegation_unavailable",
+        "service_boundary",
     );
     (
         StatusCode::NOT_IMPLEMENTED,
@@ -581,6 +659,7 @@ fn build_envelope(
             caller_source: "supabase_sub",
             decision_allowed: context.decision.allowed,
             decision_reason: context.decision.reason,
+            capability_source_mode: context.decision.capability_source_mode,
             query_keys: safe_query_keys,
             page_size: context.page_size,
         },
@@ -589,6 +668,7 @@ fn build_envelope(
             operation_name: context.operation_name,
             decision_allowed: context.decision.allowed,
             decision_reason: context.decision.reason,
+            capability_source_mode: context.decision.capability_source_mode,
             status_code: context.decision.status.as_u16(),
             route_enabled: state.config.route_enabled,
             rate_limit_max_requests: state.config.rate_limit_max_requests,
@@ -852,9 +932,7 @@ mod tests {
 
     #[tokio::test]
     async fn valid_auth_but_disabled_switch_still_denies_access() {
-        let mut config = HistoricalAuditRouteConfig::default();
-        config.authorized_callers.insert("operator-123".to_string());
-        let response = test_router(config)
+        let response = test_router(HistoricalAuditRouteConfig::default())
             .oneshot(get_with_token(
                 HISTORICAL_AUDIT_LIST_PATH,
                 &token(Some("operator-123"), 300),
@@ -864,6 +942,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let body = response_json(response).await;
         assert_eq!(body["error_category"], "route_disabled");
+        assert_eq!(body["audit"]["capability_source_mode"], "unavailable");
     }
 
     #[tokio::test]

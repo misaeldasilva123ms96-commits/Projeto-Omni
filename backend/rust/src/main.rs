@@ -1,4 +1,5 @@
 mod error;
+mod historical_audit_capability;
 mod observability;
 mod observability_auth;
 mod protected_historical_audit;
