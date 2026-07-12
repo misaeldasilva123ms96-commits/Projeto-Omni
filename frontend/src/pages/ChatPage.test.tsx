@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OmniShell } from '../components/shell/OmniShell'
 import type { RenderOmniShell } from '../app/App'
 import { ChatPage } from './ChatPage'
@@ -95,12 +95,32 @@ describe('ChatPage runtime chat integration', () => {
   )
 
   beforeEach(() => {
+    vi.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler, _timeout?: number, ...args: unknown[]) => {
+      queueMicrotask(() => {
+        if (typeof handler === 'function') {
+          handler(...args)
+          return
+        }
+
+        Function(handler)()
+      })
+      return 0
+    }) as typeof window.setTimeout)
     localStorage.clear()
     mocks.sendOmniMessage.mockReset()
     mocks.runtimePanelProps.mockClear()
   })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function setupUser() {
+    return userEvent.setup()
+  }
+
   it('handles API success and streams assistant response', async () => {
+    const user = setupUser()
     mocks.sendOmniMessage.mockResolvedValue({
       response: 'Resposta do runtime Omni.',
       runtime_mode: 'FULL_COGNITIVE_RUNTIME',
@@ -119,8 +139,8 @@ describe('ChatPage runtime chat integration', () => {
       />,
     )
 
-    await userEvent.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Olá Omni')
-    await userEvent.click(screen.getByRole('button', { name: /Enviar/i }))
+    await user.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Olá Omni')
+    await user.click(screen.getByRole('button', { name: /Enviar/i }))
 
     expect(mocks.sendOmniMessage).toHaveBeenCalledWith('Olá Omni', expect.any(Object))
     await waitFor(() => expect(screen.getByText(/Resposta do runtime Omni/i)).toBeInTheDocument(), { timeout: 4000 })
@@ -128,6 +148,7 @@ describe('ChatPage runtime chat integration', () => {
   }, 10_000)
 
   it('handles API error safely', async () => {
+    const user = setupUser()
     mocks.sendOmniMessage.mockRejectedValue(new Error('backend offline'))
 
     render(
@@ -140,14 +161,15 @@ describe('ChatPage runtime chat integration', () => {
       />,
     )
 
-    await userEvent.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Falhe com segurança')
-    await userEvent.click(screen.getByRole('button', { name: /Enviar/i }))
+    await user.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Falhe com segurança')
+    await user.click(screen.getByRole('button', { name: /Enviar/i }))
 
     await waitFor(() => expect(screen.getByText(/backend offline/i)).toBeInTheDocument(), { timeout: 4000 })
     expect(screen.getByText(/Não consegui processar sua mensagem/i)).toBeInTheDocument()
   }, 10_000)
 
   it('binds the latest live runtime response to the inspector snapshot', async () => {
+    const user = setupUser()
     mocks.sendOmniMessage.mockResolvedValue({
       response: 'Resposta com runtime.',
       cognitive_runtime_inspection: {
@@ -173,8 +195,8 @@ describe('ChatPage runtime chat integration', () => {
       />,
     )
 
-    await userEvent.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Mostre o runtime')
-    await userEvent.click(screen.getByRole('button', { name: /Enviar/i }))
+    await user.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Mostre o runtime')
+    await user.click(screen.getByRole('button', { name: /Enviar/i }))
 
     await waitFor(() => {
       expect(screen.getByTestId('runtime-panel')).toHaveTextContent(
@@ -184,6 +206,7 @@ describe('ChatPage runtime chat integration', () => {
   }, 10_000)
 
   it('preserves chat success when runtime inspector metadata is absent', async () => {
+    const user = setupUser()
     mocks.sendOmniMessage.mockResolvedValue({
       response: 'Resposta sem metadados.',
     })
@@ -198,8 +221,8 @@ describe('ChatPage runtime chat integration', () => {
       />,
     )
 
-    await userEvent.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Continue sem metadados')
-    await userEvent.click(screen.getByRole('button', { name: /Enviar/i }))
+    await user.type(screen.getByPlaceholderText('Digite uma mensagem...'), 'Continue sem metadados')
+    await user.click(screen.getByRole('button', { name: /Enviar/i }))
 
     await waitFor(() => expect(screen.getByText('Resposta sem metadados.')).toBeInTheDocument(), { timeout: 4000 })
     expect(screen.getByTestId('runtime-panel')).toHaveTextContent(
