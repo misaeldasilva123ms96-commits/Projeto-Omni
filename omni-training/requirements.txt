@@ -1,6 +1,6 @@
 datasets>=5.0.0
 huggingface_hub>=1.23.0
-transformers>=5.12.1
+transformers>=5.13.1
 peft>=0.19.1
 accelerate>=1.14.0
 torch>=2.12.1
