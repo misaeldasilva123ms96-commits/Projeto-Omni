@@ -14,7 +14,19 @@ A prioridade e transformar fundacoes estaticas e metadata-only em sinais operaci
 
 Este roadmap nao autoriza codigo, runtime, frontend, manifestos, endpoints ou integracoes. Ele ordena futuros PRs independentes e define seus criterios de aceite.
 
-## 2. Estado atual apos os PRs #490 a #496
+Este documento e o roadmap tematico dos trilhos nativos de provider routing, observabilidade, scoring, Provider Center, governed tool execution e MCP/A2A originados apos o ciclo #490 a #496. Ele nao e o roadmap mestre de todo o repositorio. Nao substitui `ROADMAP.md`, `docs/status/current-state.md` nem os trilhos de historical dry-run audit, API e capability governados de forma independente. Tambem nao sobrescreve nenhum PR merged ou pending fora deste trilho tematico.
+
+## 2. Baseline do ciclo #490 a #496
+
+Este baseline descreve somente o ciclo tematico #490 a #496. Ele nao representa o estado completo e atual de `main`.
+
+**Document baseline:**
+
+- main commit: `b0f3e39abbc1135234b1edf9b3136e1287e2f83d`
+- includes PR #530
+- snapshot date: `2026-07-12`
+
+O PR #530 e os trilhos de historical dry-run audit nao fazem parte do escopo derivado do ciclo #490 a #496. Sua presenca no baseline registra apenas o snapshot real de `main` usado para este documento.
 
 | PR | Estado entregue |
 | --- | --- |
@@ -27,6 +39,19 @@ Este roadmap nao autoriza codigo, runtime, frontend, manifestos, endpoints ou in
 | #496 | Encerramento documental do ciclo, riscos residuais e limites de compliance consolidados. |
 
 O Omni permanece um sistema experimental, governado e orientado por evidencias. Sucesso de transporte nao equivale a sucesso cognitivo. Toda leitura operacional deve considerar modo de runtime, provider, fallback, policy, tools, provenance e falhas sanitizadas.
+
+## Trilhos paralelos nao substituidos por este roadmap
+
+Continuam independentes e nao sao reabertos, substituidos ou autorizados por este roadmap:
+
+- historical dry-run audit evidence/query service;
+- protected Rust route skeleton;
+- capability source `historical_audit:read`;
+- Supabase capability adapter design;
+- production router, que permanece unwired;
+- route enablement e endpoint exposure, que permanecem governados separadamente.
+
+Qualquer continuidade desses trilhos exige seus proprios contratos, branches, reviews e aprovacoes. Este documento nao autoriza implementacao, wiring, enablement ou exposure para nenhum deles.
 
 ## 3. Capacidades ja entregues
 
@@ -102,7 +127,7 @@ Antes de qualquer implementacao, produzir ADR independente com casos de uso nati
 
 MCP/A2A real permanece bloqueado ate a aprovacao manual do ADR e de um plano de implementacao separado.
 
-## 6. Ordem recomendada dos proximos PRs
+## 6. Ordem recomendada dos proximos PRs deste trilho tematico
 
 | Ordem | PR recomendado | Tipo | Dependencia |
 | --- | --- | --- | --- |
@@ -220,5 +245,7 @@ Cada PR deve ser draft inicialmente quando CI, security review ou validacao de a
 ## 10. Governanca do roadmap
 
 Este roadmap deve ser atualizado quando uma fase mudar de proposta para implementacao, quando sinais autoritativos forem introduzidos ou quando um risco residual mudar de severidade. Atualizacoes devem citar evidencia de PR e validacao do proprio Omni.
+
+Antes de iniciar qualquer fase listada, ela deve ser comparada com o estado corrente de `main`. Branches paralelas existentes e contratos ja merged nao podem ser duplicados, contraditos ou silenciosamente substituidos. Todo PR de implementacao deve citar seus contratos predecessores exatos e o baseline corrente de `main`.
 
 O roadmap nao concede autorizacao implicita. Cada fase requer escopo explicito, branch propria, validacoes proporcionais ao risco, draft PR quando houver pendencias e merge manual pelo Misael. Itens nao aprovados permanecem bloqueados.
