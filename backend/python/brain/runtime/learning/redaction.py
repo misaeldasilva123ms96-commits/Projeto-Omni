@@ -71,7 +71,6 @@ _CPF_RE = re.compile(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)")
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(password|passphrase|token|secret|api[_-]?key|access[_-]?key|client[_-]?secret)\s*[:=]\s*([\"']?)([^\s,;}\]]+)\2"
 )
-_PRIVATE_KEY_RE = re.compile(r"-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----.*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----", re.DOTALL)
 _URL_CREDENTIAL_RE = re.compile(r"(?i)(https?://)([^\s/@:]+):([^\s/@]+)@")
 _UNIX_PATH_RE = re.compile(r"(?<!\w)/(?:home|root|tmp|var|usr|etc)(?:/[^\s\"'`{}[\],;:]+)+")
 _WINDOWS_PATH_RE = re.compile(
@@ -86,6 +85,42 @@ def _dangerous_key(key: Any) -> bool:
     return any(fragment in normalized for fragment in _DANGEROUS_KEY_FRAGMENTS)
 
 
+def _redact_private_keys(text: str) -> str:
+    """Redact PEM private-key blocks with a bounded, linear scan."""
+    begin_prefix = "-----BEGIN"
+    header_suffix = " PRIVATE KEY-----"
+    cursor = 0
+    chunks: list[str] = []
+    while True:
+        begin = text.find(begin_prefix, cursor)
+        if begin < 0:
+            chunks.append(text[cursor:])
+            return "".join(chunks)
+
+        label_start = begin + len(begin_prefix)
+        # PEM labels are short. Bounding this lookup prevents repeated markers
+        # in uncontrolled input from causing polynomial backtracking behavior.
+        header_end = text.find(header_suffix, label_start, min(len(text), label_start + 40))
+        if header_end < 0:
+            chunks.append(text[cursor : label_start])
+            cursor = label_start
+            continue
+
+        label = text[label_start:header_end]
+        if label and (not label.startswith(" ") or not label[1:].isalnum() or not label[1:].isupper()):
+            chunks.append(text[cursor : label_start])
+            cursor = label_start
+            continue
+
+        end_marker = f"-----END{label} PRIVATE KEY-----"
+        block_end = text.find(end_marker, header_end + len(header_suffix))
+        chunks.append(text[cursor:begin])
+        chunks.append("[REDACTED_PRIVATE_KEY]")
+        if block_end < 0:
+            return "".join(chunks)
+        cursor = block_end + len(end_marker)
+
+
 def redact_sensitive_text(value: Any) -> str:
     text = str(value or "")
     text = _SUPABASE_URL_RE.sub("[REDACTED_SUPABASE_URL]", text)
@@ -98,7 +133,7 @@ def redact_sensitive_text(value: Any) -> str:
     text = _BR_PHONE_RE.sub("[REDACTED_PHONE]", text)
     text = _CPF_RE.sub("[REDACTED_CPF]", text)
     text = _SECRET_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}=[REDACTED_SECRET]", text)
-    text = _PRIVATE_KEY_RE.sub("[REDACTED_PRIVATE_KEY]", text)
+    text = _redact_private_keys(text)
     text = _URL_CREDENTIAL_RE.sub(r"\1[REDACTED_CREDENTIALS]@", text)
     text = _UNIX_PATH_RE.sub("[REDACTED_PATH]", text)
     text = _WINDOWS_PATH_RE.sub("[REDACTED_PATH]", text)
