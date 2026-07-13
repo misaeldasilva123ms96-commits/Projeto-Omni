@@ -47,7 +47,10 @@ def execute_engineering_action(
 ) -> dict[str, Any]:
     tool = str(action.get("selected_tool", ""))
     arguments = dict(action.get("tool_arguments", {}) or {})
+    project_root = Path(project_root).resolve()
     workspace_root = Path(arguments.get("workspace_root") or project_root).resolve()
+    if not _is_allowed_workspace_root(project_root, workspace_root):
+        return _error(tool, "workspace_outside_allowed_roots", "Requested workspace is outside the allowed project roots.")
     governance_decision = evaluate_tool_governance(action)
     if not governance_decision.get("allowed"):
         return build_governance_blocked_result(tool, governance_decision)
@@ -357,6 +360,16 @@ def _resolve_workspace_target(workspace_root: Path, raw_path: str) -> Path | Non
         return target
     except (OSError, ValueError):
         return None
+
+
+def _is_allowed_workspace_root(project_root: Path, workspace_root: Path) -> bool:
+    allowed = [project_root.resolve()]
+    configured = str(os.getenv("OMNI_ENGINEERING_ALLOWED_ROOTS", "") or "").strip()
+    for raw_root in configured.split(os.pathsep):
+        if raw_root.strip():
+            allowed.append(Path(raw_root).expanduser().resolve())
+    resolved = workspace_root.resolve()
+    return any(resolved == root or root in resolved.parents for root in allowed)
 
 
 def _public_demo_mode() -> bool:

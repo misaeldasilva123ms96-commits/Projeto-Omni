@@ -6,6 +6,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,11 +17,13 @@ sys.path.insert(0, str(PYTHON_ROOT))
 import brain_service  # noqa: E402
 
 
-def _request(method: str, url: str, payload: dict | None = None, content_type: str = "application/json") -> tuple[int, dict]:
+def _request(method: str, url: str, payload: dict | None = None, content_type: str = "application/json", token: str = "") -> tuple[int, dict]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
         req.add_header("content-type", content_type)
+    if token:
+        req.add_header("authorization", f"Bearer {token}")
     try:
         with urllib.request.urlopen(req, timeout=5) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
@@ -106,7 +109,9 @@ def test_service_run_error_and_malformed_request_use_taxonomy_shape() -> None:
     assert "RuntimeError" not in serialized
 
 
-def test_http_endpoints_work_without_public_exposure_or_cors() -> None:
+def test_http_endpoints_require_service_auth_without_public_exposure_or_cors(monkeypatch) -> None:
+    token = "t" * 32
+    monkeypatch.setenv("OMNI_PYTHON_SERVICE_TOKEN", token)
     server = brain_service.create_server("127.0.0.1", 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -120,12 +125,27 @@ def test_http_endpoints_work_without_public_exposure_or_cors() -> None:
         assert status == 200
         assert readiness["checks"]["public_payload_sanitizer"] is True
 
-        status, bad = _request("POST", f"{base_url}/internal/brain/run", {"message": "ola"}, content_type="text/plain")
+        status, denied = _request("POST", f"{base_url}/internal/brain/run", {"message": "ola"})
+        assert status == 401
+        assert denied["reason"] == "service_auth_required"
+
+        status, bad = _request("POST", f"{base_url}/internal/brain/run", {"message": "ola"}, content_type="text/plain", token=token)
         assert status == 415
         assert bad["error_public_code"] == "INVALID_CONTENT_TYPE"
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_service_binding_requires_token_and_strong_token_off_loopback(monkeypatch) -> None:
+    monkeypatch.delenv("OMNI_PYTHON_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("OMINI_PYTHON_SERVICE_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="TOKEN is required"):
+        brain_service.create_server("127.0.0.1", 0)
+
+    monkeypatch.setenv("OMNI_PYTHON_SERVICE_TOKEN", "short")
+    with pytest.raises(RuntimeError, match="strong service token"):
+        brain_service.create_server("0.0.0.0", 0)
 
 
 def test_stdin_main_path_still_emits_json() -> None:

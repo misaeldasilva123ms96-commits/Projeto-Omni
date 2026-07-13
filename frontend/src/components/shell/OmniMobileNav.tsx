@@ -1,4 +1,4 @@
-import { useCallback, type JSX } from 'react'
+import { useRef, type JSX, type KeyboardEvent } from 'react'
 
 type MobilePanel = 'sidebar' | 'content' | 'inspector'
 
@@ -38,6 +38,7 @@ const PANEL_CONFIG: Record<MobilePanel, { label: string; icon: JSX.Element }> = 
 }
 
 export function OmniMobileNav({ activePanel, onSelect, hasSidebar, hasRightPanel }: OmniMobileNavProps) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const panels: Array<{ id: MobilePanel } & typeof PANEL_CONFIG['sidebar']> = []
   if (hasSidebar) panels.push({ id: 'sidebar', ...PANEL_CONFIG.sidebar })
   panels.push({ id: 'content', ...PANEL_CONFIG.content })
@@ -47,25 +48,42 @@ export function OmniMobileNav({ activePanel, onSelect, hasSidebar, hasRightPanel
     return null
   }
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = panels.findIndex(({ id }) => id === activePanel)
+    let nextIndex: number | null = null
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % panels.length
+    if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + panels.length) % panels.length
+    if (event.key === 'Home') nextIndex = 0
+    if (event.key === 'End') nextIndex = panels.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    onSelect(panels[nextIndex].id)
+    tabRefs.current[nextIndex]?.focus()
+  }
+
   return (
     <div
       role="tablist"
       aria-label="Panel navigation"
       className="mb-3 grid gap-2 sm:mb-4 lg:hidden"
       style={{ gridTemplateColumns: `repeat(${panels.length}, 1fr)` }}
+      onKeyDown={handleKeyDown}
     >
-      {panels.map(({ id, label, icon }) => (
+      {panels.map(({ id, label, icon }, index) => (
         <button
           key={id}
           role="tab"
           aria-selected={activePanel === id}
-          aria-controls={id === 'content' ? 'main-content' : undefined}
+          aria-controls={id === 'content' ? 'main-content' : `mobile-panel-${id}`}
+          id={`mobile-tab-${id}`}
           className={`flex items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition active:translate-y-px ${
             activePanel === id
               ? 'border-neon-purple/40 bg-neon-purple/14 text-white'
               : 'border-white/8 bg-white/[0.04] text-slate-400 hover:text-white'
           }`}
           onClick={() => onSelect(id)}
+          ref={(node) => { tabRefs.current[index] = node }}
+          tabIndex={activePanel === id ? 0 : -1}
           type="button"
         >
           {icon}

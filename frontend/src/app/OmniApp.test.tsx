@@ -30,9 +30,10 @@ describe('OmniApp shell ownership', () => {
     window.history.replaceState({}, '', '/')
   })
 
-  it('renders exactly one application shell for the active view', () => {
+  it('renders exactly one application shell for the active view', async () => {
     render(<OmniApp />)
 
+    await screen.findByText('Chat sidebar')
     expect(screen.getAllByRole('banner')).toHaveLength(1)
     expect(screen.getAllByRole('main')).toHaveLength(1)
     expect(screen.getByText('Chat sidebar')).toBeInTheDocument()
@@ -41,10 +42,10 @@ describe('OmniApp shell ownership', () => {
   it('keeps one shell while navigating between current views', async () => {
     render(<OmniApp />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open dashboard' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Open dashboard' }))
 
     expect(window.location.pathname).toBe('/dashboard')
-    expect(screen.getByText('Dashboard content')).toBeInTheDocument()
+    expect(await screen.findByText('Dashboard content')).toBeInTheDocument()
     expect(screen.getAllByRole('banner')).toHaveLength(1)
     expect(screen.getAllByRole('main')).toHaveLength(1)
   })

@@ -1,5 +1,5 @@
-import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { OmniTopbar } from './OmniTopbar'
 import { OmniMobileNav } from './OmniMobileNav'
@@ -40,6 +40,8 @@ export function OmniShell({
 }: OmniShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('content')
+  const mobileDrawerRef = useRef<HTMLElement | null>(null)
+  const reduceMotion = useReducedMotion()
 
   const handleMobileSelect = useCallback((panel: MobilePanel) => {
     setMobilePanel(panel)
@@ -47,6 +49,21 @@ export function OmniShell({
 
   const hasSidebar = !!sidebar && showSidebar
   const hasRightPanel = !!rightPanel && showRightPanel
+
+  useEffect(() => {
+    if (mobilePanel === 'content') return
+    const drawer = mobileDrawerRef.current
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    drawer?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])')?.focus()
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setMobilePanel('content')
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      previouslyFocused?.focus()
+    }
+  }, [mobilePanel])
 
   return (
     <div className="min-h-screen overflow-hidden bg-cosmic-gradient text-slate-50">
@@ -77,7 +94,7 @@ export function OmniShell({
           animate={{ opacity: 1, y: 0 }}
           className="grid min-h-[calc(100vh-4rem)] gap-4"
           initial={{ opacity: 0, y: 12 }}
-          transition={{ duration: 0.45, ease: 'easeOut' }}
+          transition={{ duration: reduceMotion ? 0 : 0.45, ease: 'easeOut' }}
           style={{
             gridTemplateColumns: hasSidebar
               ? sidebarCollapsed
@@ -99,6 +116,8 @@ export function OmniShell({
               </AnimatePresence>
 
               <aside
+                id="mobile-panel-sidebar"
+                ref={mobilePanel === 'sidebar' ? mobileDrawerRef : undefined}
                 role="navigation"
                 aria-label="Sidebar"
                 className={`${
@@ -130,6 +149,7 @@ export function OmniShell({
 
           <main
             id="main-content"
+            aria-labelledby="mobile-tab-content"
             role="main"
             className={`${
               mobilePanel === 'content' ? 'block' : 'hidden'
@@ -147,6 +167,8 @@ export function OmniShell({
               </AnimatePresence>
 
               <aside
+                id="mobile-panel-inspector"
+                ref={mobilePanel === 'inspector' ? mobileDrawerRef : undefined}
                 role="region"
                 aria-label="Runtime inspector"
                 className={`${

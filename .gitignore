@@ -40,6 +40,7 @@ backend/python/brain/evolution/*.json
 backend/python/brain/evolution/snapshots/
 backend/python/memory/learning.json
 backend/python/memory.json
+backend/python/memory.json.lock
 memory.json
 sessions/
 *.session.json

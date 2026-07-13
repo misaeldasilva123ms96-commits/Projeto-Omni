@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..persistence import atomic_write_json, file_lock
+
 
 DEFAULT_HISTORY_LIMIT = 6
 
@@ -104,10 +106,8 @@ def save_memory_store(memory_path: Path, memory_store: dict[str, object], histor
     }
 
     try:
-        memory_path.write_text(
-            json.dumps(safe_store, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        with file_lock(memory_path):
+            atomic_write_json(memory_path, safe_store)
     except Exception:
         pass
 

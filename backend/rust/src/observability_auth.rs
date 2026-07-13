@@ -24,6 +24,7 @@ use axum::{
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::AppState;
 
@@ -212,6 +213,75 @@ struct SupabaseClaims {
     exp: usize,
     iss: String,
     sub: Option<String>,
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    app_metadata: Value,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AuthenticatedSubject {
+    pub(crate) user_id: String,
+    capabilities: Vec<String>,
+    roles: Vec<String>,
+}
+
+impl AuthenticatedSubject {
+    pub(crate) fn can_read_control(&self) -> bool {
+        self.is_control_admin()
+            || self
+                .capabilities
+                .iter()
+                .any(|v| matches!(v.as_str(), "run_control:read" | "run_control:write"))
+    }
+
+    pub(crate) fn can_write_control(&self) -> bool {
+        self.is_control_admin() || self.capabilities.iter().any(|v| v == "run_control:write")
+    }
+
+    pub(crate) fn is_control_admin(&self) -> bool {
+        self.roles.iter().any(|v| {
+            matches!(
+                v.as_str(),
+                "admin" | "operator" | "service_role" | "omni_operator"
+            )
+        }) || self.capabilities.iter().any(|v| v == "run_control:admin")
+    }
+}
+
+fn string_values(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::String(value)) => vec![value.trim().to_ascii_lowercase()],
+        Some(Value::Array(values)) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| !v.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn authenticated_subject(claims: &SupabaseClaims) -> Option<AuthenticatedSubject> {
+    let user_id = claims.sub.as_deref()?.trim();
+    if user_id.is_empty() {
+        return None;
+    }
+    let metadata = claims.app_metadata.as_object();
+    let mut roles = claims
+        .role
+        .as_deref()
+        .map(|v| vec![v.trim().to_ascii_lowercase()])
+        .unwrap_or_default();
+    roles.extend(string_values(metadata.and_then(|v| v.get("role"))));
+    roles.extend(string_values(metadata.and_then(|v| v.get("roles"))));
+    let mut capabilities = string_values(metadata.and_then(|v| v.get("capabilities")));
+    capabilities.extend(string_values(metadata.and_then(|v| v.get("permissions"))));
+    Some(AuthenticatedSubject {
+        user_id: user_id.to_string(),
+        capabilities,
+        roles,
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -292,9 +362,11 @@ pub(crate) async fn require_supabase_auth(
 
     match state.supabase_auth.validate_token(token) {
         Ok(claims) => {
-            if let Some(user_id) = claims.sub {
-                req.extensions_mut().insert(user_id);
-            }
+            let Some(subject) = authenticated_subject(&claims) else {
+                return unauthorized_response();
+            };
+            req.extensions_mut().insert(subject.user_id.clone());
+            req.extensions_mut().insert(subject);
             next.run(req).await
         }
         Err(_) => unauthorized_response(),

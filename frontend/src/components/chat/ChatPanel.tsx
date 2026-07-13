@@ -129,7 +129,7 @@ export function ChatPanel({
               <div className="text-xs uppercase tracking-[0.35em] text-slate-400">Hoje</div>
               <div className="mt-1 text-sm text-slate-300/80">Sessão {sessionId}</div>
             </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs uppercase tracking-[0.3em] text-slate-300">
+            <div aria-live="polite" role="status" className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs uppercase tracking-[0.3em] text-slate-300">
               <span className={`mr-2 inline-block h-2 w-2 rounded-full ${runtimeActive ? 'bg-neon-cyan omni-active-dot' : 'bg-slate-500'}`} />
               {requestState}
             </div>
@@ -188,11 +188,14 @@ export function ChatPanel({
           }
         >
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
+            <div aria-label="Painéis da conversa" className="flex flex-wrap gap-2" role="tablist">
               {BOTTOM_TABS.map((tab) => {
                 const active = activeTab === tab.id
                 return (
                   <button
+                    aria-selected={active}
+                    role="tab"
+                    tabIndex={active ? 0 : -1}
                     key={tab.id}
                     className={`rounded-2xl border px-3 py-1.5 text-xs transition ${
                       active

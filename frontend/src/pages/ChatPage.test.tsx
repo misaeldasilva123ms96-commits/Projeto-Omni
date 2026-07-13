@@ -119,7 +119,7 @@ describe('ChatPage runtime chat integration', () => {
     return userEvent.setup()
   }
 
-  it('handles API success and streams assistant response', async () => {
+  it('renders a successful API response without an artificial reveal delay', async () => {
     const user = setupUser()
     mocks.sendOmniMessage.mockResolvedValue({
       response: 'Resposta do runtime Omni.',
@@ -146,6 +146,28 @@ describe('ChatPage runtime chat integration', () => {
     await waitFor(() => expect(screen.getByText(/Resposta do runtime Omni/i)).toBeInTheDocument(), { timeout: 4000 })
     expect(screen.getByText(/Mode: FULL_COGNITIVE_RUNTIME/i)).toBeInTheDocument()
   }, 10_000)
+
+  it('keeps the conversation usable when browser storage is disabled', async () => {
+    const user = setupUser()
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage disabled', 'SecurityError')
+    })
+    mocks.sendOmniMessage.mockResolvedValue({ response: 'Resposta mantida em memória.' })
+
+    render(
+      <ChatPage
+        mode="chat"
+        onChangeMode={vi.fn()}
+        onChangeView={vi.fn()}
+        renderShell={renderShell}
+        view="chat"
+      />,
+    )
+
+    await user.type(screen.getByLabelText('Mensagem para o Omni'), 'Continuar sem storage')
+    await user.click(screen.getByRole('button', { name: 'Enviar mensagem' }))
+    await waitFor(() => expect(screen.getByText('Resposta mantida em memória.')).toBeInTheDocument())
+  })
 
   it('handles API error safely', async () => {
     const user = setupUser()

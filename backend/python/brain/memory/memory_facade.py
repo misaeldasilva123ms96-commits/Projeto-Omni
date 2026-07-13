@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,8 @@ from .memory_models import (
 )
 from .sqlite_adapter import SQLiteAdapter
 
+LOGGER = logging.getLogger(__name__)
+
 
 class MemoryFacade:
     def __init__(
@@ -60,6 +63,13 @@ class MemoryFacade:
         self._jsonl: JSONLAuditMirror | None = None
         self._initialized = False
         self._init_error: str | None = None
+        self._operation_diagnostics: dict[str, Any] = {
+            "degraded": False,
+            "failure_count": 0,
+            "last_failed_operation": "",
+            "last_error_category": "",
+            "last_failed_at": "",
+        }
         self._autonomy_cleanup_diagnostics: dict[str, Any] = {
             "expired_state_cleanup_supported": False,
             "last_cleanup_attempted_at": "",
@@ -109,6 +119,22 @@ class MemoryFacade:
     def is_sqlite_connected(self) -> bool:
         return self._sqlite is not None and self._sqlite.is_connected
 
+    @property
+    def operation_diagnostics(self) -> dict[str, Any]:
+        """Non-sensitive visibility into storage failures after initialization."""
+        return dict(self._operation_diagnostics)
+
+    def _record_operation_failure(self, operation: str, exc: Exception) -> None:
+        category = type(exc).__name__[:80]
+        self._operation_diagnostics.update({
+            "degraded": True,
+            "failure_count": int(self._operation_diagnostics["failure_count"]) + 1,
+            "last_failed_operation": operation,
+            "last_error_category": category,
+            "last_failed_at": utc_now_iso(),
+        })
+        LOGGER.warning("memory persistence operation failed: operation=%s category=%s", operation, category)
+
     def initialize(self) -> None:
         if self._initialized:
             return
@@ -137,8 +163,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_conversation(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_conversation", exc)
         if self._jsonl is not None:
             self._jsonl.append("conversation", record.as_dict())
 
@@ -156,8 +182,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_message(safe)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_message", exc)
         if self._jsonl is not None:
             self._jsonl.append("message", safe.as_dict())
 
@@ -166,8 +192,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_episode(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_episode", exc)
         if self._jsonl is not None:
             self._jsonl.append("episode", record.as_dict())
 
@@ -176,8 +202,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_semantic_fact(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_semantic_fact", exc)
         if self._jsonl is not None:
             self._jsonl.append("semantic_fact", record.as_dict())
 
@@ -186,8 +212,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_runtime_event(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_runtime_event", exc)
         if self._jsonl is not None:
             self._jsonl.append("runtime_event", record.as_dict())
 
@@ -210,8 +236,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_provider_attempt(safe)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_provider_attempt", exc)
         if self._jsonl is not None:
             self._jsonl.append("provider_attempt", safe.as_dict())
 
@@ -220,8 +246,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_governance_event(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_governance_event", exc)
         if self._jsonl is not None:
             self._jsonl.append("governance_event", record.as_dict())
 
@@ -230,8 +256,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_learning_artifact(record)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_learning_artifact", exc)
         if self._jsonl is not None:
             self._jsonl.append("learning_artifact", record.as_dict())
 
@@ -242,8 +268,8 @@ class MemoryFacade:
             return
         try:
             self._sqlite.upsert_autonomy_session_state(safe)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._record_operation_failure("record_autonomy_session_state", exc)
 
     def record_dry_run_replan_plan_evidence(
         self,
@@ -256,13 +282,13 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_dry_run_replan_plan_evidence(safe)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_dry_run_replan_sqlite", exc)
         if self._jsonl is not None:
             try:
                 self._jsonl.append(DRY_RUN_REPLAN_PLAN_EVIDENCE_EVENT_TYPE, safe.as_dict())
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_dry_run_replan_jsonl", exc)
 
     def record_dry_run_retry_plan_evidence(
         self,
@@ -275,13 +301,13 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.insert_dry_run_retry_plan_evidence(safe)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_dry_run_retry_sqlite", exc)
         if self._jsonl is not None:
             try:
                 self._jsonl.append(DRY_RUN_RETRY_PLAN_EVIDENCE_EVENT_TYPE, safe.as_dict())
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("record_dry_run_retry_jsonl", exc)
 
     def list_dry_run_replan_plan_evidence(
         self,
@@ -305,7 +331,8 @@ class MemoryFacade:
                 limit=limit,
                 session_id=safe_session_id,
             )
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("list_dry_run_replan", exc)
             return []
 
     def list_dry_run_retry_plan_evidence(
@@ -330,7 +357,8 @@ class MemoryFacade:
                 limit=limit,
                 session_id=safe_session_id,
             )
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("list_dry_run_retry", exc)
             return []
 
     def query_historical_dry_run_audit_evidence(
@@ -367,7 +395,8 @@ class MemoryFacade:
                     sqlite_enabled=self._sqlite_enabled,
                 ))
             return apply_audit_query(items, query)
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("query_historical_dry_run", exc)
             return degraded_audit_response(
                 query,
                 error_category="query_failed",
@@ -403,7 +432,8 @@ class MemoryFacade:
             return None
         try:
             return self._sqlite.get_autonomy_session_state(safe_session_id.session_id)
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("get_autonomy_session_state", exc)
             return None
 
     def list_autonomy_session_states(self, limit: int = 50) -> list[AutonomySessionStateRecord]:
@@ -412,7 +442,8 @@ class MemoryFacade:
             return []
         try:
             return self._sqlite.list_autonomy_session_states(limit)
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("list_autonomy_session_states", exc)
             return []
 
     def cleanup_expired_autonomy_session_states(self, now: str | None = None) -> int:
@@ -439,7 +470,8 @@ class MemoryFacade:
                 "expired_state_count": expired_count,
             })
             return deleted
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("cleanup_autonomy_session_states", exc)
             self._autonomy_cleanup_diagnostics.update({
                 "expired_state_cleanup_supported": True,
                 "last_cleanup_deleted_count": 0,
@@ -464,7 +496,8 @@ class MemoryFacade:
             if diagnostics.get("cleanup_last_error_category") == "count_failed":
                 diagnostics["cleanup_last_error_category"] = ""
                 diagnostics["cleanup_degraded"] = False
-        except Exception:
+        except Exception as exc:
+            self._record_operation_failure("count_autonomy_session_states", exc)
             diagnostics["expired_state_count"] = 0
             diagnostics["cleanup_degraded"] = True
             diagnostics["cleanup_last_error_category"] = "count_failed"
@@ -475,8 +508,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 return self._sqlite.query_runtime_events(session_id, limit)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("query_runtime_events", exc)
         return []
 
     def query_provider_attempts(self, provider: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -484,8 +517,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 return self._sqlite.query_provider_attempts(provider, limit)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("query_provider_attempts", exc)
         return []
 
     def audit_records(self, limit: int = 0) -> list[dict[str, Any]]:
@@ -497,8 +530,8 @@ class MemoryFacade:
         if self._sqlite is not None:
             try:
                 self._sqlite.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                self._record_operation_failure("close_sqlite", exc)
             self._sqlite = None
         self._jsonl = None
         self._initialized = False

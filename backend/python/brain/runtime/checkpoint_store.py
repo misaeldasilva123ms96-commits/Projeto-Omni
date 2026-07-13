@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ..persistence import atomic_write_json, file_lock
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -28,7 +30,8 @@ class CheckpointStore:
             "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
         }
         try:
-            path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+            with file_lock(path):
+                atomic_write_json(path, record)
         except Exception:
             LOGGER.exception("failed to save checkpoint for run_id=%s", run_id)
         return path

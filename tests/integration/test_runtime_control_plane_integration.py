@@ -134,3 +134,15 @@ def test_governance_integration_timeout_path_updates_registry_via_run_lifecycle(
         assert record.last_action == "operator_timeout"
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_governance_integration_fails_closed_without_registry() -> None:
+    service = GovernanceIntegrationService(
+        run_registry=None,
+        get_controller=lambda: None,
+        run_lifecycle=RunLifecycleService(run_registry=None, get_controller=lambda: None),
+    )
+    assert service.await_run_control_clearance(run_id="run-missing") == {
+        "status": "blocked",
+        "error": "governance_registry_unavailable",
+    }

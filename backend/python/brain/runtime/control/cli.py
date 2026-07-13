@@ -20,18 +20,23 @@ def _build_parser() -> argparse.ArgumentParser:
     for action in ("pause", "resume", "approve", "show", "inspect_run"):
         subparser = subparsers.add_parser(action)
         subparser.add_argument("run_id")
+        _add_operator_scope(subparser)
 
     for action in ("list", "list_runs"):
         list_parser = subparsers.add_parser(action)
         list_parser.add_argument("--limit", type=int, default=50)
-    subparsers.add_parser("resolution_summary")
+        _add_operator_scope(list_parser)
+    resolution = subparsers.add_parser("resolution_summary")
+    _add_operator_scope(resolution)
     subparsers.add_parser("governance_operational")
     subparsers.add_parser("governance_snapshot")
     subparsers.add_parser("governance_attention")
     waiting = subparsers.add_parser("runs_waiting_operator")
     waiting.add_argument("--limit", type=int, default=50)
+    _add_operator_scope(waiting)
     rollback = subparsers.add_parser("runs_with_rollback")
     rollback.add_argument("--limit", type=int, default=50)
+    _add_operator_scope(rollback)
     subparsers.add_parser("list_governed_tools")
     cleanup = subparsers.add_parser("cleanup_autonomy_session_states")
     cleanup.add_argument("--now", default=None)
@@ -40,6 +45,11 @@ def _build_parser() -> argparse.ArgumentParser:
     cleanup.add_argument("--enable-sqlite", action="store_true")
     cleanup.add_argument("--dry-run", action="store_true")
     return parser
+
+
+def _add_operator_scope(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--operator-id")
+    parser.add_argument("--allow-global", action="store_true")
 
 
 def _resolve_root(raw_root: str | None) -> Path:
@@ -53,7 +63,7 @@ def _emit(payload: dict[str, object]) -> int:
     return 0
 
 
-def _record_operator_event(root: Path, *, action: str, run_id: str) -> None:
+def _record_operator_event(root: Path, *, action: str, run_id: str, operator_id: str) -> None:
     memory = RuntimeMemoryFacade(root)
     try:
         memory.record_event(
@@ -62,7 +72,7 @@ def _record_operator_event(root: Path, *, action: str, run_id: str) -> None:
             metadata={
                 "action": action,
                 "run_id": str(run_id),
-                "operator": "supabase_user",
+                "operator": operator_id,
                 "source": "control.cli",
             },
         )
@@ -74,10 +84,25 @@ def _parse_cli_run_id(run_id: str | None) -> str:
     return validate_run_id_for_operator_cli(run_id)
 
 
-def _update_run(root: Path, *, run_id: str, status: RunStatus, action: str) -> dict[str, object]:
+def _owner_id(record: object) -> str:
+    metadata = getattr(record, "metadata", {}) or {}
+    for key in ("owner_id", "user_id", "created_by", "operator_id"):
+        value = str(metadata.get(key, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _authorized(record: object, *, operator_id: str, allow_global: bool) -> bool:
+    return bool(allow_global or (_owner_id(record) and _owner_id(record) == operator_id))
+
+
+def _update_run(root: Path, *, run_id: str, status: RunStatus, action: str, operator_id: str, allow_global: bool) -> dict[str, object]:
     registry = RunRegistry(root)
     current = registry.get(run_id)
     if current is None:
+        return {"status": "error", "error": "run_not_found", "run": None}
+    if not _authorized(current, operator_id=operator_id, allow_global=allow_global):
         return {"status": "error", "error": "run_not_found", "run": None}
     controller = GovernanceResolutionController(registry)
     updated = controller.handle_operator_action(
@@ -85,17 +110,23 @@ def _update_run(root: Path, *, run_id: str, status: RunStatus, action: str) -> d
         action=action,
         progress=current.progress_score,
         decision_source="operator_cli",
-        operator_id="supabase_user",
+        operator_id=operator_id,
     )
     if updated is None:
         return {"status": "error", "error": "run_not_found", "run": None}
-    _record_operator_event(root, action=action, run_id=run_id)
+    _record_operator_event(root, action=action, run_id=run_id, operator_id=operator_id)
     return {"status": "ok", "action": action, "run": updated.as_dict()}
 
 
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
+    supplied_operator_id = getattr(args, "operator_id", None)
+    operator_id = supplied_operator_id or "local_operator"
+    # Direct CLI access is an existing local administrative interface. The
+    # authenticated HTTP bridge always supplies an operator id and therefore
+    # cannot acquire global scope through this compatibility path.
+    allow_global = bool(getattr(args, "allow_global", False) or not supplied_operator_id)
     root = _resolve_root(args.root)
     registry = RunRegistry(root)
 
@@ -104,19 +135,19 @@ def main() -> int:
             rid = _parse_cli_run_id(args.run_id)
         except ValueError as exc:
             return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
-        return _emit(_update_run(root, run_id=rid, status=RunStatus.PAUSED, action="pause"))
+        return _emit(_update_run(root, run_id=rid, status=RunStatus.PAUSED, action="pause", operator_id=operator_id, allow_global=allow_global))
     if args.command == "resume":
         try:
             rid = _parse_cli_run_id(args.run_id)
         except ValueError as exc:
             return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
-        return _emit(_update_run(root, run_id=rid, status=RunStatus.RUNNING, action="resume"))
+        return _emit(_update_run(root, run_id=rid, status=RunStatus.RUNNING, action="resume", operator_id=operator_id, allow_global=allow_global))
     if args.command == "approve":
         try:
             rid = _parse_cli_run_id(args.run_id)
         except ValueError as exc:
             return _emit({"status": "error", "error": "invalid_run_id", "message": str(exc), "run": None})
-        return _emit(_update_run(root, run_id=rid, status=RunStatus.RUNNING, action="approve"))
+        return _emit(_update_run(root, run_id=rid, status=RunStatus.RUNNING, action="approve", operator_id=operator_id, allow_global=allow_global))
     if args.command in {"show", "inspect_run"}:
         try:
             rid = _parse_cli_run_id(args.run_id)
@@ -125,21 +156,30 @@ def main() -> int:
         record = registry.get(rid)
         if record is None:
             return _emit({"status": "error", "error": "run_not_found", "run": None})
+        if not _authorized(record, operator_id=operator_id, allow_global=allow_global):
+            return _emit({"status": "error", "error": "run_not_found", "run": None})
         return _emit({"status": "ok", "run": record.as_dict()})
     if args.command in {"list", "list_runs"}:
-        runs = [item.as_dict() for item in registry.get_all(limit=max(1, args.limit))]
+        runs = [item.as_dict() for item in registry.get_all(limit=max(1, args.limit)) if _authorized(item, operator_id=operator_id, allow_global=allow_global)]
         return _emit({"status": "ok", "runs": runs})
     if args.command == "resolution_summary":
+        if not allow_global:
+            runs = [item for item in registry.get_all() if _authorized(item, operator_id=operator_id, allow_global=False)]
+            counts: dict[str, int] = {}
+            for item in runs:
+                resolution = str(getattr(item, "resolution", "") or "unresolved")
+                counts[resolution] = counts.get(resolution, 0) + 1
+            return _emit({"status": "ok", "summary": {"resolution_counts": counts}})
         return _emit({"status": "ok", "summary": registry.get_resolution_summary()})
     if args.command in {"governance_operational", "governance_snapshot"}:
         return _emit({"status": "ok", "governance": build_operational_governance_snapshot(registry)})
     if args.command == "governance_attention":
         return _emit({"status": "ok", "operator_attention_runs": list_operator_attention_runs(registry)})
     if args.command == "runs_waiting_operator":
-        runs = [item.as_dict() for item in registry.get_runs_waiting_operator()]
+        runs = [item.as_dict() for item in registry.get_runs_waiting_operator() if _authorized(item, operator_id=operator_id, allow_global=allow_global)]
         return _emit({"status": "ok", "runs": runs[: max(1, args.limit)]})
     if args.command == "runs_with_rollback":
-        runs = [item.as_dict() for item in registry.get_runs_with_rollback()]
+        runs = [item.as_dict() for item in registry.get_runs_with_rollback() if _authorized(item, operator_id=operator_id, allow_global=allow_global)]
         return _emit({"status": "ok", "runs": runs[: max(1, args.limit)]})
     if args.command == "list_governed_tools":
         from brain.runtime.control.governed_tools import list_governed_tools_as_dicts

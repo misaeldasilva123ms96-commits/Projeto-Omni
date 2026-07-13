@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..persistence import atomic_write_json, atomic_write_text, file_lock, locked_json_update
+
 
 LEARNING_SCHEMA_VERSION = 2
 
@@ -45,13 +47,15 @@ class HybridMemory:
             if path.exists():
                 continue
             try:
-                path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+                with file_lock(path):
+                    if not path.exists():
+                        atomic_write_json(path, content)
             except Exception:
                 continue
 
         if not self.notes_path.exists():
             try:
-                self.notes_path.write_text("# User Notes\n", encoding="utf-8")
+                atomic_write_text(self.notes_path, "# User Notes\n")
             except Exception:
                 pass
 
@@ -69,17 +73,10 @@ class HybridMemory:
             preferencias = []
 
         try:
-            self.user_path.write_text(
-                json.dumps({"nome": nome.strip()}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            self.preferences_path.write_text(
-                json.dumps(
-                    {"preferencias": [str(item).strip() for item in preferencias if str(item).strip()]},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
+            atomic_write_json(self.user_path, {"nome": nome.strip()})
+            atomic_write_json(
+                self.preferences_path,
+                {"preferencias": [str(item).strip() for item in preferencias if str(item).strip()]},
             )
             note_lines = ["# User Notes", ""]
             if nome.strip():
@@ -90,7 +87,7 @@ class HybridMemory:
                         str(item).strip() for item in preferencias if str(item).strip()
                     )
                 )
-            self.notes_path.write_text("\n".join(note_lines).strip() + "\n", encoding="utf-8")
+            atomic_write_text(self.notes_path, "\n".join(note_lines).strip() + "\n")
         except Exception:
             return
 
@@ -129,15 +126,22 @@ class HybridMemory:
         meta["last_updated"] = datetime.now(timezone.utc).isoformat()
         payload["meta"] = meta
         try:
-            self.learning_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            with file_lock(self.learning_path):
+                atomic_write_json(self.learning_path, payload)
         except Exception:
             return
 
     def record_learning(self, *, message: str, response: str, intent: str, capabilities: list[str]) -> None:
-        learning = self.load_learning()
+        def mutate(learning: dict[str, Any]) -> None:
+            learning.update(self._migrate_learning(learning))
+            self._record_learning_payload(
+                learning, message=message, response=response, intent=intent, capabilities=capabilities
+            )
+            learning["schema_version"] = LEARNING_SCHEMA_VERSION
+            learning.setdefault("meta", {})["last_updated"] = datetime.now(timezone.utc).isoformat()
+        locked_json_update(self.learning_path, default_learning_store, mutate)
+
+    def _record_learning_payload(self, learning: dict[str, Any], *, message: str, response: str, intent: str, capabilities: list[str]) -> None:
         patterns = learning.get("patterns", {})
         if not isinstance(patterns, dict):
             patterns = {}
@@ -178,28 +182,32 @@ class HybridMemory:
             capability_usage[key] = int(capability_usage.get(key, 0)) + 1
         learning["capability_usage"] = capability_usage
 
-        self.save_learning(learning)
 
     def record_evaluation(self, evaluation: dict[str, Any]) -> None:
-        learning = self.load_learning()
-        evaluations = learning.get("evaluations", [])
-        if not isinstance(evaluations, list):
-            evaluations = []
-        evaluations.append(evaluation)
-        learning["evaluations"] = evaluations[-200:]
-        self.save_learning(learning)
+        def mutate(learning: dict[str, Any]) -> None:
+            learning.update(self._migrate_learning(learning))
+            evaluations = learning.get("evaluations", [])
+            if not isinstance(evaluations, list):
+                evaluations = []
+            evaluations.append(evaluation)
+            learning["evaluations"] = evaluations[-200:]
+            learning["schema_version"] = LEARNING_SCHEMA_VERSION
+            learning.setdefault("meta", {})["last_updated"] = datetime.now(timezone.utc).isoformat()
+        locked_json_update(self.learning_path, default_learning_store, mutate)
 
     def record_strategy_version(self, version_info: dict[str, Any]) -> None:
-        learning = self.load_learning()
-        strategy_versions = learning.get("strategy_versions", [])
-        if not isinstance(strategy_versions, list):
-            strategy_versions = []
-        strategy_versions.append(version_info)
-        learning["strategy_versions"] = strategy_versions[-50:]
-
-        meta = learning.get("meta", {})
-        if not isinstance(meta, dict):
-            meta = {}
-        meta["current_evolution_version"] = int(version_info.get("version", 0))
-        learning["meta"] = meta
-        self.save_learning(learning)
+        def mutate(learning: dict[str, Any]) -> None:
+            learning.update(self._migrate_learning(learning))
+            strategy_versions = learning.get("strategy_versions", [])
+            if not isinstance(strategy_versions, list):
+                strategy_versions = []
+            strategy_versions.append(version_info)
+            learning["strategy_versions"] = strategy_versions[-50:]
+            meta = learning.get("meta", {})
+            if not isinstance(meta, dict):
+                meta = {}
+            meta["current_evolution_version"] = int(version_info.get("version", 0))
+            meta["last_updated"] = datetime.now(timezone.utc).isoformat()
+            learning["meta"] = meta
+            learning["schema_version"] = LEARNING_SCHEMA_VERSION
+        locked_json_update(self.learning_path, default_learning_store, mutate)

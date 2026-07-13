@@ -79,9 +79,9 @@ export function useCognitiveTelemetry(apiReady: boolean, refreshToken: number | 
           }
           setState({
             publicRuntime: bundle.publicRuntime,
-            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(bundle.publicSignalsWire),
-            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(bundle.publicMilestonesWire),
-            publicStrategySummary: publicStrategySummaryV1ToUi(bundle.publicStrategyWire),
+            publicSignalsSummary: bundle.publicSignalsWire ? publicRuntimeSignalsSummaryV1ToUi(bundle.publicSignalsWire) : null,
+            publicMilestonesSummary: bundle.publicMilestonesWire ? publicMilestonesSummaryV1ToUi(bundle.publicMilestonesWire) : null,
+            publicStrategySummary: bundle.publicStrategyWire ? publicStrategySummaryV1ToUi(bundle.publicStrategyWire) : null,
             milestones: bundle.milestones,
             prSummaries: bundle.prSummaries,
             runtimeSignals: bundle.runtimeSignals,
@@ -91,7 +91,9 @@ export function useCognitiveTelemetry(apiReady: boolean, refreshToken: number | 
             strategyStateSource: bundle.strategyStateSource,
             milestonesSource: bundle.milestonesSource,
             loading: false,
-            error: null,
+            error: bundle.failedSources.length > 0
+              ? `Partial telemetry unavailable: ${bundle.failedSources.join(', ')}.`
+              : null,
           })
         })
       .catch((err) => {

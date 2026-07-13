@@ -110,6 +110,7 @@ from brain.runtime.learning import (
     LoRAInferenceEngine,
     LoRARouterAdapter,
 )
+from brain.runtime.learning.redaction import redact_sensitive_payload, redact_sensitive_text
 from brain.runtime.coordination import AgentCoordinator
 from brain.runtime.decomposition import TaskDecomposer
 from brain.runtime.evolution_controller import EvolutionController
@@ -6364,7 +6365,7 @@ class BrainOrchestrator:
             "session_id": session_id,
             "task_id": task_id,
             "run_id": run_id,
-            "message": message,
+            "message_preview": redact_sensitive_text(message)[:160],
             "plan_kind": plan_kind,
             "hierarchy": plan_hierarchy,
             "reflection": reflection,
@@ -6630,7 +6631,7 @@ class BrainOrchestrator:
             "session_id": session_id,
             "task_id": task_id,
             "run_id": run_id,
-            "message": message,
+            "message_preview": redact_sensitive_text(message)[:160],
             "step_id": action.get("step_id"),
             "selected_tool": action.get("selected_tool"),
             "selected_agent": action.get("selected_agent"),
@@ -6639,10 +6640,15 @@ class BrainOrchestrator:
             "branch_id": action.get("execution_context", {}).get("branch_id"),
             "shared_goal_id": action.get("execution_context", {}).get("shared_goal_id"),
             "ok": bool(result.get("ok")),
-            "result": result.get("result_payload"),
-            "error": result.get("error_payload"),
-            "evaluation": result.get("evaluation"),
-            "correction_events": result.get("correction_events", []),
+            "result_summary": {
+                "kind": type(result.get("result_payload")).__name__,
+                "keys": sorted(str(key) for key in (result.get("result_payload") or {}).keys())[:24]
+                if isinstance(result.get("result_payload"), dict) else [],
+            },
+            "error": {
+                "kind": str((result.get("error_payload") or {}).get("kind", ""))[:80],
+                "message": redact_sensitive_text(str((result.get("error_payload") or {}).get("message", "")))[:240],
+            } if isinstance(result.get("error_payload"), dict) else None,
             "plan_kind": plan_kind,
         }
         audit_entry = {
@@ -6729,7 +6735,7 @@ class BrainOrchestrator:
             BrainOrchestrator._rotate_jsonl_file_if_needed(path)
             BrainOrchestrator._sanitize_jsonl_file(path)
             with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(entry, ensure_ascii=False))
+                handle.write(json.dumps(redact_sensitive_payload(entry), ensure_ascii=False))
                 handle.write("\n")
         except Exception:
             return

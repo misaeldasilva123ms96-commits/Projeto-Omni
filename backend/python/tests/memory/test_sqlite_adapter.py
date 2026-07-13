@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -97,6 +98,7 @@ class SQLiteAdapterTest(unittest.TestCase):
 
     def test_insert_message(self) -> None:
         self.adapter.connect()
+        self.adapter.insert_conversation(ConversationRecord(conversation_id="conv-1", session_id="sess-1"))
         self.adapter.insert_message(
             MessageRecord(
                 message_id="msg-1",
@@ -107,6 +109,13 @@ class SQLiteAdapterTest(unittest.TestCase):
             )
         )
         self.assertEqual(self.adapter.table_count("messages"), 1)
+
+    def test_message_requires_existing_conversation(self) -> None:
+        self.adapter.connect()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.adapter.insert_message(MessageRecord(
+                message_id="orphan", conversation_id="missing", role="user", content="blocked"
+            ))
 
     def test_insert_episode(self) -> None:
         self.adapter.connect()

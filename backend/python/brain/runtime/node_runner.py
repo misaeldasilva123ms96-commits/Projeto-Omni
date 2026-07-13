@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.learning.redaction import redact_sensitive_payload, redact_sensitive_text
+
 
 def resolve_node_bin(js_runtime_adapter: Any) -> str | None:
     selection = js_runtime_adapter.select_runtime()
@@ -196,7 +198,7 @@ def runner_smoke_summary(status: str, failure_class: str | None) -> str | None:
 
 
 def truncate_text(value: str, limit: int = 1200) -> str:
-    normalized = value.strip()
+    normalized = redact_sensitive_text(value).strip()
     if len(normalized) <= limit:
         return normalized
     return normalized[:limit]
@@ -223,7 +225,7 @@ def classify_node_subprocess_failure(
         "stdout": truncate_text(stdout),
         "stderr": truncate_text(stderr),
         "timed_out": timed_out,
-        "exception": repr(exception) if exception else "",
+        "exception": redact_sensitive_text(repr(exception)) if exception else "",
         "typescript_direct_execution_detected": diagnostics["typescript_direct_execution_detected"],
         "typescript_candidates_exist": diagnostics["typescript_candidates_exist"],
         "compiled_runner_artifact_exists": diagnostics["compiled_runner_artifact_exists"],
@@ -231,6 +233,7 @@ def classify_node_subprocess_failure(
         "env_preview": diagnostics["env_preview"],
     }
     combined = f"{stdout}\n{stderr}".lower()
+    details = redact_sensitive_payload(details)
 
     if not diagnostics["node_resolved"]:
         return "node_not_found", details

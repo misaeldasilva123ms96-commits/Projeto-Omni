@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import hmac
+import ipaddress
 import sys
 import time
 from http import HTTPStatus
@@ -19,6 +21,7 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7010
 MAX_SERVICE_BODY_BYTES = 65_536
+MIN_SERVICE_TOKEN_BYTES = 32
 
 
 class DualModeBridge:
@@ -92,6 +95,25 @@ def get_service_config() -> dict[str, Any]:
         "host": _env_value("OMNI_PYTHON_SERVICE_HOST", "OMINI_PYTHON_SERVICE_HOST", DEFAULT_HOST),
         "port": max(1, min(65535, port)),
     }
+
+
+def _service_token() -> str:
+    return _env_value("OMNI_PYTHON_SERVICE_TOKEN", "OMINI_PYTHON_SERVICE_TOKEN", "")
+
+
+def _is_loopback_host(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(str(host).strip()).is_loopback
+    except ValueError:
+        return str(host).strip().lower() == "localhost"
+
+
+def _validate_service_binding(host: str) -> None:
+    token = _service_token()
+    if not token:
+        raise RuntimeError("OMNI_PYTHON_SERVICE_TOKEN is required in service mode")
+    if not _is_loopback_host(host) and len(token.encode("utf-8")) < MIN_SERVICE_TOKEN_BYTES:
+        raise RuntimeError("non-loopback service binding requires a strong service token")
 
 
 def health_payload() -> dict[str, Any]:
@@ -199,6 +221,12 @@ class BrainServiceHandler(BaseHTTPRequestHandler):
             self._write_json(*build_service_error(OmniErrorCode.INPUT_VALIDATION_FAILED, status=HTTPStatus.NOT_FOUND, reason="not_found"))
             return
 
+        authorization = str(self.headers.get("authorization", "") or "").strip()
+        expected = f"Bearer {_service_token()}"
+        if not _service_token() or not hmac.compare_digest(authorization, expected):
+            self._write_json(*build_service_error(OmniErrorCode.INPUT_VALIDATION_FAILED, status=HTTPStatus.UNAUTHORIZED, reason="service_auth_required"))
+            return
+
         content_type = str(self.headers.get("content-type", "") or "").lower()
         if "application/json" not in content_type:
             self._write_json(*build_service_error(OmniErrorCode.INVALID_CONTENT_TYPE, status=HTTPStatus.UNSUPPORTED_MEDIA_TYPE, reason="invalid_content_type"))
@@ -234,7 +262,9 @@ class BrainServiceHandler(BaseHTTPRequestHandler):
 
 def create_server(host: str | None = None, port: int | None = None) -> ThreadingHTTPServer:
     config = get_service_config()
-    return ThreadingHTTPServer((host or config["host"], int(port or config["port"])), BrainServiceHandler)
+    bind_host = host or config["host"]
+    _validate_service_binding(bind_host)
+    return ThreadingHTTPServer((bind_host, int(port or config["port"])), BrainServiceHandler)
 
 
 def main() -> int:

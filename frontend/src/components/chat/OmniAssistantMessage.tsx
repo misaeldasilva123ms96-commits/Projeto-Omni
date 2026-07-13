@@ -71,6 +71,7 @@ export function OmniAssistantMessage({ message, onCopy, onRetry, getBadges, clas
             <div className="flex justify-end gap-3 text-violet-200/80">
               {onCopy ? (
                 <button
+                  aria-label="Copiar resposta"
                   className="rounded-full border border-white/8 bg-white/[0.04] p-2 transition hover:border-neon-cyan/40 hover:text-white"
                   onClick={handleCopy}
                   type="button"
@@ -81,6 +82,7 @@ export function OmniAssistantMessage({ message, onCopy, onRetry, getBadges, clas
               ) : null}
               {onRetry ? (
                 <button
+                  aria-label="Tentar novamente"
                   className="rounded-full border border-white/8 bg-white/[0.04] p-2 transition hover:border-neon-blue/40 hover:text-white"
                   onClick={handleRetry}
                   type="button"

@@ -1,17 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ObservabilityAuthGate } from '../components/ObservabilityAuthGate'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import type { ComponentType } from 'react'
 import { OmniShell } from '../components/shell/OmniShell'
-import { AgentsPage } from '../pages/AgentsPage'
-import { ChatPage } from '../pages/ChatPage'
-import { DashboardPage } from '../pages/DashboardPage'
-import { GovernanceCenterPage } from '../pages/GovernanceCenterPage'
-import { LabModePage } from '../pages/LabModePage'
-import { MemoryCenterPage } from '../pages/MemoryCenterPage'
-import { ProjectsPage } from '../pages/ProjectsPage'
-import { ProviderCenterPage } from '../pages/ProviderCenterPage'
-import { PuterDevRoutePage } from '../pages/PuterDevRoutePage'
-import { SettingsView } from '../pages/SettingsPage'
-import { TokenUsagePage } from '../pages/TokenUsagePage'
+import { OmniLoadingState } from '../components/ui/OmniLoadingState'
 import type { ChatMode } from '../types'
 import {
   pathForView,
@@ -19,6 +9,24 @@ import {
   type RenderOmniShell,
   type View,
 } from './routes'
+
+const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
+  loader: () => Promise<T>,
+  name: K,
+) => lazy(async () => ({ default: (await loader())[name] as ComponentType<any> }))
+
+const ObservabilityAuthGate = lazyNamed(() => import('../components/ObservabilityAuthGate'), 'ObservabilityAuthGate')
+const AgentsPage = lazyNamed(() => import('../pages/AgentsPage'), 'AgentsPage')
+const ChatPage = lazyNamed(() => import('../pages/ChatPage'), 'ChatPage')
+const DashboardPage = lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage')
+const GovernanceCenterPage = lazyNamed(() => import('../pages/GovernanceCenterPage'), 'GovernanceCenterPage')
+const LabModePage = lazyNamed(() => import('../pages/LabModePage'), 'LabModePage')
+const MemoryCenterPage = lazyNamed(() => import('../pages/MemoryCenterPage'), 'MemoryCenterPage')
+const ProjectsPage = lazyNamed(() => import('../pages/ProjectsPage'), 'ProjectsPage')
+const ProviderCenterPage = lazyNamed(() => import('../pages/ProviderCenterPage'), 'ProviderCenterPage')
+const PuterDevRoutePage = lazyNamed(() => import('../pages/PuterDevRoutePage'), 'PuterDevRoutePage')
+const SettingsView = lazyNamed(() => import('../pages/SettingsPage'), 'SettingsView')
+const TokenUsagePage = lazyNamed(() => import('../pages/TokenUsagePage'), 'TokenUsagePage')
 
 export function OmniApp() {
   const [view, setView] = useState<View>(() =>
@@ -52,39 +60,43 @@ export function OmniApp() {
     view,
   }
 
-  if (view === 'dashboard') {
-    return <DashboardPage {...pageProps} />
-  }
+  let page
+  if (view === 'dashboard') page = <DashboardPage {...pageProps} />
   if (view === 'observability') {
-    return <ObservabilityAuthGate {...pageProps} />
+    page = <ObservabilityAuthGate {...pageProps} />
   }
   if (view === 'token-usage') {
-    return <TokenUsagePage {...pageProps} />
+    page = <TokenUsagePage {...pageProps} />
   }
   if (view === 'agents') {
-    return <AgentsPage {...pageProps} />
+    page = <AgentsPage {...pageProps} />
   }
   if (view === 'governance') {
-    return <GovernanceCenterPage {...pageProps} />
+    page = <GovernanceCenterPage {...pageProps} />
   }
   if (view === 'memory-center') {
-    return <MemoryCenterPage {...pageProps} />
+    page = <MemoryCenterPage {...pageProps} />
   }
   if (view === 'lab-mode') {
-    return <LabModePage {...pageProps} />
+    page = <LabModePage {...pageProps} />
   }
   if (view === 'provider-center') {
-    return <ProviderCenterPage {...pageProps} />
+    page = <ProviderCenterPage {...pageProps} />
   }
   if (view === 'projects') {
-    return <ProjectsPage {...pageProps} />
+    page = <ProjectsPage {...pageProps} />
   }
   if (view === 'settings') {
-    return renderShell(<SettingsView />)
+    page = renderShell(<SettingsView />)
   }
   if (view === 'puter-dev') {
-    return renderShell(<PuterDevRoutePage />)
+    page = renderShell(<PuterDevRoutePage />)
   }
+  page ??= <ChatPage {...pageProps} />
 
-  return <ChatPage {...pageProps} />
+  return (
+    <Suspense fallback={<OmniLoadingState label="Carregando página…" />}>
+      {page}
+    </Suspense>
+  )
 }

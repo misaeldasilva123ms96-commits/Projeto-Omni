@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..persistence import locked_json_update
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -37,15 +39,18 @@ class WorkingMemoryStore:
             return
 
     def update_session(self, session_id: str, state: dict[str, Any]) -> dict[str, Any]:
-        payload = self._load()
-        sessions = payload.setdefault("sessions", {})
-        previous = sessions.get(session_id, {})
-        if not isinstance(previous, dict):
-            previous = {}
-        merged = {**previous, **state, "updated_at": _utc_now()}
-        sessions[session_id] = merged
-        self._save(payload)
-        return merged
+        def mutate(payload: dict[str, Any]) -> dict[str, Any]:
+            sessions = payload.setdefault("sessions", {})
+            if not isinstance(sessions, dict):
+                sessions = {}
+                payload["sessions"] = sessions
+            previous = sessions.get(session_id, {})
+            if not isinstance(previous, dict):
+                previous = {}
+            merged = {**previous, **state, "updated_at": _utc_now()}
+            sessions[session_id] = merged
+            return merged
+        return locked_json_update(self.path, self._default_payload, mutate)
 
     def load_session(self, session_id: str) -> dict[str, Any]:
         payload = self._load()

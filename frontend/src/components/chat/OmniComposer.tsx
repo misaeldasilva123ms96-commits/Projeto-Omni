@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useId, useState } from 'react'
 
 type OmniComposerProps = {
   value: string
@@ -39,6 +39,8 @@ export function OmniComposer({
   children,
 }: OmniComposerProps) {
   const [focused, setFocused] = useState(false)
+  const textareaId = useId()
+  const errorId = `${textareaId}-error`
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -62,6 +64,9 @@ export function OmniComposer({
         {before}
 
         <textarea
+          aria-describedby={error ? errorId : undefined}
+          aria-invalid={Boolean(error)}
+          aria-label="Mensagem para o Omni"
           className="flex-1 resize-none rounded-[20px] border border-neon-purple/20 bg-[rgba(11,15,34,0.92)] px-4 py-2 text-sm text-white outline-none placeholder:text-violet-200/40 transition-all duration-300"
           onChange={(e) => onChange(e.target.value)}
           onBlur={() => setFocused(false)}
@@ -76,6 +81,7 @@ export function OmniComposer({
 
         {loading && onStop ? (
           <button
+            aria-label="Interromper resposta"
             className="rounded-full border border-red-400/30 bg-red-500/20 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.24em] text-red-200 transition hover:bg-red-500/30 active:translate-y-px"
             onClick={onStop}
             type="button"
@@ -84,6 +90,7 @@ export function OmniComposer({
           </button>
         ) : (
           <button
+            aria-label={loading ? 'Enviando mensagem' : 'Enviar mensagem'}
             className={`rounded-full px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.24em] transition ${
               canSend
                 ? 'bg-[linear-gradient(135deg,rgba(181,109,255,0.92),rgba(78,164,255,0.92))] text-white hover:scale-[1.01] active:translate-y-px shadow-[0_0_20px_rgba(123,97,255,0.18)]'
@@ -100,7 +107,7 @@ export function OmniComposer({
 
       {error ? (
         <div className="mt-1.5 flex justify-end text-sm">
-          <div className="max-w-[420px] text-right text-[11px] leading-4 text-rose-300">
+          <div id={errorId} role="alert" className="max-w-[420px] text-right text-[11px] leading-4 text-rose-300">
             {error}
           </div>
         </div>

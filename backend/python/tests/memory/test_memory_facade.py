@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from uuid import uuid4
+from unittest.mock import Mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -96,6 +97,19 @@ class MemoryFacadeTest(unittest.TestCase):
         self.assertTrue(facade.sqlite_enabled)
         self.assertTrue(facade.is_sqlite_connected)
         self.assertTrue(self._sqlite_path.exists())
+
+    def test_post_init_sqlite_failure_is_observable_without_breaking_contract(self) -> None:
+        facade = MemoryFacade(jsonl_path=self._audit_path)
+        facade.initialize()
+        failing = Mock()
+        failing.insert_conversation.side_effect = RuntimeError("database unavailable")
+        facade._sqlite = failing
+        facade.record_conversation(ConversationRecord(conversation_id="c-fail", session_id="s-fail"))
+        diagnostics = facade.operation_diagnostics
+        self.assertTrue(diagnostics["degraded"])
+        self.assertEqual(diagnostics["failure_count"], 1)
+        self.assertEqual(diagnostics["last_failed_operation"], "record_conversation")
+        self.assertEqual(len(facade.audit_records()), 1)
 
     def test_sqlite_with_env_var(self) -> None:
         custom_path = self._tmp / "env-memory.sqlite"

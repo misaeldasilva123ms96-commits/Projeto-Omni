@@ -68,4 +68,12 @@ describe('OmniShell', () => {
     )
     expect(screen.getByRole('tablist')).toBeInTheDocument()
   })
+
+  it('closes an open mobile drawer with Escape', async () => {
+    render(<OmniShell sidebar={<div>Sidebar content</div>}><div>Content</div></OmniShell>)
+    await userEvent.click(screen.getByRole('tab', { name: /menu/i }))
+    expect(screen.getByText('Sidebar content')).toBeVisible()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('tab', { name: /chat/i })).toHaveAttribute('aria-selected', 'true')
+  })
 })

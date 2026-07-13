@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { OmniShellProps } from '../components/shell/OmniShell'
-import { PUTER_DEV_ROUTE_PATH, canShowPuterDevRoute } from '../pages/PuterDevRoutePage'
+import { PUTER_DEV_ROUTE_PATH, canShowPuterDevRoute } from './puterDevRoute'
 
 export type View =
   | 'chat'

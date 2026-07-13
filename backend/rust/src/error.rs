@@ -16,6 +16,8 @@ pub enum AppError {
     },
     #[error("internal error: {0}")]
     Internal(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
 }
 
 impl AppError {
@@ -37,6 +39,7 @@ impl IntoResponse for AppError {
         let status = match &self {
             Self::PythonProcess { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
         };
 
         let body = match self {
@@ -54,6 +57,10 @@ impl IntoResponse for AppError {
             Self::Internal(message) => Json(json!({
                 "error": format!("internal error: {message}"),
                 "code": "internal_error",
+            })),
+            Self::Forbidden(_) => Json(json!({
+                "error": "forbidden",
+                "code": "control_capability_required",
             })),
         };
 

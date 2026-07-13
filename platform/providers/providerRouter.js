@@ -740,9 +740,10 @@ function resolveProviderRoute({
     });
   }
 
-  const selectedProvider = complexity === 'complex'
-    ? remoteExecutable[0]
-    : remoteExecutable[0];
+  const normalizedComplexity = String(complexity || 'simple').trim().toLowerCase();
+  const selectedProvider = normalizedComplexity === 'complex'
+    ? remoteExecutable.find(provider => provider.kind === 'remote') || remoteExecutable[0]
+    : remoteExecutable.find(provider => provider.kind === 'local') || remoteExecutable[0];
   if (selectedProvider) {
     return buildRouteOutcome({
       selectedProviderName: selectedProvider.name,

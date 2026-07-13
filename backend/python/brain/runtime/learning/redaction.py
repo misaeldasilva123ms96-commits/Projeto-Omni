@@ -50,7 +50,11 @@ _SUPABASE_URL_RE = re.compile(r"https://[a-z0-9-]+\.supabase\.co(?:/[^\s\"'`{}[\
 _SUPABASE_KEY_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
 _JWT_RE = _SUPABASE_KEY_RE
 _OPENAI_KEY_RE = re.compile(r"\bsk-(?:proj-|ant-|groq-)?[A-Za-z0-9_-]{8,}\b")
+_COMMON_PROVIDER_KEY_RE = re.compile(
+    r"\b(?:AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,})\b"
+)
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}")
+_BASIC_AUTH_RE = re.compile(r"(?i)\bbasic\s+[A-Za-z0-9+/=]{12,}")
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _BR_PHONE_RE = re.compile(
     r"(?<![A-Za-z0-9_-])"
@@ -65,8 +69,10 @@ _BR_PHONE_RE = re.compile(
 )
 _CPF_RE = re.compile(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)")
 _SECRET_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(password|token|secret|api_key)\s*=\s*([^\s,;}\]]+)"
+    r"(?i)\b(password|passphrase|token|secret|api[_-]?key|access[_-]?key|client[_-]?secret)\s*[:=]\s*([\"']?)([^\s,;}\]]+)\2"
 )
+_PRIVATE_KEY_RE = re.compile(r"-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----.*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----", re.DOTALL)
+_URL_CREDENTIAL_RE = re.compile(r"(?i)(https?://)([^\s/@:]+):([^\s/@]+)@")
 _UNIX_PATH_RE = re.compile(r"(?<!\w)/(?:home|root|tmp|var|usr|etc)(?:/[^\s\"'`{}[\],;:]+)+")
 _WINDOWS_PATH_RE = re.compile(
     r"(?i)(?:[A-Z]:\\(?:Users|Windows|Program Files|Program Files \(x86\))(?:\\[^\s\"'`{}[\],;:]+)+)"
@@ -85,11 +91,15 @@ def redact_sensitive_text(value: Any) -> str:
     text = _SUPABASE_URL_RE.sub("[REDACTED_SUPABASE_URL]", text)
     text = _JWT_RE.sub("[REDACTED_JWT]", text)
     text = _OPENAI_KEY_RE.sub("[REDACTED_API_KEY]", text)
+    text = _COMMON_PROVIDER_KEY_RE.sub("[REDACTED_API_KEY]", text)
     text = _BEARER_RE.sub("Bearer [REDACTED_TOKEN]", text)
+    text = _BASIC_AUTH_RE.sub("Basic [REDACTED_TOKEN]", text)
     text = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
     text = _BR_PHONE_RE.sub("[REDACTED_PHONE]", text)
     text = _CPF_RE.sub("[REDACTED_CPF]", text)
     text = _SECRET_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}=[REDACTED_SECRET]", text)
+    text = _PRIVATE_KEY_RE.sub("[REDACTED_PRIVATE_KEY]", text)
+    text = _URL_CREDENTIAL_RE.sub(r"\1[REDACTED_CREDENTIALS]@", text)
     text = _UNIX_PATH_RE.sub("[REDACTED_PATH]", text)
     text = _WINDOWS_PATH_RE.sub("[REDACTED_PATH]", text)
     return text

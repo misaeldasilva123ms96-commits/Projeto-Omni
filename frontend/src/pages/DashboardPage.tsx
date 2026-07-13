@@ -105,9 +105,9 @@ export function DashboardPage({
           }
           setData({
             publicRuntime: bundle.publicRuntime,
-            publicSignalsSummary: publicRuntimeSignalsSummaryV1ToUi(bundle.publicSignalsWire),
-            publicMilestonesSummary: publicMilestonesSummaryV1ToUi(bundle.publicMilestonesWire),
-            publicStrategySummary: publicStrategySummaryV1ToUi(bundle.publicStrategyWire),
+            publicSignalsSummary: bundle.publicSignalsWire ? publicRuntimeSignalsSummaryV1ToUi(bundle.publicSignalsWire) : null,
+            publicMilestonesSummary: bundle.publicMilestonesWire ? publicMilestonesSummaryV1ToUi(bundle.publicMilestonesWire) : null,
+            publicStrategySummary: bundle.publicStrategyWire ? publicStrategySummaryV1ToUi(bundle.publicStrategyWire) : null,
             milestones: bundle.milestones,
             milestonesSource: bundle.milestonesSource,
             prSummaries: bundle.prSummaries,
@@ -117,6 +117,9 @@ export function DashboardPage({
             strategyStateSource: bundle.strategyStateSource,
             swarmLog: bundle.swarmLog,
           })
+          if (bundle.failedSources.length > 0) {
+            setError(`Partial telemetry unavailable: ${bundle.failedSources.join(', ')}.`)
+          }
         })
       .catch((err) => {
         if (!cancelled) {

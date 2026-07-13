@@ -54,4 +54,16 @@ describe('OmniMobileNav', () => {
     const tablist = screen.getByRole('tablist')
     expect(tablist).toHaveAttribute('aria-label', 'Panel navigation')
   })
+
+  it('supports arrow-key navigation and roving focus', () => {
+    const onSelect = vi.fn()
+    render(
+      <OmniMobileNav activePanel="content" onSelect={onSelect} hasSidebar={true} hasRightPanel={true} />,
+    )
+    const chat = screen.getByRole('tab', { name: /chat/i })
+    chat.focus()
+    chat.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(onSelect).toHaveBeenCalledWith('inspector')
+    expect(screen.getByRole('tab', { name: /runtime/i })).toHaveFocus()
+  })
 })
