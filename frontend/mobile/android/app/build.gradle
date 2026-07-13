@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.omini.app"
+    namespace "com.omni.app"
     compileSdk libs.versions.compileSdk.get().toInteger()
     defaultConfig {
-        applicationId "com.omini.app"
+        applicationId "com.omni.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from config.provider_registry import get_available_providers
 from config.secrets_manager import build_controlled_os_environ_base, merge_provider_credentials
 
@@ -29,7 +30,7 @@ class JSRuntimeAdapter:
         self.root = root.resolve()
 
     def select_runtime(self) -> JSRuntimeSelection:
-        explicit_runtime = str(os.getenv("OMINI_JS_RUNTIME_BIN", "") or os.getenv("OMNI_JS_RUNTIME_BIN", "")).strip()
+        explicit_runtime = read_env("OMNI_JS_RUNTIME_BIN")
         if explicit_runtime:
             resolved = self._resolve_explicit_runtime(explicit_runtime)
             runtime_name = self._runtime_name_from_executable(explicit_runtime)
@@ -74,7 +75,11 @@ class JSRuntimeAdapter:
         selection = self.select_runtime()
         root = str(self.root)
         env["BASE_DIR"] = root
+        env["OMNI_BASE_DIR"] = root
         env["NODE_RUNNER_BASE_DIR"] = root
+        env["OMNI_JS_RUNTIME"] = selection.runtime_name
+        env["OMNI_JS_RUNTIME_BIN"] = selection.executable
+        env["OMNI_JS_RUNTIME_SOURCE"] = selection.source
         env["OMINI_JS_RUNTIME"] = selection.runtime_name
         env["OMINI_JS_RUNTIME_BIN"] = selection.executable
         env["OMINI_JS_RUNTIME_SOURCE"] = selection.source

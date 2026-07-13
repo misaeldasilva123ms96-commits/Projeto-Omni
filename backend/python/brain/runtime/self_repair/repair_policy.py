@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import os
-
+from brain.env import read_env
 from .models import FailureEvidence, RepairEligibility, RepairEligibilityDecision, SelfRepairPolicy
 
 
@@ -27,12 +26,12 @@ class RepairPolicyEngine:
     @staticmethod
     def from_env() -> SelfRepairPolicy:
         return SelfRepairPolicy(
-            enable_self_repair=str(os.getenv("OMINI_ENABLE_SELF_REPAIR", "false")).strip().lower() == "true",
-            allow_promotion=str(os.getenv("OMINI_SELF_REPAIR_ALLOW_PROMOTION", "false")).strip().lower() == "true",
-            max_files=max(1, int(os.getenv("OMINI_SELF_REPAIR_MAX_FILES", "1") or "1")),
-            max_attempts_per_action=max(1, int(os.getenv("OMINI_SELF_REPAIR_MAX_ATTEMPTS_PER_ACTION", "1") or "1")),
-            max_recurrence=max(1, int(os.getenv("OMINI_SELF_REPAIR_MAX_RECURRENCE", "2") or "2")),
-            allowed_root=str(os.getenv("OMINI_SELF_REPAIR_ALLOWED_ROOT", "backend/python/brain/runtime") or "backend/python/brain/runtime"),
+            enable_self_repair=read_env("OMNI_ENABLE_SELF_REPAIR", "false").lower() == "true",
+            allow_promotion=read_env("OMNI_SELF_REPAIR_ALLOW_PROMOTION", "false").lower() == "true",
+            max_files=max(1, int(read_env("OMNI_SELF_REPAIR_MAX_FILES", "1") or "1")),
+            max_attempts_per_action=max(1, int(read_env("OMNI_SELF_REPAIR_MAX_ATTEMPTS_PER_ACTION", "1") or "1")),
+            max_recurrence=max(1, int(read_env("OMNI_SELF_REPAIR_MAX_RECURRENCE", "2") or "2")),
+            allowed_root=read_env("OMNI_SELF_REPAIR_ALLOWED_ROOT", "backend/python/brain/runtime"),
         )
 
     def evaluate(self, *, evidence: FailureEvidence, policy: SelfRepairPolicy) -> RepairEligibility:

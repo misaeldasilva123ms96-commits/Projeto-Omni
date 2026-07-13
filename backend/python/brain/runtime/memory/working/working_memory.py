@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 from pathlib import Path
 from uuid import uuid4
 
+from brain.env import read_env
 from .models import WorkingMemoryEvent, WorkingMemoryState, utc_now_iso
 
 
@@ -16,7 +16,7 @@ class WorkingMemory:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / "working_memory.json"
         self._lock = threading.RLock()
-        self._event_window = max(5, int(os.getenv("OMINI_MEMORY_WORKING_EVENT_WINDOW", "50") or 50))
+        self._event_window = max(5, int(read_env("OMNI_MEMORY_WORKING_EVENT_WINDOW", "50") or 50))
         self.state = self._load()
 
     def start_new_session(

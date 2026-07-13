@@ -134,7 +134,7 @@ Groq -> OpenRouter -> OpenAI -> Anthropic -> Gemini -> Ollama -> LM Studio -> lo
 
 Provider execution is configuration-gated. Cloud providers require their API key environment variable. Local providers are not attempted only because a localhost default exists; Ollama requires `OLLAMA_URL`, and LM Studio requires `LMSTUDIO_URL`.
 
-The default JavaScript runtime is Node. Bun is opt-in through `OMINI_JS_RUNTIME_BIN=bun`. The legacy-compatible alias `OMNI_JS_RUNTIME_BIN` may be used when `OMINI_JS_RUNTIME_BIN` is unset.
+The default JavaScript runtime is Node. Bun is opt-in through `OMNI_JS_RUNTIME_BIN=bun`. The deprecated `OMINI_JS_RUNTIME_BIN` alias remains supported when `OMNI_JS_RUNTIME_BIN` is unset.
 
 ---
 

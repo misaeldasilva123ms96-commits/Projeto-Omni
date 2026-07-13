@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
+from brain.env import read_env
 from brain.runtime.control.governance_taxonomy import GovernanceReason
 from brain.runtime.experience.experience_store import ExperienceStore
 from brain.runtime.policy.performance_store import PerformanceStore
@@ -110,8 +110,8 @@ class ObservabilityReader:
         phase41_summary = {
             "experience_counts": ExperienceStore(self.root).snapshot_counts(),
             "performance_top": PerformanceStore(self.root).top_buckets(limit=8),
-            "policy_active": str(os.getenv("OMINI_PHASE41_POLICY_ACTIVE", "")).strip().lower() in ("1", "true", "yes"),
-            "evolution_feed_enabled": str(os.getenv("OMINI_PHASE41_EVOLUTION_FEED", "")).strip().lower()
+            "policy_active": read_env("OMNI_PHASE41_POLICY_ACTIVE").lower() in ("1", "true", "yes"),
+            "evolution_feed_enabled": read_env("OMNI_PHASE41_EVOLUTION_FEED").lower()
             in ("1", "true", "yes"),
         }
 

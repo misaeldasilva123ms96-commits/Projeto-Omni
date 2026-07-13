@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.evolution.controlled_evolution_models import GovernedProposal
 
 
@@ -23,7 +23,7 @@ def evaluate_approval(
 ) -> ApprovalResult:
     """
     Policy gate: never approves unsafe simulations; optional auto-approve for low risk.
-    Human/operator intent: OMINI_PHASE40_APPROVE=true required when auto path off.
+    Human/operator intent: OMNI_PHASE40_APPROVE=true required when auto path off.
     """
     reasons: list[str] = []
     if not simulation.get("constraints_ok"):
@@ -33,16 +33,16 @@ def evaluate_approval(
     if risk > 0.82:
         return ApprovalResult("rejected", [f"risk_above_gate:{risk:.3f}"])
 
-    force = str(os.getenv("OMINI_PHASE40_FORCE_APPROVE", "")).strip().lower() in ("1", "true", "yes")
+    force = read_env("OMNI_PHASE40_FORCE_APPROVE").lower() in ("1", "true", "yes")
     if force:
         return ApprovalResult("approved_force", ["force_approve_env"])
 
-    auto = str(os.getenv("OMINI_PHASE40_AUTO_APPROVE", "")).strip().lower() in ("1", "true", "yes")
-    auto_max = float(os.getenv("OMINI_PHASE40_AUTO_APPROVE_MAX_RISK", "0.36") or 0.36)
+    auto = read_env("OMNI_PHASE40_AUTO_APPROVE").lower() in ("1", "true", "yes")
+    auto_max = float(read_env("OMNI_PHASE40_AUTO_APPROVE_MAX_RISK", "0.36") or 0.36)
     if auto and risk <= auto_max:
         return ApprovalResult("approved_auto", [f"low_risk_auto:{risk:.3f}"])
 
-    explicit = str(os.getenv("OMINI_PHASE40_APPROVE", "")).strip().lower() in ("1", "true", "yes")
+    explicit = read_env("OMNI_PHASE40_APPROVE").lower() in ("1", "true", "yes")
     if explicit:
         return ApprovalResult("approved_operator", ["explicit_approve_env"])
 

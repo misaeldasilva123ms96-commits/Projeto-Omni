@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from uuid import uuid4
 
+from brain.env import read_env
 from brain.runtime.memory.episodic.models import Episode
 
 from .models import SemanticFact, utc_now_iso
@@ -11,7 +11,7 @@ from .models import SemanticFact, utc_now_iso
 
 class FactConsolidator:
     def __init__(self) -> None:
-        self.min_episodes = max(1, int(os.getenv("OMINI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT", "5") or 5))
+        self.min_episodes = max(1, int(read_env("OMNI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT", "5") or 5))
 
     def consolidate(self, *, episodes: list[Episode]) -> list[SemanticFact]:
         grouped: dict[tuple[str, str], list[Episode]] = defaultdict(list)

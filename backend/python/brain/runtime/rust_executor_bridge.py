@@ -9,6 +9,7 @@ import ctypes
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.learning.redaction import redact_sensitive_text
 
 MAX_BRIDGE_DIAGNOSTIC_CHARS = 1200
@@ -27,7 +28,7 @@ def _is_project_root(candidate: Path) -> bool:
 
 
 def _detect_project_root() -> Path:
-    env_root = os.getenv("BASE_DIR", "").strip()
+    env_root = read_env("OMNI_BASE_DIR")
     if env_root:
         candidate = Path(env_root).resolve()
         if _is_project_root(candidate):
@@ -65,7 +66,7 @@ def _resolve_project_root(project_root: Path | str | None, execution_context: di
 def _cargo_target_dir(project_root: Path) -> Path:
     temp_root = tempfile.gettempdir()
     if temp_root:
-        base = Path(temp_root) / "omini-runtime" / "cargo-target"
+        base = Path(temp_root) / "omni-runtime" / "cargo-target"
     else:
         base = project_root / ".logs" / "fusion-runtime" / "cargo-target"
     base.mkdir(parents=True, exist_ok=True)
@@ -156,7 +157,7 @@ def execute_action(project_root: Path, action: dict[str, Any], timeout_seconds: 
         raw_tool_path = Path(tool_arguments["path"])
         tool_arguments["path"] = str(raw_tool_path)
     action["tool_arguments"] = tool_arguments
-    requested_mode = str(execution_context.get("runtime_mode", os.getenv("OMINI_EXECUTION_MODE", "auto"))).strip()
+    requested_mode = str(execution_context.get("runtime_mode", read_env("OMNI_EXECUTION_MODE", "auto"))).strip()
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tmp:
         tmp.write(json.dumps(action, ensure_ascii=False))

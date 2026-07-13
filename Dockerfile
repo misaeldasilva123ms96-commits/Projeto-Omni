@@ -55,11 +55,11 @@ COPY runtime ./runtime
 COPY storage ./storage
 COPY src ./src
 COPY contract ./contract
-COPY --from=rust-builder /build/backend/rust/target/release/omini-api /usr/local/bin/omini-api
-RUN chmod 0755 /usr/local/bin/omini-api \
+COPY --from=rust-builder /build/backend/rust/target/release/omni-api /usr/local/bin/omni-api
+RUN chmod 0755 /usr/local/bin/omni-api \
     && chown -R omni:omni /app /opt/venv
 
 USER omni
 EXPOSE 3001
 
-CMD ["omini-api"]
+CMD ["omni-api"]

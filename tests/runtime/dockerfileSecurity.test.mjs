@@ -13,10 +13,10 @@ assert.match(
   'Dockerfile must create non-login omni system user',
 );
 assert.match(dockerfile, /chown\s+-R\s+omni:omni\s+\/app\s+\/opt\/venv/, 'Dockerfile must assign app and venv ownership');
-assert.match(dockerfile, /chmod\s+0755\s+\/usr\/local\/bin\/omini-api/, 'omini-api binary must stay executable');
+assert.match(dockerfile, /chmod\s+0755\s+\/usr\/local\/bin\/omni-api/, 'omni-api binary must stay executable');
 const userIndex = dockerfile.indexOf('\nUSER omni');
 const exposeIndex = dockerfile.indexOf('\nEXPOSE 3001');
-const cmdIndex = dockerfile.indexOf('\nCMD ["omini-api"]');
+const cmdIndex = dockerfile.indexOf('\nCMD ["omni-api"]');
 assert.ok(userIndex > -1, 'Dockerfile must declare USER omni');
 assert.ok(exposeIndex > userIndex, 'runtime must switch to non-root before EXPOSE');
 assert.ok(cmdIndex > exposeIndex, 'CMD must remain after EXPOSE');

@@ -1,8 +1,8 @@
-# Omini v1.0.0
+# Omni v1.0.0
 
-## What is Omini?
+## What is Omni?
 
-Omini is a hybrid AI agent runtime that combines a Rust bridge, a Python orchestration layer, a Node.js reasoning runner, internal multi-agent coordination, and heuristic self-evolution.
+Omni is a hybrid AI agent runtime that combines a Rust bridge, a Python orchestration layer, a Node.js reasoning runner, internal multi-agent coordination, and heuristic self-evolution.
 
 ## Included in this release
 
@@ -16,7 +16,7 @@ Omini is a hybrid AI agent runtime that combines a Rust bridge, a Python orchest
 
 ```bash
 git clone <your-repo-url>
-cd omini
+cd omni
 cp .env.example .env
 npm install
 docker compose up -d --build

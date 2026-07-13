@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "runner-schema.v1.json",
-  "title": "Omini Runner Payload v1",
+  "title": "Omni Runner Payload v1",
   "type": "object",
   "additionalProperties": false,
   "required": [

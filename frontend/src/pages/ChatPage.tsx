@@ -27,6 +27,7 @@ import type { UiChatResponse } from '../types/ui/chat'
 import type { UiRuntimeStatus } from '../types/ui/runtime'
 import type { RuntimeInspectorData } from '../lib/runtimeTypes'
 import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
+import { readMigratedStorage, removeMigratedStorage, writeMigratedStorage } from '../lib/storageKeyMigration'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -36,7 +37,8 @@ type ChatPageProps = {
   view: View
 }
 
-const STORAGE_KEY = 'omini-chat-state-v3'
+const STORAGE_KEY = 'omni-chat-state-v3'
+const LEGACY_STORAGE_KEY = 'omini-chat-state-v3'
 const STORAGE_VERSION = 4
 const STORAGE_WRITE_DELAY_MS = 250
 const DEFAULT_SESSION_PREFIX = 'sessao'
@@ -102,7 +104,7 @@ function loadStoredState(): StoredChatState {
 
   let raw: string | null = null
   try {
-    raw = localStorage.getItem(STORAGE_KEY)
+    raw = readMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY)
   } catch {
     return baseState
   }
@@ -129,7 +131,7 @@ function loadStoredState(): StoredChatState {
     }
   } catch {
     try {
-      localStorage.removeItem(STORAGE_KEY)
+      removeMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY)
     } catch {
       // Storage may be disabled. The in-memory chat remains fully usable.
     }
@@ -145,7 +147,7 @@ function persistStoredState(state: StoredChatState) {
     requestState: state.requestState === 'loading' ? 'idle' : state.requestState,
   }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+    writeMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY, JSON.stringify(snapshot))
   } catch {
     // Quota and privacy-mode failures must not interrupt the active conversation.
   }

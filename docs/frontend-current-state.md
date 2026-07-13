@@ -198,7 +198,7 @@ ChatPage
 
 Important behavior:
 
-- local chat state uses `omini-chat-state-v3`;
+- local chat state uses `omni-chat-state-v3`, with non-destructive migration from the legacy `omini-chat-state-v3` key;
 - sessions use generated client IDs and may be restored from Supabase;
 - the UI retries network failures twice with a fixed delay;
 - assistant text is displayed through a client-side streaming animation;

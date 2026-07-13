@@ -45,9 +45,9 @@ class TestDetectEnv:
         env = _detect_env()
         assert isinstance(env, dict)
         assert "BASE_DIR" in env
-        assert "OMINI_JS_RUNTIME_BIN" in env
+        assert "OMNI_JS_RUNTIME_BIN" in env
         assert "NODE_BIN" in env
-        assert "OMINI_RUNTIME_MODE" in env
+        assert "OMNI_RUNTIME_MODE" in env
         assert "_node_on_path" in env
 
 

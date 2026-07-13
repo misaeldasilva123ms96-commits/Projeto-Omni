@@ -7,7 +7,7 @@ COPY backend/rust/crates ./backend/rust/crates
 COPY backend/rust/src ./backend/rust/src
 
 WORKDIR /build/backend/rust
-RUN cargo build --release --bin omini-api
+RUN cargo build --release --bin omni-api
 
 FROM node:24-bookworm-slim AS demo-runtime
 
@@ -70,7 +70,7 @@ COPY --chown=omni:omni runtime ./runtime
 COPY --chown=omni:omni storage ./storage
 COPY --chown=omni:omni src ./src
 COPY --chown=omni:omni contract ./contract
-COPY --from=rust-builder /build/backend/rust/target/release/omini-api /usr/local/bin/omini-api
+COPY --from=rust-builder /build/backend/rust/target/release/omni-api /usr/local/bin/omni-api
 
 RUN mkdir -p /app/.logs /app/backend/python/memory /app/backend/python/transcripts /app/backend/python/brain/runtime/sessions \
     && chown -R omni:omni /app/.logs /app/backend/python/memory /app/backend/python/transcripts /app/backend/python/brain/runtime/sessions
@@ -82,4 +82,4 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["omini-api"]
+CMD ["omni-api"]

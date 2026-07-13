@@ -53,7 +53,7 @@ def show_report() -> int:
         3,
     ) if evaluations else 0.0
 
-    print("Omini Evolution Dashboard")
+    print("Omni Evolution Dashboard")
     print("=========================")
     print(f"Current evolution version: {strategy_state.get('version', 0)}")
     print(f"Average score (recent): {average_score}")

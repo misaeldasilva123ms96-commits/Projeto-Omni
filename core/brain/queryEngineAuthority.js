@@ -550,7 +550,7 @@ function resolveDirectConversational(normalizedInput) {
 }
 
 function shouldBypassConversationalMatchers(normalizedMessage, rawMessage, intentInfo = null) {
-  if (String(process.env.OMINI_SKIP_CONVERSATIONAL_MATCHERS || '').trim() === '1') {
+  if (readEnvWithAlias('OMNI_SKIP_CONVERSATIONAL_MATCHERS', 'OMINI_SKIP_CONVERSATIONAL_MATCHERS').trim() === '1') {
     return true;
   }
   const matcherMode = resolveMatcherMode();

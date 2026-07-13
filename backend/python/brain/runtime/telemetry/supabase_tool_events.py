@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.learning.redaction import redact_sensitive_payload
 
 
@@ -62,7 +63,7 @@ def record_runtime_tool_event(
     POST one row to Supabase REST. Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
     Never raises; returns False on misconfiguration or network errors.
     """
-    if str(os.getenv("OMINI_SUPABASE_TOOL_EVENTS_DISABLE", "")).strip().lower() in ("1", "true", "yes"):
+    if read_env("OMNI_SUPABASE_TOOL_EVENTS_DISABLE").lower() in ("1", "true", "yes"):
         return False
     base = str(os.getenv("SUPABASE_URL", "") or "").strip().rstrip("/")
     key = str(os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or "").strip()

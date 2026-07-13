@@ -29,9 +29,9 @@ function normalizeRequestedMode(requestedMode) {
   return Object.values(EXECUTION_MODES).includes(normalized) ? normalized : '';
 }
 
-function resolveExecutionMode({ cwd, requestedMode = '', allowNodeRustDirect = envFlag('OMINI_ENABLE_NODE_RUST_DIRECT') } = {}) {
+function resolveExecutionMode({ cwd, requestedMode = '', allowNodeRustDirect = envFlag('OMNI_ENABLE_NODE_RUST_DIRECT') || envFlag('OMINI_ENABLE_NODE_RUST_DIRECT') } = {}) {
   const compiledBridgePath = findCompiledBridge(cwd);
-  const normalizedRequestedMode = normalizeRequestedMode(requestedMode || process.env.OMINI_EXECUTION_MODE);
+  const normalizedRequestedMode = normalizeRequestedMode(requestedMode || process.env.OMNI_EXECUTION_MODE || process.env.OMINI_EXECUTION_MODE);
 
   const packagedMode = compiledBridgePath
     ? {

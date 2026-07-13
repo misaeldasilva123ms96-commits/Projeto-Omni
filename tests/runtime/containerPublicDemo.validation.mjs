@@ -14,7 +14,7 @@ function assertContains(text, expected, label) {
 }
 
 const cargoToml = read('backend/rust/Cargo.toml');
-assert.match(cargoToml, /name\s*=\s*"omini-api"/, 'Cargo.toml must define omini-api package');
+assert.match(cargoToml, /name\s*=\s*"omni-api"/, 'Cargo.toml must define omni-api package');
 
 const dockerfile = read('Dockerfile.demo');
 const compose = read('docker-compose.demo.yml');
@@ -38,8 +38,8 @@ for (const [key, value] of [
   assertContains(compose, `${key}: "${value}"`, 'docker-compose.demo.yml env');
 }
 
-assertContains(dockerfile, 'cargo build --release --bin omini-api', 'verified Rust binary build');
-assertContains(dockerfile, 'COPY --from=rust-builder /build/backend/rust/target/release/omini-api', 'verified Rust binary copy');
+assertContains(dockerfile, 'cargo build --release --bin omni-api', 'verified Rust binary build');
+assertContains(dockerfile, 'COPY --from=rust-builder /build/backend/rust/target/release/omni-api', 'verified Rust binary copy');
 assertContains(dockerfile, 'npm ci --omit=dev', 'npm lockfile install');
 assertContains(dockerfile, 'USER omni', 'non-root runtime user');
 assertContains(dockerfile, 'EXPOSE 3001', 'Rust API port');

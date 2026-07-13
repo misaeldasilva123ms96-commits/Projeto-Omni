@@ -17,6 +17,8 @@ _PROJECT_ROOT = _PYTHON_DIR.parent.parent  # project root
 sys.path.insert(0, str(_PYTHON_DIR))
 sys.path.insert(0, str(_PROJECT_ROOT / "backend" / "python"))
 
+from brain.env import read_env
+
 HEADER = "=" * 72
 SUBHEADER = "-" * 72
 SECRET_KEY_PATTERN = re.compile(
@@ -63,12 +65,12 @@ def _import_or_fail(module_path: str, name: str):
 
 def _detect_env() -> dict[str, Any]:
     env = {
-        "BASE_DIR": os.getenv("BASE_DIR", ""),
-        "OMINI_JS_RUNTIME_BIN": os.getenv("OMINI_JS_RUNTIME_BIN", ""),
-        "NODE_BIN": os.getenv("NODE_BIN", ""),
-        "OMINI_RUNTIME_MODE": os.getenv("OMINI_RUNTIME_MODE", ""),
-        "OMINI_ALLOW_SHELL_TOOLS": os.getenv("OMINI_ALLOW_SHELL_TOOLS", ""),
-        "OMINI_LOG_LEVEL": os.getenv("OMINI_LOG_LEVEL", ""),
+        "OMNI_BASE_DIR": read_env("OMNI_BASE_DIR"),
+        "OMNI_JS_RUNTIME_BIN": read_env("OMNI_JS_RUNTIME_BIN"),
+        "OMNI_NODE_BIN": read_env("OMNI_NODE_BIN"),
+        "OMNI_RUNTIME_MODE": read_env("OMNI_RUNTIME_MODE"),
+        "OMNI_ALLOW_SHELL_TOOLS": read_env("OMNI_ALLOW_SHELL_TOOLS"),
+        "OMNI_LOG_LEVEL": read_env("OMNI_LOG_LEVEL"),
         "PATH (primeiros 200 chars)": os.getenv("PATH", "")[:200],
     }
     node_path = os.getenv("PATH", "")

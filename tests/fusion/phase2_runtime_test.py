@@ -109,7 +109,7 @@ class Phase2RuntimeTest(unittest.TestCase):
     def make_temp_python_repo(self) -> Path:
         base_temp = PROJECT_ROOT / ".phase9-temp"
         base_temp.mkdir(parents=True, exist_ok=True)
-        temp_root = base_temp / f"omini-phase9-{uuid4().hex[:8]}"
+        temp_root = base_temp / f"omni-phase9-{uuid4().hex[:8]}"
         shutil.rmtree(temp_root, ignore_errors=True)
         temp_root.mkdir(parents=True, exist_ok=True)
         (temp_root / "mathlib").mkdir(parents=True, exist_ok=True)
@@ -127,7 +127,7 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_real_query_to_execution_path_reads_package(self) -> None:
         output = self.run_main("leia package.json", "phase2-read")
-        self.assertIn('"name": "omini-runner"', output)
+        self.assertIn('"name": "omni-runner"', output)
 
     def test_package_analysis_uses_full_node_tool_execution_without_degraded_fallback(self) -> None:
         session_id = f"phase2-package-analysis-regression-{uuid4().hex[:8]}"
@@ -153,7 +153,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         signals = inspection.get("signals", {})
         tool_execution = signals.get("tool_execution", {})
 
-        self.assertIn('"name": "omini-runner"', response, diagnostics)
+        self.assertIn('"name": "omni-runner"', response, diagnostics)
         self.assertIn('"version": "1.0.0"', response, diagnostics)
         self.assertEqual(inspection.get("runtime_mode"), "FULL_COGNITIVE_RUNTIME", diagnostics)
         self.assertEqual(signals.get("execution_path_used"), "node_execution", diagnostics)
@@ -219,7 +219,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         )
         self.assertTrue(list_result.get("ok"))
         self.assertTrue(read_result.get("ok"))
-        self.assertIn("omini-runner", json.dumps(read_result.get("result_payload", {})))
+        self.assertIn("omni-runner", json.dumps(read_result.get("result_payload", {})))
 
     def test_permission_failure_inside_multistep_stops_safely(self) -> None:
         blocked_path = PROJECT_ROOT / "tests" / "fusion" / "blocked-output.txt"
@@ -266,13 +266,13 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_memory_retrieval_affects_followup_plan(self) -> None:
         output = self.run_main("leia package.json", "phase3-memory-artifact")
-        self.assertIn('"name": "omini-runner"', output)
+        self.assertIn('"name": "omni-runner"', output)
 
     def test_semantic_retrieval_affects_runtime_context_selection(self) -> None:
         self.run_main("leia package.json", "phase4-semantic")
         output = self.run_main("analise o arquivo sobre schema validation", "phase4-semantic")
         self.assertTrue(
-            '"name": "omini-runner"' in output or "Hybrid AI Agent Runtime" in output,
+            '"name": "omni-runner"' in output or "Hybrid AI Agent Runtime" in output,
             output,
         )
 
@@ -374,7 +374,7 @@ class Phase2RuntimeTest(unittest.TestCase):
 
             resumed = orchestrator.resume_run(run_id)
             self.assertEqual(resumed.get("run_id"), run_id)
-            self.assertIn('"name": "omini-runner"', resumed.get("response", ""))
+            self.assertIn('"name": "omni-runner"', resumed.get("response", ""))
         finally:
             os.environ.pop("AI_SESSION_ID", None)
             if previous_max_steps is None:
@@ -394,7 +394,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertEqual(executed.get("session_id"), "service-session")
         self.assertIn("task_id", executed)
         self.assertIn("links", executed)
-        self.assertIn('"name": "omini-runner"', executed.get("response", ""))
+        self.assertIn('"name": "omni-runner"', executed.get("response", ""))
 
     def test_observability_records_task_and_run_ids(self) -> None:
         self.run_main("leia package.json", "phase4-observability")
@@ -1034,6 +1034,8 @@ class Phase2RuntimeTest(unittest.TestCase):
         workspace = manager.create_task_workspace(run_id="phase9-workspace", source_root=repo_root)
         workspace_root = Path(workspace["workspace_root"])
         self.assertTrue((workspace_root / "mathlib" / "ops.py").exists())
+        self.assertEqual(workspace_root.parent.name, ".omni-task-workspaces")
+        self.assertTrue(workspace_root.name.startswith("omni-phase9-workspace-"))
         self.assertNotEqual(str(workspace_root), str(repo_root))
         snapshot = workspace.get("snapshot", {})
         self.assertGreater(snapshot.get("file_count", 0), 0)
