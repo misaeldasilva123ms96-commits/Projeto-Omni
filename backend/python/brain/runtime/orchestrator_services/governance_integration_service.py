@@ -77,7 +77,7 @@ class GovernanceIntegrationService:
 
     def await_run_control_clearance(self, *, run_id: str) -> dict[str, Any]:
         if self._run_registry is None:
-            return {"status": "running"}
+            return {"status": "blocked", "error": "governance_registry_unavailable"}
         poll_interval = _run_control_poll_interval_seconds()
         max_wait = _run_control_max_wait_seconds()
 
@@ -86,7 +86,7 @@ class GovernanceIntegrationService:
                 self._run_registry.reload_from_disk()
                 record = self._run_registry.get(run_id)
             except Exception:
-                return GovernanceWaitTick({"status": "running"})
+                return GovernanceWaitTick({"status": "blocked", "error": "governance_registry_unavailable"})
             if record is None or record.status == RunStatus.RUNNING:
                 return GovernanceWaitTick({"status": "running"})
             control_enabled = bool((record.metadata or {}).get("operator_control_enabled"))
@@ -108,7 +108,7 @@ class GovernanceIntegrationService:
                 self._run_registry.reload_from_disk()
                 record = self._run_registry.get(run_id)
             except Exception:
-                return {"status": "running"}
+                return {"status": "blocked", "error": "governance_registry_unavailable"}
             if record is None or record.status == RunStatus.RUNNING:
                 return {"status": "running"}
             control_enabled = bool((record.metadata or {}).get("operator_control_enabled"))

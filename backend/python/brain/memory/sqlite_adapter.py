@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     token_count INTEGER NOT NULL DEFAULT 0,
-    metadata TEXT NOT NULL DEFAULT '{}'
+    metadata TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS episodes (
@@ -221,6 +222,8 @@ class SQLiteAdapter:
             return
         try:
             self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._create_schema()
@@ -255,8 +258,9 @@ class SQLiteAdapter:
 
     def insert_conversation(self, record: ConversationRecord) -> None:
         self._execute(
-            "INSERT OR REPLACE INTO conversations (conversation_id, session_id, title, created_at, updated_at, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO conversations (conversation_id, session_id, title, created_at, updated_at, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET "
+            "session_id=excluded.session_id, title=excluded.title, updated_at=excluded.updated_at, metadata=excluded.metadata",
             record.conversation_id, record.session_id, record.title,
             record.created_at, record.updated_at,
             _json(record.metadata),
@@ -264,8 +268,10 @@ class SQLiteAdapter:
 
     def insert_message(self, record: MessageRecord) -> None:
         self._execute(
-            "INSERT OR REPLACE INTO messages (message_id, conversation_id, role, content, created_at, token_count, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (message_id, conversation_id, role, content, created_at, token_count, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET "
+            "conversation_id=excluded.conversation_id, role=excluded.role, content=excluded.content, "
+            "token_count=excluded.token_count, metadata=excluded.metadata",
             record.message_id, record.conversation_id, record.role,
             record.content, record.created_at, record.token_count,
             _json(record.metadata),

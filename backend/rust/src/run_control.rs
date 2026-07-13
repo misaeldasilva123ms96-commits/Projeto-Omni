@@ -1,48 +1,74 @@
 use std::{path::Path as StdPath, process::Stdio, time::Duration};
 
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     Json,
 };
 use serde_json::{json, Value};
 use tokio::{process::Command, time::timeout};
 
-use crate::{AppError, AppState};
+use crate::{observability_auth::AuthenticatedSubject, AppError, AppState};
 
 const CONTROL_TIMEOUT_MS: u64 = 30_000;
 
 pub(crate) async fn pause_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "pause", std::slice::from_ref(&run_id), "run").await?;
+    require_control_write(&subject)?;
+    let payload = call_control_cli(
+        &state,
+        "pause",
+        &control_args(&subject, vec![run_id]),
+        "run",
+    )
+    .await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
 pub(crate) async fn resume_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "resume", std::slice::from_ref(&run_id), "run").await?;
+    require_control_write(&subject)?;
+    let payload = call_control_cli(
+        &state,
+        "resume",
+        &control_args(&subject, vec![run_id]),
+        "run",
+    )
+    .await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
 pub(crate) async fn approve_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "approve", std::slice::from_ref(&run_id), "run").await?;
+    require_control_write(&subject)?;
+    let payload = call_control_cli(
+        &state,
+        "approve",
+        &control_args(&subject, vec![run_id]),
+        "run",
+    )
+    .await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
 pub(crate) async fn list_runs(
     State(state): State<AppState>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
+    require_control_read(&subject)?;
     let payload = call_control_cli(
         &state,
         "list",
-        &["--limit".to_string(), "50".to_string()],
+        &control_args(&subject, vec!["--limit".to_string(), "50".to_string()]),
         "runs",
     )
     .await?;
@@ -51,18 +77,28 @@ pub(crate) async fn list_runs(
 
 pub(crate) async fn resolution_summary(
     State(state): State<AppState>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "resolution_summary", &[], "summary").await?;
+    require_control_read(&subject)?;
+    let payload = call_control_cli(
+        &state,
+        "resolution_summary",
+        &control_args(&subject, vec![]),
+        "summary",
+    )
+    .await?;
     Ok((status_for_control(&payload), Json(payload)))
 }
 
 pub(crate) async fn runs_waiting_operator(
     State(state): State<AppState>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
+    require_control_read(&subject)?;
     let payload = call_control_cli(
         &state,
         "runs_waiting_operator",
-        &["--limit".to_string(), "50".to_string()],
+        &control_args(&subject, vec!["--limit".to_string(), "50".to_string()]),
         "runs",
     )
     .await?;
@@ -71,11 +107,13 @@ pub(crate) async fn runs_waiting_operator(
 
 pub(crate) async fn runs_with_rollback(
     State(state): State<AppState>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
+    require_control_read(&subject)?;
     let payload = call_control_cli(
         &state,
         "runs_with_rollback",
-        &["--limit".to_string(), "50".to_string()],
+        &control_args(&subject, vec!["--limit".to_string(), "50".to_string()]),
         "runs",
     )
     .await?;
@@ -85,9 +123,35 @@ pub(crate) async fn runs_with_rollback(
 pub(crate) async fn get_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
+    Extension(subject): Extension<AuthenticatedSubject>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let payload = call_control_cli(&state, "show", std::slice::from_ref(&run_id), "run").await?;
+    require_control_read(&subject)?;
+    let payload =
+        call_control_cli(&state, "show", &control_args(&subject, vec![run_id]), "run").await?;
     Ok((status_for_control(&payload), Json(payload)))
+}
+
+fn require_control_read(subject: &AuthenticatedSubject) -> Result<(), AppError> {
+    subject
+        .can_read_control()
+        .then_some(())
+        .ok_or_else(|| AppError::Forbidden("run_control:read capability required".to_string()))
+}
+
+fn require_control_write(subject: &AuthenticatedSubject) -> Result<(), AppError> {
+    subject
+        .can_write_control()
+        .then_some(())
+        .ok_or_else(|| AppError::Forbidden("run_control:write capability required".to_string()))
+}
+
+fn control_args(subject: &AuthenticatedSubject, mut args: Vec<String>) -> Vec<String> {
+    args.push("--operator-id".to_string());
+    args.push(subject.user_id.clone());
+    if subject.is_control_admin() {
+        args.push("--allow-global".to_string());
+    }
+    args
 }
 
 fn status_for_control(payload: &Value) -> StatusCode {
@@ -281,6 +345,26 @@ mod tests {
             "sub": "operator-123",
             "aud": "authenticated",
             "exp": now + 3600,
+            "app_metadata": { "role": "operator" },
+        });
+        encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret("test-secret".as_bytes()),
+        )
+        .expect("encode token")
+    }
+
+    fn token_without_control_capability() -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("unix epoch")
+            .as_secs() as i64;
+        let claims = json!({
+            "iss": "https://example.supabase.co/auth/v1",
+            "sub": "authenticated-user",
+            "aud": "authenticated",
+            "exp": now + 3600,
         });
         encode(
             &Header::new(Algorithm::HS256),
@@ -378,6 +462,29 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn authenticated_user_without_control_capability_is_forbidden() {
+        let workspace = temp_workspace("capability");
+        seed_run(&workspace, "paused");
+        let response = control_router(build_state(workspace))
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/control/runs")
+                    .header(
+                        AUTHORIZATION,
+                        format!("Bearer {}", token_without_control_capability()),
+                    )
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let payload = read_json(response).await;
+        assert_eq!(payload["code"], "control_capability_required");
     }
 
     #[tokio::test]

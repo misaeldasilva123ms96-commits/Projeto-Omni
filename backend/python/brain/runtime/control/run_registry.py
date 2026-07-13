@@ -1,4 +1,5 @@
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -359,7 +360,10 @@ class RunRegistry:
         return self._backend
 
     def register(self, run: RunRecord) -> RunRecord:
-        with self._lock:
+        write_lock = getattr(self._backend, "write_lock", nullcontext)
+        with self._lock, write_lock():
+            if self._backend.exists():
+                self.reload_from_disk()
             existing = None
             for key in run_id_lookup_keys(run.run_id):
                 candidate = self._runs.get(key)
@@ -405,7 +409,10 @@ class RunRegistry:
         promotion_metadata: dict[str, Any] | None = None,
         engine_mode: str | None = None,
     ) -> RunRecord | None:
-        with self._lock:
+        write_lock = getattr(self._backend, "write_lock", nullcontext)
+        with self._lock, write_lock():
+            if self._backend.exists():
+                self.reload_from_disk()
             record = None
             for key in run_id_lookup_keys(run_id):
                 record = self._runs.get(key)

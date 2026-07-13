@@ -139,7 +139,8 @@ CREATE TABLE IF NOT EXISTS learning_artifacts (
     content_summary TEXT NOT NULL DEFAULT '',
     confidence     REAL NOT NULL DEFAULT 0.0,
     created_at     TEXT NOT NULL,
-    metadata       TEXT NOT NULL DEFAULT '{}'
+    metadata       TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_learning_artifacts_type ON learning_artifacts(artifact_type);

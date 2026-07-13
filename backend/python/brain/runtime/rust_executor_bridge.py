@@ -9,6 +9,14 @@ import ctypes
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.learning.redaction import redact_sensitive_text
+
+MAX_BRIDGE_DIAGNOSTIC_CHARS = 1200
+
+
+def _safe_bridge_diagnostic(value: str) -> str:
+    return redact_sensitive_text(value)[:MAX_BRIDGE_DIAGNOSTIC_CHARS]
+
 
 def _is_project_root(candidate: Path) -> bool:
     return (
@@ -214,7 +222,7 @@ def execute_action(project_root: Path, action: dict[str, Any], timeout_seconds: 
                     "ok": False,
                     "error_payload": {
                         "kind": "rust_bridge_failure",
-                        "message": stderr_text or stdout_text or "Rust bridge failed",
+                        "message": _safe_bridge_diagnostic(stderr_text or stdout_text) or "Rust bridge failed",
                         "code": completed.returncode,
                         "runtime_mode": runtime_mode,
                     },
@@ -232,7 +240,7 @@ def execute_action(project_root: Path, action: dict[str, Any], timeout_seconds: 
                     "error_payload": {
                         "kind": "rust_bridge_parse_error",
                         "message": str(error),
-                        "raw": completed.stdout or "",
+                        "raw": _safe_bridge_diagnostic(completed.stdout or ""),
                         "runtime_mode": runtime_mode,
                     },
                 }

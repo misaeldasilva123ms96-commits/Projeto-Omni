@@ -1,28 +1,21 @@
 import type { ProviderRecord, ProviderTestResult } from '../../features/settings/types';
 import { redactRuntimeDebugText } from '../runtimeDebugSanitizer';
-import { API_BASE_URL, getSupabaseAuthHeaders } from './client';
+import { requestJsonWithAuth } from './client';
 
-async function buildHeaders(): Promise<Record<string, string>> {
-  const auth = await getSupabaseAuthHeaders();
-  return {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-    ...auth,
-  };
+type ProviderPayload = Partial<ProviderRecord> & { providers?: ProviderRecord[]; error?: string; success?: boolean };
+
+async function settingsRequest<T = ProviderPayload>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await requestJsonWithAuth<T>(path, init);
+  } catch (error) {
+    throw new Error(redactRuntimeDebugText(error instanceof Error ? error.message : 'Settings request failed'));
+  }
 }
 
 export async function listProviders(): Promise<ProviderRecord[]> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/settings/providers`, {
-    method: 'GET',
-    headers: await buildHeaders(),
-  });
+  const payload = await settingsRequest<ProviderPayload | ProviderRecord[]>('/api/v1/settings/providers');
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(redactRuntimeDebugText(String(payload?.error ?? 'Unable to load providers')));
-  }
-
-  const providers: ProviderRecord[] = Array.isArray(payload?.providers)
+  const providers: ProviderRecord[] = !Array.isArray(payload) && Array.isArray(payload.providers)
     ? (payload.providers as ProviderRecord[])
     : Array.isArray(payload)
       ? (payload as ProviderRecord[])
@@ -39,19 +32,14 @@ export async function saveProvider(payload: { provider: string; api_key: string 
     throw new Error('Provider and api_key are required');
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/settings/providers`, {
+  const data = await settingsRequest('/api/v1/settings/providers', {
     method: 'POST',
-    headers: await buildHeaders(),
     body: JSON.stringify({
       provider: String(payload.provider).trim().toLowerCase(),
       api_key: String(payload.api_key),
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to save provider')));
-  }
 
   return {
     provider: String(data.provider ?? payload.provider).trim().toLowerCase(),
@@ -65,19 +53,14 @@ export async function updateProvider(provider: string, payload: { api_key: strin
     throw new Error('Provider and api_key are required');
   }
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/settings/providers/${encodeURIComponent(provider.trim().toLowerCase())}`,
+  const data = await settingsRequest(
+    `/api/v1/settings/providers/${encodeURIComponent(provider.trim().toLowerCase())}`,
     {
       method: 'PUT',
-      headers: await buildHeaders(),
       body: JSON.stringify({ api_key: String(payload.api_key) }),
     },
   );
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to update provider')));
-  }
 
   return {
     provider: String(data.provider ?? provider).trim().toLowerCase(),
@@ -91,18 +74,13 @@ export async function deleteProvider(provider: string): Promise<ProviderRecord> 
     throw new Error('Provider is required');
   }
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/settings/providers/${encodeURIComponent(provider.trim().toLowerCase())}`,
+  const data = await settingsRequest(
+    `/api/v1/settings/providers/${encodeURIComponent(provider.trim().toLowerCase())}`,
     {
       method: 'DELETE',
-      headers: await buildHeaders(),
     },
   );
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to remove provider')));
-  }
 
   return {
     provider: String(data.provider ?? provider).trim().toLowerCase(),
@@ -116,19 +94,14 @@ export async function testProvider(provider: string, apiKey: string): Promise<Pr
     throw new Error('Provider and api_key are required');
   }
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/settings/providers/${encodeURIComponent(provider.trim().toLowerCase())}/test`,
+  const data = await settingsRequest(
+    `/api/v1/settings/providers/${encodeURIComponent(provider.trim().toLowerCase())}/test`,
     {
       method: 'POST',
-      headers: await buildHeaders(),
       body: JSON.stringify({ api_key: String(apiKey) }),
     },
   );
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(redactRuntimeDebugText(String(data?.error ?? 'Unable to test provider')));
-  }
 
   return {
     provider: String(data.provider ?? provider).trim().toLowerCase(),

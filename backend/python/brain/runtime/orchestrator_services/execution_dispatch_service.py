@@ -67,15 +67,17 @@ class ExecutionDispatchService:
                 run_id=run_id,
                 progress_score=self._progress_fn(step_results),
             )
-        result = o._result_from_coordination_trace(trace.as_dict()) or o._execute_single_action_core(
-            action=action,
-            step_results=step_results,
-            semantic_retrieval=semantic_retrieval,
-            session_id=session_id,
-            task_id=task_id,
-            run_id=run_id,
-            learning_guidance=learning_guidance,
-            operational_plan=operational_plan,
-        )
+        result = o._result_from_coordination_trace(trace.as_dict())
+        if result is None:
+            # The coordinator already invoked the execution callback. Re-running it here
+            # can duplicate writes, commits, or external side effects.
+            result = {
+                "ok": False,
+                "selected_tool": action.get("selected_tool"),
+                "error_payload": {
+                    "kind": "coordination_result_missing",
+                    "message": "Specialist coordination completed without an execution result.",
+                },
+            }
         result["coordination_trace"] = trace.as_dict()
         return result

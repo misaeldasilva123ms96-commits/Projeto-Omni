@@ -37,9 +37,12 @@ type ChatPageProps = {
 }
 
 const STORAGE_KEY = 'omini-chat-state-v3'
+const STORAGE_VERSION = 4
+const STORAGE_WRITE_DELAY_MS = 250
 const DEFAULT_SESSION_PREFIX = 'sessao'
 
 type StoredChatState = {
+  version?: number
   input: string
   lastMetadata: RuntimeMetadata | null
   messages: ExtendedChatMessage[]
@@ -97,7 +100,12 @@ function loadStoredState(): StoredChatState {
     sessionId: buildSessionId(),
   }
 
-  const raw = localStorage.getItem(STORAGE_KEY)
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return baseState
+  }
   if (!raw) {
     return baseState
   }
@@ -120,8 +128,26 @@ function loadStoredState(): StoredChatState {
       sessionId: typeof parsed.sessionId === 'string' && parsed.sessionId ? parsed.sessionId : buildSessionId(),
     }
   } catch {
-    localStorage.removeItem(STORAGE_KEY)
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // Storage may be disabled. The in-memory chat remains fully usable.
+    }
     return baseState
+  }
+}
+
+function persistStoredState(state: StoredChatState) {
+  const snapshot: StoredChatState = {
+    ...state,
+    version: STORAGE_VERSION,
+    messages: state.messages.map(({ isLoading: _isLoading, isNew: _isNew, ...message }) => message),
+    requestState: state.requestState === 'loading' ? 'idle' : state.requestState,
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Quota and privacy-mode failures must not interrupt the active conversation.
   }
 }
 
@@ -197,15 +223,10 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
   }, [sessionId])
 
   useEffect(() => {
-    const snapshot: StoredChatState = {
-      input,
-      lastMetadata,
-      messages,
-      requestState,
-      sessionId,
-    }
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+    const timeout = window.setTimeout(() => {
+      persistStoredState({ input, lastMetadata, messages, requestState, sessionId })
+    }, STORAGE_WRITE_DELAY_MS)
+    return () => window.clearTimeout(timeout)
   }, [input, lastMetadata, messages, requestState, sessionId])
 
   useEffect(() => {
@@ -273,13 +294,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
         setRequestState('idle')
         setIsLoading(false)
         setInput('')
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          input: '',
-          lastMetadata: restoredMetadata,
-          messages: extended,
-          requestState: 'idle',
-          sessionId: restoreSessionId,
-        } satisfies StoredChatState))
       })
       .catch(() => {
         useRuntimeConsoleStore.getState().setUiNotice('Não foi possível restaurar esta sessão.')
@@ -294,28 +308,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     return new Promise((resolve) => {
       window.setTimeout(resolve, ms)
     })
-  }
-
-  async function streamAssistantMessage(messageId: string, text: string, metadata: RuntimeMetadata, requestState: ChatMessage['requestState']) {
-    const chunks = text.match(/.{1,28}(\s|$)/g) ?? [text]
-    let streamed = ''
-
-    for (const chunk of chunks) {
-      streamed += chunk
-      setMessages((current) => current.map((message) => (
-        message.id === messageId
-          ? {
-            ...message,
-            content: streamed.trimEnd(),
-            isLoading: false,
-            isNew: true,
-            metadata,
-            requestState,
-          }
-          : message
-      )))
-      await sleep(28)
-    }
   }
 
   async function sendWithRetry(prompt: string, options: { sessionId: string }, maxRetries = 2) {
@@ -372,12 +364,22 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
       const displayText = ui.text.trim() || '...'
       const assistantOutcome = ui.wireHealth === 'degraded' ? ('degraded' as const) : ('completed' as const)
 
-      await sleep(420)
       setSessionId(metadata.sessionId ?? sessionId)
       setLastMetadata(metadata)
       setLastInspectorData(snapshot.inspectorData)
       setConsoleRuntimeMetadata(metadata)
-      await streamAssistantMessage(loadingMessageId, displayText, metadata, assistantOutcome)
+      setMessages((current) => current.map((message) => (
+        message.id === loadingMessageId
+          ? {
+            ...message,
+            content: displayText,
+            isLoading: false,
+            isNew: false,
+            metadata,
+            requestState: assistantOutcome,
+          }
+          : message
+      )))
       setRequestState('idle')
       setTelemetryTick((value) => value + 1)
     } catch (err) {
@@ -430,13 +432,6 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     setIsLoading(false)
     setSessionId(nextSessionId)
     resetRuntimeConsoleConversation()
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      input: '',
-      lastMetadata: null,
-      messages: [],
-      requestState: 'idle',
-      sessionId: nextSessionId,
-    } satisfies StoredChatState))
   }
 
   function handleSidebarItemSelected(item: SidebarItem) {

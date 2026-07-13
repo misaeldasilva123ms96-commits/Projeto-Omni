@@ -41,3 +41,14 @@
   --omni-border-subtle: rgba(99, 102, 241, 0.16);
   --omni-text-muted: #6b7280;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

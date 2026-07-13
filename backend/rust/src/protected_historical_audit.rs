@@ -908,7 +908,8 @@ mod tests {
         .expect("response");
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body = response_json(response).await;
-        assert_eq!(body["error_category"], "missing_caller_identity");
+        assert_eq!(body["error"], "unauthorized");
+        assert_eq!(body["message"], "Valid Supabase session required");
     }
 
     #[tokio::test]

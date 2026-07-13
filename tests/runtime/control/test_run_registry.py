@@ -1,5 +1,6 @@
 import io
 import json
+import multiprocessing
 import shutil
 import sys
 import unittest
@@ -14,6 +15,14 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.control import RunRecord, RunRegistry, RunStatus  # noqa: E402
 from brain.runtime.observability.cli import main as observability_cli_main  # noqa: E402
 from brain.runtime.observability.run_reader import read_active_runs, read_run  # noqa: E402
+
+
+def _register_process(workspace: str, index: int) -> None:
+    registry = RunRegistry(Path(workspace))
+    registry.register(RunRecord.build(
+        run_id=f"parallel-{index}", goal_id=None, session_id=f"session-{index}",
+        status=RunStatus.RUNNING, last_action="execution_started", progress_score=0.0,
+    ))
 
 
 class RunRegistryTest(unittest.TestCase):
@@ -60,6 +69,18 @@ class RunRegistryTest(unittest.TestCase):
             loaded = read_run(workspace_root, "run-1")
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded["goal_id"], "goal-1")
+
+    def test_concurrent_processes_do_not_lose_registered_runs(self) -> None:
+        with self.temp_workspace() as workspace_root:
+            context = multiprocessing.get_context("spawn")
+            workers = [context.Process(target=_register_process, args=(str(workspace_root), index)) for index in range(8)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(20)
+                self.assertEqual(worker.exitcode, 0)
+            records = RunRegistry(workspace_root).get_all(limit=20)
+            self.assertEqual({record.run_id for record in records}, {f"parallel-{index}" for index in range(8)})
 
     def test_get_all_includes_completed_and_failed_runs(self) -> None:
         with self.temp_workspace() as workspace_root:

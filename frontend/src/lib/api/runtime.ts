@@ -103,18 +103,19 @@ export async function fetchMilestonesPreferOperator(): Promise<{
 }
 
 export type CognitiveTelemetryBundle = {
-  publicRuntime: PublicStatusResponseV1
-  publicSignalsWire: PublicRuntimeSignalsSummaryV1
-  publicMilestonesWire: PublicMilestonesSummaryV1
-  publicStrategyWire: PublicStrategySummaryV1
-  runtimeSignals: RuntimeSignalsResponse
-  runtimeSignalsSource: RichTelemetryDetailSource
-  swarmLog: SwarmLogResponse
-  strategyState: StrategyStateResponse
-  strategyStateSource: RichTelemetryDetailSource
-  milestones: MilestonesResponse
-  milestonesSource: RichTelemetryDetailSource
-  prSummaries: PrSummariesResponse
+  publicRuntime: PublicStatusResponseV1 | null
+  publicSignalsWire: PublicRuntimeSignalsSummaryV1 | null
+  publicMilestonesWire: PublicMilestonesSummaryV1 | null
+  publicStrategyWire: PublicStrategySummaryV1 | null
+  runtimeSignals: RuntimeSignalsResponse | null
+  runtimeSignalsSource: RichTelemetryDetailSource | null
+  swarmLog: SwarmLogResponse | null
+  strategyState: StrategyStateResponse | null
+  strategyStateSource: RichTelemetryDetailSource | null
+  milestones: MilestonesResponse | null
+  milestonesSource: RichTelemetryDetailSource | null
+  prSummaries: PrSummariesResponse | null
+  failedSources: string[]
 }
 
 /**
@@ -122,17 +123,7 @@ export type CognitiveTelemetryBundle = {
  * richer rows prefer operator JWT routes, then `/internal/*`.
  */
 export async function loadCognitiveTelemetryBundle(): Promise<CognitiveTelemetryBundle> {
-  const [
-    publicRuntime,
-    publicSignalsWire,
-    publicMilestonesWire,
-    publicStrategyWire,
-    runtimeBundle,
-    swarmLog,
-    strategyBundle,
-    milestonesBundle,
-    prSummaries,
-  ] = await Promise.all([
+  const results = await Promise.allSettled([
     fetchPublicRuntimeStatusV1(),
     fetchPublicRuntimeSignalsSummaryV1(),
     fetchPublicMilestonesSummaryV1(),
@@ -143,19 +134,35 @@ export async function loadCognitiveTelemetryBundle(): Promise<CognitiveTelemetry
     fetchMilestonesPreferOperator(),
     fetchPrSummaries(),
   ])
+  const names = [
+    'runtime status', 'runtime signals summary', 'milestones summary', 'strategy summary',
+    'runtime signals detail', 'swarm log', 'strategy detail', 'milestones detail', 'PR summaries',
+  ]
+  const failedSources = results.flatMap((result, index) => result.status === 'rejected' ? [names[index]] : [])
+  if (failedSources.length === results.length) {
+    throw new Error('Telemetry endpoints are unavailable.')
+  }
+  const value = <T,>(index: number): T | null => {
+    const result = results[index]
+    return result.status === 'fulfilled' ? result.value as T : null
+  }
+  const runtimeBundle = value<Awaited<ReturnType<typeof fetchRuntimeSignalsPreferOperator>>>(4)
+  const strategyBundle = value<Awaited<ReturnType<typeof fetchStrategyStatePreferOperator>>>(6)
+  const milestonesBundle = value<Awaited<ReturnType<typeof fetchMilestonesPreferOperator>>>(7)
 
   return {
-    publicRuntime,
-    publicSignalsWire,
-    publicMilestonesWire,
-    publicStrategyWire,
-    runtimeSignals: runtimeBundle.data,
-    runtimeSignalsSource: runtimeBundle.source,
-    swarmLog,
-    strategyState: strategyBundle.data,
-    strategyStateSource: strategyBundle.source,
-    milestones: milestonesBundle.data,
-    milestonesSource: milestonesBundle.source,
-    prSummaries,
+    publicRuntime: value<PublicStatusResponseV1>(0),
+    publicSignalsWire: value<PublicRuntimeSignalsSummaryV1>(1),
+    publicMilestonesWire: value<PublicMilestonesSummaryV1>(2),
+    publicStrategyWire: value<PublicStrategySummaryV1>(3),
+    runtimeSignals: runtimeBundle?.data ?? null,
+    runtimeSignalsSource: runtimeBundle?.source ?? null,
+    swarmLog: value<SwarmLogResponse>(5),
+    strategyState: strategyBundle?.data ?? null,
+    strategyStateSource: strategyBundle?.source ?? null,
+    milestones: milestonesBundle?.data ?? null,
+    milestonesSource: milestonesBundle?.source ?? null,
+    prSummaries: value<PrSummariesResponse>(8),
+    failedSources,
   }
 }

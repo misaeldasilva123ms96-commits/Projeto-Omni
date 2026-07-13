@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+from ...persistence import atomic_write_json, file_lock
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +80,12 @@ class FileSystemRunRegistryBackend:
             raise ValueError(f"Invalid run registry data: {error}") from error
 
     def save(self, payload: dict[str, Any]) -> None:
-        temp_path = self._path.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_path.replace(self._path)
+        atomic_write_json(self._path, payload)
+
+    @contextmanager
+    def write_lock(self):
+        with file_lock(self._path):
+            yield
 
     def metadata(self) -> RunRegistryBackendMetadata:
         return RunRegistryBackendMetadata(
@@ -90,11 +97,12 @@ class FileSystemRunRegistryBackend:
 class InMemoryRunRegistryBackend:
     """In-memory backend for tests (no I/O)."""
 
-    __slots__ = ("_payload", "_written")
+    __slots__ = ("_payload", "_written", "_lock")
 
     def __init__(self) -> None:
         self._payload: dict[str, Any] = {"runs": {}}
         self._written = False
+        self._lock = threading.RLock()
 
     def exists(self) -> bool:
         return self._written
@@ -107,6 +115,11 @@ class InMemoryRunRegistryBackend:
     def save(self, payload: dict[str, Any]) -> None:
         self._payload = copy.deepcopy(payload)
         self._written = True
+
+    @contextmanager
+    def write_lock(self):
+        with self._lock:
+            yield
 
     def metadata(self) -> RunRegistryBackendMetadata:
         return RunRegistryBackendMetadata(backend_id="memory", storage_path=None)

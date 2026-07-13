@@ -128,7 +128,7 @@ withProviderEnv({
   OLLAMA_URL: 'http://127.0.0.1:11434',
   LMSTUDIO_URL: 'http://127.0.0.1:1234',
   OMINI_AVAILABLE_PROVIDERS: 'openai,openrouter,groq',
-}, ({ buildProviderDiagnostics, chooseProvider, getAvailableProviders }) => {
+}, ({ buildProviderDiagnostics, chooseProvider, getAvailableProviders, resolveProviderRoute }) => {
   const selected = chooseProvider({ complexity: 'complex' });
   assert.equal(selected.name, 'groq');
   assert.deepEqual(getAvailableProviders().map(row => row.name), [
@@ -141,6 +141,8 @@ withProviderEnv({
     'lmstudio',
     'local-heuristic',
   ]);
+  assert.equal(resolveProviderRoute({ complexity: 'simple' }).executionProviderName, 'ollama');
+  assert.equal(resolveProviderRoute({ complexity: 'complex' }).executionProviderName, 'groq');
 
   const rows = buildProviderDiagnostics({
     selectedProviderName: 'openai',

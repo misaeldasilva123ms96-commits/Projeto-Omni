@@ -30,6 +30,15 @@ class StrategyExecutorBase(ABC):
         failure_reason_prefix: str,
     ) -> tuple[dict[str, Any] | None, str]:
         payload = dict(raw_result or {})
+        error_payload = payload.get("error_payload")
+        if payload.get("ok") is False or isinstance(error_payload, dict) and error_payload:
+            kind = str((error_payload or {}).get("kind", "execution_failed") or "execution_failed")
+            return None, f"{failure_reason_prefix}_{kind}"
+        if payload.get("degraded") is True or str(payload.get("status", "")).lower() in {"failed", "failure", "degraded", "blocked", "error"}:
+            return None, f"{failure_reason_prefix}_degraded"
+        inspection = payload.get("cognitive_runtime_inspection")
+        if isinstance(inspection, dict) and (inspection.get("fallback_triggered") is True or str(inspection.get("runtime_mode", "")).upper() == "SAFE_FALLBACK"):
+            return None, f"{failure_reason_prefix}_degraded"
         response_text = str(payload.get("response", "") or "").strip()
         if response_text:
             return payload, ""

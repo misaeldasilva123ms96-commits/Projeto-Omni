@@ -54,6 +54,31 @@ export async function fetchWithTimeout(
   }
 }
 
+export async function requestJsonWithAuth<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  if (!API_BASE_URL) throw buildConfigurationError()
+  const authHeaders = await getSupabaseAuthHeaders()
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...authHeaders,
+      ...init.headers,
+    },
+  })
+  const payload = await parseResponseBody(res)
+  if (!res.ok) {
+    const detail = typeof payload === 'object' && payload && 'error' in payload
+      ? String(payload.error)
+      : typeof payload === 'string' ? payload : `API error ${res.status}`
+    throw new Error(detail)
+  }
+  return payload as T
+}
+
 export async function getSupabaseAuthHeaders() {
   const { data, error } = await supabase.auth.getSession()
   if (error) {

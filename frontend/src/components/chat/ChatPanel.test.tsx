@@ -29,7 +29,7 @@ describe('ChatPanel', () => {
 
   it('shows loading state', () => {
     render(<ChatPanel {...baseProps} canSend={false} input="" loading requestState="loading" />)
-    expect(screen.getByRole('button', { name: '...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Enviando mensagem' })).toBeDisabled()
     expect(screen.getByText('loading')).toBeInTheDocument()
   })
 })

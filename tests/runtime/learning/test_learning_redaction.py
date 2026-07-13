@@ -95,6 +95,17 @@ def test_phone_redaction_preserves_uuid_like_and_structured_ids() -> None:
     assert redact_sensitive_payload(structured_ids) == structured_ids
 
 
+def test_private_key_redaction_is_complete_and_handles_repeated_markers() -> None:
+    begin_marker = "-----BEGIN RSA " + "PRIVATE KEY-----"
+    end_marker = "-----END RSA " + "PRIVATE KEY-----"
+    private_key = f"{begin_marker}\ntest-payload\n{end_marker}"
+    assert redact_sensitive_text(private_key) == "[REDACTED_PRIVATE_KEY]"
+
+    adversarial_marker = "-----BEGIN " + "PRIVATE KEY-----"
+    adversarial = adversarial_marker * 10_000
+    assert redact_sensitive_text(adversarial) == "[REDACTED_PRIVATE_KEY]"
+
+
 def test_redact_sensitive_payload_recurses_and_preserves_safe_metadata() -> None:
     original = {
         "record_id": "clr-1",

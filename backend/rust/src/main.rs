@@ -1218,6 +1218,25 @@ impl ChatSecurityState {
             .rate_limiter
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.retain(|_, hits| {
+            while hits
+                .front()
+                .is_some_and(|instant| now.duration_since(*instant) >= window)
+            {
+                hits.pop_front();
+            }
+            !hits.is_empty()
+        });
+        const MAX_TRACKED_CLIENTS: usize = 10_000;
+        if !guard.contains_key(client_key) && guard.len() >= MAX_TRACKED_CLIENTS {
+            if let Some(oldest_key) = guard
+                .iter()
+                .min_by_key(|(_, hits)| hits.back().copied())
+                .map(|(key, _)| key.clone())
+            {
+                guard.remove(&oldest_key);
+            }
+        }
         let hits = guard.entry(client_key.to_string()).or_default();
         while hits
             .front()
@@ -2612,13 +2631,21 @@ fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResu
 }
 
 fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
-    let client_key = headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("global");
+    let client_key = if read_env_alias_bool(
+        "OMNI_TRUST_PROXY_HEADERS",
+        "OMINI_TRUST_PROXY_HEADERS",
+        false,
+    ) {
+        headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("global")
+    } else {
+        "global"
+    };
     if state
         .chat_security
         .check_rate_limit(client_key, Instant::now())
@@ -3106,9 +3133,15 @@ async fn post_python_service(
 ) -> Result<(u16, String), &'static str> {
     let host = state.python_runtime.service_host.as_str();
     let port = state.python_runtime.service_port;
+    let service_token = read_env_alias_string(
+        "OMNI_PYTHON_SERVICE_TOKEN",
+        "OMINI_PYTHON_SERVICE_TOKEN",
+        "",
+    );
     let request = format!(
-        "POST /internal/brain/run HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
+        "POST /internal/brain/run HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        service_token,
+        body.len(),
     );
 
     let mut stream = timeout(

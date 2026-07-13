@@ -26,7 +26,8 @@ assert.match(chatApi, /if \(!trimmed\)/, 'empty chat messages must be rejected b
 assert.match(chatPage, /createMessage\('user', prompt\)/, 'user message must render immediately')
 assert.match(chatPage, /isLoading: true/, 'assistant loading state must render while sending')
 assert.match(chatPage, /setConsoleRuntimeMetadata\(metadata\)/, 'runtime metadata must be stored after success')
-assert.match(chatPage, /streamAssistantMessage/, 'chat response must be stream-ready via simulated token rendering')
+assert.match(chatPage, /content: displayText/, 'chat response must replace the loading message immediately')
+assert.doesNotMatch(chatPage, /streamAssistantMessage/, 'chat response must not add an artificial reveal delay')
 assert.match(chatPage, /handleSidebarItemSelected/, 'sidebar selections must be handled by ChatPage')
 
 assert.match(store, /selectSidebarItem/, 'runtime console store must expose sidebar selection')

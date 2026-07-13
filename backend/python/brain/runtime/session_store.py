@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..persistence import atomic_write_json, file_lock
+
 
 class SessionStore:
     def __init__(self, base_dir: Path) -> None:
@@ -15,10 +17,9 @@ class SessionStore:
 
     def save(self, session_id: str, payload: dict[str, object]) -> None:
         try:
-            self.path_for(session_id).write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            path = self.path_for(session_id)
+            with file_lock(path):
+                atomic_write_json(path, payload)
         except Exception:
             return
 

@@ -21,6 +21,7 @@ from brain.runtime.orchestrator_services import (  # noqa: E402
     GovernanceIntegrationService,
     RunLifecycleService,
 )
+from brain.runtime.orchestrator_services.execution_dispatch_service import ExecutionDispatchService  # noqa: E402
 
 
 class OrchestratorDecompositionTest(unittest.TestCase):
@@ -132,6 +133,29 @@ class OrchestratorDecompositionTest(unittest.TestCase):
         gov = GovernanceIntegrationService(run_registry=None, get_controller=lambda: ctrl, run_lifecycle=run_lc)
         gov.apply_governance_hold_after_specialist(run_id="run-hold", progress_score=0.33)
         ctrl.handle_governance_hold.assert_called_once_with(run_id="run-hold", progress=0.33)
+
+    def test_coordination_missing_result_does_not_execute_side_effect_twice(self) -> None:
+        core = MagicMock(return_value={"ok": True})
+        trace = MagicMock()
+        trace.as_dict.return_value = {"decisions": []}
+        coordinator = MagicMock()
+        coordinator.coordinate.side_effect = lambda **kwargs: (kwargs["execute_callback"](), trace)[1]
+        orch = MagicMock()
+        orch.specialist_coordinator = coordinator
+        orch._execute_single_action_core = core
+        orch._coordination_trace_has_governance_hold.return_value = False
+        orch._result_from_coordination_trace.return_value = None
+        service = ExecutionDispatchService(orch, governance=MagicMock(), progress_fn=lambda _: 0.0)
+        plan = MagicMock(goal_id="goal-1")
+
+        result = service.execute_single_action_with_specialists(
+            action={"selected_tool": "write_file"}, step_results=[], semantic_retrieval=None,
+            session_id="s", task_id="t", run_id="r", operational_plan=plan,
+        )
+
+        core.assert_called_once()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_payload"]["kind"], "coordination_result_missing")
 
 
 if __name__ == "__main__":

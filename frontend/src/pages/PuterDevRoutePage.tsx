@@ -26,8 +26,9 @@ import {
 import {
   isPuterChatBridgeDevRealFlagEnabled,
 } from '../lib/puter/freeModeChatBridgeDevReal'
+import { canShowPuterDevRoute, PUTER_DEV_ROUTE_PATH } from '../app/puterDevRoute'
 
-export const PUTER_DEV_ROUTE_PATH = '/dev/puter'
+export { canShowPuterDevRoute, PUTER_DEV_ROUTE_PATH }
 export const PUTER_DEV_ROUTE_VERSION = 'puter_dev_route_v1'
 
 type PuterDevRoutePageProps = {
@@ -38,13 +39,6 @@ type PuterDevRoutePageProps = {
   devRealFeatureEnabled?: boolean
   experimentalFeatureEnabled?: boolean
   runtime?: unknown
-}
-
-export function canShowPuterDevRoute(
-  experimentalFeatureEnabled = isPuterFreeModeFlagEnabled(),
-  devSurfaceEnabled = isPuterDevSurfaceFlagEnabled(),
-): boolean {
-  return experimentalFeatureEnabled === true && devSurfaceEnabled === true
 }
 
 export function buildPuterDevRouteBoundaryEnvelope(overrides: Record<string, unknown> = {}) {

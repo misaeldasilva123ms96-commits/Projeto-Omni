@@ -79,6 +79,31 @@ class StrategyDispatcherTest(unittest.TestCase):
         self.assertTrue(result.governance_downgrade_applied)
         self.assertTrue(result.downgraded)
 
+    def test_node_executor_does_not_mark_degraded_envelope_successful(self) -> None:
+        request = self._request("implemente algo com node runtime")
+        request.selected_strategy = "NODE_RUNTIME_DELEGATION"
+        request.metadata["primary_execution_type"] = "NODE_EXECUTION"
+        result = self.dispatcher.dispatch(
+            request,
+            node_execute=lambda: {"ok": False, "response": "degraded", "error_payload": {"kind": "node_failed"}},
+        )
+        self.assertEqual(result.status, "fallback")
+        self.assertTrue(result.fallback_applied)
+
+    def test_tool_executor_does_not_mark_safe_fallback_envelope_successful(self) -> None:
+        request = self._request("rode testes")
+        request.selected_strategy = "TOOL_ASSISTED"
+        request.metadata["primary_execution_type"] = "LOCAL_TOOL_EXECUTION"
+        result = self.dispatcher.dispatch(
+            request,
+            local_tool_execute=lambda: {
+                "response": "fallback",
+                "cognitive_runtime_inspection": {"runtime_mode": "SAFE_FALLBACK", "fallback_triggered": True},
+            },
+        )
+        self.assertEqual(result.status, "fallback")
+        self.assertTrue(result.fallback_applied)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -199,6 +199,17 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn("content", result["result_payload"]["file"])
 
+    def test_attacker_controlled_workspace_root_outside_project_is_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as outside:
+            Path(outside, "secret.txt").write_text("host-secret", encoding="utf-8")
+            result = execute_engineering_action(
+                project_root=PROJECT_ROOT,
+                action={"selected_tool": "read_file", "tool_arguments": {"workspace_root": outside, "path": "secret.txt"}},
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_payload"]["kind"], "workspace_outside_allowed_roots")
+        self.assertNotIn("host-secret", str(result))
+
     def test_runtime_truth_marks_governance_blocked_tool(self) -> None:
         row = build_cognitive_runtime_inspection(
             **_base_inspection_kwargs(
