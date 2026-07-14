@@ -18,13 +18,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: ESLint (advisory, root + frontend)
+        continue-on-error: true
         run: |
           echo "ADVISORY ONLY: this audit is non-blocking by design."
-          npx eslint --ext .js,.mjs,.ts,.tsx . || true
+          npx eslint --ext .js,.mjs,.ts,.tsx .
       - name: Prettier check (advisory)
+        continue-on-error: true
         run: |
           echo "ADVISORY ONLY: this audit is non-blocking by design."
-          npx prettier --check "**/*.{js,ts,tsx,json,md}" || true
+          npx prettier --check "**/*.{js,ts,tsx,json,md}"
 
   py-lint:
     runs-on: ubuntu-latest
@@ -39,17 +41,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install black flake8 pylint
       - name: Black check (advisory)
+        continue-on-error: true
         run: |
           echo "ADVISORY ONLY: this audit is non-blocking by design."
-          black --check . || true
+          black --check .
       - name: Flake8 (advisory)
+        continue-on-error: true
         run: |
           echo "ADVISORY ONLY: this audit is non-blocking by design."
-          flake8 || true
+          flake8
       - name: Pylint (advisory, select folders)
+        continue-on-error: true
         run: |
           echo "ADVISORY ONLY: this audit is non-blocking by design."
-          pylint backend/python || true
+          pylint backend/python
 
   rust-clippy:
     runs-on: ubuntu-latest

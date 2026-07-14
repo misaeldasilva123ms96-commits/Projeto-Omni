@@ -41,7 +41,7 @@ The demo container profile is not a production deployment profile. It uses ephem
 
 ## Test Suite Limitations
 
-Some broad wrappers can be slow or environment-sensitive. The latest audit pass verified the local Rust/Python/JS/security suites, but live HTTP E2E still depends on `OMINI_E2E_API_URL`, and Docker runtime validation depends on a working Docker daemon.
+Some broad wrappers can be slow or environment-sensitive. The live HTTP contract is now mandatory in its dedicated CI workflow and uses the canonical `OMNI_E2E_API_URL`; local ad-hoc execution still needs a running API and that variable (or the temporary `OMINI_E2E_API_URL` alias). Docker runtime validation depends on a working Docker daemon.
 
 ## Release Status
 

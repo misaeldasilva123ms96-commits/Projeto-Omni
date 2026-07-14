@@ -22,20 +22,29 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f omni-training/requirements.txt ]; then pip install -r omni-training/requirements.txt; fi
+          python -m pip install pytest
 
-      - name: Run smoke steps
+      - name: Download optional smoke dataset
+        continue-on-error: true
         run: |
-          # Run small smoke commands if present
           if [ -f omni-training/scripts/download_dataset.py ]; then
-            python omni-training/scripts/download_dataset.py --dataset-key default_small || true
+            python omni-training/scripts/download_dataset.py --dataset-key default_small
+          else
+            echo "No dataset download script; continuing without generated data."
           fi
+
+      - name: Report optional filter step
+        run: |
           if [ -f omni-training/scripts/filter_dataset.py ]; then
-            echo "Filter step available" || true
+            echo "Filter step available"
           fi
-          python -m pytest -q omni-training || true
+
+      - name: Run training tests
+        run: python -m pytest -q tests/training
 
       - name: Upload artifacts (if created)
         uses: actions/upload-artifact@v7
         with:
           name: omni-training-artifacts
-          path: omni-training/data || true
+          path: omni-training/data
+          if-no-files-found: warn

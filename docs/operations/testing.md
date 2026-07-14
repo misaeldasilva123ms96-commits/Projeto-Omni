@@ -58,7 +58,9 @@ Frontend tests may emit Vite or chart layout warnings. Treat warnings as investi
 
 ## Integration And E2E Notes
 
-- Live HTTP E2E requires `OMINI_E2E_API_URL`. When unset, related tests may skip instead of exercising a live server.
+- `OMNI_E2E_API_URL` is the canonical live HTTP E2E URL. `OMINI_E2E_API_URL` remains a temporary compatibility alias, with the canonical value taking precedence when both are set.
+- `npm run test:e2e:chat-contract` always validates fixtures. Set `OMNI_E2E_REQUIRE_LIVE=true` together with `OMNI_E2E_API_URL` to make an absent, unreachable, non-2xx, degraded, or incomplete Rust → Python → Node → Rust path fail the command.
+- `.github/workflows/omni-live-e2e-ci.yml` starts the local Rust API and runs that required live contract on pull requests, `main`, `ci/**`, and manual dispatches. It does not depend on a deployed environment or provider secret.
 - `npm run test:integration` is not a current root script in the audited tree.
 - `npm run intake:validate` is not a current root script in the audited tree.
 - Docker commands require a working local Docker daemon and should not be inferred from static validators alone.

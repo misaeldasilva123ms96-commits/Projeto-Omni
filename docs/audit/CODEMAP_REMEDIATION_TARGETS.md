@@ -51,7 +51,8 @@ Statement: discovery only; no runtime behavior changed.
 | `OMINI_CONTINUATION_MAX_RETRIES_PER_STEP` | OMINI | `backend/python/brain/runtime/continuation/continuation_policy.py`; docs archive | Continuation retry limit | canonical | Numeric limit |
 | `OMINI_CRITIC_RISK_THRESHOLD` | OMINI | `configs/runtimeConfig.js` | Critic risk threshold | canonical | Runtime config |
 | `OMINI_DISABLE_EVOLUTION_LOOP` | OMINI | `backend/python/brain/evolution/__init__.py` | Disable evolution loop | canonical | Safety flag |
-| `OMINI_E2E_API_URL` | OMINI | `tests/e2e/chat-contract.e2e.ts` | Optional live e2e API URL | canonical | Test-only |
+| `OMNI_E2E_API_URL` | OMNI | `tests/e2e/chat-contract.e2e.ts`, `.github/workflows/omni-live-e2e-ci.yml` | Canonical live E2E API URL | canonical | Test-only |
+| `OMINI_E2E_API_URL` | OMINI | `tests/e2e/chat-contract.e2e.ts`, `.github/workflows/health-check.yml` | Temporary compatibility alias for live E2E API URL | compatibility alias | Test-only; migrate to `OMNI_E2E_API_URL` |
 | `OMINI_ENABLE_CRITIC` | OMINI | `backend/python/brain/runtime/orchestrator.py`; `configs/runtimeConfig.js`; docs archive | Enable critic | canonical | Runtime config |
 | `OMINI_ENABLE_NODE_RUST_DIRECT` | OMINI | `runtime/execution/runtimeMode.js`; docs archive | Allow direct Node→Rust execution | canonical | Execution mode |
 | `OMINI_ENABLE_REFLECTION` | OMINI | `configs/runtimeConfig.js` | Enable reflection | canonical | Runtime config |
@@ -161,7 +162,7 @@ Statement: discovery only; no runtime behavior changed.
 | `npm run test:python` | root `package.json` | Yes | `python -m unittest discover -s tests -p test_*.py` | Python unittest discovery |
 | `npm run test:python:pytest` | root `package.json` | Yes | Contracts/integration/runtime subsets with coverage | Pytest configured by `pytest.ini` |
 | `npm run test:python:pytest:audit` | root `package.json` | Yes | Performance + contract audit | Audit subset |
-| `npm run test:e2e:chat-contract` | root `package.json` | Yes | TSX chat wire contract; optional live URL via `OMINI_E2E_API_URL` | E2E/contract |
+| `npm run test:e2e:chat-contract` | root `package.json` | Yes | TSX chat wire contract; mandatory live mode via `OMNI_E2E_REQUIRE_LIVE=true` and canonical `OMNI_E2E_API_URL` | E2E/contract |
 | `npm run test:queryengine` | root `package.json` | Yes | QueryEngine smoke test | Node |
 | `npm run check:queryengine` | root `package.json` | Yes | QueryEngine static/check script | Node |
 | `npm --prefix frontend test` | `frontend/package.json` | Yes | Vitest plus runtime console verification script | Frontend |
