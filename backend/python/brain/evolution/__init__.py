@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
+from brain.env import read_env
 from brain.evolution.evolution_loop import start_evolution_loop
 
 
 def boot_evolution_loop() -> None:
-    if os.getenv("OMINI_DISABLE_EVOLUTION_LOOP", "").strip().lower() in {"1", "true", "yes"}:
+    if read_env("OMNI_DISABLE_EVOLUTION_LOOP").lower() in {"1", "true", "yes"}:
         return
 
-    python_root = (
-        Path(os.environ["PYTHON_BASE_DIR"]).resolve()
-        if os.getenv("PYTHON_BASE_DIR")
-        else Path(__file__).resolve().parents[2]
-    )
+    configured_python_root = read_env("OMNI_PYTHON_BASE_DIR")
+    python_root = Path(configured_python_root).resolve() if configured_python_root else Path(__file__).resolve().parents[2]
     start_evolution_loop(python_root)
 
 

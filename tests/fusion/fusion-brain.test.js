@@ -114,7 +114,7 @@ async function main() {
 
   recordSemanticEntry(process.cwd(), 'semantic-test', {
     path: 'package.json',
-    preview: 'Production package for the Omini Node runner and schema validation.',
+    preview: 'Production package for the Omni Node runner and schema validation.',
     source: 'test',
   });
   const semanticGuided = await runQueryEngine({

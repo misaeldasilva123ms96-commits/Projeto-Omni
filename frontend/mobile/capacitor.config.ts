@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
-  appId: 'com.omini.app',
+  appId: 'com.omni.app',
   appName: 'Omni Chat',
   webDir: '../dist',
   server: {

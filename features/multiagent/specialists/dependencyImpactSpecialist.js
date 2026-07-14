@@ -24,7 +24,7 @@ function fallbackDependencyImpact(error = null) {
 function reviewDependencyImpact({ repositoryImpactAnalysis, repositoryAnalysis } = {}) {
   const startedAt = Date.now();
   try {
-    if (process.env.OMINI_FORCE_SPECIALIST_FAILURE === 'dependency_impact_specialist') {
+    if ((process.env.OMNI_FORCE_SPECIALIST_FAILURE || process.env.OMINI_FORCE_SPECIALIST_FAILURE) === 'dependency_impact_specialist') {
       throw new Error('forced specialist failure');
     }
 

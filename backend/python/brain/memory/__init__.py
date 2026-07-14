@@ -5,9 +5,9 @@ Memory backends:
 - sqlite: SQLite-backed structured memory, opt-in via config
 
 Safe defaults:
-  OMINI_MEMORY_BACKEND=jsonl
-  OMINI_ENABLE_SQLITE_MEMORY=false
-  OMINI_SQLITE_MEMORY_PATH=.omni/memory/omni-memory.sqlite
+  OMNI_MEMORY_BACKEND=jsonl
+  OMNI_ENABLE_SQLITE_MEMORY=false
+  OMNI_SQLITE_MEMORY_PATH=.omni/memory/omni-memory.sqlite
 
 See docs/memory/sqlite-memory-facade.md for full architecture.
 """

@@ -16,7 +16,7 @@ Rust API boundary
   -> Rust public response
 ```
 
-Node is the default JavaScript runtime. Bun is available only when explicitly selected with `OMINI_JS_RUNTIME_BIN=bun`. `OMNI_JS_RUNTIME_BIN` remains a compatibility alias when `OMINI_JS_RUNTIME_BIN` is unset.
+Node is the default JavaScript runtime. Bun is available only when explicitly selected with `OMNI_JS_RUNTIME_BIN=bun`. The deprecated `OMINI_JS_RUNTIME_BIN` alias remains supported when `OMNI_JS_RUNTIME_BIN` is unset.
 
 ## Implemented
 

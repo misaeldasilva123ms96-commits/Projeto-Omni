@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import os
-
+from brain.env import read_env
 from brain.runtime.memory.semantic.models import SemanticFact
 
 from .models import RouteSimulation, RouteType, SimulationContext
@@ -11,7 +10,7 @@ class CounterfactualEvaluator:
     MAX_SEMANTIC_DELTA = 0.25
 
     def __init__(self) -> None:
-        self.min_confidence = float(os.getenv("OMINI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL", "0.6") or 0.6)
+        self.min_confidence = float(read_env("OMNI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL", "0.6") or 0.6)
 
     def enrich(
         self,

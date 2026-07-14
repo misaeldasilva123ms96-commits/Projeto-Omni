@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ubuntu 22.04+ hardening and deploy bootstrap for Omini.
+# Ubuntu 22.04+ hardening and deploy bootstrap for Omni.
 
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
 DEPLOY_HOME="/home/${DEPLOY_USER}"
-REPO_URL="${REPO_URL:-git@github.com:your-org/omini.git}"
+REPO_URL="${REPO_URL:-git@github.com:your-org/omni.git}"
 REPO_DIR="${REPO_DIR:-${DEPLOY_HOME}/project}"
 DEPLOY_PUBKEY="${DEPLOY_PUBKEY:-}"
 

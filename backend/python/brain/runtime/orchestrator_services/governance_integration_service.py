@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.control import GovernanceResolutionController, RunRegistry, RunStatus
 from brain.runtime.control.governance_wait import (
     GovernanceWaitTick,
@@ -17,7 +17,7 @@ from .run_lifecycle_service import RunLifecycleService
 
 
 def _run_control_poll_interval_seconds() -> float:
-    raw = str(os.getenv("OMINI_RUN_CONTROL_POLL_SECONDS", "2") or "2").strip()
+    raw = read_env("OMNI_RUN_CONTROL_POLL_SECONDS", "2") or "2"
     try:
         return clamp_governance_poll_interval_seconds(float(raw))
     except ValueError:
@@ -25,7 +25,7 @@ def _run_control_poll_interval_seconds() -> float:
 
 
 def _run_control_max_wait_seconds() -> float:
-    raw = str(os.getenv("OMINI_RUN_CONTROL_MAX_WAIT_SECONDS", "300") or "300").strip()
+    raw = read_env("OMNI_RUN_CONTROL_MAX_WAIT_SECONDS", "300") or "300"
     try:
         return max(1.0, float(raw))
     except ValueError:

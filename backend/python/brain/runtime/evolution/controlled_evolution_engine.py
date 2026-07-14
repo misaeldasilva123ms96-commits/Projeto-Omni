@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 import uuid
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from .controlled_apply import Phase39TuningStore
 from .controlled_evolution_models import ControlledSelfEvolutionTrace, GovernedProposal
 from .controlled_monitor import apply_rollback_if_recommended, evaluate_monitor_and_rollback
@@ -30,7 +30,7 @@ class ControlledEvolutionEngine:
         skip_apply: bool = False,
     ) -> dict[str, Any]:
         trace_id = f"ce39-{uuid.uuid4().hex[:18]}"
-        disabled = str(os.getenv("OMINI_PHASE39_DISABLE", "")).strip().lower() in ("1", "true", "yes")
+        disabled = read_env("OMNI_PHASE39_DISABLE").lower() in ("1", "true", "yes")
         if disabled:
             tr = ControlledSelfEvolutionTrace(
                 trace_id=trace_id,
@@ -115,7 +115,7 @@ class ControlledEvolutionEngine:
 
         prop = proposals_built[0]
         vr = validate_governed_proposal(prop)
-        apply_enabled = str(os.getenv("OMINI_PHASE39_APPLY", "")).strip().lower() in ("1", "true", "yes")
+        apply_enabled = read_env("OMNI_PHASE39_APPLY").lower() in ("1", "true", "yes")
         if skip_apply:
             apply_enabled = False
         apply_status = "skipped_policy"

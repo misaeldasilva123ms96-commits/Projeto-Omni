@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from brain.control.capability_router import CapabilityRouter
 from brain.control.evidence_gate import EvidenceGate, EvidenceGateResult
 from brain.control.mode_engine import RuntimeMode, build_mode_transition_event, can_transition
@@ -258,7 +259,7 @@ class BrainPaths:
 
     @classmethod
     def _detect_project_root(cls, entrypoint: Path) -> Path:
-        env_root = os.getenv("BASE_DIR", "").strip()
+        env_root = read_env("OMNI_BASE_DIR")
         if env_root:
             candidate = Path(env_root).resolve()
             if cls._is_project_root(candidate):
@@ -276,7 +277,7 @@ class BrainPaths:
 
     @classmethod
     def _detect_python_root(cls, project_root: Path, entrypoint: Path) -> Path:
-        env_python_root = os.getenv("PYTHON_BASE_DIR", "").strip()
+        env_python_root = read_env("OMNI_PYTHON_BASE_DIR")
         if env_python_root:
             candidate = Path(env_python_root).resolve()
             if (candidate / "brain").exists():
@@ -296,15 +297,10 @@ class BrainPaths:
         return cls(
             root=project_root,
             python_root=python_root,
-            memory_json=Path(os.getenv("MEMORY_JSON_PATH", str(python_root / "memory.json"))),
-            memory_dir=Path(os.getenv("MEMORY_DIR", str(python_root / "memory"))),
-            transcripts_dir=Path(os.getenv("TRANSCRIPTS_DIR", str(python_root / "transcripts"))),
-            sessions_dir=Path(
-                os.getenv(
-                    "SESSIONS_DIR",
-                    str(python_root / "brain" / "runtime" / "sessions"),
-                )
-            ),
+            memory_json=Path(read_env("OMNI_MEMORY_JSON_PATH", str(python_root / "memory.json"))),
+            memory_dir=Path(read_env("OMNI_MEMORY_DIR", str(python_root / "memory"))),
+            transcripts_dir=Path(read_env("OMNI_TRANSCRIPTS_DIR", str(python_root / "transcripts"))),
+            sessions_dir=Path(read_env("OMNI_SESSIONS_DIR", str(python_root / "brain" / "runtime" / "sessions"))),
             js_runner=project_root / "js-runner" / "queryEngineRunner.js",
             swarm_log=python_root / "brain" / "runtime" / "swarm_log.json",
             evolution_dir=python_root / "brain" / "evolution",
@@ -484,8 +480,8 @@ class BrainOrchestrator:
             return
 
     def _trusted_execution_policy(self) -> ExecutionPolicy:
-        allow_high_risk = str(os.getenv("OMINI_ALLOW_HIGH_RISK", "true")).lower() != "false"
-        allow_critical = str(os.getenv("OMINI_ALLOW_CRITICAL", "false")).lower() == "true"
+        allow_high_risk = read_env("OMNI_ALLOW_HIGH_RISK", "true").lower() != "false"
+        allow_critical = read_env("OMNI_ALLOW_CRITICAL", "false").lower() == "true"
         max_risk = RiskLevel.CRITICAL if allow_critical else RiskLevel.HIGH if allow_high_risk else RiskLevel.MEDIUM
         return ExecutionPolicy(
             max_risk=max_risk,
@@ -1446,7 +1442,7 @@ class BrainOrchestrator:
                     "provenance_source": prov_model.provenance_source,
                 },
             }
-            phase40_enable = str(os.getenv("OMINI_PHASE40_ENABLE", "")).strip().lower() in ("1", "true", "yes")
+            phase40_enable = read_env("OMNI_PHASE40_ENABLE").lower() in ("1", "true", "yes")
             controlled_evolution_payload = self.evolution_controller.evaluate_turn(
                 session_id=sid,
                 evidence=evidence_bundle,
@@ -1678,7 +1674,7 @@ class BrainOrchestrator:
 
     @staticmethod
     def _selected_runtime_mode() -> str:
-        configured = str(os.getenv("OMNI_RUNTIME_MODE") or os.getenv("OMINI_RUNTIME_MODE", "live") or "live").strip().lower()
+        configured = read_env("OMNI_RUNTIME_MODE", "live").lower()
         if configured in {"fallback", "mock"}:
             return configured
         return "live"
@@ -2542,7 +2538,7 @@ class BrainOrchestrator:
         actions = execution_request.get("actions", [])
         # Inject runtime_mode into each action's execution_context for fast Rust bridge execution
         # Override Node's python-rust-cargo with faster python-rust-packaged when binary available
-        runtime_mode = str(os.getenv("OMINI_EXECUTION_MODE", "python-rust-packaged")).strip()
+        runtime_mode = read_env("OMNI_EXECUTION_MODE", "python-rust-packaged")
         if runtime_mode:
             for action in actions:
                 if isinstance(action, dict):
@@ -3743,7 +3739,7 @@ class BrainOrchestrator:
             recent_experience_rows=recent_exp,
         )
         self._last_phase41_policy_hint = hint.as_dict()
-        if str(os.getenv("OMINI_PHASE41_POLICY_LOG", "1")).strip().lower() not in ("0", "false", "no", "off"):
+        if read_env("OMNI_PHASE41_POLICY_LOG", "1").lower() not in ("0", "false", "no", "off"):
             self._append_runtime_event(
                 event_type="runtime.phase41.policy_shadow",
                 session_id=session_id,
@@ -4202,7 +4198,7 @@ class BrainOrchestrator:
         start_index: int = 0,
         operator_control_enabled: bool = False,
     ) -> list[dict[str, Any]]:
-        max_steps = min(len(actions), int(os.getenv("OMINI_MAX_STEPS", "6") or "6"))
+        max_steps = min(len(actions), int(read_env("OMNI_MAX_STEPS", "6") or "6"))
         step_results: list[dict[str, Any]] = []
         critic_review = critic_review or {}
         graph_state = self._clone_plan_graph(plan_graph)

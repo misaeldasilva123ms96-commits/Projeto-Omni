@@ -13,7 +13,7 @@ function candidateExists(command) {
 }
 
 export function detectJsRuntime(env = process.env) {
-  const explicit = String(env.OMINI_JS_RUNTIME_BIN || env.OMNI_JS_RUNTIME_BIN || '').trim();
+  const explicit = String(env.OMNI_JS_RUNTIME_BIN || env.OMINI_JS_RUNTIME_BIN || '').trim();
   if (explicit) {
     const explicitAvailable = candidateExists(explicit);
     return {
@@ -50,6 +50,9 @@ export function runWithSelectedRuntime(argv = process.argv.slice(2), env = proce
     stdio: 'inherit',
     env: {
       ...env,
+      OMNI_JS_RUNTIME: selection.runtimeName,
+      OMNI_JS_RUNTIME_SOURCE: selection.source,
+      OMNI_JS_RUNTIME_BIN: selection.executable,
       OMINI_JS_RUNTIME: selection.runtimeName,
       OMINI_JS_RUNTIME_SOURCE: selection.source,
       OMINI_JS_RUNTIME_BIN: selection.executable,

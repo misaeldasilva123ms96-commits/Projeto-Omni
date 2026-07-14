@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from brain.evolution.pattern_analyzer import PatternAnalyzer
 from brain.evolution.strategy_updater import StrategyUpdater
 from brain.memory.hybrid import HybridMemory
@@ -36,8 +37,8 @@ class EvolutionLoop:
             self.loop_log_path.write_text(json.dumps({"runs": []}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def run_forever(self) -> None:
-        interval_seconds = int(os.getenv("OMINI_EVOLUTION_INTERVAL_SECONDS", "300"))
-        min_sessions = int(os.getenv("OMINI_EVOLUTION_MIN_SESSIONS", "1"))
+        interval_seconds = int(read_env("OMNI_EVOLUTION_INTERVAL_SECONDS", "300"))
+        min_sessions = int(read_env("OMNI_EVOLUTION_MIN_SESSIONS", "1"))
 
         while True:
             try:
@@ -64,7 +65,7 @@ class EvolutionLoop:
             return result
 
         phase41_sketch: dict[str, Any] | list[dict[str, Any]] | None = None
-        if str(os.getenv("OMINI_PHASE41_EVOLUTION_FEED", "0")).strip().lower() in ("1", "true", "yes"):
+        if read_env("OMNI_PHASE41_EVOLUTION_FEED", "0").lower() in ("1", "true", "yes"):
             try:
                 from brain.runtime.policy.performance_store import PerformanceStore
 
@@ -153,7 +154,7 @@ def start_evolution_loop(python_root: Path) -> threading.Thread:
         loop = EvolutionLoop(python_root)
         _LOOP_THREAD = threading.Thread(
             target=loop.run_forever,
-            name="omini-evolution-loop",
+            name="omni-evolution-loop",
             daemon=True,
         )
         _LOOP_THREAD.start()

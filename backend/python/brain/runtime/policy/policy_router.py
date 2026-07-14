@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from config.provider_registry import get_available_providers
 
 from brain.runtime.policy.performance_store import PerformanceStore
@@ -76,7 +77,7 @@ class PolicyRouter:
                 reasons.append("low_quality_recent")
                 conf = min(0.8, conf + 0.05)
 
-        active = str(os.getenv("OMINI_PHASE41_POLICY_ACTIVE", "")).strip().lower() in ("1", "true", "yes")
+        active = read_env("OMNI_PHASE41_POLICY_ACTIVE").lower() in ("1", "true", "yes")
         shadow = not active
         if shadow:
             reasons.append("shadow_mode_default")

@@ -8,6 +8,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.bridge_stdin import apply_bridge_env, read_bridge_stdin_dict, resolve_entry_message
 from brain.runtime.config import python_service_mode
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error as build_taxonomy_error
@@ -221,7 +222,7 @@ def build_public_error(
         "message": taxonomy["error_public_message"] if not message else str(message),
         **taxonomy,
     }
-    if str(os.getenv("OMINI_PUBLIC_DEBUG", "")).strip().lower() in ("1", "true", "yes"):
+    if read_env("OMNI_PUBLIC_DEBUG").lower() in ("1", "true", "yes"):
         if isinstance(debug_details, dict) and debug_details:
             error["debug"] = sanitize_public_runtime_payload(debug_details)
     return error

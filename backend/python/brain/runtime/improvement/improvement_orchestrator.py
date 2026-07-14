@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -8,6 +7,7 @@ from typing import Any
 from brain.runtime.evolution.controlled_apply import Phase39TuningStore
 from brain.runtime.evolution.controlled_evolution_models import GovernedProposal, governed_proposal_from_dict
 from brain.runtime.evolution.controlled_validation import validate_governed_proposal
+from brain.env import read_env_bool
 
 from .approval_gate import evaluate_approval
 from .improvement_models import ImprovementCycle, SelfImprovingSystemTrace
@@ -16,7 +16,7 @@ from .rollout_manager import ImprovementRolloutStore, build_scaled_proposal
 
 
 def _truthy(name: str) -> bool:
-    return str(os.getenv(name, "")).strip().lower() in ("1", "true", "yes")
+    return read_env_bool(name)
 
 
 def _stage_name(st: dict[str, Any]) -> str:
@@ -46,7 +46,7 @@ class ImprovementOrchestrator:
         evidence: dict[str, Any],
     ) -> dict[str, Any]:
         trace_id = f"p40-{uuid.uuid4().hex[:18]}"
-        if _truthy("OMINI_PHASE40_DISABLE"):
+        if _truthy("OMNI_PHASE40_DISABLE"):
             return SelfImprovingSystemTrace(
                 trace_id=trace_id,
                 session_id=session_id,
@@ -62,7 +62,7 @@ class ImprovementOrchestrator:
                 error="",
             ).as_dict()
 
-        if not _truthy("OMINI_PHASE40_ENABLE"):
+        if not _truthy("OMNI_PHASE40_ENABLE"):
             return SelfImprovingSystemTrace(
                 trace_id=trace_id,
                 session_id=session_id,
@@ -83,7 +83,7 @@ class ImprovementOrchestrator:
         tuning = self.store.read()
         rstate = self.rollout.read()
         proposals_raw = list(ce_trace.get("proposals") or [])
-        apply40 = _truthy("OMINI_PHASE40_APPLY")
+        apply40 = _truthy("OMNI_PHASE40_APPLY")
 
         # Monitor / rollback path for in-flight rollout without fresh CE proposal
         if not proposals_raw and _stage_name(rstate) not in (

@@ -13,9 +13,9 @@ class WorkspaceManager:
 
     def create_task_workspace(self, *, run_id: str, source_root: Path | None = None) -> dict[str, Any]:
         source = (source_root or self.root).resolve()
-        base_root = (source.parent / ".omini-task-workspaces").resolve()
+        base_root = (source.parent / ".omni-task-workspaces").resolve()
         base_root.mkdir(parents=True, exist_ok=True)
-        task_root = (base_root / f"omini-{run_id}-{uuid4().hex[:8]}").resolve()
+        task_root = (base_root / f"omni-{run_id}-{uuid4().hex[:8]}").resolve()
         shutil.copytree(source, task_root, dirs_exist_ok=True)
         return {
             "run_id": run_id,

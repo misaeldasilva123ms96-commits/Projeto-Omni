@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
+from brain.env import read_env_bool
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.observability.runtime_lane_classifier import (
     LANE_BRIDGE_EXECUTION_REQUEST,
@@ -75,7 +75,7 @@ VERDICT_PROVIDER_BACKED_COMPATIBILITY = "PROVIDER_BACKED_COMPATIBILITY"
 
 
 def _truthy_env(name: str) -> bool:
-    return str(os.getenv(name, "")).strip().lower() in ("1", "true", "yes")
+    return read_env_bool(name)
 
 
 def _reasoning_validation(reasoning_payload: dict[str, Any] | None) -> str:
@@ -110,13 +110,13 @@ def _memory_class(memory_context_payload: dict[str, Any] | None, direct_memory_h
 
 
 def _evolution_status(self_improving_trace: dict[str, Any] | None) -> str:
-    if _truthy_env("OMINI_PHASE40_DISABLE"):
+    if _truthy_env("OMNI_PHASE40_DISABLE"):
         return "disabled"
     if not isinstance(self_improving_trace, dict):
         return "idle"
     if self_improving_trace.get("disabled"):
         return "disabled"
-    if not _truthy_env("OMINI_PHASE40_ENABLE"):
+    if not _truthy_env("OMNI_PHASE40_ENABLE"):
         return "idle"
     if self_improving_trace.get("idle"):
         return "idle"
@@ -128,9 +128,9 @@ def _evolution_applied_summary(
     controlled_evolution: dict[str, Any] | None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
-        "phase40_env_enable": _truthy_env("OMINI_PHASE40_ENABLE"),
-        "phase40_env_apply": _truthy_env("OMINI_PHASE40_APPLY"),
-        "phase40_env_disable": _truthy_env("OMINI_PHASE40_DISABLE"),
+        "phase40_env_enable": _truthy_env("OMNI_PHASE40_ENABLE"),
+        "phase40_env_apply": _truthy_env("OMNI_PHASE40_APPLY"),
+        "phase40_env_disable": _truthy_env("OMNI_PHASE40_DISABLE"),
         "cycle_rollout_stage": "",
         "approval_decision": "",
         "simulation_ran": False,

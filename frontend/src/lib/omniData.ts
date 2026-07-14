@@ -2,6 +2,7 @@ import type { Agent, AgentStatus, ChatMessage, ChatMode, ConversationSummary, Go
 import { redactRuntimeDebugText } from './runtimeDebugSanitizer'
 import { normalizeAutonomyTimelineItem, type AutonomyTimelineItem } from './runtimeTypes'
 import { supabase } from './supabase'
+import { readMigratedStorage, writeMigratedStorage } from './storageKeyMigration'
 
 type AuthenticatedUser = {
   id: string
@@ -357,11 +358,12 @@ export async function deleteProject(id: string): Promise<boolean> {
   }
 }
 
-const PROJECTS_STORAGE_KEY = 'omini-projects-v1'
+const PROJECTS_STORAGE_KEY = 'omni-projects-v1'
+const LEGACY_PROJECTS_STORAGE_KEY = 'omini-projects-v1'
 
 function localStorageProjects(): Project[] {
   try {
-    const raw = localStorage.getItem(PROJECTS_STORAGE_KEY)
+    const raw = readMigratedStorage(PROJECTS_STORAGE_KEY, LEGACY_PROJECTS_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -385,7 +387,7 @@ function localStorageCreateProject(input: { name: string; description?: string; 
       updatedAt: new Date().toISOString(),
     }
     projects.unshift(project)
-    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects))
+    writeMigratedStorage(PROJECTS_STORAGE_KEY, LEGACY_PROJECTS_STORAGE_KEY, JSON.stringify(projects))
     return project
   } catch {
     return null
@@ -407,7 +409,7 @@ function localStorageUpdateProject(
     if (input.mode !== undefined) project.mode = input.mode
     project.updatedAt = new Date().toISOString()
     projects[index] = project
-    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects))
+    writeMigratedStorage(PROJECTS_STORAGE_KEY, LEGACY_PROJECTS_STORAGE_KEY, JSON.stringify(projects))
     return project
   } catch {
     return null
@@ -419,7 +421,7 @@ function localStorageDeleteProject(id: string): boolean {
     const projects = localStorageProjects()
     const filtered = projects.filter((p: Project) => p.id !== id)
     if (filtered.length === projects.length) return false
-    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(filtered))
+    writeMigratedStorage(PROJECTS_STORAGE_KEY, LEGACY_PROJECTS_STORAGE_KEY, JSON.stringify(filtered))
     return true
   } catch {
     return false
@@ -565,11 +567,12 @@ export async function fetchAutonomyTimeline(): Promise<AutonomyTimelineItem[]> {
   }
 }
 
-const AGENTS_STORAGE_KEY = 'omini-agents-v1'
+const AGENTS_STORAGE_KEY = 'omni-agents-v1'
+const LEGACY_AGENTS_STORAGE_KEY = 'omini-agents-v1'
 
 function localStorageAgents(): Agent[] {
   try {
-    const raw = localStorage.getItem(AGENTS_STORAGE_KEY)
+    const raw = readMigratedStorage(AGENTS_STORAGE_KEY, LEGACY_AGENTS_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -581,7 +584,7 @@ function localStorageAgents(): Agent[] {
 
 function saveLocalStorageAgents(agents: Agent[]) {
   try {
-    localStorage.setItem(AGENTS_STORAGE_KEY, JSON.stringify(agents))
+    writeMigratedStorage(AGENTS_STORAGE_KEY, LEGACY_AGENTS_STORAGE_KEY, JSON.stringify(agents))
   } catch {
     // ignore
   }
@@ -651,11 +654,12 @@ export async function deleteAgent(id: string): Promise<boolean> {
   }
 }
 
-const MEMORY_STORAGE_KEY = 'omini-memory-v1'
+const MEMORY_STORAGE_KEY = 'omni-memory-v1'
+const LEGACY_MEMORY_STORAGE_KEY = 'omini-memory-v1'
 
 function localStorageMemoryEntries(): MemoryEntry[] {
   try {
-    const raw = localStorage.getItem(MEMORY_STORAGE_KEY)
+    const raw = readMigratedStorage(MEMORY_STORAGE_KEY, LEGACY_MEMORY_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -667,7 +671,7 @@ function localStorageMemoryEntries(): MemoryEntry[] {
 
 function saveLocalStorageMemoryEntries(entries: MemoryEntry[]) {
   try {
-    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(entries))
+    writeMigratedStorage(MEMORY_STORAGE_KEY, LEGACY_MEMORY_STORAGE_KEY, JSON.stringify(entries))
   } catch {
     // ignore
   }
@@ -929,7 +933,7 @@ function localStorageRemoveProject(id: string) {
   try {
     const projects = localStorageProjects()
     const filtered = projects.filter((p: Project) => p.id !== id)
-    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(filtered))
+    writeMigratedStorage(PROJECTS_STORAGE_KEY, LEGACY_PROJECTS_STORAGE_KEY, JSON.stringify(filtered))
   } catch {
     // ignore
   }

@@ -23,7 +23,7 @@ function fallbackVerificationSelection(error = null) {
 function selectVerificationTargets({ repositoryImpactAnalysis, repositoryAnalysis } = {}) {
   const startedAt = Date.now();
   try {
-    if (process.env.OMINI_FORCE_SPECIALIST_FAILURE === 'test_selection_specialist') {
+    if ((process.env.OMNI_FORCE_SPECIALIST_FAILURE || process.env.OMINI_FORCE_SPECIALIST_FAILURE) === 'test_selection_specialist') {
       throw new Error('forced specialist failure');
     }
 

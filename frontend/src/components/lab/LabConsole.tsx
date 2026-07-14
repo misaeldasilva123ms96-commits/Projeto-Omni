@@ -4,6 +4,7 @@ import { OmniButton } from '../ui/OmniButton'
 import { OmniCard } from '../ui/OmniCard'
 import { OmniErrorState } from '../ui/OmniErrorState'
 import { redactRuntimeDebugText } from '../../lib/runtimeDebugSanitizer'
+import { readMigratedStorage, writeMigratedStorage } from '../../lib/storageKeyMigration'
 
 const MODEL_OPTIONS = [
   { id: 'gpt-4o', label: 'GPT-4o' },
@@ -32,11 +33,12 @@ const DEFAULT_CONFIG: LabConfig = {
   systemPrompt: '',
 }
 
-const LAB_HISTORY_KEY = 'omini-lab-history-v1'
+const LAB_HISTORY_KEY = 'omni-lab-history-v1'
+const LEGACY_LAB_HISTORY_KEY = 'omini-lab-history-v1'
 
 function loadHistory(): LabTest[] {
   try {
-    const raw = localStorage.getItem(LAB_HISTORY_KEY)
+    const raw = readMigratedStorage(LAB_HISTORY_KEY, LEGACY_LAB_HISTORY_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
@@ -47,7 +49,7 @@ function loadHistory(): LabTest[] {
 
 function saveHistory(tests: LabTest[]) {
   try {
-    localStorage.setItem(LAB_HISTORY_KEY, JSON.stringify(tests.slice(0, 100)))
+    writeMigratedStorage(LAB_HISTORY_KEY, LEGACY_LAB_HISTORY_KEY, JSON.stringify(tests.slice(0, 100)))
   } catch {
     // ignore
   }

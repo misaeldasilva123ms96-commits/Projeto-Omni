@@ -2,20 +2,20 @@
 
 Default behavior is backward-compatible: tools on the trusted execution surface are
 auto-registered as governed except an explicit legacy canary set (``directory_tree``).
-Strict mode (``OMINI_GOVERNED_TOOLS_STRICT=true``) blocks any tool that is not present
+Strict mode (``OMNI_GOVERNED_TOOLS_STRICT=true``) blocks any tool that is not present
 in the governed registry (empty tool and ``none`` remain exempt).
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from brain.runtime.control.governance_taxonomy import GovernanceReason, GovernanceSeverity, GovernanceSource
+from brain.env import read_env_bool
 
-STRICT_GOVERNED_TOOLS_ENV = "OMINI_GOVERNED_TOOLS_STRICT"
+STRICT_GOVERNED_TOOLS_ENV = "OMNI_GOVERNED_TOOLS_STRICT"
 
 GOVERNED_TOOLS_STRICT_BLOCK_KIND = "governed_tools_strict_block"
 
@@ -60,8 +60,7 @@ class ToolGovernanceAudit:
 
 
 def is_strict_governed_tools_mode() -> bool:
-    raw = str(os.getenv(STRICT_GOVERNED_TOOLS_ENV, "") or "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    return read_env_bool(STRICT_GOVERNED_TOOLS_ENV)
 
 
 def register_governed_tool(spec: GovernedToolSpec, *, overwrite: bool = False) -> None:

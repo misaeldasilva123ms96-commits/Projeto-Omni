@@ -37,7 +37,7 @@ function withEnv(updates, fn) {
 }
 
 function withMemoryWorkspace(fn) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omini-agent-memory-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-agent-memory-'));
   const memoryDir = path.join(root, '.claude', 'agent-memory', 'safe-notes');
   fs.mkdirSync(memoryDir, { recursive: true });
   fs.writeFileSync(path.join(memoryDir, 'MEMORY.MD'), 'safe local context only\n', 'utf8');

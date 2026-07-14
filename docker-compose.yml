@@ -23,7 +23,7 @@ services:
       retries: 2
       start_period: 5s
     networks:
-      - omini_net
+      - omni_net
 
   node-runner:
     build:
@@ -41,7 +41,7 @@ services:
       retries: 2
       start_period: 5s
     networks:
-      - omini_net
+      - omni_net
 
   frontend:
     build:
@@ -58,10 +58,10 @@ services:
       node-runner:
         condition: service_healthy
     networks:
-      - omini_net
+      - omni_net
 
 networks:
-  omini_net:
+  omni_net:
     driver: bridge
 
 volumes:

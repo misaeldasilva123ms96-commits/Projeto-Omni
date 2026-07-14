@@ -2843,8 +2843,9 @@ fn python_debug_logging_enabled() -> bool {
     if public_demo_enabled {
         return false;
     }
-    env::var("OMINI_LOG_LEVEL")
+    env::var("OMNI_LOG_LEVEL")
         .ok()
+        .or_else(|| env::var("OMINI_LOG_LEVEL").ok())
         .or_else(|| env::var("LOG_LEVEL").ok())
         .map(|value| value.trim().eq_ignore_ascii_case("debug"))
         .unwrap_or(false)
@@ -3847,7 +3848,7 @@ mod tests {
     static ENV_TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
 
     fn temp_script(content: &str, name: &str) -> PathBuf {
-        let root = env::temp_dir().join(format!("omini-rust-tests-{name}"));
+        let root = env::temp_dir().join(format!("omni-rust-tests-{name}"));
         let _ = fs::create_dir_all(&root);
         let path = root.join("script.py");
         fs::write(&path, content).expect("write temp python script");

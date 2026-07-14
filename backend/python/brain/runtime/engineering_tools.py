@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk
 from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, review_patch_set
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
@@ -373,9 +374,7 @@ def _is_allowed_workspace_root(project_root: Path, workspace_root: Path) -> bool
 
 
 def _public_demo_mode() -> bool:
-    return str(os.getenv("OMNI_PUBLIC_DEMO_MODE", "") or "").strip().lower() in {"1", "true", "yes", "on"} or str(
-        os.getenv("OMINI_PUBLIC_DEMO_MODE", "") or ""
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    return read_env("OMNI_PUBLIC_DEMO_MODE").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _is_sensitive_public_demo_file(workspace_root: Path, target: Path) -> bool:

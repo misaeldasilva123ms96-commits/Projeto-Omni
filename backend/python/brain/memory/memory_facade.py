@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 import logging
 from pathlib import Path
 from typing import Any
+
+from brain.env import read_env, read_env_bool
 
 from .historical_audit_query_models import (
     DRY_RUN_AUDIT_SCAN_LIMIT,
@@ -51,13 +52,13 @@ class MemoryFacade:
         jsonl_path: str | Path | None = None,
         enable_sqlite: bool | None = None,
     ) -> None:
-        self._backend = (backend or os.environ.get("OMINI_MEMORY_BACKEND") or SAFE_DEFAULT_BACKEND).lower()
+        self._backend = (backend or read_env("OMNI_MEMORY_BACKEND", SAFE_DEFAULT_BACKEND)).lower()
         self._sqlite_enabled = self._resolve_sqlite_enabled(enable_sqlite)
         self._sqlite_path = self._resolve_path(
-            sqlite_path, "OMINI_SQLITE_MEMORY_PATH", ".omni/memory/omni-memory.sqlite"
+            sqlite_path, "OMNI_SQLITE_MEMORY_PATH", ".omni/memory/omni-memory.sqlite"
         )
         self._jsonl_path = self._resolve_path(
-            jsonl_path, "OMINI_JSONL_MEMORY_PATH", ".omni/memory/omni-audit.jsonl"
+            jsonl_path, "OMNI_JSONL_MEMORY_PATH", ".omni/memory/omni-audit.jsonl"
         )
         self._sqlite: SQLiteAdapter | None = None
         self._jsonl: JSONLAuditMirror | None = None
@@ -83,14 +84,13 @@ class MemoryFacade:
     def _resolve_sqlite_enabled(self, override: bool | None) -> bool:
         if override is not None:
             return override
-        env = os.environ.get("OMINI_ENABLE_SQLITE_MEMORY", "false").strip().lower()
-        return env in ("1", "true", "yes")
+        return read_env_bool("OMNI_ENABLE_SQLITE_MEMORY")
 
     @staticmethod
     def _resolve_path(override: str | Path | None, env_var: str, default: str) -> Path:
         if override is not None:
             return Path(override)
-        env = os.environ.get(env_var, "").strip()
+        env = read_env(env_var)
         if env:
             return Path(env)
         return Path(default)
@@ -143,7 +143,7 @@ class MemoryFacade:
         if self._backend == MEMORY_BACKEND_SQLITE and not self._sqlite_enabled:
             self._init_error = (
                 "SQLite backend requested but SQLite is not enabled. "
-                "Set OMINI_ENABLE_SQLITE_MEMORY=true or pass enable_sqlite=True."
+                "Set OMNI_ENABLE_SQLITE_MEMORY=true or pass enable_sqlite=True."
             )
             return
 

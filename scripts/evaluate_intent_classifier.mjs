@@ -46,6 +46,7 @@ function safeRate(value, total) {
 
 function evaluate({ mode, input }) {
   process.env.OMNI_INTENT_CLASSIFIER = mode
+  delete process.env.OMNI_INTENT_CLASSIFIER
   delete process.env.OMINI_INTENT_CLASSIFIER
 
   const cases = readJsonl(input)

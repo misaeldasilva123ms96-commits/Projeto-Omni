@@ -17,7 +17,7 @@ This file lives at `docs/setup/contributing.md` (the repository root stays minim
 
 ```bash
 git clone <your-repo-url>
-cd omini
+cd omni
 cp .env.example .env
 npm install
 ```

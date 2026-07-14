@@ -10,6 +10,7 @@ import weakref
 from hashlib import sha1
 from pathlib import Path
 
+from brain.env import read_env
 from .models import SemanticFact
 
 
@@ -25,7 +26,7 @@ class SemanticIndex:
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
-        self._min_confidence = float(os.getenv("OMINI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL", "0.6") or 0.6)
+        self._min_confidence = float(read_env("OMNI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL", "0.6") or 0.6)
         self.path = self.db_dir / "semantic.db"
         self._conn = self._connect_and_initialize(self.path)
         self._finalizer = weakref.finalize(self, self._close_quietly, self._conn)
