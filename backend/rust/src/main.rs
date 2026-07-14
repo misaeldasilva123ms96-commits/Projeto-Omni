@@ -6,13 +6,13 @@ mod protected_historical_audit;
 mod run_control;
 
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     env, fmt, fs,
     io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -1012,10 +1012,50 @@ fn unix_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn read_env_alias_usize(canonical: &str, legacy: &str, default: usize) -> usize {
-    env::var(canonical)
+static ENV_ALIAS_EVENTS_LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn warn_env_alias_once(event: &'static str, canonical: &str, legacy: &str) {
+    let key = format!("{event}:{canonical}:{legacy}");
+    let should_log = ENV_ALIAS_EVENTS_LOGGED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map(|mut seen| seen.insert(key))
+        .unwrap_or(true);
+    if should_log {
+        warn!(
+            event = event,
+            canonical = canonical,
+            legacy = legacy,
+            "environment alias migration signal"
+        );
+    }
+}
+
+fn read_env_alias_value(canonical: &str, legacy: &str) -> Option<String> {
+    let canonical_value = env::var(canonical)
         .ok()
-        .or_else(|| env::var(legacy).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let legacy_value = env::var(legacy)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(value) = canonical_value {
+        if legacy_value.is_some() {
+            warn_env_alias_once("env_alias_canonical_override", canonical, legacy);
+        }
+        return Some(value);
+    }
+    if let Some(value) = legacy_value {
+        warn_env_alias_once("deprecated_env_alias_used", canonical, legacy);
+        return Some(value);
+    }
+    None
+}
+
+fn read_env_alias_usize(canonical: &str, legacy: &str, default: usize) -> usize {
+    read_env_alias_value(canonical, legacy)
         .and_then(|value| value.trim().parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default)
@@ -1031,9 +1071,7 @@ fn read_env_alias_usize_clamped(
 }
 
 fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
-    env::var(canonical)
-        .ok()
-        .or_else(|| env::var(legacy).ok())
+    read_env_alias_value(canonical, legacy)
         .map(|value| {
             matches!(
                 value.trim().to_lowercase().as_str(),
@@ -1044,27 +1082,18 @@ fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
 }
 
 fn read_env_alias_string(canonical: &str, legacy: &str, default: &str) -> String {
-    env::var(canonical)
-        .ok()
-        .or_else(|| env::var(legacy).ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default.to_string())
+    read_env_alias_value(canonical, legacy).unwrap_or_else(|| default.to_string())
 }
 
 fn read_env_alias_u16(canonical: &str, legacy: &str, default: u16) -> u16 {
-    env::var(canonical)
-        .ok()
-        .or_else(|| env::var(legacy).ok())
+    read_env_alias_value(canonical, legacy)
         .and_then(|value| value.trim().parse::<u16>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default)
 }
 
 fn read_env_alias_u64(canonical: &str, legacy: &str, default: u64) -> u64 {
-    env::var(canonical)
-        .ok()
-        .or_else(|| env::var(legacy).ok())
+    read_env_alias_value(canonical, legacy)
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default)
@@ -4783,6 +4812,12 @@ print(json.dumps({
         assert_eq!(
             PythonRuntimeConfig::from_env().mode,
             PythonRuntimeMode::Subprocess
+        );
+
+        env::set_var("OMNI_PYTHON_MODE", "   ");
+        assert_eq!(
+            PythonRuntimeConfig::from_env().mode,
+            PythonRuntimeMode::Service
         );
 
         for (key, value) in saved {

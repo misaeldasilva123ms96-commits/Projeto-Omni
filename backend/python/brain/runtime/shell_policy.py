@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env_bool
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 
 
-TRUE_VALUES = {"1", "true", "yes", "on"}
 ALLOWLISTED_NPM_RUN_SCRIPTS = {
     "build",
     "test",
@@ -33,26 +32,18 @@ DANGEROUS_TOKEN_PATTERNS = {
 }
 
 
-def _truthy_env(*names: str) -> bool:
-    for name in names:
-        value = str(os.getenv(name, "") or "").strip().lower()
-        if value in TRUE_VALUES:
-            return True
-    return False
-
-
 def is_public_demo_mode() -> bool:
-    return _truthy_env("OMNI_PUBLIC_DEMO_MODE", "OMINI_PUBLIC_DEMO_MODE")
+    return read_env_bool("OMNI_PUBLIC_DEMO_MODE")
 
 
 def is_shell_allowed() -> bool:
     if is_public_demo_mode():
         return False
-    return _truthy_env("OMNI_ALLOW_SHELL_TOOLS", "OMINI_ALLOW_SHELL_TOOLS", "ALLOW_SHELL")
+    return read_env_bool("OMNI_ALLOW_SHELL_TOOLS")
 
 
 def is_shell_allowlist_mode() -> bool:
-    return _truthy_env("OMNI_SHELL_ALLOWLIST_MODE", "OMINI_SHELL_ALLOWLIST_MODE") or True
+    return read_env_bool("OMNI_SHELL_ALLOWLIST_MODE", True)
 
 
 def build_shell_blocked_result(reason: str) -> dict[str, Any]:

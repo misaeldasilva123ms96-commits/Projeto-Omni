@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
+from brain.env import read_env_bool
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 
-TRUE_VALUES = {"1", "true", "yes", "on"}
 POLICY_VERSION = "tool_governance_v1"
 
 READ_SAFE = {"status", "health", "list", "directory_tree", "git_status", "git_diff", "dependency_inspection", "glob_search", "grep_search", "code_search"}
@@ -27,15 +26,8 @@ NETWORK = {"curl", "fetch", "web_request", "network_request"}
 GIT_SENSITIVE = {"git_commit", "git_push", "git_branch_mutation"}
 
 
-def _truthy_env(*names: str) -> bool:
-    for name in names:
-        if str(os.getenv(name, "") or "").strip().lower() in TRUE_VALUES:
-            return True
-    return False
-
-
 def is_public_demo_mode() -> bool:
-    return _truthy_env("OMNI_PUBLIC_DEMO_MODE", "OMINI_PUBLIC_DEMO_MODE")
+    return read_env_bool("OMNI_PUBLIC_DEMO_MODE")
 
 
 def classify_tool_category(tool_name: str) -> str:

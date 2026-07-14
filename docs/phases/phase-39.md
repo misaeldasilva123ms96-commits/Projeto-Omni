@@ -12,8 +12,10 @@ Phase 39 adds a **strictly bounded, auditable** loop that turns **runtime eviden
 
 ## Environment gates
 
-- `OMINI_PHASE39_DISABLE=true` — engine returns a disabled trace; no file writes.
-- `OMINI_PHASE39_APPLY=true` — validated proposals may be written to the tuning store. **Default is off** (`apply_status=skipped_policy`) so production stays read-only unless explicitly enabled.
+- `OMNI_PHASE39_DISABLE=true` — engine returns a disabled trace; no file writes.
+- `OMNI_PHASE39_APPLY=true` — validated proposals may be written to the tuning store. **Default is off** (`apply_status=skipped_policy`) so production stays read-only unless explicitly enabled.
+
+The corresponding `OMINI_*` names remain temporary compatibility aliases; canonical `OMNI_*` values take precedence.
 
 ## Governance
 
