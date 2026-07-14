@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from brain.runtime.workspace_paths import WorkspacePathError, resolve_workspace_entry, resolve_workspace_path
+
 
 class WorkspaceManager:
     def __init__(self, root: Path) -> None:
@@ -27,15 +29,18 @@ class WorkspaceManager:
     def snapshot_workspace(self, workspace_root: Path) -> dict[str, Any]:
         files: list[dict[str, Any]] = []
         for file_path in workspace_root.rglob("*"):
-            if not file_path.is_file():
+            try:
+                safe_path, relative_path = resolve_workspace_entry(workspace_root, file_path)
+            except WorkspacePathError:
                 continue
-            relative_path = file_path.relative_to(workspace_root)
+            if not safe_path.is_file():
+                continue
             if any(part in {".git", ".logs", "node_modules", "__pycache__", "target", "dist"} for part in relative_path.parts):
                 continue
             files.append(
                 {
                     "path": str(relative_path).replace("\\", "/"),
-                    "sha256": self._hash_file(file_path),
+                    "sha256": self._hash_file(safe_path),
                 }
             )
         return {
@@ -45,8 +50,9 @@ class WorkspaceManager:
 
     def rollback_files(self, workspace_root: Path, backups: dict[str, str]) -> None:
         for relative_path, original_content in backups.items():
-            target = workspace_root / relative_path
+            target = resolve_workspace_path(workspace_root, relative_path)
             target.parent.mkdir(parents=True, exist_ok=True)
+            target = resolve_workspace_path(workspace_root, relative_path)
             target.write_text(original_content, encoding="utf-8")
 
     @staticmethod
