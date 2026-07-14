@@ -1,0 +1,116 @@
+name: Omni Live E2E CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      - "ci/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omni-live-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-runtime-contract:
+    name: Rust to Python to Node to Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install runtime dependencies
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/python/requirements.txt
+
+      - name: Build Rust API
+        run: cargo build --locked --manifest-path backend/rust/Cargo.toml --bin omni-api
+
+      - name: Run mandatory live runtime contract
+        env:
+          APP_HOST: 127.0.0.1
+          PORT: "3001"
+          BASE_DIR: ${{ github.workspace }}
+          PYTHON_BASE_DIR: ${{ github.workspace }}/backend/python
+          PYTHON_ENTRY: ${{ github.workspace }}/backend/python/main.py
+          PYTHON_BIN: python
+          NODE_BIN: node
+          OMNI_PUBLIC_DEMO_MODE: "true"
+          OMNI_ALLOW_SHELL_TOOLS: "false"
+          OMNI_DEBUG_INTERNAL_ERRORS: "false"
+          OMNI_RATE_LIMIT_ENABLED: "false"
+          OMNI_PYTHON_MODE: subprocess
+          OMNI_NODE_MODE: subprocess
+          OMNI_E2E_API_URL: http://127.0.0.1:3001
+          OMNI_E2E_REQUIRE_LIVE: "true"
+        run: |
+          set -euo pipefail
+          mkdir -p .logs/ci
+          backend/rust/target/debug/omni-api > .logs/ci/omni-api.log 2>&1 &
+          server_pid=$!
+
+          cleanup() {
+            if kill -0 "$server_pid" 2>/dev/null; then
+              kill "$server_pid"
+              if wait "$server_pid"; then
+                echo "Rust API stopped cleanly."
+              fi
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:3001/health > /dev/null; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "Rust API exited before becoming healthy."
+              sed -n '1,240p' .logs/ci/omni-api.log
+              exit 1
+            fi
+            echo "Waiting for Rust API ($attempt/60)..."
+            sleep 2
+          done
+
+          if [ "$ready" != "true" ]; then
+            echo "Rust API did not become healthy within 120 seconds."
+            sed -n '1,240p' .logs/ci/omni-api.log
+            exit 1
+          fi
+
+          npm run test:e2e:chat-contract
+
+      - name: Upload runtime log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: omni-live-e2e-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .logs/ci/omni-api.log
+          if-no-files-found: warn
+          retention-days: 7
