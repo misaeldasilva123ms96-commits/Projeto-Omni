@@ -97,6 +97,12 @@ const commands = [
     cwd: path.join(projectRoot, 'backend', 'rust'),
   },
   {
+    label: 'security audit rust JWT audience validation',
+    command: 'cargo',
+    args: ['test', 'observability_auth::tests::token_', '--', '--nocapture'],
+    cwd: path.join(projectRoot, 'backend', 'rust'),
+  },
+  {
     label: 'security audit agent memory hardening',
     command: 'node',
     args: ['tests/runtime/queryEngineRunnerAgentMemory.test.mjs'],

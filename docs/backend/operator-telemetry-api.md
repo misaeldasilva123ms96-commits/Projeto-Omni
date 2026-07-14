@@ -95,7 +95,7 @@ All require:
 
 ## 5. Security notes
 
-1. **JWT:** Validation matches observability — HS256, issuer `SUPABASE_URL/auth/v1`, expiry enforced.
+1. **JWT:** Validation matches observability — HS256, issuer `SUPABASE_URL/auth/v1`, expiry enforced, and audience restricted to `authenticated` Supabase user access tokens.
 2. **No RBAC inside Omni today:** any valid Supabase user token that passes validation can call operator routes. Finer roles (admin vs viewer) are a **future** concern.
 3. **Redaction is best-effort:** operator payloads are safer than raw internal dumps but not a substitute for network policy; do not expose the Rust API unfirewalled to the public internet without an edge gateway.
 4. **Logs:** HTTP logs use `sanitize_uri_for_logs` for observability-style paths; operator routes use standard Bearer handling (no token in query).
