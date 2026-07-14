@@ -7011,13 +7011,61 @@ class BrainOrchestrator:
     @staticmethod
     def _normalize_text(value: str) -> str:
         normalized = re.sub(r"\s+", " ", value.strip().lower())
-        return re.sub(r"[?.!,:;]+$", "", normalized).strip()
+        return normalized.rstrip("?.!,:;").strip()
+
+    @staticmethod
+    def _truncate_name_at_separator(name: str) -> str:
+        """Return the text before the first name separator with a linear scan."""
+        cursor = 0
+        while cursor < len(name):
+            if name[cursor] in ",.":
+                return name[:cursor]
+            if not name[cursor].isspace():
+                cursor += 1
+                continue
+
+            whitespace_start = cursor
+            while cursor < len(name) and name[cursor].isspace():
+                cursor += 1
+            if (
+                cursor < len(name)
+                and name[cursor].casefold() == "e"
+                and cursor + 1 < len(name)
+                and name[cursor + 1].isspace()
+            ):
+                return name[:whitespace_start]
+        return name
+
+    @staticmethod
+    def _extract_preference(message: str) -> str:
+        """Extract a trailing ``prefiro`` clause without regex backtracking."""
+        effective_end = len(message) - 1 if message.endswith("\n") else len(message)
+        last_internal_newline = message.rfind("\n", 0, effective_end)
+        for marker_match in re.finditer(r"\bprefiro", message, flags=re.IGNORECASE):
+            marker_end = marker_match.end()
+            if marker_end >= len(message) or not message[marker_end].isspace():
+                continue
+
+            value_start = marker_end
+            while value_start < len(message) and message[value_start].isspace():
+                value_start += 1
+
+            if last_internal_newline < value_start < effective_end:
+                return message[value_start:effective_end]
+            if (
+                value_start == len(message)
+                and marker_end + 1 < effective_end
+                and last_internal_newline < effective_end - 1
+            ):
+                # The previous regex left one whitespace character for ``(.+)``.
+                return message[effective_end - 1 : effective_end]
+        return ""
 
     def _clean_extracted_name(self, raw_name: str) -> str:
         name = raw_name.strip()
         if not name:
             return ""
-        name = re.split(r"\s+e\s+|,|\.", name, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        name = self._truncate_name_at_separator(name).strip()
         if len(name) < 2:
             return ""
 
@@ -7058,14 +7106,12 @@ class BrainOrchestrator:
             if possible_identity and "um " not in possible_identity.lower() and "uma " not in possible_identity.lower():
                 user["nome"] = possible_identity
 
-        pref_match = re.search(r"\bprefiro\s+(.+)$", message, flags=re.IGNORECASE)
-        if pref_match:
-            preference = pref_match.group(1).strip(" .,!?:;")
-            if preference:
-                existing = {str(item).lower(): item for item in preferencias}
-                if preference.lower() not in existing:
-                    preferencias.append(preference)
-                user["preferencias"] = preferencias
+        preference = self._extract_preference(message).strip(" .,!?:;")
+        if preference:
+            existing = {str(item).lower(): item for item in preferencias}
+            if preference.lower() not in existing:
+                preferencias.append(preference)
+            user["preferencias"] = preferencias
 
     def _answer_from_memory(self, memory_store: dict[str, object], message: str) -> str:
         user = memory_store.get("user", {})
