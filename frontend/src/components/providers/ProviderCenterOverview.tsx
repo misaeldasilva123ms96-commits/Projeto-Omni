@@ -14,19 +14,33 @@ export function ProviderCenterOverview({ providers, lastTestResult, className = 
   const total = providers.length
   const configured = providers.filter((p) => p.configured).length
   const notConfigured = total - configured
+  const healthy = providers.filter((p) => p.health_valid && p.healthy).length
+  const openCircuits = providers.filter((p) => p.circuit_state === 'open').length
 
   return (
     <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-4 ${className}`.trim()}>
       <OmniCard variant="panel">
         <p className="text-xs uppercase tracking-[0.25em] text-violet-200/70">Total</p>
         <p className="mt-2 text-2xl font-semibold text-white">{total}</p>
-        <p className="mt-1 text-xs text-slate-400">Provedores disponíveis</p>
+        <p className="mt-1 text-xs text-slate-400">Provedores registrados</p>
       </OmniCard>
 
       <OmniCard variant="panel">
         <p className="text-xs uppercase tracking-[0.25em] text-violet-200/70">Configurados</p>
         <p className="mt-2 text-2xl font-semibold text-emerald-300">{configured}</p>
-        <p className="mt-1 text-xs text-slate-400">Com credenciais válidas</p>
+        <p className="mt-1 text-xs text-slate-400">Com credenciais armazenadas</p>
+      </OmniCard>
+
+      <OmniCard variant="panel">
+        <p className="text-xs uppercase tracking-[0.25em] text-violet-200/70">Saudáveis</p>
+        <p className="mt-2 text-2xl font-semibold text-emerald-300">{healthy}</p>
+        <p className="mt-1 text-xs text-slate-400">Com teste recente válido</p>
+      </OmniCard>
+
+      <OmniCard variant="panel">
+        <p className="text-xs uppercase tracking-[0.25em] text-violet-200/70">Circuitos abertos</p>
+        <p className={`mt-2 text-2xl font-semibold ${openCircuits > 0 ? 'text-red-300' : 'text-slate-400'}`}>{openCircuits}</p>
+        <p className="mt-1 text-xs text-slate-400">Aguardando próximo probe</p>
       </OmniCard>
 
       <OmniCard variant="panel">

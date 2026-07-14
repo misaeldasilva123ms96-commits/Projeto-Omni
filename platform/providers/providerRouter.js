@@ -129,6 +129,9 @@ const LOCAL_HEURISTIC_PROVIDER = Object.freeze({
   execution_status: 'active',
   executable: true,
   available: true,
+  reachable: true,
+  healthy: true,
+  health_valid: true,
 });
 
 const DEFAULT_FALLBACK_CHAIN = Object.freeze([
@@ -475,7 +478,8 @@ function selectAutoProvider({ providers = [], routingMode = 'auto', byokPolicy, 
 function materializeProvider(definition) {
   const configured = hasConfig(definition.envVar);
   const model = envValue(definition.modelEnvVar) || definition.defaultModel;
-  const executable = Boolean(definition.adapter_implemented && configured);
+  const executable = Boolean(definition.adapter_implemented);
+  const available = Boolean(configured && executable);
   const provider = {
     name: definition.name,
     source: definition.source,
@@ -492,7 +496,10 @@ function materializeProvider(definition) {
       ? 'active'
       : definition.execution_status,
     executable,
-    available: executable,
+    available,
+    reachable: null,
+    healthy: null,
+    health_valid: false,
   };
   return provider;
 }
@@ -540,7 +547,7 @@ function sortProvidersByPolicy(providers) {
 
 function getAvailableProviders() {
   const remote = sortProvidersByPolicy(
-    getProviderRegistry().filter(provider => provider.executable),
+    getProviderRegistry().filter(provider => provider.available),
   );
 
   remote.push({ ...LOCAL_HEURISTIC_PROVIDER });
@@ -561,7 +568,7 @@ function fallbackReasonForRequestedProvider(provider) {
 function selectFallbackProvider(providersByName) {
   for (const name of DEFAULT_FALLBACK_CHAIN) {
     const candidate = providersByName.get(name);
-    if (!candidate || !candidate.executable) {
+    if (!candidate || !candidate.available) {
       continue;
     }
     if (candidate.kind === 'embedded') {
@@ -633,7 +640,7 @@ function resolveProviderRoute({
   const registry = getProviderRegistry({ includeEmbeddedLocal: true });
   const providersByName = new Map(registry.map(provider => [provider.name, provider]));
   const remoteExecutable = sortProvidersByPolicy(
-    registry.filter(provider => provider.kind !== 'embedded' && provider.executable),
+    registry.filter(provider => provider.kind !== 'embedded' && provider.available),
   );
   const noRemoteProviderAvailable = remoteExecutable.length === 0;
   const requestedProviderName = byokPolicy.active
@@ -678,7 +685,7 @@ function resolveProviderRoute({
   }
 
   if (byokPolicy.active) {
-    if (requestedProvider?.executable && requestedProvider.kind !== 'embedded') {
+    if (requestedProvider?.available && requestedProvider.kind !== 'embedded') {
       return buildRouteOutcome({
         requestedProviderName,
         selectedProviderName: requestedProvider.name,
@@ -704,7 +711,7 @@ function resolveProviderRoute({
     });
   }
 
-  if (requestedProvider?.executable) {
+  if (requestedProvider?.available) {
     if (requestedProvider.kind === 'embedded') {
       return buildRouteOutcome({
         requestedProviderName,
@@ -800,6 +807,9 @@ function buildProviderDiagnostics({
       execution_status: String(provider.execution_status || 'unsupported'),
       executable: Boolean(provider.executable),
       available: Boolean(provider.available),
+      reachable: typeof provider.reachable === 'boolean' ? provider.reachable : null,
+      healthy: typeof provider.healthy === 'boolean' ? provider.healthy : null,
+      health_valid: Boolean(provider.health_valid),
       selected: provider.name === selected,
       attempted: attemptedHere,
       succeeded: succeededHere,

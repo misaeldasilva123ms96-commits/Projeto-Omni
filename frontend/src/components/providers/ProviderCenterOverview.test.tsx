@@ -12,12 +12,12 @@ describe('ProviderCenterOverview', () => {
   it('renders total provider count', () => {
     render(<ProviderCenterOverview providers={baseProviders} lastTestResult={null} />)
     expect(screen.getByText('2')).toBeInTheDocument()
-    expect(screen.getByText('Provedores disponíveis')).toBeInTheDocument()
+    expect(screen.getByText('Provedores registrados')).toBeInTheDocument()
   })
 
   it('renders configured count', () => {
     render(<ProviderCenterOverview providers={baseProviders} lastTestResult={null} />)
-    expect(screen.getByText('Com credenciais válidas')).toBeInTheDocument()
+    expect(screen.getByText('Com credenciais armazenadas')).toBeInTheDocument()
     expect(screen.getByText('Configurados').nextElementSibling).toHaveTextContent('1')
   })
 
@@ -25,6 +25,16 @@ describe('ProviderCenterOverview', () => {
     render(<ProviderCenterOverview providers={baseProviders} lastTestResult={null} />)
     expect(screen.getByText('Sem credenciais')).toBeInTheDocument()
     expect(screen.getByText('Não configurados').nextElementSibling).toHaveTextContent('1')
+  })
+
+  it('counts only fresh healthy providers', () => {
+    const providers: ProviderRecord[] = [
+      { ...baseProviders[0], healthy: true, health_valid: true },
+      { ...baseProviders[1], healthy: true, health_valid: false },
+    ]
+    render(<ProviderCenterOverview providers={providers} lastTestResult={null} />)
+    expect(screen.getByText('Saudáveis').nextElementSibling).toHaveTextContent('1')
+    expect(screen.getByText('Com teste recente válido')).toBeInTheDocument()
   })
 
   it('shows default state when no test result', () => {

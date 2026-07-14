@@ -28,6 +28,16 @@ The public chat payload may include:
 
 The snapshot provider table includes Groq, OpenRouter, OpenAI, Anthropic, Gemini, Ollama, LM Studio, and DeepSeek.
 
+Provider capability and health are separate signals:
+
+- `configured`: required credential or URL configuration exists
+- `executable`: runtime adapter code exists
+- `available`: legacy combined configuration + adapter signal
+- `reachable` / `healthy`: result of the last explicit active test, or `null` when untested
+- `health_valid`, `last_checked_at`, `valid_until`, `latency_ms`, `cache_status`, and `circuit_state`: freshness and bounded retry evidence
+
+Listing diagnostics reads cached metadata only. It never contacts providers. Active checks occur only through the authenticated settings test action, and stale health is never presented as current.
+
 ## Runner Smoke Endpoint
 
 ```txt

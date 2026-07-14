@@ -20,7 +20,6 @@ from config.provider_registry import (
     providers_capability,
 )
 
-
 PROVIDER_ENV_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
@@ -47,7 +46,16 @@ class ProviderRegistryTest(unittest.TestCase):
     def test_providers_list_is_stable(self) -> None:
         self.assertEqual(
             PROVIDERS,
-            ("groq", "openrouter", "openai", "anthropic", "gemini", "deepseek", "ollama", "lmstudio"),
+            (
+                "groq",
+                "openrouter",
+                "openai",
+                "anthropic",
+                "gemini",
+                "deepseek",
+                "ollama",
+                "lmstudio",
+            ),
         )
 
     def test_provider_metadata_marks_unsupported_and_local_parity(self) -> None:
@@ -101,10 +109,12 @@ class ProviderRegistryTest(unittest.TestCase):
         try:
             os.environ["GROQ_API_KEY"] = "groq-registry-test-key"
             os.environ["GEMINI_API_KEY"] = "gemini-registry-test-key"
+            os.environ["DEEPSEEK_API_KEY"] = "deepseek-registry-test-key"
             os.environ["OPENAI_API_KEY"] = "YOUR_OPENAI_API_KEY_HERE"
             avail = get_available_providers()
             self.assertIn("groq", avail)
             self.assertIn("gemini", avail)
+            self.assertNotIn("deepseek", avail)
             self.assertNotIn("openai", avail)
             self.assertEqual(providers_capability(), {"providers": avail})
         finally:
@@ -116,7 +126,9 @@ class ProviderRegistryTest(unittest.TestCase):
 
     def test_provider_contract_models_are_serializable(self) -> None:
         request = ProviderRequest(prompt="hello", temperature=0.1)
-        response = ProviderResponse(provider_name="demo", provider_type=ProviderType.GENERIC.value, content="ok")
+        response = ProviderResponse(
+            provider_name="demo", provider_type=ProviderType.GENERIC.value, content="ok"
+        )
         health = ProviderHealth(provider_name="demo", healthy=True, detail="fine")
         self.assertEqual(request.as_dict()["prompt"], "hello")
         self.assertEqual(response.as_dict()["content"], "ok")
@@ -305,12 +317,14 @@ class ProviderRegistryTest(unittest.TestCase):
             self.assertEqual(set(rows), set(PROVIDERS))
             self.assertEqual(snapshot["fallback_chain"], list(DEFAULT_FALLBACK_CHAIN))
             self.assertFalse(rows["ollama"]["configured"])
-            self.assertFalse(rows["ollama"]["executable"])
+            self.assertTrue(rows["ollama"]["executable"])
+            self.assertFalse(rows["ollama"]["available"])
             self.assertEqual(rows["ollama"]["execution_status"], "local_config_gated")
             self.assertEqual(rows["ollama"]["url_env"], "OLLAMA_URL")
             self.assertEqual(rows["ollama"]["optional_key_env"], "OLLAMA_API_KEY")
             self.assertFalse(rows["lmstudio"]["configured"])
-            self.assertFalse(rows["lmstudio"]["executable"])
+            self.assertTrue(rows["lmstudio"]["executable"])
+            self.assertFalse(rows["lmstudio"]["available"])
             self.assertEqual(rows["lmstudio"]["execution_status"], "local_config_gated")
             self.assertEqual(rows["lmstudio"]["url_env"], "LMSTUDIO_URL")
             self.assertEqual(rows["lmstudio"]["optional_key_env"], "LMSTUDIO_API_KEY")
@@ -328,7 +342,9 @@ class ProviderRegistryTest(unittest.TestCase):
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
             os.environ["OPENROUTER_API_KEY"] = "openrouter-provider-test-key"
-            rows = describe_provider_diagnostics(selected_provider="openrouter", include_embedded_local=True)
+            rows = describe_provider_diagnostics(
+                selected_provider="openrouter", include_embedded_local=True
+            )
             openrouter = next(item for item in rows if item["provider"] == "openrouter")
             self.assertTrue(openrouter["registered"])
             self.assertTrue(openrouter["configured"])
@@ -350,7 +366,9 @@ class ProviderRegistryTest(unittest.TestCase):
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
             os.environ["OPENAI_API_KEY"] = "openai-provider-test-key"
-            rows = describe_provider_diagnostics(selected_provider="openai", include_embedded_local=True)
+            rows = describe_provider_diagnostics(
+                selected_provider="openai", include_embedded_local=True
+            )
             openai = next(item for item in rows if item["provider"] == "openai")
             self.assertTrue(openai["registered"])
             self.assertTrue(openai["configured"])
@@ -372,7 +390,9 @@ class ProviderRegistryTest(unittest.TestCase):
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
             os.environ["ANTHROPIC_API_KEY"] = "anthropic-provider-test-key"
-            rows = describe_provider_diagnostics(selected_provider="anthropic", include_embedded_local=True)
+            rows = describe_provider_diagnostics(
+                selected_provider="anthropic", include_embedded_local=True
+            )
             anthropic = next(item for item in rows if item["provider"] == "anthropic")
             self.assertTrue(anthropic["registered"])
             self.assertTrue(anthropic["configured"])
@@ -394,7 +414,9 @@ class ProviderRegistryTest(unittest.TestCase):
         saved = {k: os.environ.pop(k, None) for k in PROVIDER_ENV_KEYS}
         try:
             os.environ["GEMINI_API_KEY"] = "gemini-provider-test-key"
-            rows = describe_provider_diagnostics(selected_provider="gemini", include_embedded_local=True)
+            rows = describe_provider_diagnostics(
+                selected_provider="gemini", include_embedded_local=True
+            )
             gemini = next(item for item in rows if item["provider"] == "gemini")
             self.assertTrue(gemini["registered"])
             self.assertTrue(gemini["configured"])
@@ -419,7 +441,9 @@ class ProviderRegistryTest(unittest.TestCase):
             os.environ["LMSTUDIO_URL"] = "http://127.0.0.1:1234"
             os.environ["OLLAMA_API_KEY"] = "ollama-provider-test-key"
             os.environ["LMSTUDIO_API_KEY"] = "lmstudio-provider-test-key"
-            rows = describe_provider_diagnostics(selected_provider="ollama", include_embedded_local=True)
+            rows = describe_provider_diagnostics(
+                selected_provider="ollama", include_embedded_local=True
+            )
             ollama = next(item for item in rows if item["provider"] == "ollama")
             self.assertTrue(ollama["registered"])
             self.assertTrue(ollama["configured"])

@@ -147,8 +147,19 @@ def _execution_status(meta: dict[str, Any], configured: bool) -> str:
     return "active" if configured else base
 
 
-def _provider_executable(meta: dict[str, Any], configured: bool) -> bool:
-    return bool(meta.get("adapter_implemented", False) and configured)
+def _provider_executable(meta: dict[str, Any]) -> bool:
+    """Whether runtime code exists for this provider, independent of credentials."""
+    return bool(meta.get("adapter_implemented", False))
+
+
+def provider_execution_capability(provider: str, *, configured: bool) -> dict[str, bool]:
+    """Return configuration-independent execution and legacy availability signals."""
+    meta = _PROVIDER_BY_NAME.get(str(provider or "").strip().lower(), {})
+    executable = _provider_executable(meta)
+    return {
+        "executable": executable,
+        "available": bool(configured and executable),
+    }
 
 
 def _known_provider_or_none(value: str) -> str | None:
@@ -184,7 +195,8 @@ def _diagnostic_row(
     attempted_here = provider == attempted
     succeeded_here = provider == succeeded and not failure_kind
     failed_here = attempted_here and bool(failure_kind)
-    executable = _provider_executable(meta, configured)
+    executable = _provider_executable(meta)
+    available = bool(configured and executable)
     env_name = str(meta.get("env_var", "") or "")
     key_env = str(meta.get("key_env", "") or (env_name if env_name.endswith("_API_KEY") else ""))
     url_env = str(meta.get("url_env", "") or (env_name if env_name.endswith("_URL") else ""))
@@ -205,14 +217,23 @@ def _diagnostic_row(
         "enabled_by_default": bool(meta.get("enabled_by_default", False)),
         "execution_status": _execution_status(meta, configured),
         "executable": executable,
-        "available": executable,
+        "available": available,
+        "reachable": None,
+        "healthy": None,
+        "health_valid": False,
+        "last_checked_at": None,
+        "valid_until": None,
         "selected": provider == selected,
         "attempted": attempted_here,
         "succeeded": succeeded_here,
         "failed": failed_here,
         "failure_class": failure_kind if failed_here else None,
         "failure_reason": failure_detail if failed_here else None,
-        "latency_ms": int(latency_ms) if failed_here is False and attempted_here and latency_ms is not None else None,
+        "latency_ms": (
+            int(latency_ms)
+            if failed_here is False and attempted_here and latency_ms is not None
+            else None
+        ),
     }
 
 
@@ -243,6 +264,9 @@ def _local_heuristic_row(
         latency_ms=latency_ms,
     )
     row["key_present"] = False
+    row["reachable"] = True
+    row["healthy"] = True
+    row["health_valid"] = True
     return row
 
 
@@ -286,8 +310,15 @@ def describe_provider_diagnostics_snapshot(
 
 
 def get_available_providers() -> list[str]:
-    """Return provider ids that have valid, non-placeholder credentials."""
-    return [provider for provider in PROVIDERS if _provider_configured(provider)]
+    """Return provider ids that are configured and have an executable adapter."""
+    return [
+        provider
+        for provider in PROVIDERS
+        if provider_execution_capability(
+            provider,
+            configured=_provider_configured(provider),
+        )["available"]
+    ]
 
 
 def providers_capability() -> dict[str, list[str]]:
@@ -309,8 +340,8 @@ def describe_provider_diagnostics(
     """
     Public-safe provider diagnostics.
 
-    ``configured`` means required env/config appears present.
-    ``available``/``executable`` require both configuration and an implemented adapter.
+    ``configured`` means required env/config appears present. ``executable`` means an
+    adapter is implemented. The legacy ``available`` field requires both.
     """
     selected = str(selected_provider or "").strip().lower()
     actual = str(actual_provider or "").strip().lower()

@@ -334,12 +334,42 @@ struct PrSummariesResponse {
 }
 
 /// ----- Settings API (BYOK) -----
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct ProviderHealthSignals {
+    #[serde(default)]
+    executable: bool,
+    #[serde(default)]
+    available: bool,
+    #[serde(default)]
+    reachable: Option<bool>,
+    #[serde(default)]
+    healthy: Option<bool>,
+    #[serde(default)]
+    health_valid: bool,
+    #[serde(default)]
+    last_checked_at: Option<u64>,
+    #[serde(default)]
+    valid_until: Option<u64>,
+    #[serde(default)]
+    latency_ms: Option<u64>,
+    #[serde(default)]
+    cache_status: String,
+    #[serde(default)]
+    circuit_state: String,
+    #[serde(default)]
+    consecutive_failures: u32,
+    #[serde(default)]
+    next_probe_at: Option<u64>,
+}
+
 /// Provider metadata — never contains secrets.
 #[derive(Debug, Serialize, Deserialize)]
 struct ProviderMetadata {
     provider: String,
     configured: bool,
     updated_at: Option<f64>,
+    #[serde(flatten)]
+    health: ProviderHealthSignals,
 }
 
 /// GET /api/v1/settings/providers
@@ -364,6 +394,8 @@ struct SaveProviderResponse {
     configured: bool,
     #[serde(default)]
     updated_at: Option<f64>,
+    #[serde(flatten)]
+    health: ProviderHealthSignals,
 }
 
 /// PUT /api/v1/settings/providers/{provider}
@@ -380,6 +412,8 @@ struct UpdateProviderResponse {
     configured: bool,
     #[serde(default)]
     updated_at: Option<f64>,
+    #[serde(flatten)]
+    health: ProviderHealthSignals,
 }
 
 /// DELETE /api/v1/settings/providers/{provider}
@@ -389,6 +423,8 @@ struct DeleteProviderResponse {
     provider: String,
     configured: bool,
     updated_at: Option<f64>,
+    #[serde(flatten)]
+    health: ProviderHealthSignals,
 }
 
 /// POST /api/v1/settings/providers/{provider}/test
@@ -404,6 +440,10 @@ struct TestProviderResponse {
     success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(default)]
+    cached: bool,
+    #[serde(flatten)]
+    health: ProviderHealthSignals,
 }
 
 /// Authenticated operator read model — redacted runtime audit + run summary (see `docs/backend/operator-telemetry-api.md`).
@@ -2573,7 +2613,7 @@ async fn settings_test_provider(
     AxumPath(provider): AxumPath<String>,
     Json(payload): Json<TestProviderRequest>,
 ) -> Result<Json<TestProviderResponse>, AppError> {
-    let _user_id =
+    let user_id =
         extract_user_id(&extensions).ok_or_else(|| AppError::Internal("unauthenticated".into()))?;
 
     let provider = provider.trim().to_ascii_lowercase();
@@ -2584,7 +2624,12 @@ async fn settings_test_provider(
         return Err(AppError::Internal("api_key is required".into()));
     }
 
-    let result = run_settings_cli(&state, &["test", &provider], Some(&payload.api_key)).await?;
+    let result = run_settings_cli(
+        &state,
+        &["test", &user_id, &provider],
+        Some(&payload.api_key),
+    )
+    .await?;
 
     let response: TestProviderResponse = serde_json::from_value(result)
         .map_err(|e| AppError::Internal(format!("parse test provider: {e}")))?;
@@ -3846,6 +3891,56 @@ mod tests {
     use tower::ServiceExt;
 
     static ENV_TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
+
+    #[test]
+    fn provider_settings_health_signals_round_trip_without_secret_fields() {
+        let raw = json!({
+            "provider": "openai",
+            "configured": true,
+            "updated_at": 1234,
+            "executable": true,
+            "available": true,
+            "reachable": true,
+            "healthy": true,
+            "health_valid": true,
+            "last_checked_at": 2000,
+            "valid_until": 3000,
+            "latency_ms": 42,
+            "cache_status": "fresh",
+            "circuit_state": "closed",
+            "consecutive_failures": 0,
+            "next_probe_at": null
+        });
+        let metadata: ProviderMetadata = serde_json::from_value(raw).expect("provider metadata");
+        assert!(metadata.configured);
+        assert!(metadata.health.executable);
+        assert_eq!(metadata.health.reachable, Some(true));
+        assert_eq!(metadata.health.latency_ms, Some(42));
+
+        let serialized = serde_json::to_value(metadata).expect("serialize provider metadata");
+        assert_eq!(serialized["cache_status"], "fresh");
+        assert!(serialized.get("api_key").is_none());
+        assert!(serialized.get("secret").is_none());
+    }
+
+    #[test]
+    fn provider_test_response_preserves_open_circuit_metadata() {
+        let raw = json!({
+            "provider": "openai",
+            "success": false,
+            "error": "Provider health circuit is open",
+            "cached": true,
+            "circuit_state": "open",
+            "consecutive_failures": 3,
+            "next_probe_at": 4000
+        });
+        let response: TestProviderResponse = serde_json::from_value(raw).expect("test response");
+        assert!(!response.success);
+        assert!(response.cached);
+        assert_eq!(response.health.circuit_state, "open");
+        assert_eq!(response.health.consecutive_failures, 3);
+        assert_eq!(response.health.next_probe_at, Some(4000));
+    }
 
     fn temp_script(content: &str, name: &str) -> PathBuf {
         let root = env::temp_dir().join(format!("omni-rust-tests-{name}"));

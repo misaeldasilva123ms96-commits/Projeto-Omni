@@ -11,7 +11,19 @@ describe('settings API client', () => {
 
   it('uses the shared authenticated client for reads', async () => {
     requestJsonWithAuth.mockResolvedValue({ providers: [{ provider: 'openai', configured: true }] })
-    await expect(listProviders()).resolves.toEqual([{ provider: 'openai', configured: true }])
+    const providers = await listProviders()
+    expect(providers).toHaveLength(1)
+    expect(providers[0]).toMatchObject({
+      provider: 'openai',
+      configured: true,
+      reachable: null,
+      healthy: null,
+      health_valid: false,
+      cache_status: 'missing',
+      circuit_state: 'closed',
+    })
+    expect(providers[0].executable).toBeUndefined()
+    expect(providers[0].available).toBeUndefined()
     expect(requestJsonWithAuth).toHaveBeenCalledWith('/api/v1/settings/providers', undefined)
   })
 

@@ -137,7 +137,11 @@ Each provider diagnostic row is additive and safe for public debugging:
 {
   "provider": "openai",
   "configured": true,
+  "executable": true,
   "available": true,
+  "reachable": null,
+  "healthy": null,
+  "health_valid": false,
   "selected": true,
   "attempted": false,
   "succeeded": false,
@@ -152,7 +156,11 @@ Each provider diagnostic row is additive and safe for public debugging:
 
 Interpretation:
 
-- `configured` / `available` currently mean configuration-level availability, not network reachability
+- `configured` means required configuration exists
+- `executable` means adapter code exists, independently of credentials
+- `available` is the legacy combined `configured && executable` signal
+- `reachable` and `healthy` remain `null` until an explicit active health test produces bounded cached evidence
+- `health_valid` prevents a stale result from being presented as current health
 - `attempted` means a provider-backed attempt is evidenced for the turn
 - `failed` plus `failure_class` distinguishes provider-layer failure from bridge failure
 
