@@ -14,7 +14,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.control.capability_router import CapabilityRouter  # noqa: E402
 from brain.runtime.execution.manifest import build_execution_manifest  # noqa: E402
-from brain.runtime.language.reasoning_contract import normalize_input_to_oil_request  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
 from brain.runtime.reasoning.reasoning_engine import ReasoningEngine  # noqa: E402
 
@@ -27,11 +26,11 @@ class DecisionQualityDatasetTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.router = CapabilityRouter()
         cls.reasoner = ReasoningEngine()
-        cls.workspace_root = Path(tempfile.mkdtemp(prefix="omni-phase9-", dir=str(PROJECT_ROOT / ".logs")))
-        cls._old_base_dir = os.environ.get("BASE_DIR")
-        cls._old_python_base_dir = os.environ.get("PYTHON_BASE_DIR")
-        os.environ["BASE_DIR"] = str(cls.workspace_root)
-        os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+        cls.workspace_root = Path(tempfile.mkdtemp(prefix="omni-decision-quality-"))
+        cls._old_base_dir = os.environ.get("OMNI_BASE_DIR")
+        cls._old_python_base_dir = os.environ.get("OMNI_PYTHON_BASE_DIR")
+        os.environ["OMNI_BASE_DIR"] = str(cls.workspace_root)
+        os.environ["OMNI_PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
         cls.orchestrator = BrainOrchestrator(
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )
@@ -39,13 +38,13 @@ class DecisionQualityDatasetTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         if cls._old_base_dir is None:
-            os.environ.pop("BASE_DIR", None)
+            os.environ.pop("OMNI_BASE_DIR", None)
         else:
-            os.environ["BASE_DIR"] = cls._old_base_dir
+            os.environ["OMNI_BASE_DIR"] = cls._old_base_dir
         if cls._old_python_base_dir is None:
-            os.environ.pop("PYTHON_BASE_DIR", None)
+            os.environ.pop("OMNI_PYTHON_BASE_DIR", None)
         else:
-            os.environ["PYTHON_BASE_DIR"] = cls._old_python_base_dir
+            os.environ["OMNI_PYTHON_BASE_DIR"] = cls._old_python_base_dir
         shutil.rmtree(cls.workspace_root, ignore_errors=True)
 
     def _load_cases(self) -> list[dict[str, object]]:

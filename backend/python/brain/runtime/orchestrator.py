@@ -3290,8 +3290,6 @@ class BrainOrchestrator:
             return "NODE_EXECUTION"
         if selected_strategy == "MULTI_STEP_REASONING":
             return "PLANNER_EXECUTION"
-        if oil_intent in {"execute", "plan"} or output_mode == "structured":
-            return "NODE_EXECUTION"
         if selected_tools and "tool" in step_kinds and all(supports_engineering_tool(str(tool)) for tool in selected_tools):
             return "LOCAL_TOOL_EXECUTION"
         if len(step_plan) > 2 or str(getattr(routing_decision, "execution_strategy", "") or "").strip().lower() in {
@@ -3304,6 +3302,10 @@ class BrainOrchestrator:
             return "LOCAL_TOOL_EXECUTION" if all(supports_engineering_tool(str(tool)) for tool in selected_tools) else "NODE_EXECUTION"
         if "tool" in step_kinds:
             return "LOCAL_TOOL_EXECUTION"
+        if selected_strategy == "DIRECT_RESPONSE":
+            return "COMPATIBILITY_EXECUTION"
+        if oil_intent in {"execute", "plan"} or output_mode == "structured":
+            return "NODE_EXECUTION"
         return "NODE_EXECUTION"
 
     def _build_primary_node_result(
