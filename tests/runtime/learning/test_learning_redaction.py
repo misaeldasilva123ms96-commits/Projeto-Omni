@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import sys
 import tempfile
@@ -10,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.learning.learning_store import ControlledLearningStore  # noqa: E402
+from brain.runtime.learning import redaction as redaction_module  # noqa: E402
 from brain.runtime.learning.redaction import (  # noqa: E402
     REDACTED_INTERNAL_PAYLOAD,
     redact_learning_record,
@@ -93,6 +95,20 @@ def test_phone_redaction_preserves_uuid_like_and_structured_ids() -> None:
     }
 
     assert redact_sensitive_payload(structured_ids) == structured_ids
+
+
+def test_phone_redaction_uses_possessive_quantifiers_for_uncontrolled_text() -> None:
+    source = inspect.getsource(redaction_module)
+    assert r"\s*\(?" not in source
+    assert r"\s*9" not in source
+    assert r"\s*\d" not in source
+    assert source.count(r"\s*+") == 5
+
+    adversarial_spacing = "+55" + (" " * 10_000) + "11 99999-9999"
+    assert redact_sensitive_text(adversarial_spacing) == "[REDACTED_PHONE]"
+
+    non_phone = "trace-" + ("9" * 5) + "-" + ("9" * 4)
+    assert redact_sensitive_text(non_phone) == non_phone
 
 
 def test_private_key_redaction_is_complete_and_handles_repeated_markers() -> None:
