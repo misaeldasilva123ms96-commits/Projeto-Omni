@@ -55,7 +55,13 @@ const commands = [
   {
     label: 'phase-3 tool governance enforcement python',
     command: 'python',
-    args: ['-m', 'pytest', '-q', 'tests/runtime/test_tool_governance_enforcement.py'],
+    args: [
+      '-m',
+      'pytest',
+      '-q',
+      'tests/runtime/test_tool_governance_enforcement.py',
+      'tests/runtime/test_workspace_path_containment.py',
+    ],
   },
   {
     label: 'phase-3 tool governance enforcement js',

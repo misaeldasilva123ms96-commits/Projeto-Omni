@@ -119,7 +119,14 @@ def rollback_patch_set(*, workspace_root: Path, patch_set: dict[str, Any], appli
         for patch in reversed(patch_set.get("patches", [])):
             if str(patch.get("file_path", "")) not in applied_set:
                 continue
-            rollback_patch(workspace_root=workspace_root, patch=patch)
+            result = rollback_patch(workspace_root=workspace_root, patch=patch)
+            if not result.get("ok"):
+                return {
+                    "ok": False,
+                    "patch_set_id": patch_set.get("patch_set_id"),
+                    "rolled_back_files": rolled_back,
+                    "error": result.get("error", "patch_rollback_failed"),
+                }
             rolled_back.append(str(patch.get("file_path", "")))
         return {
             "ok": True,

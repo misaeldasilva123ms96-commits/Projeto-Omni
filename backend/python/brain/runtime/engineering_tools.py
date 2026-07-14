@@ -14,6 +14,12 @@ from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.shell_policy import build_shell_blocked_result, validate_shell_command
 from brain.runtime.tool_governance_policy import build_governance_blocked_result, evaluate_tool_governance
 from brain.runtime.workspace_manager import WorkspaceManager
+from brain.runtime.workspace_paths import (
+    WorkspacePathError,
+    resolve_workspace_entry,
+    resolve_workspace_path,
+    validate_workspace_glob_pattern,
+)
 
 
 ENGINEERING_TOOLS = {
@@ -57,9 +63,10 @@ def execute_engineering_action(
         return build_governance_blocked_result(tool, governance_decision)
 
     if tool in {"filesystem_read", "read_file"}:
-        target = _resolve_workspace_target(workspace_root, str(arguments.get("path", "")))
-        if target is None:
-            return _error(tool, "path_outside_workspace", "Requested file is outside the allowed workspace.")
+        try:
+            target = resolve_workspace_path(workspace_root, str(arguments.get("path", "")))
+        except WorkspacePathError as error:
+            return _error(tool, error.code, "Requested file is outside the allowed workspace.")
         if _public_demo_mode() and _is_sensitive_public_demo_file(workspace_root, target):
             return _error(tool, "public_demo_sensitive_read_blocked", "Requested file is not readable in public demo mode.")
         content = target.read_text(encoding="utf-8")
@@ -67,9 +74,14 @@ def execute_engineering_action(
         return _ok(tool, {"file": {"filePath": str(target), "content": content[:limit]}})
 
     if tool in {"filesystem_write", "write_file"}:
+        file_path = str(arguments.get("path", ""))
+        try:
+            resolve_workspace_path(workspace_root, file_path)
+        except WorkspacePathError as error:
+            return _error(tool, error.code, "Requested file is outside the allowed workspace.")
         patch = build_patch(
             workspace_root=workspace_root,
-            file_path=str(arguments.get("path", "")),
+            file_path=file_path,
             new_content=str(arguments.get("content", "")),
             confidence_score=float(arguments.get("confidence_score", 0.6) or 0.6),
         )
@@ -82,9 +94,17 @@ def execute_engineering_action(
         return _ok(tool, {"patch": patch, "review": review, "workspace_root": str(workspace_root)})
 
     if tool == "filesystem_patch_set":
+        file_updates = list(arguments.get("file_updates", []) or [])
+        for update in file_updates:
+            if not isinstance(update, dict):
+                return _error(tool, "invalid_patch_set", "Patch set entries must be objects.")
+            try:
+                resolve_workspace_path(workspace_root, str(update.get("file_path", "")))
+            except WorkspacePathError as error:
+                return _error(tool, error.code, "Requested file is outside the allowed workspace.")
         patch_set = build_patch_set(
             workspace_root=workspace_root,
-            file_updates=list(arguments.get("file_updates", []) or []),
+            file_updates=file_updates,
             dependency_notes=list(arguments.get("dependency_notes", []) or []),
             verification_plan=dict(arguments.get("verification_plan", {}) or {}),
         )
@@ -102,10 +122,14 @@ def execute_engineering_action(
         for file_path in sorted(workspace_root.rglob("*")):
             if any(part in {".git", ".logs", "node_modules", "__pycache__", "target", "dist"} for part in file_path.parts):
                 continue
-            depth = len(file_path.relative_to(workspace_root).parts)
+            try:
+                _, relative_path = resolve_workspace_entry(workspace_root, file_path)
+            except WorkspacePathError:
+                continue
+            depth = len(relative_path.parts)
             if depth > max_depth:
                 continue
-            lines.append(str(file_path.relative_to(workspace_root)).replace("\\", "/"))
+            lines.append(str(relative_path).replace("\\", "/"))
         return _ok(tool, {"tree": lines[:500]})
 
     if tool == "dependency_inspection":
@@ -149,19 +173,20 @@ def execute_engineering_action(
             return _error(tool, "missing_pattern", "code_search requires a pattern")
         matches: list[dict[str, Any]] = []
         for file_path in workspace_root.rglob("*"):
-            if not file_path.is_file():
-                continue
             if any(part in {".git", ".logs", "node_modules", "__pycache__", "target", "dist"} for part in file_path.parts):
                 continue
             try:
-                content = file_path.read_text(encoding="utf-8")
-            except Exception:
+                safe_path, relative_path = resolve_workspace_entry(workspace_root, file_path)
+                if not safe_path.is_file():
+                    continue
+                content = safe_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError, WorkspacePathError):
                 continue
             for line_number, line in enumerate(content.splitlines(), start=1):
                 if pattern in line:
                     matches.append(
                         {
-                            "path": str(file_path.relative_to(workspace_root)).replace("\\", "/"),
+                            "path": str(relative_path).replace("\\", "/"),
                             "line_number": line_number,
                             "line": line.strip(),
                         }
@@ -173,18 +198,34 @@ def execute_engineering_action(
         return _ok(tool, {"matches": matches})
 
     if tool == "glob_search":
-        pattern = str(arguments.get("pattern", "")).strip()
-        if not pattern:
+        raw_pattern = str(arguments.get("pattern", "")).strip()
+        if not raw_pattern:
             return _error(tool, "missing_pattern", "glob_search requires a pattern")
-        search_root = workspace_root / str(arguments.get("path", ".") or ".")
-        search_root = search_root.resolve()
+        try:
+            pattern = validate_workspace_glob_pattern(raw_pattern)
+            search_root = resolve_workspace_path(
+                workspace_root,
+                str(arguments.get("path", ".") or "."),
+                allow_workspace_root=True,
+            )
+        except WorkspacePathError as error:
+            message = (
+                "glob_search pattern is invalid"
+                if error.code == "invalid_glob_pattern"
+                else "Requested search path is outside the allowed workspace."
+            )
+            return _error(tool, error.code, message)
         if not search_root.exists():
-            return _error(tool, "missing_search_root", f"glob_search path does not exist: {search_root}")
+            return _error(tool, "missing_search_root", "glob_search path does not exist")
         matches: list[str] = []
         for file_path in search_root.rglob(pattern):
             if any(part in {".git", ".logs", "node_modules", "__pycache__", "target", "dist"} for part in file_path.parts):
                 continue
-            matches.append(str(file_path.relative_to(workspace_root)).replace("\\", "/"))
+            try:
+                _, relative_path = resolve_workspace_entry(workspace_root, file_path)
+            except WorkspacePathError:
+                continue
+            matches.append(str(relative_path).replace("\\", "/"))
             if len(matches) >= 200:
                 break
         return _ok(tool, {"filenames": matches})
@@ -224,12 +265,18 @@ def execute_engineering_action(
 def _dependency_inspection(workspace_root: Path) -> dict[str, Any]:
     files = []
     for candidate in ["package.json", "requirements.txt", "pyproject.toml", "backend/rust/Cargo.toml", "Cargo.toml"]:
-        path = workspace_root / candidate
+        try:
+            path = resolve_workspace_path(workspace_root, candidate)
+        except WorkspacePathError:
+            continue
         if path.exists():
             files.append(candidate)
-    package_json = workspace_root / "package.json"
+    try:
+        package_json = resolve_workspace_path(workspace_root, "package.json")
+    except WorkspacePathError:
+        package_json = None
     dependencies: dict[str, Any] = {}
-    if package_json.exists():
+    if package_json is not None and package_json.exists():
         try:
             payload = json.loads(package_json.read_text(encoding="utf-8"))
             dependencies = {
@@ -351,16 +398,6 @@ def _ok(tool: str, payload: dict[str, Any]) -> dict[str, Any]:
         "selected_tool": tool,
         "result_payload": payload,
     }
-
-
-def _resolve_workspace_target(workspace_root: Path, raw_path: str) -> Path | None:
-    try:
-        root = workspace_root.resolve()
-        target = (root / str(raw_path or "")).resolve()
-        target.relative_to(root)
-        return target
-    except (OSError, ValueError):
-        return None
 
 
 def _is_allowed_workspace_root(project_root: Path, workspace_root: Path) -> bool:

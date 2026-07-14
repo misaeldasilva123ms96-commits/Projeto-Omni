@@ -8,9 +8,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.workspace_paths import WorkspacePathError, resolve_workspace_path
+
 
 def build_patch(*, workspace_root: Path, file_path: str, new_content: str, confidence_score: float = 0.5) -> dict[str, Any]:
-    target = (workspace_root / file_path).resolve()
+    target = resolve_workspace_path(workspace_root, file_path)
     original_content = target.read_text(encoding="utf-8") if target.exists() else ""
     original_hash = hashlib.sha256(original_content.encode("utf-8")).hexdigest()
     diff = "\n".join(
@@ -34,14 +36,29 @@ def build_patch(*, workspace_root: Path, file_path: str, new_content: str, confi
 
 def apply_patch(*, workspace_root: Path, patch: dict[str, Any]) -> dict[str, Any]:
     file_path = str(patch.get("file_path", ""))
-    target = (workspace_root / file_path).resolve()
-    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target = resolve_workspace_path(workspace_root, file_path)
+    except WorkspacePathError as error:
+        return {
+            "ok": False,
+            "error": error.code,
+            "file_path": file_path,
+        }
     current_content = target.read_text(encoding="utf-8") if target.exists() else ""
     current_hash = hashlib.sha256(current_content.encode("utf-8")).hexdigest()
     if current_hash != patch.get("original_content_hash"):
         return {
             "ok": False,
             "error": "content_hash_mismatch",
+            "file_path": file_path,
+        }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target = resolve_workspace_path(workspace_root, file_path)
+    except WorkspacePathError as error:
+        return {
+            "ok": False,
+            "error": error.code,
             "file_path": file_path,
         }
     target.write_text(str(patch.get("new_content", "")), encoding="utf-8")
@@ -52,11 +69,31 @@ def apply_patch(*, workspace_root: Path, patch: dict[str, Any]) -> dict[str, Any
     }
 
 
-def rollback_patch(*, workspace_root: Path, patch: dict[str, Any]) -> None:
-    target = (workspace_root / str(patch.get("file_path", ""))).resolve()
+def rollback_patch(*, workspace_root: Path, patch: dict[str, Any]) -> dict[str, Any]:
+    file_path = str(patch.get("file_path", ""))
+    try:
+        target = resolve_workspace_path(workspace_root, file_path)
+    except WorkspacePathError as error:
+        return {
+            "ok": False,
+            "error": error.code,
+            "file_path": file_path,
+        }
     target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target = resolve_workspace_path(workspace_root, file_path)
+    except WorkspacePathError as error:
+        return {
+            "ok": False,
+            "error": error.code,
+            "file_path": file_path,
+        }
     target.write_text(str(patch.get("original_content", "")), encoding="utf-8")
     _refresh_python_artifacts(target)
+    return {
+        "ok": True,
+        "file_path": file_path,
+    }
 
 
 def review_patch_risk(*, patch: dict[str, Any]) -> dict[str, Any]:

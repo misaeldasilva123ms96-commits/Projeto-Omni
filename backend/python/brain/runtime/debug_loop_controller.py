@@ -6,6 +6,7 @@ from typing import Any
 
 from brain.runtime.engineering_tools import execute_engineering_action
 from brain.runtime.patch_generator import apply_patch, build_patch, review_patch_risk, rollback_patch
+from brain.runtime.workspace_paths import WorkspacePathError, resolve_workspace_path
 from brain.runtime.workspace_manager import WorkspaceManager
 
 
@@ -185,7 +186,10 @@ class DebugLoopController:
             ]
 
         for candidate in candidates:
-            target = (self.workspace_root / candidate).resolve()
+            try:
+                target = resolve_workspace_path(self.workspace_root, str(candidate))
+            except WorkspacePathError:
+                continue
             if not target.exists():
                 continue
             content = target.read_text(encoding="utf-8")
