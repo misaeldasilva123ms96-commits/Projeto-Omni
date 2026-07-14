@@ -30,6 +30,7 @@ use crate::AppState;
 
 const OBSERVABILITY_STREAM_TICKET_TTL_SECONDS: u64 = 30;
 const MAX_ACTIVE_STREAM_TICKETS: usize = 1_024;
+const SUPABASE_AUTHENTICATED_AUDIENCE: &str = "authenticated";
 pub(crate) const OBSERVABILITY_STREAM_TICKET_STORE_MODE_ENV: &str =
     "OMNI_OBSERVABILITY_STREAM_TICKET_STORE_MODE";
 
@@ -327,9 +328,11 @@ impl SupabaseAuthConfig {
     fn validate_token(&self, token: &str) -> Result<SupabaseClaims, jsonwebtoken::errors::Error> {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_exp = true;
-        validation.validate_aud = false;
+        validation.validate_aud = true;
         validation.leeway = 0;
+        validation.set_required_spec_claims(&["exp", "iss", "aud"]);
         validation.set_issuer(&[self.issuer.as_str()]);
+        validation.set_audience(&[SUPABASE_AUTHENTICATED_AUDIENCE]);
         validation.algorithms = vec![Algorithm::HS256];
 
         decode::<SupabaseClaims>(
@@ -569,17 +572,19 @@ mod tests {
         }
     }
 
-    fn token_with_offset(exp_offset_seconds: i64) -> String {
+    fn token_with_audience(exp_offset_seconds: i64, audience: Option<Value>) -> String {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("unix epoch")
             .as_secs() as i64;
-        let claims = json!({
+        let mut claims = json!({
             "iss": "https://example.supabase.co/auth/v1",
             "sub": "operator-123",
-            "aud": "authenticated",
             "exp": now + exp_offset_seconds,
         });
+        if let Some(audience) = audience {
+            claims["aud"] = audience;
+        }
 
         encode(
             &Header::new(Algorithm::HS256),
@@ -587,6 +592,10 @@ mod tests {
             &EncodingKey::from_secret("test-secret".as_bytes()),
         )
         .expect("encode test jwt")
+    }
+
+    fn token_with_offset(exp_offset_seconds: i64) -> String {
+        token_with_audience(exp_offset_seconds, Some(json!("authenticated")))
     }
 
     fn test_router() -> Router {
@@ -680,6 +689,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn token_without_audience_returns_401() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/observability/snapshot")
+                    .header(
+                        AUTHORIZATION,
+                        format!("Bearer {}", token_with_audience(300, None)),
+                    )
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn token_with_wrong_audience_returns_401() {
+        for audience in [
+            json!("another-service"),
+            json!(["another-service", "third-service"]),
+        ] {
+            let response = test_router()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri("/api/observability/snapshot")
+                        .header(
+                            AUTHORIZATION,
+                            format!("Bearer {}", token_with_audience(300, Some(audience))),
+                        )
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    #[tokio::test]
     async fn valid_header_token_proceeds_to_handler() {
         let response = test_router()
             .oneshot(
@@ -687,6 +741,32 @@ mod tests {
                     .method(Method::GET)
                     .uri("/api/observability/snapshot")
                     .header(AUTHORIZATION, format!("Bearer {}", token_with_offset(300)))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn token_with_expected_audience_in_array_proceeds_to_handler() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/observability/snapshot")
+                    .header(
+                        AUTHORIZATION,
+                        format!(
+                            "Bearer {}",
+                            token_with_audience(
+                                300,
+                                Some(json!(["authenticated", "another-service"]))
+                            )
+                        ),
+                    )
                     .body(Body::empty())
                     .expect("request"),
             )
