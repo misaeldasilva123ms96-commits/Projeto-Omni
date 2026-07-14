@@ -69,7 +69,16 @@ export function ProviderCard({
           <h3 className="provider-name">{displayName}</h3>
           <span className="provider-id">{provider.provider}</span>
         </div>
-        <ProviderStatusBadge configured={provider.configured} updatedAt={provider.updated_at} />
+        <ProviderStatusBadge
+          configured={provider.configured}
+          updatedAt={provider.updated_at}
+          executable={provider.executable}
+          reachable={provider.reachable}
+          healthy={provider.healthy}
+          healthValid={provider.health_valid}
+          circuitState={provider.circuit_state}
+          lastCheckedAt={provider.last_checked_at}
+        />
       </header>
 
       <form className="provider-form" onSubmit={provider.configured ? handleUpdate : handleConfigure}>

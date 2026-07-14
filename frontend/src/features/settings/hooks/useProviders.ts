@@ -105,21 +105,22 @@ export function useProviders() {
       setLastTestResult(result);
       setProviders((current) => {
         const existingIndex = current.findIndex((item) => item.provider === provider);
+        if (existingIndex < 0) return current;
         const record: ProviderRecord = {
-          provider,
-          configured: result.success,
-          updated_at: result.success
-            ? current[existingIndex]?.updated_at ?? Date.now()
-            : existingIndex >= 0
-              ? current[existingIndex].updated_at
-              : Date.now(),
+          ...current[existingIndex],
+          reachable: result.reachable,
+          healthy: result.healthy,
+          health_valid: result.health_valid,
+          last_checked_at: result.last_checked_at,
+          valid_until: result.valid_until,
+          latency_ms: result.latency_ms,
+          cache_status: result.cache_status,
+          circuit_state: result.circuit_state,
+          consecutive_failures: result.consecutive_failures,
+          next_probe_at: result.next_probe_at,
         };
         const next = [...current];
-        if (existingIndex >= 0) {
-          next[existingIndex] = record;
-        } else {
-          next.push(record);
-        }
+        next[existingIndex] = record;
         return next;
       });
     } catch (err) {
@@ -127,6 +128,17 @@ export function useProviders() {
         provider,
         success: false,
         error: err instanceof Error ? redactRuntimeDebugText(err.message) : 'Unable to test provider',
+        cached: false,
+        reachable: null,
+        healthy: null,
+        health_valid: false,
+        last_checked_at: null,
+        valid_until: null,
+        latency_ms: null,
+        cache_status: 'missing',
+        circuit_state: 'closed',
+        consecutive_failures: 0,
+        next_probe_at: null,
       };
       setLastTestResult(fallbackResult);
       const message = fallbackResult.error ?? 'Unable to test provider';

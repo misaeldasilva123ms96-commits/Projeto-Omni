@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from .encrypted_credential_store import (
@@ -11,7 +12,13 @@ from .encrypted_credential_store import (
     EncryptionKeyError,
     _redact_user,
 )
-from .provider_registry import PROVIDERS
+from .provider_health import (
+    invalidate_provider_health,
+    provider_health_probe_allowed,
+    read_provider_health,
+    record_provider_health,
+)
+from .provider_registry import PROVIDERS, provider_execution_capability
 
 __all__ = [
     "ProviderSettingsController",
@@ -26,6 +33,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 ALLOWED_PROVIDERS = tuple(str(provider) for provider in PROVIDERS)
+ACTIVE_TEST_PROVIDERS = frozenset({"openai", "openrouter", "gemini", "groq", "anthropic"})
 
 
 class ProviderSettingsController:
@@ -63,11 +71,15 @@ class ProviderSettingsController:
         results: list[dict[str, Any]] = []
         for provider in ALLOWED_PROVIDERS:
             item = by_provider.get(provider)
+            configured = item is not None
+            capability = provider_execution_capability(provider, configured=configured)
             results.append(
                 {
                     "provider": provider,
-                    "configured": item is not None,
+                    "configured": configured,
+                    **capability,
                     "updated_at": item.updated_at if item else None,
+                    **read_provider_health(normalized, provider),
                 }
             )
         return results
@@ -83,6 +95,7 @@ class ProviderSettingsController:
             provider_id=normalized_provider,
             secret=secret,
         )
+        invalidate_provider_health(normalized_user, normalized_provider)
         logger.info(
             "Saved BYOK provider=%s user=%s",
             normalized_provider,
@@ -108,6 +121,7 @@ class ProviderSettingsController:
         )
         credential_id = _extract_credential_id(credential)
         store.update_credential(credential_id=credential_id, secret=secret)
+        invalidate_provider_health(normalized_user, normalized_provider)
         logger.info(
             "Updated BYOK provider=%s user=%s",
             normalized_provider,
@@ -141,22 +155,75 @@ class ProviderSettingsController:
                     normalized_provider,
                     exc,
                 )
+        invalidate_provider_health(normalized_user, normalized_provider)
+        capability = provider_execution_capability(
+            normalized_provider,
+            configured=False,
+        )
         return {
             "provider": normalized_provider,
             "configured": False,
+            **capability,
             "updated_at": None,
+            **read_provider_health(normalized_user, normalized_provider),
         }
 
-    def test_provider(self, provider_id: str, secret: str) -> dict[str, Any]:
+    def test_provider(self, user_id: str, provider_id: str, secret: str) -> dict[str, Any]:
         """Validate provider credentials without persisting them."""
         self._require_allowed_provider(provider_id)
         self._require_secret(secret)
+        normalized_user = _normalize_user_id(user_id)
         normalized_provider = _normalize_provider(provider_id)
+        capability = provider_execution_capability(
+            normalized_provider,
+            configured=True,
+        )
+        if not capability["executable"]:
+            return {
+                "provider": normalized_provider,
+                "success": False,
+                "error": "Provider adapter is not executable",
+                "cached": False,
+                **read_provider_health(normalized_user, normalized_provider),
+            }
+        if normalized_provider not in ACTIVE_TEST_PROVIDERS:
+            return {
+                "provider": normalized_provider,
+                "success": False,
+                "error": "Active health test is not supported for this provider",
+                "cached": False,
+                **read_provider_health(normalized_user, normalized_provider),
+            }
+
+        probe_allowed, cached_health = provider_health_probe_allowed(
+            normalized_user,
+            normalized_provider,
+        )
+        if not probe_allowed:
+            return {
+                "provider": normalized_provider,
+                "success": False,
+                "error": "Provider health circuit is open",
+                "cached": True,
+                **cached_health,
+            }
+
+        started = time.monotonic()
         result = _run_provider_test(provider_id=normalized_provider, secret=secret)
+        latency_ms = max(0, round((time.monotonic() - started) * 1000))
+        health = record_provider_health(
+            normalized_user,
+            normalized_provider,
+            reachable=bool(result["reachable"]),
+            healthy=bool(result["success"]),
+            latency_ms=latency_ms,
+        )
         return {
             "provider": normalized_provider,
             "success": result["success"],
             "error": result.get("error"),
+            "cached": False,
+            **health,
         }
 
     def _provider_metadata_response(
@@ -180,10 +247,14 @@ class ProviderSettingsController:
                     updated_at = None
             except Exception:
                 updated_at = None
+        configured = True
+        capability = provider_execution_capability(provider_id, configured=configured)
         return {
             "provider": provider_id,
-            "configured": True,
+            "configured": configured,
+            **capability,
             "updated_at": updated_at,
+            **read_provider_health(user_id, provider_id),
         }
 
     @staticmethod
@@ -227,9 +298,7 @@ def list_providers(user_id: str) -> list[dict[str, Any]]:
 
 def save_provider(user_id: str, provider_id: str, secret: str) -> dict[str, Any]:
     controller = ProviderSettingsController()
-    return controller.save_provider(
-        user_id=user_id, provider_id=provider_id, secret=secret
-    )
+    return controller.save_provider(user_id=user_id, provider_id=provider_id, secret=secret)
 
 
 def update_provider(
@@ -238,9 +307,7 @@ def update_provider(
     secret: str,
 ) -> dict[str, Any]:
     controller = ProviderSettingsController()
-    return controller.update_provider(
-        user_id=user_id, provider_id=provider_id, secret=secret
-    )
+    return controller.update_provider(user_id=user_id, provider_id=provider_id, secret=secret)
 
 
 def delete_provider(user_id: str, provider_id: str) -> dict[str, Any]:
@@ -248,9 +315,13 @@ def delete_provider(user_id: str, provider_id: str) -> dict[str, Any]:
     return controller.delete_provider(user_id=user_id, provider_id=provider_id)
 
 
-def test_provider(provider_id: str, secret: str) -> dict[str, Any]:
+def test_provider(user_id: str, provider_id: str, secret: str) -> dict[str, Any]:
     controller = ProviderSettingsController()
-    return controller.test_provider(provider_id=provider_id, secret=secret)
+    return controller.test_provider(
+        user_id=user_id,
+        provider_id=provider_id,
+        secret=secret,
+    )
 
 
 def _run_provider_test(provider_id: str, secret: str) -> dict[str, Any]:
@@ -270,8 +341,16 @@ def _run_provider_test(provider_id: str, secret: str) -> dict[str, Any]:
             provider_id,
             exc,
         )
-        return {"success": False, "error": "Unable to reach provider"}
-    return {"success": False, "error": "Unable to reach provider"}
+        return {
+            "success": False,
+            "reachable": False,
+            "error": "Unable to reach provider",
+        }
+    return {
+        "success": False,
+        "reachable": False,
+        "error": "Unable to reach provider",
+    }
 
 
 def _test_openai_compatible(
@@ -284,15 +363,30 @@ def _test_openai_compatible(
     url = f"{base_url.rstrip('/')}/models"
     try:
         response = _http_get(url=url, headers=headers, timeout=timeout)
-    except Exception:
-        return {"success": False, "error": "Unable to reach provider"}
-    if response.status_code in {401, 403}:
-        return {"success": False, "error": "Invalid API key"}
-    if response.status_code == 429:
-        return {"success": False, "error": "Unable to reach provider"}
-    if response.status_code == 200:
-        return {"success": True}
-    return {"success": False, "error": "Unable to reach provider"}
+    except Exception as exc:
+        if not _is_http_error(exc):
+            return {
+                "success": False,
+                "reachable": False,
+                "error": "Unable to reach provider",
+            }
+        response = exc
+    status = _response_status(response)
+    if status in {401, 403}:
+        return {"success": False, "reachable": True, "error": "Invalid API key"}
+    if status == 429:
+        return {
+            "success": False,
+            "reachable": True,
+            "error": "Provider rate limited the health test",
+        }
+    if status == 200:
+        return {"success": True, "reachable": True}
+    return {
+        "success": False,
+        "reachable": True,
+        "error": "Provider returned an unhealthy response",
+    }
 
 
 def _test_anthropic(secret: str, timeout: int = 5) -> dict[str, Any]:
@@ -309,20 +403,49 @@ def _test_anthropic(secret: str, timeout: int = 5) -> dict[str, Any]:
     }
     try:
         response = _http_post(url=url, headers=headers, body=body, timeout=timeout)
-    except Exception:
-        return {"success": False, "error": "Unable to reach provider"}
-    if response.status_code in {401, 403}:
-        return {"success": False, "error": "Invalid API key"}
-    if response.status_code == 429:
-        return {"success": False, "error": "Unable to reach provider"}
-    if response.status_code == 200:
-        return {"success": True}
-    if response.status_code == 400:
+    except Exception as exc:
+        if not _is_http_error(exc):
+            return {
+                "success": False,
+                "reachable": False,
+                "error": "Unable to reach provider",
+            }
+        response = exc
+    status = _response_status(response)
+    if status in {401, 403}:
+        return {"success": False, "reachable": True, "error": "Invalid API key"}
+    if status == 429:
+        return {
+            "success": False,
+            "reachable": True,
+            "error": "Provider rate limited the health test",
+        }
+    if status == 200:
+        return {"success": True, "reachable": True}
+    if status == 400:
         data = _safe_json(response)
         if isinstance(data, dict) and data.get("error", {}).get("type") == "authentication_error":
-            return {"success": False, "error": "Invalid API key"}
-        return {"success": True}
-    return {"success": False, "error": "Unable to reach provider"}
+            return {"success": False, "reachable": True, "error": "Invalid API key"}
+        return {"success": True, "reachable": True}
+    return {
+        "success": False,
+        "reachable": True,
+        "error": "Provider returned an unhealthy response",
+    }
+
+
+def _response_status(response: Any) -> int:
+    value = getattr(response, "status_code", getattr(response, "code", 0))
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_http_error(error: Exception) -> bool:
+    import urllib.error
+
+    return isinstance(error, urllib.error.HTTPError)
 
 
 def _provider_base_url(provider_id: str) -> str:
@@ -346,9 +469,22 @@ def _provider_headers(provider_id: str, secret: str) -> dict[str, str]:
 
 
 def _safe_json(response: Any) -> Any:
+    import json
+
     try:
         return response.json()
     except Exception:
+        pass
+
+    reader = getattr(response, "read", None)
+    if not callable(reader):
+        return None
+    try:
+        raw = reader(65_537)
+        if not isinstance(raw, (bytes, bytearray)) or len(raw) > 65_536:
+            return None
+        return json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError, TypeError):
         return None
 
 

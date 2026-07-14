@@ -53,7 +53,13 @@ def main() -> int:
 
         elif command == "save":
             if len(sys.argv) != 4:
-                print(json.dumps({"error": "usage: provider_settings_cli save <user_id> <provider_id>  (secret via stdin)"}))
+                print(
+                    json.dumps(
+                        {
+                            "error": "usage: provider_settings_cli save <user_id> <provider_id>  (secret via stdin)"
+                        }
+                    )
+                )
                 return 1
             user_id = sys.argv[2]
             provider_id = sys.argv[3]
@@ -64,7 +70,13 @@ def main() -> int:
 
         elif command == "update":
             if len(sys.argv) != 4:
-                print(json.dumps({"error": "usage: provider_settings_cli update <user_id> <provider_id>  (secret via stdin)"}))
+                print(
+                    json.dumps(
+                        {
+                            "error": "usage: provider_settings_cli update <user_id> <provider_id>  (secret via stdin)"
+                        }
+                    )
+                )
                 return 1
             user_id = sys.argv[2]
             provider_id = sys.argv[3]
@@ -75,7 +87,11 @@ def main() -> int:
 
         elif command == "delete":
             if len(sys.argv) != 4:
-                print(json.dumps({"error": "usage: provider_settings_cli delete <user_id> <provider_id>"}))
+                print(
+                    json.dumps(
+                        {"error": "usage: provider_settings_cli delete <user_id> <provider_id>"}
+                    )
+                )
                 return 1
             user_id, provider_id = sys.argv[2], sys.argv[3]
             result = delete_provider(user_id=user_id, provider_id=provider_id)
@@ -83,12 +99,22 @@ def main() -> int:
             return 0
 
         elif command == "test":
-            if len(sys.argv) != 3:
-                print(json.dumps({"error": "usage: provider_settings_cli test <provider_id>  (secret via stdin)"}))
+            if len(sys.argv) != 4:
+                print(
+                    json.dumps(
+                        {
+                            "error": "usage: provider_settings_cli test <user_id> <provider_id>  (secret via stdin)"
+                        }
+                    )
+                )
                 return 1
-            provider_id = sys.argv[2]
+            user_id, provider_id = sys.argv[2], sys.argv[3]
             secret = _read_secret_from_stdin()
-            result = test_provider(provider_id=provider_id, secret=secret)
+            result = test_provider(
+                user_id=user_id,
+                provider_id=provider_id,
+                secret=secret,
+            )
             print(json.dumps(result))
             return 0
 

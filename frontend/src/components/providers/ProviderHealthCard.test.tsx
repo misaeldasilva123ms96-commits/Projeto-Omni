@@ -27,12 +27,42 @@ describe('ProviderHealthCard', () => {
 
   it('shows configured badge when provider is configured', () => {
     render(<ProviderHealthCard {...defaultProps} provider={{ ...baseProvider, configured: true }} />)
-    expect(screen.getByText('Conectado')).toBeInTheDocument()
+    expect(screen.getByText('Configurado')).toBeInTheDocument()
   })
 
   it('shows not configured badge when not configured', () => {
     render(<ProviderHealthCard {...defaultProps} />)
     expect(screen.getByText('Não configurado')).toBeInTheDocument()
+  })
+
+  it('shows fresh healthy state independently from configuration', () => {
+    render(
+      <ProviderHealthCard
+        {...defaultProps}
+        provider={{
+          ...baseProvider,
+          configured: true,
+          executable: true,
+          reachable: true,
+          healthy: true,
+          health_valid: true,
+          latency_ms: 24,
+        }}
+      />,
+    )
+    expect(screen.getByText('Saudável')).toBeInTheDocument()
+    expect(screen.getByText('24 ms')).toBeInTheDocument()
+  })
+
+  it('does not claim health before an active test', () => {
+    render(
+      <ProviderHealthCard
+        {...defaultProps}
+        provider={{ ...baseProvider, configured: true, executable: true }}
+      />,
+    )
+    expect(screen.getByText('Saúde desconhecida')).toBeInTheDocument()
+    expect(screen.getByText('Não testado')).toBeInTheDocument()
   })
 
   it('renders API key input', () => {

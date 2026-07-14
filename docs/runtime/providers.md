@@ -35,7 +35,7 @@ Unsupported or unrecognized provider preferences do not stop normal routing. In 
 
 ## Local Providers
 
-Local providers are not executable by default. This avoids accidental localhost calls, latency, and confusing degraded behavior on machines without a local model server.
+Local provider adapters are executable code, but the providers are not available by default. Availability requires their URL configuration. This avoids accidental localhost calls, latency, and confusing degraded behavior on machines without a local model server.
 
 - Ollama requires `OLLAMA_URL`.
 - LM Studio requires `LMSTUDIO_URL`.
@@ -46,7 +46,12 @@ Local providers are not executable by default. This avoids accidental localhost 
 Public diagnostics expose:
 
 - provider id
-- registered/configured/executable booleans
+- `configured`: required credential or URL configuration exists
+- `executable`: an adapter is implemented, independently of configuration
+- `available`: legacy compatibility signal requiring both configured and executable
+- `reachable`: the last active test reached the provider (`null` when untested)
+- `healthy`: the last active test succeeded (`null` when untested)
+- health validity, timestamp, latency, cache status, and circuit state
 - adapter implementation boolean
 - execution status string
 - env variable names
@@ -63,6 +68,21 @@ Public diagnostics must not expose:
 - raw requests or responses
 - provider status bodies
 - stack traces
+
+## Active Health Tests
+
+Provider listing never pings remote services. An authenticated operator starts an active test explicitly from the BYOK settings surface. The bounded result is cached per user and provider under `.logs/provider-health/`; user ids are hashed and the cache never stores credentials, URLs, headers, response bodies, or exception details.
+
+Health records expire after five minutes by default. Three consecutive failed tests open a one-minute circuit by default, so repeated manual requests reuse the safe cached failure until the next probe window. Saving, updating, or deleting a credential invalidates its previous health record.
+
+Configuration knobs:
+
+- `OMNI_PROVIDER_HEALTH_TTL_MS`
+- `OMNI_PROVIDER_HEALTH_FAILURE_THRESHOLD`
+- `OMNI_PROVIDER_HEALTH_CIRCUIT_OPEN_MS`
+- `OMNI_PROVIDER_HEALTH_CACHE_DIR`
+
+These controls affect explicit health tests and cached diagnostics only. Routing does not add a remote ping to each request.
 
 ## DeepSeek
 

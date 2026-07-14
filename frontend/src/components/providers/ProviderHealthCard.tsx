@@ -45,9 +45,17 @@ export function ProviderHealthCard({
   const isConfigured = provider.configured
   const canSubmit = apiKey.trim().length > 0
 
-  const statusBadge = isConfigured
-    ? <OmniBadge tone="success">Conectado</OmniBadge>
+  const configurationBadge = isConfigured
+    ? <OmniBadge tone="info">Configurado</OmniBadge>
     : <OmniBadge tone="muted">Não configurado</OmniBadge>
+  const healthBadge = (() => {
+    if (provider.executable === false) return <OmniBadge tone="danger">Adapter indisponível</OmniBadge>
+    if (provider.circuit_state === 'open') return <OmniBadge tone="danger">Circuito aberto</OmniBadge>
+    if (!provider.health_valid) return <OmniBadge tone="muted">Saúde desconhecida</OmniBadge>
+    if (provider.healthy) return <OmniBadge tone="success">Saudável</OmniBadge>
+    if (provider.reachable === false) return <OmniBadge tone="danger">Inacessível</OmniBadge>
+    return <OmniBadge tone="warning">Não saudável</OmniBadge>
+  })()
 
   return (
     <OmniCard variant="default" className={className}>
@@ -61,7 +69,8 @@ export function ProviderHealthCard({
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold text-white">{displayName}</h3>
             <div className="mt-0.5 flex items-center gap-2">
-              {statusBadge}
+              {configurationBadge}
+              {healthBadge}
               <span className="text-[11px] text-slate-500">{safeProviderName}</span>
             </div>
           </div>
@@ -69,6 +78,33 @@ export function ProviderHealthCard({
       </div>
 
       <div className="mt-4 space-y-3">
+        <dl className="grid grid-cols-2 gap-2 rounded-2xl border border-white/5 bg-black/10 p-3 text-xs">
+          <div>
+            <dt className="text-slate-500">Executável</dt>
+            <dd className="text-slate-200">
+              {provider.executable == null ? 'Desconhecido' : provider.executable ? 'Sim' : 'Não'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Alcançável</dt>
+            <dd className="text-slate-200">
+              {provider.reachable == null ? 'Não testado' : provider.reachable ? 'Sim' : 'Não'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Último teste</dt>
+            <dd className="text-slate-200">
+              {provider.last_checked_at ? new Date(provider.last_checked_at).toLocaleString('pt-BR') : 'Nunca'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Latência</dt>
+            <dd className="text-slate-200">
+              {provider.latency_ms == null ? 'n/a' : `${provider.latency_ms} ms`}
+            </dd>
+          </div>
+        </dl>
+
         <div>
           <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-violet-200/70" htmlFor={`key-${provider.provider}`}>
             API Key

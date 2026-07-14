@@ -109,7 +109,7 @@ What changed:
 
 What is still true:
 
-- `configured` and `available` are currently configuration-level signals, not active network health checks.
+- `configured`, `executable`, and legacy `available` are configuration/capability signals. Active `reachable` and `healthy` evidence exists only after an explicit cached health test; the router does not ping providers on each request.
 - A selected provider does not guarantee an actual remote provider call happened on that turn.
 
 ## Tool runtime reliability
