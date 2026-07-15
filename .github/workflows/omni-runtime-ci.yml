@@ -53,6 +53,9 @@ jobs:
       - name: Check diff whitespace
         run: git diff --check
 
+      - name: Validate environment alias migration policy
+        run: npm run validate:env-aliases
+
       - name: Run security regression suite
         run: npm run test:security
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import hmac
 import ipaddress
 import sys
@@ -11,6 +10,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.config import python_service_mode
 from brain.runtime.bridge_stdin import read_bridge_stdin_dict, resolve_entry_message
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
@@ -75,30 +75,20 @@ class DualModeBridge:
         return self._mode == "service"
 
 
-def _env_value(primary: str, legacy: str, default: str) -> str:
-    primary_value = str(os.getenv(primary, "") or "").strip()
-    if primary_value:
-        return primary_value
-    legacy_value = str(os.getenv(legacy, "") or "").strip()
-    if legacy_value:
-        return legacy_value
-    return default
-
-
 def get_service_config() -> dict[str, Any]:
-    port_raw = _env_value("OMNI_PYTHON_SERVICE_PORT", "OMINI_PYTHON_SERVICE_PORT", str(DEFAULT_PORT))
+    port_raw = read_env("OMNI_PYTHON_SERVICE_PORT", str(DEFAULT_PORT))
     try:
         port = int(port_raw)
     except ValueError:
         port = DEFAULT_PORT
     return {
-        "host": _env_value("OMNI_PYTHON_SERVICE_HOST", "OMINI_PYTHON_SERVICE_HOST", DEFAULT_HOST),
+        "host": read_env("OMNI_PYTHON_SERVICE_HOST", DEFAULT_HOST),
         "port": max(1, min(65535, port)),
     }
 
 
 def _service_token() -> str:
-    return _env_value("OMNI_PYTHON_SERVICE_TOKEN", "OMINI_PYTHON_SERVICE_TOKEN", "")
+    return read_env("OMNI_PYTHON_SERVICE_TOKEN")
 
 
 def _is_loopback_host(host: str) -> bool:

@@ -6,6 +6,7 @@ const {
   buildPublicError,
 } = require('../runtime/tooling/errorTaxonomy');
 const runner = require('./queryEngineRunner');
+const { readEnvAlias } = require('../runtime/config/envAlias');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 7020;
@@ -18,19 +19,11 @@ const API_KEY_PATTERN = /\bsk-(?:proj-)?[A-Za-z0-9_-]{8,}\b/g;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{10,}\b/gi;
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 
-function envValue(primary, legacy, fallback) {
-  const primaryValue = String(process.env[primary] || '').trim();
-  if (primaryValue) return primaryValue;
-  const legacyValue = String(process.env[legacy] || '').trim();
-  if (legacyValue) return legacyValue;
-  return fallback;
-}
-
 function getServiceConfig() {
-  const rawPort = Number.parseInt(envValue('OMNI_NODE_SERVICE_PORT', 'OMINI_NODE_SERVICE_PORT', String(DEFAULT_PORT)), 10);
+  const rawPort = Number.parseInt(readEnvAlias('OMNI_NODE_SERVICE_PORT', 'OMINI_NODE_SERVICE_PORT', String(DEFAULT_PORT)), 10);
   const port = Number.isFinite(rawPort) ? Math.max(1, Math.min(65535, rawPort)) : DEFAULT_PORT;
   return {
-    host: envValue('OMNI_NODE_SERVICE_HOST', 'OMINI_NODE_SERVICE_HOST', DEFAULT_HOST),
+    host: readEnvAlias('OMNI_NODE_SERVICE_HOST', 'OMINI_NODE_SERVICE_HOST', DEFAULT_HOST),
     port,
   };
 }

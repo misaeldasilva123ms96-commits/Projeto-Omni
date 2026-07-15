@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readEnvAlias, readEnvAliasBool } = require('../config/envAlias');
 
 const EXECUTION_MODES = Object.freeze({
   NODE_RUST_DIRECT: 'node-rust-direct',
@@ -19,19 +20,20 @@ function findCompiledBridge(cwd) {
   return candidates.find(candidate => fs.existsSync(candidate)) || '';
 }
 
-function envFlag(name) {
-  const value = String(process.env[name] || '').trim().toLowerCase();
-  return value === '1' || value === 'true' || value === 'yes';
-}
-
 function normalizeRequestedMode(requestedMode) {
   const normalized = String(requestedMode || '').trim().toLowerCase();
   return Object.values(EXECUTION_MODES).includes(normalized) ? normalized : '';
 }
 
-function resolveExecutionMode({ cwd, requestedMode = '', allowNodeRustDirect = envFlag('OMNI_ENABLE_NODE_RUST_DIRECT') || envFlag('OMINI_ENABLE_NODE_RUST_DIRECT') } = {}) {
+function resolveExecutionMode({ cwd, requestedMode = '', allowNodeRustDirect } = {}) {
   const compiledBridgePath = findCompiledBridge(cwd);
-  const normalizedRequestedMode = normalizeRequestedMode(requestedMode || process.env.OMNI_EXECUTION_MODE || process.env.OMINI_EXECUTION_MODE);
+  const nodeRustDirectEnabled = allowNodeRustDirect ?? readEnvAliasBool(
+    'OMNI_ENABLE_NODE_RUST_DIRECT',
+    'OMINI_ENABLE_NODE_RUST_DIRECT',
+  );
+  const normalizedRequestedMode = normalizeRequestedMode(
+    requestedMode || readEnvAlias('OMNI_EXECUTION_MODE', 'OMINI_EXECUTION_MODE'),
+  );
 
   const packagedMode = compiledBridgePath
     ? {
@@ -49,7 +51,7 @@ function resolveExecutionMode({ cwd, requestedMode = '', allowNodeRustDirect = e
     compiled_bridge_path: compiledBridgePath,
   };
 
-  const directMode = compiledBridgePath && allowNodeRustDirect
+  const directMode = compiledBridgePath && nodeRustDirectEnabled
     ? {
         mode: EXECUTION_MODES.NODE_RUST_DIRECT,
         owner: 'node',

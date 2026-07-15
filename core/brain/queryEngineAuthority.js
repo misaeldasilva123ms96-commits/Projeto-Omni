@@ -13,6 +13,7 @@ const { buildExecutionProvenance, attachProvenanceMetadata, readPolicyHintEnvelo
 const { OMNI_ERROR_CODE, buildPublicError } = require('../../runtime/tooling/errorTaxonomy');
 const { runRustExecutor } = require('../../runtime/execution/rustExecutorBridge');
 const { resolveExecutionMode } = require('../../runtime/execution/runtimeMode');
+const { readEnvAlias } = require('../../runtime/config/envAlias');
 const { appendExecutionAudit, appendRuntimeTranscript } = require('../../storage/transcripts/transcriptPersistence');
 const { buildSessionSnapshot } = require('../../storage/sessions/sessionPersistence');
 const { buildMemorySnapshot } = require('../../storage/memory/memoryPersistence');
@@ -199,26 +200,14 @@ function inferIntent(message) {
   return 'conversation';
 }
 
-function readEnvWithAlias(primaryName, legacyName, fallbackValue = '') {
-  const primaryValue = process.env[primaryName];
-  if (typeof primaryValue === 'string' && primaryValue.trim()) {
-    return primaryValue.trim();
-  }
-  const legacyValue = process.env[legacyName];
-  if (typeof legacyValue === 'string' && legacyValue.trim()) {
-    return legacyValue.trim();
-  }
-  return fallbackValue;
-}
-
 function resolveIntentClassifierMode() {
-  const rawMode = readEnvWithAlias('OMNI_INTENT_CLASSIFIER', 'OMINI_INTENT_CLASSIFIER', 'regex')
+  const rawMode = readEnvAlias('OMNI_INTENT_CLASSIFIER', 'OMINI_INTENT_CLASSIFIER', 'regex')
     .toLowerCase();
   return ['regex', 'embedding', 'llm', 'hybrid'].includes(rawMode) ? rawMode : 'regex';
 }
 
 function resolveMatcherMode() {
-  const rawMode = readEnvWithAlias('OMNI_MATCHER_MODE', 'OMINI_MATCHER_MODE', 'enabled')
+  const rawMode = readEnvAlias('OMNI_MATCHER_MODE', 'OMINI_MATCHER_MODE', 'enabled')
     .toLowerCase();
   return ['enabled', 'labeled_only', 'disabled'].includes(rawMode) ? rawMode : 'enabled';
 }
@@ -550,7 +539,7 @@ function resolveDirectConversational(normalizedInput) {
 }
 
 function shouldBypassConversationalMatchers(normalizedMessage, rawMessage, intentInfo = null) {
-  if (readEnvWithAlias('OMNI_SKIP_CONVERSATIONAL_MATCHERS', 'OMINI_SKIP_CONVERSATIONAL_MATCHERS').trim() === '1') {
+  if (readEnvAlias('OMNI_SKIP_CONVERSATIONAL_MATCHERS', 'OMINI_SKIP_CONVERSATIONAL_MATCHERS') === '1') {
     return true;
   }
   const matcherMode = resolveMatcherMode();
@@ -654,7 +643,7 @@ function readPolicyPreferredProvider() {
 }
 
 function readProviderRoutingMode() {
-  return String(process.env.OMNI_PROVIDER_ROUTING_MODE || process.env.OMINI_PROVIDER_ROUTING_MODE || '')
+  return readEnvAlias('OMNI_PROVIDER_ROUTING_MODE', 'OMINI_PROVIDER_ROUTING_MODE')
     .trim()
     .toLowerCase()
     .replace(/[-/]+/g, '_');
