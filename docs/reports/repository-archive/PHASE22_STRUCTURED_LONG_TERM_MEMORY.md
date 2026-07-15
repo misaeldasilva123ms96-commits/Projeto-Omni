@@ -1,5 +1,7 @@
 # Phase 22 - Structured Long-Term Memory
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Mission
 
 Phase 22 turns Omni into a memory-capable cognitive runtime without introducing an opaque memory blob. The runtime now keeps bounded, goal-oriented memory across four explicit layers:

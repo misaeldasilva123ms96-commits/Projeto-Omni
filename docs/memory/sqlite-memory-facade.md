@@ -40,10 +40,10 @@ Safe defaults:
 
 | Variable                    | Default                    | Description                       |
 |----------------------------|----------------------------|-----------------------------------|
-| `OMINI_MEMORY_BACKEND`     | `jsonl`                    | Active backend (`jsonl`/`sqlite`) |
-| `OMINI_ENABLE_SQLITE_MEMORY` | `false`                  | Enable SQLite adapter             |
-| `OMINI_SQLITE_MEMORY_PATH` | `.omni/memory/omni-memory.sqlite` | SQLite database path      |
-| `OMINI_JSONL_MEMORY_PATH`  | `.omni/memory/omni-audit.jsonl`  | JSONL audit mirror path    |
+| `OMNI_MEMORY_BACKEND`     | `jsonl`                    | Active backend (`jsonl`/`sqlite`) |
+| `OMNI_ENABLE_SQLITE_MEMORY` | `false`                  | Enable SQLite adapter             |
+| `OMNI_SQLITE_MEMORY_PATH` | `.omni/memory/omni-memory.sqlite` | SQLite database path      |
+| `OMNI_JSONL_MEMORY_PATH`  | `.omni/memory/omni-audit.jsonl`  | JSONL audit mirror path    |
 
 ### Examples
 
@@ -57,7 +57,7 @@ facade = MemoryFacade(enable_sqlite=True)
 facade.initialize()
 
 # Via env vars
-os.environ["OMINI_ENABLE_SQLITE_MEMORY"] = "true"
+os.environ["OMNI_ENABLE_SQLITE_MEMORY"] = "true"
 facade = MemoryFacade()
 facade.initialize()
 ```
@@ -114,12 +114,12 @@ facade.initialize()
 ### Default behavior
 
 - JSONL backend is active by default (no dependencies, no config needed).
-- SQLite is disabled by default (`OMINI_ENABLE_SQLITE_MEMORY=false`).
+- SQLite is disabled by default (`OMNI_ENABLE_SQLITE_MEMORY=false`).
 - All events go to the JSONL audit mirror by default.
 
 ### SQLite opt-in behavior
 
-Set `OMINI_ENABLE_SQLITE_MEMORY=true` to enable dual writes (SQLite + JSONL).
+Set `OMNI_ENABLE_SQLITE_MEMORY=true` to enable dual writes (SQLite + JSONL).
 Events are recorded to both backends simultaneously.
 
 ### Failure / degradation

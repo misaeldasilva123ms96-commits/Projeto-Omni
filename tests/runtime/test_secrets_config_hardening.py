@@ -17,8 +17,8 @@ def test_env_example_uses_placeholders_only() -> None:
     assert "SUPABASE_URL=<SUPABASE_URL>" in env_example
     assert "SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>" in env_example
     assert "OMNI_OPENAI_API_KEY=<OPENAI_API_KEY>" in env_example
-    assert "\nOMINI_" not in env_example
-    assert "OMINI_* remains supported during the governed migration window" in env_example
+    assert "\n" + "OMIN" + "I_" not in env_example
+    assert "Runtime configuration uses the canonical OMNI_* prefix exclusively." in env_example
     for forbidden in ("sk-", "sk-proj-", "Bearer ", "ghp_", "xoxb-", "eyJ"):
         assert forbidden not in env_example
 

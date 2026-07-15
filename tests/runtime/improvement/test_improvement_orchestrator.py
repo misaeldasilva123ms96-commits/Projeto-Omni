@@ -41,11 +41,11 @@ def _proposal_dict(*, opp_id: str, new_value: int = 8) -> dict:
 class ImprovementOrchestratorTest(unittest.TestCase):
     def setUp(self) -> None:
         self._env: dict[str, str | None] = {
-            "OMINI_PHASE40_ENABLE": os.environ.get("OMINI_PHASE40_ENABLE"),
-            "OMINI_PHASE40_APPLY": os.environ.get("OMINI_PHASE40_APPLY"),
-            "OMINI_PHASE40_AUTO_APPROVE": os.environ.get("OMINI_PHASE40_AUTO_APPROVE"),
-            "OMINI_PHASE40_DISABLE": os.environ.get("OMINI_PHASE40_DISABLE"),
-            "OMINI_PHASE40_APPROVE": os.environ.get("OMINI_PHASE40_APPROVE"),
+            "OMNI_PHASE40_ENABLE": os.environ.get("OMNI_PHASE40_ENABLE"),
+            "OMNI_PHASE40_APPLY": os.environ.get("OMNI_PHASE40_APPLY"),
+            "OMNI_PHASE40_AUTO_APPROVE": os.environ.get("OMNI_PHASE40_AUTO_APPROVE"),
+            "OMNI_PHASE40_DISABLE": os.environ.get("OMNI_PHASE40_DISABLE"),
+            "OMNI_PHASE40_APPROVE": os.environ.get("OMNI_PHASE40_APPROVE"),
         }
 
     def tearDown(self) -> None:
@@ -61,7 +61,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
         try:
-            with patch.dict(os.environ, {"OMINI_PHASE40_DISABLE": "true", "OMINI_PHASE40_ENABLE": "true"}):
+            with patch.dict(os.environ, {"OMNI_PHASE40_DISABLE": "true", "OMNI_PHASE40_ENABLE": "true"}):
                 orch = ImprovementOrchestrator(root)
                 tr = orch.run_cycle(
                     session_id="s",
@@ -78,7 +78,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
         try:
-            os.environ.pop("OMINI_PHASE40_ENABLE", None)
+            os.environ.pop("OMNI_PHASE40_ENABLE", None)
             orch = ImprovementOrchestrator(root)
             tr = orch.run_cycle(
                 session_id="s",
@@ -98,13 +98,13 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "OMINI_PHASE40_ENABLE": "true",
-                    "OMINI_PHASE40_APPLY": "true",
+                    "OMNI_PHASE40_ENABLE": "true",
+                    "OMNI_PHASE40_APPLY": "true",
                 },
                 clear=False,
             ):
-                os.environ.pop("OMINI_PHASE40_AUTO_APPROVE", None)
-                os.environ.pop("OMINI_PHASE40_APPROVE", None)
+                os.environ.pop("OMNI_PHASE40_AUTO_APPROVE", None)
+                os.environ.pop("OMNI_PHASE40_APPROVE", None)
                 orch = ImprovementOrchestrator(root)
                 tr = orch.run_cycle(
                     session_id="s",
@@ -126,9 +126,9 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "OMINI_PHASE40_ENABLE": "true",
-                    "OMINI_PHASE40_APPLY": "true",
-                    "OMINI_PHASE40_AUTO_APPROVE": "true",
+                    "OMNI_PHASE40_ENABLE": "true",
+                    "OMNI_PHASE40_APPLY": "true",
+                    "OMNI_PHASE40_AUTO_APPROVE": "true",
                 },
                 clear=False,
             ):
@@ -165,9 +165,9 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "OMINI_PHASE40_ENABLE": "true",
-                    "OMINI_PHASE40_APPLY": "true",
-                    "OMINI_PHASE40_AUTO_APPROVE": "true",
+                    "OMNI_PHASE40_ENABLE": "true",
+                    "OMNI_PHASE40_APPLY": "true",
+                    "OMNI_PHASE40_AUTO_APPROVE": "true",
                 },
                 clear=False,
             ):

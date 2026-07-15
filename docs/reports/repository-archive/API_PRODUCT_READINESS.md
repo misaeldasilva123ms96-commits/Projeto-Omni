@@ -1,5 +1,7 @@
 # API Product Readiness
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## User / Session / Task / Run Boundaries
 
 - `user_id`: external caller identity, currently surfaced through `TaskService`

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 process.env.BASE_DIR = projectRoot;
 process.env.NODE_RUNNER_BASE_DIR = projectRoot;
-process.env.OMINI_QUERY_ENGINE_ORDER = 'adapter_first';
+process.env.OMNI_QUERY_ENGINE_ORDER = 'adapter_first';
 
 const runnerModule = await import(pathToFileURL(path.join(projectRoot, 'js-runner', 'queryEngineRunner.js')).href);
 

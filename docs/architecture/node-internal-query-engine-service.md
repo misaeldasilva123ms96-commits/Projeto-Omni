@@ -39,14 +39,14 @@ OMNI_NODE_SERVICE_HOST=127.0.0.1
 OMNI_NODE_SERVICE_PORT=7020
 ```
 
-Legacy aliases:
+Canonical variables:
 
 ```txt
-OMINI_NODE_SERVICE_HOST
-OMINI_NODE_SERVICE_PORT
+OMNI_NODE_SERVICE_HOST
+OMNI_NODE_SERVICE_PORT
 ```
 
-`OMNI_*` values take precedence over `OMINI_*` aliases.
+`OMNI_*` values take precedence over `OMNI_*` aliases.
 
 ## Endpoints
 

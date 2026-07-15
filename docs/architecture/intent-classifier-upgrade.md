@@ -49,14 +49,14 @@ Canonical:
 - `OMNI_INTENT_CLASSIFIER=regex|embedding|llm|hybrid`
 - `OMNI_MATCHER_MODE=enabled|labeled_only|disabled`
 
-Legacy aliases:
+Canonical variables:
 
-- `OMINI_INTENT_CLASSIFIER`
-- `OMINI_MATCHER_MODE`
+- `OMNI_INTENT_CLASSIFIER`
+- `OMNI_MATCHER_MODE`
 
 Precedence:
 
-- `OMNI_*` wins over `OMINI_*`.
+- `OMNI_*` wins over `OMNI_*`.
 - Defaults are `regex` and `enabled`.
 
 ## Runtime Truth Behavior

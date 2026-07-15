@@ -1,5 +1,7 @@
 # PHASE 11C - RUST INTERNAL CLIENT
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 Date: 2026-05-01
 
 Base branch: architecture/node-service-11b

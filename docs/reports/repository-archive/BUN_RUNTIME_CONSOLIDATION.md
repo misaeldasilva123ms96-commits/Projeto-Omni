@@ -1,5 +1,7 @@
 # Bun Runtime Consolidation
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Objective
 
 This pre-Phase 22 change makes the Omni JavaScript runtime layer Bun-first while preserving a deterministic fallback to Node.

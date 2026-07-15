@@ -109,8 +109,8 @@ class GovernedSelfEvolutionTest(unittest.TestCase):
 
     def test_blocked_policy_prevents_promotion(self) -> None:
         with self.temp_workspace() as workspace_root:
-            os.environ["OMINI_EVOLUTION_ENABLED"] = "false"
-            os.environ["OMINI_EVOLUTION_ALLOW_PROMOTION"] = "false"
+            os.environ["OMNI_EVOLUTION_ENABLED"] = "false"
+            os.environ["OMNI_EVOLUTION_ALLOW_PROMOTION"] = "false"
             executor = EvolutionExecutor(workspace_root)
             payload = executor.evaluate(
                 learning_update={
@@ -129,9 +129,9 @@ class GovernedSelfEvolutionTest(unittest.TestCase):
 
     def test_approved_for_validation_can_exist_without_promotion(self) -> None:
         with self.temp_workspace() as workspace_root:
-            os.environ["OMINI_EVOLUTION_ENABLED"] = "true"
-            os.environ["OMINI_EVOLUTION_ALLOW_VALIDATION"] = "true"
-            os.environ["OMINI_EVOLUTION_ALLOW_PROMOTION"] = "false"
+            os.environ["OMNI_EVOLUTION_ENABLED"] = "true"
+            os.environ["OMNI_EVOLUTION_ALLOW_VALIDATION"] = "true"
+            os.environ["OMNI_EVOLUTION_ALLOW_PROMOTION"] = "false"
             executor = EvolutionExecutor(workspace_root)
             payload = executor.evaluate(
                 learning_update={

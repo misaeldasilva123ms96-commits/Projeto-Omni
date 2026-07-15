@@ -316,9 +316,9 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertIn("step_results", audit_tail)
 
     def test_checkpoint_creation_and_resume_work(self) -> None:
-        previous_max_steps = os.environ.get("OMINI_MAX_STEPS")
+        previous_max_steps = os.environ.get("OMNI_MAX_STEPS")
         try:
-            os.environ["OMINI_MAX_STEPS"] = "1"
+            os.environ["OMNI_MAX_STEPS"] = "1"
             orchestrator = self.build_orchestrator()
             os.environ["AI_SESSION_ID"] = "phase4-resume"
             run_id = "run-phase4-checkpoint"
@@ -378,9 +378,9 @@ class Phase2RuntimeTest(unittest.TestCase):
         finally:
             os.environ.pop("AI_SESSION_ID", None)
             if previous_max_steps is None:
-                os.environ.pop("OMINI_MAX_STEPS", None)
+                os.environ.pop("OMNI_MAX_STEPS", None)
             else:
-                os.environ["OMINI_MAX_STEPS"] = previous_max_steps
+                os.environ["OMNI_MAX_STEPS"] = previous_max_steps
 
     def test_task_service_exposes_product_ready_boundaries(self) -> None:
         service = TaskService(PROJECT_ROOT / "backend" / "python" / "brain" / "runtime" / "main.py")

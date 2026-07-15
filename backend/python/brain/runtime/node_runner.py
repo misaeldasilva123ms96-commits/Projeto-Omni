@@ -37,7 +37,6 @@ def build_node_subprocess_env(
         env["OMNI_BYOK_FAIL_CLOSED"] = "true"
     env.setdefault("NODE_BIN", resolve_node_bin(js_runtime_adapter) or "node")
     env["OMNI_JS_RUNTIME_SELECTED"] = selection.runtime_name
-    env["OMINI_JS_RUNTIME_SELECTED"] = selection.runtime_name
     if session_byok_active and session_provider_preference:
         env["OMNI_POLICY_HINT_JSON"] = json.dumps(
             {"recommended_provider": session_provider_preference, "shadow_only": False},
@@ -132,8 +131,8 @@ def resolve_node_command_context(
             "BASE_DIR": env.get("BASE_DIR", ""),
             "NODE_RUNNER_BASE_DIR": env.get("NODE_RUNNER_BASE_DIR", ""),
             "NODE_BIN": env.get("NODE_BIN", ""),
-            "OMNI_JS_RUNTIME": env.get("OMNI_JS_RUNTIME", env.get("OMINI_JS_RUNTIME", "")),
-            "OMNI_JS_RUNTIME_BIN": env.get("OMNI_JS_RUNTIME_BIN", env.get("OMINI_JS_RUNTIME_BIN", "")),
+            "OMNI_JS_RUNTIME": env.get("OMNI_JS_RUNTIME", ""),
+            "OMNI_JS_RUNTIME_BIN": env.get("OMNI_JS_RUNTIME_BIN", ""),
             "PYTHON_BIN": env.get("PYTHON_BIN", ""),
             "PATH_HEAD": env.get("PATH", "")[:400],
         },

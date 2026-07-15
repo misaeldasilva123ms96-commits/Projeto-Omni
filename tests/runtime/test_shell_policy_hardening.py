@@ -20,9 +20,9 @@ SHELL_ENV_KEYS = {
     "OMNI_ALLOW_SHELL_TOOLS",
     "OMNI_PUBLIC_DEMO_MODE",
     "OMNI_SHELL_ALLOWLIST_MODE",
-    "OMINI_ALLOW_SHELL_TOOLS",
-    "OMINI_PUBLIC_DEMO_MODE",
-    "OMINI_SHELL_ALLOWLIST_MODE",
+    "OMNI_ALLOW_SHELL_TOOLS",
+    "OMNI_PUBLIC_DEMO_MODE",
+    "OMNI_SHELL_ALLOWLIST_MODE",
 }
 
 
@@ -44,15 +44,6 @@ class ShellPolicyHardeningTest(unittest.TestCase):
 
     def test_shell_blocked_when_omni_public_demo_mode_true(self) -> None:
         with patch.dict(os.environ, clean_env(OMNI_ALLOW_SHELL_TOOLS="true", OMNI_PUBLIC_DEMO_MODE="true"), clear=False):
-            result = execute_engineering_action(
-                project_root=PROJECT_ROOT,
-                action={"selected_tool": "git_status", "tool_arguments": {}},
-            )
-
-        self.assert_blocked(result, "TOOL_BLOCKED_PUBLIC_DEMO")
-
-    def test_shell_blocked_when_omini_public_demo_mode_true(self) -> None:
-        with patch.dict(os.environ, clean_env(OMINI_ALLOW_SHELL_TOOLS="true", OMINI_PUBLIC_DEMO_MODE="true"), clear=False):
             result = execute_engineering_action(
                 project_root=PROJECT_ROOT,
                 action={"selected_tool": "git_status", "tool_arguments": {}},

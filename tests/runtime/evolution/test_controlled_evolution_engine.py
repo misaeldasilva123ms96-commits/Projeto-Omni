@@ -19,14 +19,14 @@ from brain.runtime.evolution.controlled_validation import validate_governed_prop
 
 class ControlledEvolutionEngineTest(unittest.TestCase):
     def setUp(self) -> None:
-        self._prev_apply = os.environ.pop("OMINI_PHASE39_APPLY", None)
-        self._prev_disable = os.environ.pop("OMINI_PHASE39_DISABLE", None)
+        self._prev_apply = os.environ.pop("OMNI_PHASE39_APPLY", None)
+        self._prev_disable = os.environ.pop("OMNI_PHASE39_DISABLE", None)
 
     def tearDown(self) -> None:
         if self._prev_apply is not None:
-            os.environ["OMINI_PHASE39_APPLY"] = self._prev_apply
+            os.environ["OMNI_PHASE39_APPLY"] = self._prev_apply
         if self._prev_disable is not None:
-            os.environ["OMINI_PHASE39_DISABLE"] = self._prev_disable
+            os.environ["OMNI_PHASE39_DISABLE"] = self._prev_disable
 
     def test_disabled_env(self) -> None:
         base = PROJECT_ROOT / ".logs" / "test-controlled-evo"
@@ -34,13 +34,13 @@ class ControlledEvolutionEngineTest(unittest.TestCase):
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
         try:
-            os.environ["OMINI_PHASE39_DISABLE"] = "true"
+            os.environ["OMNI_PHASE39_DISABLE"] = "true"
             eng = ControlledEvolutionEngine(root)
             tr = eng.evaluate_turn(session_id="s1", evidence={})
             self.assertTrue(tr.get("disabled"))
         finally:
             shutil.rmtree(root, ignore_errors=True)
-            os.environ.pop("OMINI_PHASE39_DISABLE", None)
+            os.environ.pop("OMNI_PHASE39_DISABLE", None)
 
     def test_detect_validate_apply_rollback(self) -> None:
         base = PROJECT_ROOT / ".logs" / "test-controlled-evo"
@@ -48,7 +48,7 @@ class ControlledEvolutionEngineTest(unittest.TestCase):
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
         try:
-            os.environ["OMINI_PHASE39_APPLY"] = "true"
+            os.environ["OMNI_PHASE39_APPLY"] = "true"
             store = Phase39TuningStore(root)
             eng = ControlledEvolutionEngine(root)
             evidence = {
@@ -95,7 +95,7 @@ class ControlledEvolutionEngineTest(unittest.TestCase):
             self.assertTrue(vr.accepted)
         finally:
             shutil.rmtree(root, ignore_errors=True)
-            os.environ.pop("OMINI_PHASE39_APPLY", None)
+            os.environ.pop("OMNI_PHASE39_APPLY", None)
 
     def test_reject_invalid_bounds(self) -> None:
         b = ControlledProposalBuilder()

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import io
 import json
@@ -39,8 +39,8 @@ class ObservabilityReaderTest(unittest.TestCase):
     def test_observability_snapshot_aggregates_correctly(self) -> None:
         with self.temp_workspace() as workspace_root:
             with patch.dict(os.environ, {
-                'OMINI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT': '1',
-                'OMINI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL': '0.0',
+                'OMNI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT': '1',
+                'OMNI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL': '0.0',
             }):
                 goal = GoalFactory().create_goal(description='Tornar runtime legivel.', intent='execution')
                 GoalStore(workspace_root).save_goal(goal)

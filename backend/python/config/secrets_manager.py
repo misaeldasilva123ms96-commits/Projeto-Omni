@@ -171,9 +171,6 @@ def build_controlled_os_environ_base() -> dict[str, str]:
             cmd_path = Path(windows_root) / "System32" / "cmd.exe"
             if cmd_path.exists():
                 env.setdefault("COMSPEC", str(cmd_path))
-    for key, val in os.environ.items():
-        if key.startswith("OMINI_") and str(val).strip():
-            env[key] = str(val)
     return env
 
 

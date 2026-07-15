@@ -1,5 +1,7 @@
 # Phase 15 - Controlled Self-Repair Layer
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Mission
 
 Phase 15 extends the trusted execution substrate from Phase 14 with a bounded, policy-governed self-repair path. The goal is not unrestricted self-modification. The goal is to detect deterministic failures, decide whether they are safely repairable, validate a small repair, and only then promote it under strict controls.

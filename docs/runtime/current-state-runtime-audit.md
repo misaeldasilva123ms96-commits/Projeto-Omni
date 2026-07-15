@@ -16,7 +16,7 @@ Rust API boundary
   -> Rust public response
 ```
 
-Node is the default JavaScript runtime. Bun is available only when explicitly selected with `OMNI_JS_RUNTIME_BIN=bun`. `OMNI_*` is the canonical configuration namespace. The deprecated `OMINI_*` aliases remain temporarily supported under the migration policy in `docs/runtime/env-alias-migration.md`; canonical values win conflicts.
+Node is the default JavaScript runtime. Bun is available only when explicitly selected with `OMNI_JS_RUNTIME_BIN=bun`. Runtime configuration accepts the canonical `OMNI_*` namespace exclusively; see `docs/runtime/canonical-environment.md`.
 
 ## Implemented
 
@@ -62,7 +62,7 @@ The current state incorporates these merged evidence-based corrections:
 - #539 enforced Supabase JWT audience validation.
 - #540 made a live cross-runtime contract a required CI check.
 - #541 added explicit cached provider reachability and health signals.
-- #542 established canonical `OMNI_*` configuration and governed legacy alias migration.
+- #542 established the canonical `OMNI_*` namespace; the temporary migration window has since closed.
 
 All checks attached to PRs #537-#542 completed without failure or pending status before this audit refresh.
 

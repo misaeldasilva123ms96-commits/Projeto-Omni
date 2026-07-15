@@ -113,8 +113,8 @@ class MemoryFacadeTest(unittest.TestCase):
 
     def test_sqlite_with_env_var(self) -> None:
         custom_path = self._tmp / "env-memory.sqlite"
-        os.environ["OMINI_ENABLE_SQLITE_MEMORY"] = "true"
-        os.environ["OMINI_SQLITE_MEMORY_PATH"] = str(custom_path)
+        os.environ["OMNI_ENABLE_SQLITE_MEMORY"] = "true"
+        os.environ["OMNI_SQLITE_MEMORY_PATH"] = str(custom_path)
         try:
             facade = MemoryFacade(jsonl_path=self._audit_path)
             facade.initialize()
@@ -122,8 +122,8 @@ class MemoryFacadeTest(unittest.TestCase):
             self.assertTrue(facade.is_sqlite_connected)
             self.assertTrue(custom_path.exists())
         finally:
-            os.environ.pop("OMINI_ENABLE_SQLITE_MEMORY", None)
-            os.environ.pop("OMINI_SQLITE_MEMORY_PATH", None)
+            os.environ.pop("OMNI_ENABLE_SQLITE_MEMORY", None)
+            os.environ.pop("OMNI_SQLITE_MEMORY_PATH", None)
 
     # ----------------------------------------------------------------
     # JSONL fallback still works

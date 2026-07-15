@@ -4,15 +4,15 @@
 
 ### Phase 39 — controlled evolution
 
-- `OMINI_PHASE39_DISABLE` — disable controlled evolution engine
-- `OMINI_PHASE39_APPLY` — allow writes to `phase39_tuning.json` (default off)
+- `OMNI_PHASE39_DISABLE` — disable controlled evolution engine
+- `OMNI_PHASE39_APPLY` — allow writes to `phase39_tuning.json` (default off)
 
 ### Phase 40 — improvement orchestration
 
-- `OMINI_PHASE40_DISABLE` — hard off
-- `OMINI_PHASE40_ENABLE` — enable orchestration; when on, CE uses `skip_apply` so Phase 40 owns apply authority
-- `OMINI_PHASE40_APPLY` — allow staged applies after approval
-- `OMINI_PHASE40_AUTO_APPROVE` / `OMINI_PHASE40_APPROVE` / `OMINI_PHASE40_FORCE_APPROVE` — approval path (see `docs/phases/phase-40.md`)
+- `OMNI_PHASE40_DISABLE` — hard off
+- `OMNI_PHASE40_ENABLE` — enable orchestration; when on, CE uses `skip_apply` so Phase 40 owns apply authority
+- `OMNI_PHASE40_APPLY` — allow staged applies after approval
+- `OMNI_PHASE40_AUTO_APPROVE` / `OMNI_PHASE40_APPROVE` / `OMNI_PHASE40_FORCE_APPROVE` — approval path (see `docs/phases/phase-40.md`)
 
 ## Logs
 

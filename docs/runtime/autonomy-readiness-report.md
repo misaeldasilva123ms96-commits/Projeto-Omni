@@ -148,7 +148,7 @@ consumes the decision to perform autonomous actions.
 | `AutonomyReceiptLog` | In-memory list | N/A | Process-local; lost on restart |
 | `AutonomySessionTracker` | In-memory dict | N/A | Process-local; lost on restart |
 | `SmartErrorProgressTracker` | In-memory dict | N/A | Process-local; lost on restart |
-| Governance events | JSONL (`MEMORY_BACKEND_JSONL`) | SQLite via `OMINI_ENABLE_SQLITE_MEMORY=true` | Durable across restarts if enabled |
+| Governance events | JSONL (`MEMORY_BACKEND_JSONL`) | SQLite via `OMNI_ENABLE_SQLITE_MEMORY=true` | Durable across restarts if enabled |
 | Cockpit timeline | Supabase `chat_messages.metadata` | Always-on (depends on Supabase) | Durable via Supabase |
 | Evidence store | JSON file | N/A | File-based, not wired to controller |
 

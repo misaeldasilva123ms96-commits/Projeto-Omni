@@ -27,9 +27,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 KEY_ENV_VAR = "OMNI_CREDENTIAL_STORE_KEY"
-KEY_ENV_VAR_LEGACY = "OMINI_CREDENTIAL_STORE_KEY"
 STORE_PATH_ENV_VAR = "OMNI_CREDENTIAL_STORE_PATH"
-STORE_PATH_ENV_VAR_LEGACY = "OMINI_CREDENTIAL_STORE_PATH"
 DEFAULT_STORE_PATH = "credentials.enc"
 AES256_KEY_LENGTH = 32
 NONCE_LENGTH = 12
@@ -135,9 +133,7 @@ class CredentialStore:
 
         self._aesgcm = AESGCM(self._key)
 
-        path_str = os.environ.get(STORE_PATH_ENV_VAR) or os.environ.get(
-            STORE_PATH_ENV_VAR_LEGACY
-        )
+        path_str = os.environ.get(STORE_PATH_ENV_VAR)
         self._store_path = Path(store_path or path_str or DEFAULT_STORE_PATH)
 
         self._store: dict[str, StoredCredential] = {}
@@ -286,7 +282,7 @@ class CredentialStore:
 
     @staticmethod
     def _load_key_from_env() -> bytes:
-        key_str = os.environ.get(KEY_ENV_VAR) or os.environ.get(KEY_ENV_VAR_LEGACY)
+        key_str = os.environ.get(KEY_ENV_VAR)
         if not key_str:
             raise EncryptionKeyError(
                 f"Encryption key not found. Set {KEY_ENV_VAR} environment variable "

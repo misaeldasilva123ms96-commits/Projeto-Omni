@@ -1,5 +1,7 @@
 # Omni Runtime Baseline Audit
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 Audit date: 2026-05-14  
 Audited branch: `chore/github-agent-profiles`  
 Audited commit: `7b946dce264737787bc5fbf5bb1b7fd05ce7ac4a`  

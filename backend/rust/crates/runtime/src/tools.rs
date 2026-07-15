@@ -68,7 +68,11 @@ fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-pub fn read_file(path: &str, offset: Option<usize>, limit: Option<usize>) -> io::Result<ReadFileOutput> {
+pub fn read_file(
+    path: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> io::Result<ReadFileOutput> {
     let content = fs::read_to_string(path)?;
     let start = offset.unwrap_or(0).min(content.len());
     let requested_limit = limit.unwrap_or(4000);

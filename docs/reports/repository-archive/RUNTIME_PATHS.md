@@ -1,5 +1,7 @@
 # Runtime Paths
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Primary Live Runtime Path
 
 1. `js-runner/queryEngineRunner.js` invokes [`core/brain/fusionBrain.js`](./core/brain/fusionBrain.js)

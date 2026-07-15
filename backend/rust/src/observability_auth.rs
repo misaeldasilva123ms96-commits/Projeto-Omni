@@ -293,9 +293,7 @@ struct UnauthorizedBody {
 
 impl SupabaseAuthConfig {
     pub(crate) fn from_env() -> Result<Self, String> {
-        let public_demo_mode = env_flag("OMNI_PUBLIC_DEMO_MODE")
-            .or_else(|| env_flag("OMINI_PUBLIC_DEMO_MODE"))
-            .unwrap_or(false);
+        let public_demo_mode = env_flag("OMNI_PUBLIC_DEMO_MODE").unwrap_or(false);
 
         let jwt_secret = match env::var("SUPABASE_JWT_SECRET") {
             Ok(value) => value,

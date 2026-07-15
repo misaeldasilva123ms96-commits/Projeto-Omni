@@ -33,14 +33,14 @@ OMNI_PYTHON_SERVICE_HOST=127.0.0.1
 OMNI_PYTHON_SERVICE_PORT=7010
 ```
 
-Legacy aliases:
+Canonical variables:
 
 ```txt
-OMINI_PYTHON_SERVICE_HOST
-OMINI_PYTHON_SERVICE_PORT
+OMNI_PYTHON_SERVICE_HOST
+OMNI_PYTHON_SERVICE_PORT
 ```
 
-`OMNI_*` values take precedence over `OMINI_*` aliases.
+`OMNI_*` values take precedence over `OMNI_*` aliases.
 
 ## Endpoints
 

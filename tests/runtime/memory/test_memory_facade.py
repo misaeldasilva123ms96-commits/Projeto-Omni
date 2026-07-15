@@ -34,8 +34,8 @@ class MemoryFacadeTest(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "OMINI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT": "1",
-                    "OMINI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL": "0.0",
+                    "OMNI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT": "1",
+                    "OMNI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL": "0.0",
                 },
             ):
                 facade = MemoryFacade(workspace_root)

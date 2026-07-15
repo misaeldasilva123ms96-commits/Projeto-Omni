@@ -133,7 +133,7 @@ class Phase41LearningLoopTest(unittest.TestCase):
     def test_policy_router_shadow_vs_active_env(self) -> None:
         router = PolicyRouter(self.root, performance_store=PerformanceStore(self.root))
         with patch("brain.runtime.policy.policy_router.get_available_providers", return_value=["openai", "anthropic"]):
-            with patch.dict(os.environ, {"OMINI_PHASE41_POLICY_ACTIVE": ""}, clear=False):
+            with patch.dict(os.environ, {"OMNI_PHASE41_POLICY_ACTIVE": ""}, clear=False):
                 h = router.compute_hint(
                     session_id="s1",
                     normalized_intent="test",
@@ -143,7 +143,7 @@ class Phase41LearningLoopTest(unittest.TestCase):
                 )
                 self.assertTrue(h.shadow_only)
                 self.assertIsNone(router.hint_to_env_json(h))
-            with patch.dict(os.environ, {"OMINI_PHASE41_POLICY_ACTIVE": "1"}, clear=False):
+            with patch.dict(os.environ, {"OMNI_PHASE41_POLICY_ACTIVE": "1"}, clear=False):
                 h2 = router.compute_hint(
                     session_id="s1",
                     normalized_intent="test",

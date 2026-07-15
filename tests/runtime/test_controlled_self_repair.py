@@ -244,7 +244,7 @@ class ControlledSelfRepairTest(unittest.TestCase):
     def test_orchestrator_integration_path_does_not_break_existing_flow(self) -> None:
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)
         os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
-        os.environ["OMINI_ENABLE_SELF_REPAIR"] = "false"
+        os.environ["OMNI_ENABLE_SELF_REPAIR"] = "false"
         orchestrator = BrainOrchestrator(
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )
@@ -293,7 +293,7 @@ class ControlledSelfRepairTest(unittest.TestCase):
     def test_orchestrator_attaches_repair_metadata_when_self_repair_runs(self) -> None:
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)
         os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
-        os.environ["OMINI_ENABLE_SELF_REPAIR"] = "true"
+        os.environ["OMNI_ENABLE_SELF_REPAIR"] = "true"
         orchestrator = BrainOrchestrator(
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )

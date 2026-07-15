@@ -21,7 +21,7 @@ const providerEnvKeys = [
   'OLLAMA_MODEL',
   'LMSTUDIO_URL',
   'LMSTUDIO_MODEL',
-  'OMINI_AVAILABLE_PROVIDERS',
+  'OMNI_AVAILABLE_PROVIDERS',
 ];
 
 function withProviderEnv(values, fn) {
@@ -135,7 +135,7 @@ withProviderEnv({
   GROQ_API_KEY: 'groq-provider-router-test-key',
   OLLAMA_URL: 'http://127.0.0.1:11434',
   LMSTUDIO_URL: 'http://127.0.0.1:1234',
-  OMINI_AVAILABLE_PROVIDERS: 'openai,openrouter,groq',
+  OMNI_AVAILABLE_PROVIDERS: 'openai,openrouter,groq',
 }, ({ buildProviderDiagnostics, chooseProvider, getAvailableProviders, resolveProviderRoute }) => {
   const selected = chooseProvider({ complexity: 'complex' });
   assert.equal(selected.name, 'groq');

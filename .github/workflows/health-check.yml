@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     # Definimos a variável aqui para o bloco 'if' dos passos conseguir ler com segurança
     env:
-      OMNI_E2E_API_URL: ${{ secrets.OMNI_E2E_API_URL || secrets.OMINI_E2E_API_URL }}
+      OMNI_E2E_API_URL: ${{ secrets.OMNI_E2E_API_URL }}
       
     steps:
       - name: Skip if no E2E URL configured

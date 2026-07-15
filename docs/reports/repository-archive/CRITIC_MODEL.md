@@ -1,5 +1,7 @@
 # Critic Model
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Role
 
 The critic is a bounded quality-control specialist, not a second brain.

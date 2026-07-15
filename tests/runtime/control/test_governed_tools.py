@@ -49,7 +49,7 @@ class GovernedToolsTest(unittest.TestCase):
             shutil.rmtree(path, ignore_errors=True)
 
     def tearDown(self) -> None:
-        os.environ.pop("OMINI_GOVERNED_TOOLS_STRICT", None)
+        os.environ.pop("OMNI_GOVERNED_TOOLS_STRICT", None)
 
     def test_decorator_registers_read_file_metadata(self) -> None:
         meta = get_governed_tool_metadata("read_file")
@@ -113,7 +113,7 @@ class GovernedToolsTest(unittest.TestCase):
                 GovernedToolSpec(tool_name="read_file", policy_name="p", category="c", extensions={}),
                 overwrite=True,
             )
-            os.environ["OMINI_GOVERNED_TOOLS_STRICT"] = "true"
+            os.environ["OMNI_GOVERNED_TOOLS_STRICT"] = "true"
             out = orch._execute_single_action_core(
                 action={"step_id": "s1", "selected_tool": "grep_search", "policy_decision": {}},
                 step_results=[],
@@ -142,9 +142,9 @@ class GovernedToolsTest(unittest.TestCase):
         self.assertGreaterEqual(len(payload["governed_tools"]), 1)
 
     def test_strict_mode_env_toggle(self) -> None:
-        os.environ.pop("OMINI_GOVERNED_TOOLS_STRICT", None)
+        os.environ.pop("OMNI_GOVERNED_TOOLS_STRICT", None)
         self.assertFalse(is_strict_governed_tools_mode())
-        os.environ["OMINI_GOVERNED_TOOLS_STRICT"] = "true"
+        os.environ["OMNI_GOVERNED_TOOLS_STRICT"] = "true"
         self.assertTrue(is_strict_governed_tools_mode())
 
 

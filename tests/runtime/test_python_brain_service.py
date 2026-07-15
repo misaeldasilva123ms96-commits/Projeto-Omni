@@ -31,19 +31,13 @@ def _request(method: str, url: str, payload: dict | None = None, content_type: s
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
-def test_service_config_defaults_to_loopback_and_aliases(monkeypatch) -> None:
+def test_service_config_uses_canonical_environment(monkeypatch) -> None:
     for key in (
         "OMNI_PYTHON_SERVICE_HOST",
-        "OMINI_PYTHON_SERVICE_HOST",
         "OMNI_PYTHON_SERVICE_PORT",
-        "OMINI_PYTHON_SERVICE_PORT",
     ):
         monkeypatch.delenv(key, raising=False)
     assert brain_service.get_service_config() == {"host": "127.0.0.1", "port": 7010}
-
-    monkeypatch.setenv("OMINI_PYTHON_SERVICE_HOST", "127.0.0.2")
-    monkeypatch.setenv("OMINI_PYTHON_SERVICE_PORT", "7011")
-    assert brain_service.get_service_config() == {"host": "127.0.0.2", "port": 7011}
 
     monkeypatch.setenv("OMNI_PYTHON_SERVICE_HOST", "127.0.0.3")
     monkeypatch.setenv("OMNI_PYTHON_SERVICE_PORT", "7012")
@@ -139,7 +133,6 @@ def test_http_endpoints_require_service_auth_without_public_exposure_or_cors(mon
 
 def test_service_binding_requires_token_and_strong_token_off_loopback(monkeypatch) -> None:
     monkeypatch.delenv("OMNI_PYTHON_SERVICE_TOKEN", raising=False)
-    monkeypatch.delenv("OMINI_PYTHON_SERVICE_TOKEN", raising=False)
     with pytest.raises(RuntimeError, match="TOKEN is required"):
         brain_service.create_server("127.0.0.1", 0)
 

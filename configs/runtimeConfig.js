@@ -1,6 +1,5 @@
 function envValue(name, fallback = '') {
-  const legacyName = name.startsWith('OMNI_') ? `OMINI_${name.slice('OMNI_'.length)}` : '';
-  return String(process.env[name] || (legacyName ? process.env[legacyName] : '') || fallback).trim();
+  return String(process.env[name] || fallback).trim();
 }
 
 function intEnv(name, fallback) {

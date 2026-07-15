@@ -42,16 +42,16 @@ function serialized(value) {
 }
 
 assert.deepEqual(service.getServiceConfig(), { host: '127.0.0.1', port: 7020 })
-process.env.OMINI_NODE_SERVICE_HOST = '127.0.0.2'
-process.env.OMINI_NODE_SERVICE_PORT = '7021'
+process.env.OMNI_NODE_SERVICE_HOST = '127.0.0.2'
+process.env.OMNI_NODE_SERVICE_PORT = '7021'
 assert.deepEqual(service.getServiceConfig(), { host: '127.0.0.2', port: 7021 })
 process.env.OMNI_NODE_SERVICE_HOST = '127.0.0.3'
 process.env.OMNI_NODE_SERVICE_PORT = '7022'
 assert.deepEqual(service.getServiceConfig(), { host: '127.0.0.3', port: 7022 })
 delete process.env.OMNI_NODE_SERVICE_HOST
 delete process.env.OMNI_NODE_SERVICE_PORT
-delete process.env.OMINI_NODE_SERVICE_HOST
-delete process.env.OMINI_NODE_SERVICE_PORT
+delete process.env.OMNI_NODE_SERVICE_HOST
+delete process.env.OMNI_NODE_SERVICE_PORT
 
 assert.deepEqual(service.healthPayload(), {
   ok: true,

@@ -72,7 +72,7 @@ class SemanticIndexTest(unittest.TestCase):
             )
             for index in range(2)
         ]
-        with patch.dict(os.environ, {"OMINI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT": "3"}):
+        with patch.dict(os.environ, {"OMNI_MEMORY_MIN_EPISODES_FOR_SEMANTIC_FACT": "3"}):
             consolidator = FactConsolidator()
             facts = consolidator.consolidate(episodes=episodes)
         self.assertEqual(facts, [])

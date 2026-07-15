@@ -1,5 +1,7 @@
 # Phase 18 - Operational Learning Layer
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Mission
 
 Phase 18 introduces a bounded operational learning layer that turns existing runtime artifacts into explicit evidence, compact pattern records, ranked bounded strategies, and advisory learning signals for future runtime decisions.

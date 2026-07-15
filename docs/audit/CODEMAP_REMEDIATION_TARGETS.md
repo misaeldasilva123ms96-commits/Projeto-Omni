@@ -1,4 +1,6 @@
 # CODEMAP REMEDIATION TARGETS — Projeto Omni
+
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
 Date: 2026-04-30
 Base branch: audit/remediation-baseline-00
 Base commit: a44220225017d2816e6208b23d3d49d453b907a9

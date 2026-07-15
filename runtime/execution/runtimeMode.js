@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { readEnvAlias, readEnvAliasBool } = require('../config/envAlias');
+const { readEnv, readEnvBool } = require('../config/env');
 
 const EXECUTION_MODES = Object.freeze({
   NODE_RUST_DIRECT: 'node-rust-direct',
@@ -27,12 +27,10 @@ function normalizeRequestedMode(requestedMode) {
 
 function resolveExecutionMode({ cwd, requestedMode = '', allowNodeRustDirect } = {}) {
   const compiledBridgePath = findCompiledBridge(cwd);
-  const nodeRustDirectEnabled = allowNodeRustDirect ?? readEnvAliasBool(
-    'OMNI_ENABLE_NODE_RUST_DIRECT',
-    'OMINI_ENABLE_NODE_RUST_DIRECT',
+  const nodeRustDirectEnabled = allowNodeRustDirect ?? readEnvBool('OMNI_ENABLE_NODE_RUST_DIRECT',
   );
   const normalizedRequestedMode = normalizeRequestedMode(
-    requestedMode || readEnvAlias('OMNI_EXECUTION_MODE', 'OMINI_EXECUTION_MODE'),
+    requestedMode || readEnv('OMNI_EXECUTION_MODE'),
   );
 
   const packagedMode = compiledBridgePath

@@ -1,4 +1,4 @@
-const { readEnvAlias } = require('../../runtime/config/envAlias');
+const { readEnv } = require('../../runtime/config/env');
 
 function envValue(name) {
   const value = process.env[name];
@@ -283,9 +283,7 @@ function isTruthyEnv(value) {
 }
 
 function readProviderRoutingMode() {
-  return normalizeRoutingMode(readEnvAlias(
-    'OMNI_PROVIDER_ROUTING_MODE',
-    'OMINI_PROVIDER_ROUTING_MODE',
+  return normalizeRoutingMode(readEnv('OMNI_PROVIDER_ROUTING_MODE',
   ));
 }
 
@@ -519,7 +517,7 @@ function getProviderRegistry({ includeEmbeddedLocal = false } = {}) {
  * Comma-separated logical ids from Python (validated keys only). Used for routing order hints.
  */
 function parseOmniAvailableProviders() {
-  const raw = readEnvAlias('OMNI_AVAILABLE_PROVIDERS', 'OMINI_AVAILABLE_PROVIDERS');
+  const raw = readEnv('OMNI_AVAILABLE_PROVIDERS');
   if (!raw) {
     return null;
   }

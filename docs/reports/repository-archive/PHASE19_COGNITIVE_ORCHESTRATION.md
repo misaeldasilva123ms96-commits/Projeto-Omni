@@ -1,5 +1,7 @@
 # Phase 19 - Cognitive Orchestration Layer
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Mission
 
 Phase 19 introduces a bounded cognitive orchestration layer that coordinates runtime capabilities and execution routes using planning state, continuation decisions, learning signals, and recent execution artifacts.
