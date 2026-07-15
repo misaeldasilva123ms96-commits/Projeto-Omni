@@ -27,7 +27,13 @@ import type { UiChatResponse } from '../types/ui/chat'
 import type { UiRuntimeStatus } from '../types/ui/runtime'
 import type { RuntimeInspectorData } from '../lib/runtimeTypes'
 import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
-import { readMigratedStorage, removeMigratedStorage, writeMigratedStorage } from '../lib/storageKeyMigration'
+import {
+  createClientId,
+  loadStoredChatState,
+  persistStoredChatState,
+  type StoredChatMessage,
+  type StoredChatState,
+} from '../lib/chatStorage'
 
 type ChatPageProps = {
   mode: ChatMode
@@ -37,28 +43,13 @@ type ChatPageProps = {
   view: View
 }
 
-const STORAGE_KEY = 'omni-chat-state-v3'
-const LEGACY_STORAGE_KEY = 'omini-chat-state-v3'
-const STORAGE_VERSION = 4
 const STORAGE_WRITE_DELAY_MS = 250
 const DEFAULT_SESSION_PREFIX = 'sessao'
 
-type StoredChatState = {
-  version?: number
-  input: string
-  lastMetadata: RuntimeMetadata | null
-  messages: ExtendedChatMessage[]
-  requestState: ChatRequestState
-  sessionId: string
-}
-
-type ExtendedChatMessage = ChatMessage & {
-  isLoading?: boolean
-  isNew?: boolean
-}
+type ExtendedChatMessage = StoredChatMessage
 
 function buildSessionId() {
-  return `${DEFAULT_SESSION_PREFIX}-${crypto.randomUUID().slice(0, 8)}`
+  return createClientId(DEFAULT_SESSION_PREFIX)
 }
 
 function createMessage(
@@ -73,7 +64,7 @@ function createMessage(
   },
 ): ExtendedChatMessage {
   return {
-    id: options?.id ?? crypto.randomUUID(),
+    id: options?.id ?? createClientId(),
     role,
     content,
     createdAt: new Date().toISOString(),
@@ -91,66 +82,6 @@ function getConversationTitle(messages: ChatMessage[]) {
   }
 
   return firstUserMessage.content.slice(0, 56) || 'Nova conversa'
-}
-
-function loadStoredState(): StoredChatState {
-  const baseState: StoredChatState = {
-    input: '',
-    lastMetadata: null,
-    messages: [],
-    requestState: 'idle',
-    sessionId: buildSessionId(),
-  }
-
-  let raw: string | null = null
-  try {
-    raw = readMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY)
-  } catch {
-    return baseState
-  }
-  if (!raw) {
-    return baseState
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<StoredChatState>
-    return {
-      ...baseState,
-      ...parsed,
-      input: typeof parsed.input === 'string' ? parsed.input : '',
-      lastMetadata: parsed.lastMetadata ?? null,
-      messages: Array.isArray(parsed.messages)
-        ? parsed.messages.map((message) => ({
-          ...message,
-          isLoading: false,
-          isNew: false,
-        }))
-        : [],
-      requestState: parsed.requestState === 'loading' ? 'idle' : parsed.requestState ?? 'idle',
-      sessionId: typeof parsed.sessionId === 'string' && parsed.sessionId ? parsed.sessionId : buildSessionId(),
-    }
-  } catch {
-    try {
-      removeMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY)
-    } catch {
-      // Storage may be disabled. The in-memory chat remains fully usable.
-    }
-    return baseState
-  }
-}
-
-function persistStoredState(state: StoredChatState) {
-  const snapshot: StoredChatState = {
-    ...state,
-    version: STORAGE_VERSION,
-    messages: state.messages.map(({ isLoading: _isLoading, isNew: _isNew, ...message }) => message),
-    requestState: state.requestState === 'loading' ? 'idle' : state.requestState,
-  }
-  try {
-    writeMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY, JSON.stringify(snapshot))
-  } catch {
-    // Quota and privacy-mode failures must not interrupt the active conversation.
-  }
 }
 
 const MODE_LABELS: Record<ChatMode, string> = {
@@ -203,7 +134,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     : null
 
   useEffect(() => {
-    const stored = loadStoredState()
+    const stored = loadStoredChatState()
     setInput(stored.input)
     setLastMetadata(stored.lastMetadata)
     const storedInspectorData = normalizeStoredRuntimeMetadata(stored.lastMetadata)
@@ -226,7 +157,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      persistStoredState({ input, lastMetadata, messages, requestState, sessionId })
+      persistStoredChatState({ input, lastMetadata, messages, requestState, sessionId })
     }, STORAGE_WRITE_DELAY_MS)
     return () => window.clearTimeout(timeout)
   }, [input, lastMetadata, messages, requestState, sessionId])
@@ -341,7 +272,7 @@ export function ChatPage({ mode, onChangeMode, onChangeView, renderShell, view }
     }
 
     const previousInput = input
-    const loadingMessageId = crypto.randomUUID()
+    const loadingMessageId = createClientId()
     setMessages((current) => [
       ...current,
       createMessage('user', prompt),

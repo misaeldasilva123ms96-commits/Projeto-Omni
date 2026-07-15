@@ -69,7 +69,7 @@ Top-level JSON object:
 | ----- | ---- | ----- |
 | `api_version` | string | Constant `"1"` for this document revision. |
 | `response` | string | Assistant text (same extraction rules as `/chat`). |
-| `session_id` | string | Legacy field: adapter placeholder (`python-session`, `mock-session`) until a future phase maps a real orchestrator id here. **Do not** treat as the UI conversation id. |
+| `session_id` | string | Public-safe Python runtime session id when available; compatibility label on legacy/degraded or mock paths. **Do not** treat as the UI conversation id. |
 | `source` | string | e.g. `python-subprocess`, `mock-env`. |
 | `runtime_session_version` | number | Rust runtime epoch (aligned with `/health` / `GET /api/v1/status`). |
 | `client_session_id` | string | **Omitted** unless the request included one — then echoed after normalization. |

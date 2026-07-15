@@ -250,7 +250,35 @@ function loadAgentMemoryContext() {
   return parts.join('\n\n');
 }
 
-function getQueryEngineCandidates() {
+function hasConfiguredTypescriptLoader(env = process.env, execArgv = process.execArgv) {
+  const enabled = String(env.OMNI_QUERY_ENGINE_TYPESCRIPT_LOADER_ENABLED || '')
+    .trim()
+    .toLowerCase();
+  if (!['1', 'true', 'yes', 'on'].includes(enabled)) {
+    return false;
+  }
+  const runtimeArgs = [
+    ...(Array.isArray(execArgv) ? execArgv : []),
+    ...String(env.NODE_OPTIONS || '').split(/\s+/),
+  ];
+  return runtimeArgs.some(arg => arg === '--loader' || arg.startsWith('--loader='))
+    || runtimeArgs.some(arg => arg === '--import' || arg.startsWith('--import='));
+}
+
+function supportsTypescriptCandidates(
+  env = process.env,
+  runtimeVersions = process.versions,
+  execArgv = process.execArgv,
+) {
+  return Boolean(runtimeVersions && runtimeVersions.bun)
+    || hasConfiguredTypescriptLoader(env, execArgv);
+}
+
+function getQueryEngineCandidates(
+  env = process.env,
+  runtimeVersions = process.versions,
+  execArgv = process.execArgv,
+) {
   const workspaceRoot = getWorkspaceRoot();
   const adapterPath = process.env.RUNNER_ADAPTER_PATH
     ? path.resolve(process.env.RUNNER_ADAPTER_PATH)
@@ -258,12 +286,17 @@ function getQueryEngineCandidates() {
   const esmAdapterPath = adapterPath.replace(/\.js$/i, '.mjs');
   const dist = path.join(workspaceRoot, 'dist', 'QueryEngine.js');
   const build = path.join(workspaceRoot, 'build', 'QueryEngine.js');
-  const tail = [
+  const javascriptTail = [
     path.join(workspaceRoot, 'src', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
     path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
   ];
+  const typescriptTail = supportsTypescriptCandidates(env, runtimeVersions, execArgv)
+    ? [
+        path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
+        path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
+      ]
+    : [];
+  const tail = [...javascriptTail, ...typescriptTail];
   const preferDistFirst = String(process.env.OMNI_QUERY_ENGINE_ORDER || process.env.OMINI_QUERY_ENGINE_ORDER || '')
     .trim()
     .toLowerCase() === 'dist_first';
@@ -774,6 +807,7 @@ module.exports = {
   emptyPayload,
   getBaseDir,
   getQueryEngineCandidates,
+  hasConfiguredTypescriptLoader,
   getPackagedQueryEngineCandidate,
   getWorkspaceRoot,
   isAgentMemoryEnabled,
@@ -788,6 +822,7 @@ module.exports = {
   tryRunExistingQueryEngine,
   validatePayload,
   resolveRuntimeMetadata,
+  supportsTypescriptCandidates,
 };
 
 if (require.main === module) {

@@ -71,13 +71,10 @@ jobs:
           echo "Blocking security gate where pip-audit can verify installed Python dependency advisories."
           pip-audit -r backend/python/requirements.txt
 
-      - name: Cargo audit (blocking when installed)
+      - name: Cargo audit (blocking)
         run: |
           sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
-          echo "Advisory audit vs blocking gate: installation failures are inconclusive infrastructure results; installed cargo-audit findings block."
-          if ! cargo install --locked cargo-audit; then
-            echo "::warning::cargo-audit installation failed; Rust advisory audit is inconclusive for this run."
-            exit 0
-          fi
+          echo "Blocking security gate: cargo-audit installation and advisory findings must both succeed."
+          cargo install --locked cargo-audit --version 0.22.2
           cd backend/rust
           cargo audit

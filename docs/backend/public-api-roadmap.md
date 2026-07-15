@@ -54,7 +54,7 @@
 | ----- | ----------- | --------- |
 | **Browser UI** | `sessionId` generated client-side (`sessao-…`) | Conversation key for `localStorage` + Supabase sync (`omniData`); may be sent as optional `client_session_id` on `POST /chat` (Phase 7). |
 | **Rust `AppState`** | `runtime_session_version` | Monotonic-ish epoch from `bootstrap_runtime_session()`; same value exposed on `/health` and now on **`ChatResponse.runtime_session_version`**. |
-| **`POST /chat` response** | `session_id` | **Placeholder** strings (`python-session`, `mock-session`) from subprocess / mock paths — **not** the UI session and not orchestrator store. |
+| **`POST /chat` response** | `session_id` | Public-safe Python runtime session id when available; explicit compatibility labels remain for legacy/degraded and mock paths. It is not the UI session. |
 
 ### Mismatches
 
@@ -65,13 +65,13 @@
 
 1. **Phase A (done in code):** Add **`runtime_session_version`** to every `ChatResponse` so the UI can correlate chat turns with the same epoch as `/health` / `GET /api/v1/status`.
 2. **Phase B (Phase 7 — done):** `ChatRequest` accepts optional **`client_session_id`** (trimmed, max 256 chars); echoed on `ChatResponse` when present. **Phase 10:** forwarded on stdin JSON to Python when present.
-3. **Phase C (planned):** When Python returns structured JSON including a real orchestrator session id, Rust may map it into `ChatResponse.session_id` (replacing placeholders).
+3. **Phase C (done):** Python returns a public-safe `runtime_session_id`; Rust maps it into `ChatResponse.session_id`, retaining placeholders only for legacy/degraded and mock paths.
 4. **Phase 11 (done):** Optional truthful **`conversation_id`** on chat responses when Python stdout includes it; **`POST /api/v1/chat`** with `api_version` on the response body.
 
 ### Migration strategy
 
 - Frontend continues to treat **UI session** as source of truth for UX; **`runtime_session_version`** is for **runtime epoch** alignment.
-- Document until Phase C ships; avoid implying `session_id` is the UI conversation id.
+- Keep the distinction explicit: `session_id` is runtime identity, while `client_session_id` remains the UI source of truth for UX continuity.
 
 ---
 
@@ -157,7 +157,7 @@ Frontend may keep calling `/internal/*`; **compatibility** is preserved. New `/a
 | Field | Meaning today |
 | ----- | ------------- |
 | `response` | Assistant text (extracted from Python stdout JSON keys `response` \| `message` \| `text` \| `answer`, or fallback string). |
-| `session_id` | Placeholder correlation id from Rust paths (`python-session` / `mock-session`); **not** UI session. |
+| `session_id` | Python runtime session id or explicit compatibility label; **not** UI session. |
 | `runtime_session_version` | Rust runtime epoch (matches `/health.runtime_session_version`). |
 | `client_session_id` | **Omitted** unless the client sent one on the request — then echoed unchanged (after normalization). |
 | `source` | `python-subprocess` \| `mock-env` \| etc. |

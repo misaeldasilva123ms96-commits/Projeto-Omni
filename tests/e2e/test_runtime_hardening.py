@@ -20,12 +20,20 @@ from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set  # 
 
 class RuntimeHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
-        os.environ["BASE_DIR"] = str(PROJECT_ROOT)
-        os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+        os.environ["OMNI_BASE_DIR"] = str(PROJECT_ROOT)
+        os.environ["OMNI_PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
         os.environ["AI_SESSION_ID"] = f"fase3-{uuid4().hex[:8]}"
 
     def tearDown(self) -> None:
-        for key in ["NODE_BIN", "OMINI_RUNTIME_MODE", "OMINI_FORCE_SPECIALIST_FAILURE", "AI_SESSION_ID"]:
+        for key in [
+            "OMNI_BASE_DIR",
+            "OMNI_PYTHON_BASE_DIR",
+            "OMNI_NODE_BIN",
+            "OMNI_NODE_SUBPROCESS_TIMEOUT_SECONDS",
+            "OMNI_RUNTIME_MODE",
+            "OMINI_FORCE_SPECIALIST_FAILURE",
+            "AI_SESSION_ID",
+        ]:
             os.environ.pop(key, None)
 
     def build_orchestrator(self) -> BrainOrchestrator:
@@ -34,18 +42,27 @@ class RuntimeHardeningTest(unittest.TestCase):
         )
 
     def test_node_unavailable_triggers_explicit_fallback(self) -> None:
-        os.environ["NODE_BIN"] = "definitely-missing-node-binary"
-        orchestrator = self.build_orchestrator()
-        response = orchestrator.run("analise package.json")
-        self.assertIn("Modo fallback ativo", response)
-        self.assertEqual(orchestrator.last_runtime_mode, "fallback")
+        os.environ["OMNI_NODE_BIN"] = "definitely-missing-node-binary"
+        os.environ["OMNI_NODE_SUBPROCESS_TIMEOUT_SECONDS"] = "1"
+        with self.build_orchestrator() as orchestrator:
+            response = orchestrator.run("analise package.json")
+            metrics = orchestrator.get_runtime_metrics()
+
+            self.assertIn("Modo fallback ativo", response)
+            self.assertEqual(orchestrator.last_runtime_mode, "fallback")
+            self.assertIn(
+                orchestrator.last_runtime_reason,
+                {"NODE_BRIDGE_NONZERO_EXIT", "NODE_BRIDGE_TIMEOUT", "NODE_CIRCUIT_OPEN"},
+            )
+            self.assertGreaterEqual(metrics["latency_sample_count"]["runtime_turn"], 1)
+            self.assertGreaterEqual(metrics["latency_sample_count"]["node_boundary"], 1)
 
     def test_mock_runtime_mode_is_explicit(self) -> None:
-        os.environ["OMINI_RUNTIME_MODE"] = "mock"
-        orchestrator = self.build_orchestrator()
-        response = orchestrator.run("qualquer coisa")
-        self.assertIn("Modo mock ativo", response)
-        self.assertEqual(orchestrator.last_runtime_mode, "mock")
+        os.environ["OMNI_RUNTIME_MODE"] = "mock"
+        with self.build_orchestrator() as orchestrator:
+            response = orchestrator.run("qualquer coisa")
+            self.assertIn("Modo mock ativo", response)
+            self.assertEqual(orchestrator.last_runtime_mode, "mock")
 
     def test_checkpoint_store_save_failure_does_not_raise(self) -> None:
         store = CheckpointStore(PROJECT_ROOT)

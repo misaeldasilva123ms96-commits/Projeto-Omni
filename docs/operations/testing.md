@@ -2,6 +2,8 @@
 
 This page documents the current local validation matrix for the audited multi-runtime tree.
 
+Production release thresholds and mandatory CI evidence are defined in [Production Readiness Gates](./production-readiness-gates.md).
+
 Latest audit base used for this update:
 
 - Branch audited: `docs/runtime-state-post-pr542`
@@ -63,6 +65,7 @@ Frontend tests may emit Vite or chart layout warnings. Treat warnings as investi
 - `OMNI_E2E_API_URL` is the canonical live HTTP E2E URL. `OMINI_E2E_API_URL` remains a temporary compatibility alias, with the canonical value taking precedence when both are set.
 - `npm run test:e2e:chat-contract` always validates fixtures. Set `OMNI_E2E_REQUIRE_LIVE=true` together with `OMNI_E2E_API_URL` to make an absent, unreachable, non-2xx, degraded, or incomplete Rust → Python → Node → Rust path fail the command.
 - `.github/workflows/omni-live-e2e-ci.yml` starts the local Rust API and runs that required live contract on pull requests, `main`, `ci/**`, and manual dispatches. It does not depend on a deployed environment or provider secret.
+- The same workflow starts an isolated API with an invalid `NODE_BIN` and runs `runtime-failure-contract.e2e.ts`, preventing degraded execution from being reported as healthy success.
 - `npm run test:integration` is not a current root script in the audited tree.
 - `npm run intake:validate` is not a current root script in the audited tree.
 - Docker commands require a working local Docker daemon and should not be inferred from static validators alone.

@@ -24,6 +24,12 @@ class OmniConfig:
     memory_dir: str = ""
     transcripts_dir: str = ""
     node_bin: str = "node"
+    node_subprocess_timeout_seconds: int = 60
+    node_circuit_breaker_enabled: bool = True
+    node_circuit_failure_threshold: int = 3
+    node_circuit_reset_seconds: int = 30
+    jsonl_archive_retention_count: int = 5
+    jsonl_archive_retention_days: int = 7
     supabase_url: str = ""
     supabase_service_role_key: str = ""
 
@@ -51,6 +57,27 @@ def load_config() -> OmniConfig:
         memory_dir=read_env("OMNI_MEMORY_DIR"),
         transcripts_dir=read_env("OMNI_TRANSCRIPTS_DIR"),
         node_bin=read_env("OMNI_NODE_BIN", "node"),
+        node_subprocess_timeout_seconds=max(
+            1,
+            min(read_env_int("OMNI_NODE_SUBPROCESS_TIMEOUT_SECONDS", 60), 300),
+        ),
+        node_circuit_breaker_enabled=read_env_bool("OMNI_NODE_CIRCUIT_BREAKER_ENABLED", True),
+        node_circuit_failure_threshold=max(
+            1,
+            min(read_env_int("OMNI_NODE_CIRCUIT_FAILURE_THRESHOLD", 3), 20),
+        ),
+        node_circuit_reset_seconds=max(
+            1,
+            min(read_env_int("OMNI_NODE_CIRCUIT_RESET_SECONDS", 30), 3600),
+        ),
+        jsonl_archive_retention_count=min(
+            read_env_int("OMNI_JSONL_ARCHIVE_RETENTION_COUNT", 5),
+            100,
+        ),
+        jsonl_archive_retention_days=min(
+            read_env_int("OMNI_JSONL_ARCHIVE_RETENTION_DAYS", 7),
+            365,
+        ),
         supabase_url=read_env("SUPABASE_URL"),
         supabase_service_role_key=read_env("SUPABASE_SERVICE_ROLE_KEY"),
     )

@@ -19,6 +19,21 @@ const snapshot = {
 }
 
 describe('chat API provider diagnostics compatibility', () => {
+  it('preserves the client-owned session for UI continuity while backend exposes runtime session', () => {
+    const ui = chatApiResponseToUi({
+      response: 'ok',
+      session_id: 'runtime-session-1',
+      client_session_id: 'client-session-1',
+    })
+    expect(ui.sessionId).toBe('client-session-1')
+
+    const runtimeOnly = chatApiResponseToUi({
+      response: 'ok',
+      session_id: 'runtime-session-2',
+    })
+    expect(runtimeOnly.sessionId).toBe('runtime-session-2')
+  })
+
   it('keeps legacy provider_diagnostics as an array when snapshot is present', () => {
     const wire = parseWireChatPayload({
       response: 'ok',

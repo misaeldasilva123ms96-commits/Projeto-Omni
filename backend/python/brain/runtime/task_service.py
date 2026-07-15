@@ -17,6 +17,15 @@ class TaskService:
     def __init__(self, entrypoint: Path) -> None:
         self.orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(entrypoint))
 
+    def close(self) -> None:
+        self.orchestrator.close()
+
+    def __enter__(self) -> "TaskService":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
+
     def execute_task(self, *, user_id: str, session_id: str, message: str) -> dict[str, Any]:
         previous_session = os.environ.get("AI_SESSION_ID")
         request = validate_start_task_request(user_id=user_id, session_id=session_id, message=message)
