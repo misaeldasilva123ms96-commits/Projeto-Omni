@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from brain.env import read_env
 from brain.runtime.learning.redaction import redact_sensitive_payload, redact_sensitive_text
 
 
@@ -13,7 +14,7 @@ def resolve_node_bin(js_runtime_adapter: Any) -> str | None:
     selection = js_runtime_adapter.select_runtime()
     if selection.runtime_name == "node" and selection.node_available:
         return selection.executable
-    configured = os.getenv("NODE_BIN", "").strip()
+    configured = read_env("OMNI_NODE_BIN")
     if configured:
         return configured
     return shutil.which("node")

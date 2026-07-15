@@ -30,6 +30,7 @@ class JSRuntimeAdapter:
         self.root = root.resolve()
 
     def select_runtime(self) -> JSRuntimeSelection:
+        node_candidate = read_env("OMNI_NODE_BIN", "node") or "node"
         explicit_runtime = read_env("OMNI_JS_RUNTIME_BIN")
         if explicit_runtime:
             resolved = self._resolve_explicit_runtime(explicit_runtime)
@@ -39,12 +40,11 @@ class JSRuntimeAdapter:
                 executable=resolved or explicit_runtime,
                 source="explicit_env",
                 bun_available=bool(self._resolve_candidate(os.getenv("BUN_BIN", "").strip() or "bun")),
-                node_available=bool(self._resolve_candidate(os.getenv("NODE_BIN", "").strip() or "node")),
+                node_available=bool(self._resolve_candidate(node_candidate)),
                 preferred=runtime_name == "bun",
                 fallback_used=runtime_name != "bun",
             )
 
-        node_candidate = os.getenv("NODE_BIN", "").strip() or "node"
         node_resolved = self._resolve_candidate(node_candidate)
         bun_available = bool(self._resolve_candidate(os.getenv("BUN_BIN", "").strip() or "bun"))
         if node_resolved:
@@ -58,10 +58,9 @@ class JSRuntimeAdapter:
                 fallback_used=False,
             )
 
-        configured_node = os.getenv("NODE_BIN", "").strip()
         return JSRuntimeSelection(
             runtime_name="node",
-            executable=configured_node or "node",
+            executable=node_candidate,
             source="node_missing",
             bun_available=bun_available,
             node_available=False,
@@ -83,7 +82,8 @@ class JSRuntimeAdapter:
         env["OMINI_JS_RUNTIME"] = selection.runtime_name
         env["OMINI_JS_RUNTIME_BIN"] = selection.executable
         env["OMINI_JS_RUNTIME_SOURCE"] = selection.source
-        env.setdefault("NODE_BIN", self._resolve_candidate(os.getenv("NODE_BIN", "").strip() or "node") or "node")
+        node_candidate = read_env("OMNI_NODE_BIN", "node") or "node"
+        env["NODE_BIN"] = self._resolve_candidate(node_candidate) or node_candidate
         return env, selection
 
     def build_command(self, *, script_path: Path, payload: str | None = None) -> tuple[list[str], JSRuntimeSelection]:

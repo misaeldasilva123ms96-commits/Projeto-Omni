@@ -28,6 +28,8 @@ class JSRuntimeAdapterTest(unittest.TestCase):
                 "OMINI_JS_RUNTIME_BIN",
                 "OMNI_JS_RUNTIME_BIN",
                 "BUN_BIN",
+                "OMNI_NODE_BIN",
+                "OMINI_NODE_BIN",
                 "NODE_BIN",
                 "BASE_DIR",
                 "PYTHON_BASE_DIR",
@@ -59,6 +61,19 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         self.assertEqual(selection.runtime_name, "node")
         self.assertEqual(selection.source, "node_default")
         self.assertFalse(selection.fallback_used)
+
+    def test_canonical_node_bin_takes_precedence_over_legacy_alias(self) -> None:
+        os.environ["OMNI_NODE_BIN"] = "canonical-missing-node"
+        os.environ["NODE_BIN"] = "legacy-node"
+
+        with patch("brain.runtime.js_runtime_adapter.shutil.which", return_value=None):
+            selection = self.adapter.select_runtime()
+            env, _ = self.adapter.build_env()
+
+        self.assertEqual(selection.executable, "canonical-missing-node")
+        self.assertEqual(selection.source, "node_missing")
+        self.assertFalse(selection.node_available)
+        self.assertEqual(env["NODE_BIN"], "canonical-missing-node")
 
     def test_canonical_omni_runtime_bin_takes_precedence_over_legacy_alias(self) -> None:
         os.environ["OMINI_JS_RUNTIME_BIN"] = "node"
