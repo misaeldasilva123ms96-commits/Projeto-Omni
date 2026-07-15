@@ -17,6 +17,7 @@ from brain.runtime.observability.public_runtime_payload import (
     sanitize_public_runtime_payload,
 )
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
+from brain.runtime.session_helpers import session_id
 from config.provider_registry import (
     describe_provider_diagnostics,
     describe_provider_diagnostics_snapshot,
@@ -129,6 +130,16 @@ def _extract_truthful_conversation_id(d: dict) -> str | None:
             continue
         return s
     return None
+
+
+def _public_runtime_session_id() -> str:
+    """Return the actual orchestrator session key only when it is public-contract safe."""
+    candidate = session_id().strip()
+    if not candidate or len(candidate) > 256:
+        return "python-session"
+    if any(not (ch.isalnum() or ch in "._:-") for ch in candidate):
+        return "python-session"
+    return candidate
 
 
 def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
@@ -350,7 +361,10 @@ def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None
     bridge = dict(bridge or {})
     apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
-    raw_response = orchestrator.run(message, bridge=bridge)
+    try:
+        raw_response = orchestrator.run(message, bridge=bridge)
+    finally:
+        orchestrator.close()
     LOGGER.debug("python_main_pre_sanitize_type=%s", type(raw_response).__name__)
     safe_response = sanitize_for_user(raw_response)
     if not str(safe_response.get("response", "")).strip():
@@ -360,6 +374,7 @@ def build_public_chat_payload(message: str, bridge: dict[str, Any] | None = None
             message="Python main produced an empty public response after sanitization.",
         )
     safe_response.setdefault("stop_reason", "python_completed")
+    safe_response["runtime_session_id"] = _public_runtime_session_id()
     public_inspection: dict[str, Any] | None = None
     inspection = getattr(orchestrator, "last_cognitive_runtime_inspection", None)
     if isinstance(inspection, dict):
@@ -420,7 +435,10 @@ def build_public_runner_smoke_payload() -> dict[str, Any]:
     os.environ.setdefault("BASE_DIR", str(project_root))
     _load_project_dotenv(project_root)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
-    return orchestrator.build_runner_smoke_diagnostic()
+    try:
+        return orchestrator.build_runner_smoke_diagnostic()
+    finally:
+        orchestrator.close()
 
 
 def main() -> int:

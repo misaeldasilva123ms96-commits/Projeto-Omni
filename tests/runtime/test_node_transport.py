@@ -9,7 +9,7 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
-from brain.runtime.node_transport import run_node_subprocess  # noqa: E402
+from brain.runtime.node_transport import NodeCircuitBreaker, run_node_subprocess  # noqa: E402
 
 
 def _diagnostics() -> dict[str, object]:
@@ -34,6 +34,37 @@ def _diagnostics() -> dict[str, object]:
 
 
 class NodeTransportTest(unittest.TestCase):
+    def test_circuit_opens_then_allows_single_half_open_probe(self) -> None:
+        circuit = NodeCircuitBreaker()
+
+        circuit.record_failure(enabled=True, failure_threshold=2, now=10.0)
+        self.assertTrue(circuit.before_call(enabled=True, reset_seconds=30, now=11.0).allowed)
+        circuit.record_failure(enabled=True, failure_threshold=2, now=12.0)
+
+        blocked = circuit.before_call(enabled=True, reset_seconds=30, now=20.0)
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.state, "OPEN")
+        self.assertEqual(blocked.failure_count, 2)
+
+        probe = circuit.before_call(enabled=True, reset_seconds=30, now=42.0)
+        self.assertTrue(probe.allowed)
+        self.assertEqual(probe.state, "HALF_OPEN")
+        concurrent = circuit.before_call(enabled=True, reset_seconds=30, now=42.1)
+        self.assertFalse(concurrent.allowed)
+
+        circuit.record_success(enabled=True)
+        recovered = circuit.before_call(enabled=True, reset_seconds=30, now=43.0)
+        self.assertTrue(recovered.allowed)
+        self.assertEqual(recovered.state, "CLOSED")
+        self.assertEqual(recovered.failure_count, 0)
+
+    def test_disabled_circuit_never_blocks(self) -> None:
+        circuit = NodeCircuitBreaker()
+        circuit.record_failure(enabled=False, failure_threshold=1, now=1.0)
+        decision = circuit.before_call(enabled=False, reset_seconds=30, now=2.0)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.state, "DISABLED")
+
     def test_transport_failure_is_separate_from_semantic_success(self) -> None:
         with patch("brain.runtime.node_transport.subprocess.run", side_effect=FileNotFoundError(2, "too large", None, 206, None)):
             result = run_node_subprocess(

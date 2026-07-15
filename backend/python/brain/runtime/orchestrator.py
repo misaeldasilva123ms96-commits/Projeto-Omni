@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
@@ -31,6 +32,7 @@ from brain.memory.store import (
     save_memory_store,
 )
 from brain.runtime.config import load_config
+from brain.runtime.metrics_collector import MetricsCollector
 from brain.runtime.language import normalize_input_to_oil_request, oil_summary, translate_to_oil_projection
 from brain.runtime.session_helpers import (
     DEFAULT_SESSION_ID,
@@ -158,7 +160,12 @@ from brain.runtime.telemetry.supabase_tool_events import (
     error_code_from_tool_result,
     record_runtime_tool_event,
 )
-from brain.runtime.node_transport import call_node_with_preflight, run_node_subprocess
+from brain.runtime.node_transport import (
+    NODE_CIRCUIT_OPEN,
+    NodeCircuitBreaker,
+    call_node_with_preflight,
+    run_node_subprocess,
+)
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.runtime.observability.runtime_lane_classifier import (
     LANE_BRIDGE_EXECUTION_REQUEST,
@@ -199,6 +206,8 @@ MOCK_RUNTIME_RESPONSE = (
 SUBPROCESS_TIMEOUT_SECONDS = 60
 MAX_JSONL_SANITIZE_BYTES = 10 * 1024 * 1024
 MAX_JSONL_ACTIVE_BYTES = 50 * 1024 * 1024
+_JSONL_IO_LOCK = threading.Lock()
+_JSONL_PREPARED_PATHS: set[Path] = set()
 CONTROL_LAYER_BLOCK_PREFIX = "Execucao bloqueada pela camada de controle"
 MUTATING_TOOLS = {
     "write_file",
@@ -428,6 +437,8 @@ class BrainOrchestrator:
         self._last_phase41_policy_hint: dict[str, Any] | None = None
         self._last_strategy_performance_payload: dict[str, Any] | None = None
         self._last_node_result_envelope: dict[str, Any] | None = None
+        self._node_circuit = NodeCircuitBreaker()
+        self.metrics_collector = MetricsCollector()
         self.performance_engine = PerformanceEngine()
         self.agent_coordinator = AgentCoordinator()
         self.task_decomposer = TaskDecomposer()
@@ -472,6 +483,12 @@ class BrainOrchestrator:
             close_memory_integration()
         except Exception:
             pass
+
+    def __enter__(self) -> "BrainOrchestrator":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
 
     def __del__(self) -> None:
         try:
@@ -563,6 +580,7 @@ class BrainOrchestrator:
         duration_ms: int,
         lora_payload: dict[str, Any] | None = None,
     ) -> str:
+        self.metrics_collector.record_latency("runtime_turn", duration_ms)
         self.last_cognitive_runtime_inspection = build_cognitive_runtime_inspection(
             response=response,
             safe_fallback=SAFE_FALLBACK_RESPONSE,
@@ -1271,13 +1289,15 @@ class BrainOrchestrator:
                 "multi_agent_coordination": dict(coordination_payload),
             }
         response = str(strategy_execution.get("response_text", "") or swarm_result.get("response", "")).strip() or SAFE_FALLBACK_RESPONSE
-        if response == SAFE_FALLBACK_RESPONSE and self.last_runtime_mode == "live":
+        if response in {SAFE_FALLBACK_RESPONSE, NODE_FALLBACK_RESPONSE}:
+            previous_mode = self.last_runtime_mode
             self.last_runtime_mode = "fallback"
-            self.last_runtime_reason = "empty_swarm_response"
+            if response == SAFE_FALLBACK_RESPONSE and previous_mode == "live":
+                self.last_runtime_reason = "empty_swarm_response"
             self._record_runtime_mode_event(
                 session_id=sid,
                 mode="fallback",
-                reason_code="empty_swarm_response",
+                reason_code=str(self.last_runtime_reason or "runtime_fallback"),
                 details={"message_preview": message[:120]},
             )
         lora_decision = self._apply_lora_learning_integration(
@@ -2210,12 +2230,70 @@ class BrainOrchestrator:
             },
             ensure_ascii=False,
         )
+        node_config = load_config()
+        circuit_decision = self._node_circuit.before_call(
+            enabled=node_config.node_circuit_breaker_enabled,
+            reset_seconds=node_config.node_circuit_reset_seconds,
+        )
+        if not circuit_decision.allowed:
+            circuit_details = {
+                "circuit_breaker": {
+                    "state": circuit_decision.state,
+                    "failure_count": circuit_decision.failure_count,
+                    "retry_after_seconds": round(circuit_decision.retry_after_seconds, 3),
+                },
+                "timeout_seconds": node_config.node_subprocess_timeout_seconds,
+            }
+            self._append_runtime_event(
+                event_type="runtime.node.subprocess_diagnostics",
+                session_id=session_id,
+                task_id="",
+                run_id="",
+                payload={
+                    "stage": "circuit_breaker",
+                    "reason_code": NODE_CIRCUIT_OPEN,
+                    **circuit_details,
+                },
+            )
+            self._last_node_result_envelope = None
+            self.last_runtime_mode = "fallback"
+            self.last_runtime_reason = NODE_CIRCUIT_OPEN
+            self._last_node_outcome = normalize_node_outcome(
+                transport_status=TRANSPORT_FALLBACK,
+                semantic_lane=LANE_SAFE_DEGRADED_FALLBACK,
+                reason_code=NODE_CIRCUIT_OPEN,
+            )
+            self._record_runtime_mode_event(
+                session_id=session_id,
+                mode="fallback",
+                reason_code=NODE_CIRCUIT_OPEN,
+                details=circuit_details,
+            )
+            self._record_node_call_exit(
+                session_id=session_id,
+                exit_point="B",
+                fallback_reason=NODE_CIRCUIT_OPEN,
+                call_start=_call_start,
+            )
+            self._primary_path_metrics["attempts"] += 1
+            self._primary_path_metrics["exit_B_transport_failure"] += 1
+            self._primary_path_metrics["fallbacks"] += 1
+            return NODE_FALLBACK_RESPONSE
+
         diagnostics = self._resolve_node_command_context(payload=payload)
         transport = call_node_with_preflight(
             diagnostics=diagnostics,
             payload=payload,
-            timeout_seconds=SUBPROCESS_TIMEOUT_SECONDS,
+            timeout_seconds=node_config.node_subprocess_timeout_seconds,
         )
+        if transport.ok:
+            self._node_circuit.record_success(enabled=node_config.node_circuit_breaker_enabled)
+        else:
+            self._node_circuit.record_failure(
+                enabled=node_config.node_circuit_breaker_enabled,
+                failure_threshold=node_config.node_circuit_failure_threshold,
+            )
+        circuit_snapshot = self._node_circuit.snapshot()
         self._append_runtime_event(
             event_type="runtime.node.subprocess_diagnostics",
             session_id=session_id,
@@ -2224,6 +2302,8 @@ class BrainOrchestrator:
             payload={
                 "stage": transport.stage,
                 "reason_code": transport.reason_code,
+                "timeout_seconds": node_config.node_subprocess_timeout_seconds,
+                "circuit_breaker": circuit_snapshot,
                 **transport.details,
             },
         )
@@ -2374,7 +2454,9 @@ class BrainOrchestrator:
             "fallback_reason": fallback_reason,
         }
         if call_start is not None:
-            payload["elapsed_seconds"] = round(time.monotonic() - call_start, 3)
+            elapsed_seconds = max(0.0, time.monotonic() - call_start)
+            payload["elapsed_seconds"] = round(elapsed_seconds, 3)
+            self.metrics_collector.record_latency("node_boundary", elapsed_seconds * 1000.0)
         if transport is not None:
             payload["transport_ok"] = transport.ok
             payload["transport_stage"] = transport.stage
@@ -3464,6 +3546,13 @@ class BrainOrchestrator:
         m["success_rate_pct"] = round((successes / attempts * 100) if attempts > 0 else 0.0, 1)
         m["total_attempts"] = attempts
         return m
+
+    def get_runtime_metrics(self) -> dict[str, Any]:
+        return {
+            **self.metrics_collector.snapshot(),
+            "primary_path": self.get_primary_path_success_rate(),
+            "node_circuit_breaker": self._node_circuit.snapshot(),
+        }
 
     def _extract_local_tool_target(self, message: str) -> str:
         match = re.search(r"([A-Za-z0-9_./\\\\-]+\.(?:json|md|py|js|ts|tsx|rs|toml|yaml|yml))", str(message or ""))
@@ -6713,10 +6802,10 @@ class BrainOrchestrator:
             return
 
     @staticmethod
-    def _rotate_jsonl_file_if_needed(path: Path) -> None:
+    def _rotate_jsonl_file_if_needed(path: Path) -> bool:
         try:
             if not path.exists() or path.stat().st_size <= MAX_JSONL_ACTIVE_BYTES:
-                return
+                return False
             timestamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
             archive_path = path.with_name(f"{path.name}.{timestamp}.bak")
             suffix = 1
@@ -6724,17 +6813,51 @@ class BrainOrchestrator:
                 archive_path = path.with_name(f"{path.name}.{timestamp}.{suffix}.bak")
                 suffix += 1
             path.replace(archive_path)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _prune_jsonl_archives(path: Path) -> None:
+        try:
+            config = load_config()
+            keep_count = max(0, config.jsonl_archive_retention_count)
+            retention_days = max(0, config.jsonl_archive_retention_days)
+            cutoff = time.time() - (retention_days * 86_400)
+            archives = sorted(
+                path.parent.glob(f"{path.name}.*.bak"),
+                key=lambda candidate: candidate.stat().st_mtime,
+                reverse=True,
+            )
+            for index, archive in enumerate(archives):
+                too_many = index >= keep_count
+                too_old = retention_days == 0 or archive.stat().st_mtime < cutoff
+                if too_many or too_old:
+                    archive.unlink(missing_ok=True)
         except Exception:
             return
 
     @staticmethod
+    def _prepare_jsonl_file(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved in _JSONL_PREPARED_PATHS:
+            return
+        BrainOrchestrator._sanitize_jsonl_file(path)
+        BrainOrchestrator._prune_jsonl_archives(path)
+        _JSONL_PREPARED_PATHS.add(resolved)
+
+    @staticmethod
     def _append_jsonl(path: Path, entry: dict[str, Any]) -> None:
         try:
-            BrainOrchestrator._rotate_jsonl_file_if_needed(path)
-            BrainOrchestrator._sanitize_jsonl_file(path)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(redact_sensitive_payload(entry), ensure_ascii=False))
-                handle.write("\n")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with _JSONL_IO_LOCK:
+                BrainOrchestrator._prepare_jsonl_file(path)
+                rotated = BrainOrchestrator._rotate_jsonl_file_if_needed(path)
+                if rotated:
+                    BrainOrchestrator._prune_jsonl_archives(path)
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(redact_sensitive_payload(entry), ensure_ascii=False))
+                    handle.write("\n")
         except Exception:
             return
 

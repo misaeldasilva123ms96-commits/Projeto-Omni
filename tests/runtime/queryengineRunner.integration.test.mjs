@@ -18,6 +18,23 @@ const packagedCandidatePath = path.join(projectRoot, 'dist', 'QueryEngine.js');
 
 const runnerModule = await import(pathToFileURL(path.join(projectRoot, 'js-runner', 'queryEngineRunner.js')).href);
 
+const nodeCandidates = runnerModule.getQueryEngineCandidates({}, { node: process.versions.node }, []);
+assert.equal(nodeCandidates.some(candidate => candidate.endsWith('.ts')), false);
+const bunCandidates = runnerModule.getQueryEngineCandidates({}, { bun: '1.0.0' }, []);
+assert.equal(bunCandidates.some(candidate => candidate.endsWith('.ts')), true);
+const loaderCandidates = runnerModule.getQueryEngineCandidates(
+  { OMNI_QUERY_ENGINE_TYPESCRIPT_LOADER_ENABLED: 'true' },
+  { node: process.versions.node },
+  ['--loader=tsx'],
+);
+assert.equal(loaderCandidates.some(candidate => candidate.endsWith('.ts')), true);
+const unconfirmedLoaderCandidates = runnerModule.getQueryEngineCandidates(
+  { OMNI_QUERY_ENGINE_TYPESCRIPT_LOADER_ENABLED: 'true' },
+  { node: process.versions.node },
+  [],
+);
+assert.equal(unconfirmedLoaderCandidates.some(candidate => candidate.endsWith('.ts')), false);
+
 const valid = runnerModule.safeParsePayload(JSON.stringify({
   message: 'ola',
   memory: {},

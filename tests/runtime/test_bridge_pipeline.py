@@ -27,6 +27,13 @@ def _load_python_main_module():
 
 
 class BridgePipelineTest(unittest.TestCase):
+    def test_public_runtime_session_id_is_truthful_and_bounded(self) -> None:
+        module = _load_python_main_module()
+        with patch.dict(os.environ, {"AI_SESSION_ID": "runtime-session-1"}, clear=False):
+            self.assertEqual(module._public_runtime_session_id(), "runtime-session-1")
+        with patch.dict(os.environ, {"AI_SESSION_ID": "bad/session"}, clear=False):
+            self.assertEqual(module._public_runtime_session_id(), "python-session")
+
     def test_session_byok_bridge_extracts_private_overlay(self) -> None:
         from brain.runtime.session_helpers import extract_session_byok_bridge as _extract_session_byok_bridge
 
@@ -347,6 +354,8 @@ class BridgePipelineTest(unittest.TestCase):
             "        }\n"
             "    def run(self, *a, **k):\n"
             "        return {'response': 'provider failed'}\n"
+            "    def close(self):\n"
+            "        pass\n"
             "module.BrainOrchestrator = _OkOrchestrator\n"
             "raise SystemExit(module.main())\n"
         )
@@ -448,6 +457,8 @@ class BridgePipelineTest(unittest.TestCase):
             "            'failure_class': 'provider_timeout',\n"
             "            'provider_diagnostics': None,\n"
             "        }\n"
+            "    def close(self):\n"
+            "        pass\n"
             "captured = {}\n"
             "def _capture_provider_diag(**kwargs):\n"
             "    captured.update(kwargs)\n"
@@ -498,6 +509,8 @@ class BridgePipelineTest(unittest.TestCase):
             "        pass\n"
             "    def run(self, *a, **k):\n"
             "        raise RuntimeError('boom')\n"
+            "    def close(self):\n"
+            "        pass\n"
             "module.BrainOrchestrator = _BrokenOrchestrator\n"
             "try:\n"
             "    raise SystemExit(module.main())\n"

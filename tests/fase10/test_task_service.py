@@ -21,6 +21,7 @@ class _FakeCheckpointStore:
 
 class _FakeOrchestrator:
     def __init__(self) -> None:
+        self.closed = False
         self.checkpoint_store = _FakeCheckpointStore(
             {
                 "task_id": "task-u-s",
@@ -55,6 +56,9 @@ class _FakeOrchestrator:
     def resume_run(self, run_id: str) -> dict[str, object]:
         return {"status": "completed", "run_id": run_id}
 
+    def close(self) -> None:
+        self.closed = True
+
 
 class TaskServiceTest(unittest.TestCase):
     def build_service(self) -> TaskService:
@@ -83,6 +87,13 @@ class TaskServiceTest(unittest.TestCase):
         self.assertIn("workspace_state", service.inspect_workspace_state(run_id="r1"))
         status = service.task_status(run_id="r1")
         self.assertEqual(status["status"], "completed")
+
+    def test_context_manager_closes_persistent_orchestrator(self) -> None:
+        service = self.build_service()
+        orchestrator = service.orchestrator
+        with service as active_service:
+            self.assertIs(active_service, service)
+        self.assertTrue(orchestrator.closed)
 
 
 if __name__ == "__main__":

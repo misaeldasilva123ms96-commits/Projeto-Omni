@@ -345,7 +345,8 @@ export function operatorMilestonesV1ToMilestonesResponse(w: OperatorMilestonesV1
 export function chatApiResponseToUi(res: ChatApiResponse): UiChatResponse {
   return {
     text: res.response,
-    sessionId: res.session_id,
+    // UI continuity remains client-owned even when Rust now returns a real runtime session id.
+    sessionId: res.client_session_id ?? res.session_id,
     source: res.source,
     commands: res.matched_commands ?? [],
     tools: res.matched_tools ?? [],

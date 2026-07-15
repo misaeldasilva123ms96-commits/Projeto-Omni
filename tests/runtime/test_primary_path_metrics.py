@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 import pytest
+from unittest.mock import patch
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 
@@ -20,6 +21,29 @@ def orchestrator() -> BrainOrchestrator:
 
 
 class TestGetPrimaryPathSuccessRate:
+    def test_open_node_circuit_skips_subprocess_and_records_fallback(
+        self,
+        orchestrator: BrainOrchestrator,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("OMNI_NODE_CIRCUIT_BREAKER_ENABLED", "true")
+        monkeypatch.setenv("OMNI_NODE_CIRCUIT_FAILURE_THRESHOLD", "1")
+        monkeypatch.setenv("OMNI_NODE_CIRCUIT_RESET_SECONDS", "300")
+        orchestrator._node_circuit.record_failure(enabled=True, failure_threshold=1)
+
+        with patch("brain.runtime.orchestrator.call_node_with_preflight") as node_call:
+            response = orchestrator._call_node_query_engine(
+                message="test circuit",
+                memory_store={"history": [], "user": {}},
+                available_capabilities=[],
+                session_id="test-node-circuit",
+            )
+
+        node_call.assert_not_called()
+        assert response.startswith("Modo fallback ativo")
+        assert orchestrator.last_runtime_reason == "NODE_CIRCUIT_OPEN"
+        assert orchestrator._primary_path_metrics["exit_B_transport_failure"] == 1
+
     def test_returns_zero_when_no_attempts(self, orchestrator: BrainOrchestrator) -> None:
         metrics = orchestrator.get_primary_path_success_rate()
         assert metrics["attempts"] == 0

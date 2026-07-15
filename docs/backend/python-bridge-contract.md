@@ -12,7 +12,7 @@
 | Rust | Builds JSON (see §2), writes it to the subprocess **stdin**, closes stdin. Still passes **`argv[1]` = user message** for backward compatibility. |
 | Python | Reads optional stdin JSON via `brain.runtime.bridge_stdin`. **Message** is taken from JSON `message` when present and non-empty; otherwise **`sys.argv[1]`** (legacy). |
 | Env | Optional correlation: `OMNI_BRIDGE_CLIENT_SESSION_ID`, `OMNI_BRIDGE_RUNTIME_SESSION_VERSION`, `OMNI_BRIDGE_REQUEST_SOURCE` (see §4). |
-| Response | Python prints one JSON object on stdout (unchanged). Rust parses assistant text as before. **`ChatResponse` JSON fields are unchanged** (no new server `session_id` semantics in this phase). |
+| Response | Python prints one JSON object on stdout. It includes a public-safe `runtime_session_id`; Rust maps that value to `ChatResponse.session_id` and keeps the compatibility placeholder only when the field is absent or invalid. |
 
 ---
 
@@ -54,9 +54,11 @@ This is **correlation / transcript partitioning** using the client-owned id when
 
 ---
 
-## 5. Optional conversation id return path (Phase 11)
+## 5. Runtime session and optional conversation id return paths
 
-When the orchestrator (or structured bridge) supplies **`server_conversation_id`** or **`conversation_id`** on the object that becomes user-visible JSON, Python may emit a canonical **`conversation_id`** on stdout (sanitized, never invented). Rust parses stdout JSON and merges **`conversation_id`** into `ChatResponse` **additively**. If absent, the HTTP field is omitted. Placeholder `session_id` strings (`python-session`, `mock-session`) remain unchanged until a later phase maps a real orchestrator id into `session_id`.
+Python emits the actual public-safe orchestrator session key as **`runtime_session_id`**. Rust validates it and maps it to **`ChatResponse.session_id`**. Older Python adapters that omit it still receive the compatibility placeholder `python-session`. The mock path remains explicitly labeled `mock-session`.
+
+When the orchestrator (or structured bridge) supplies **`server_conversation_id`** or **`conversation_id`** on the object that becomes user-visible JSON, Python may also emit a canonical **`conversation_id`** on stdout (sanitized, never invented). Rust parses and merges it additively. It remains distinct from both the runtime session key and the client-owned `client_session_id`.
 
 ---
 
@@ -73,3 +75,4 @@ The same stdin envelope backs **`POST /api/v1/chat`**: the HTTP handler adds opt
 | Phase 7 | Optional `client_session_id` on HTTP `/chat` request/response echo. |
 | Phase 10 | JSON stdin to Python + env bridge + `_session_id()` precedence rules. |
 | Phase 11 | Optional `client_context` on stdin from `/api/v1/chat`; optional `conversation_id` on stdout → HTTP. |
+| Runtime hardening | Public-safe `runtime_session_id` on Python stdout → truthful `ChatResponse.session_id`, with legacy fallback. |

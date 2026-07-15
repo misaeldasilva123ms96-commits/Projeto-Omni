@@ -194,12 +194,12 @@ struct PublicChatResponseV1 {
     chat: ChatResponse,
 }
 
-/// `POST /chat` JSON response. `session_id` remains a transport placeholder until Python returns a real orchestrator id.
+/// `POST /chat` JSON response. `session_id` is the orchestrator runtime session id when Python emits one.
 /// `runtime_session_version` is the Rust runtime epoch, not a user session. See `docs/backend/chat-session-contract.md`.
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatResponse {
     response: String,
-    /// Subprocess / mock path label — **not** the client conversation id today.
+    /// Runtime session key from Python, or a compatibility placeholder when unavailable.
     session_id: String,
     source: String,
     /// Rust runtime session epoch; aligns chat envelope with `/health` and `GET /api/v1/status` (additive field).
@@ -588,6 +588,38 @@ fn is_local_or_demo_cors_mode() -> bool {
         })
 }
 
+fn is_local_or_demo_runtime_mode() -> bool {
+    if env_truthy("OMNI_PUBLIC_DEMO_MODE") || env_truthy("OMINI_PUBLIC_DEMO_MODE") {
+        return true;
+    }
+
+    ["OMNI_ENV", "OMINI_ENV", "APP_ENV", "RUST_ENV"]
+        .into_iter()
+        .filter_map(|name| env::var(name).ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .any(|value| {
+            matches!(
+                value.as_str(),
+                "local" | "dev" | "development" | "test" | "demo"
+            )
+        })
+}
+
+fn validate_mock_mode_for_environment(mock_mode: bool) -> Result<(), AppError> {
+    if !mock_mode
+        || is_local_or_demo_runtime_mode()
+        || env_truthy("OMNI_ALLOW_MOCK_CHAT")
+        || env_truthy("OMINI_ALLOW_MOCK_CHAT")
+    {
+        return Ok(());
+    }
+
+    Err(AppError::Internal(
+        "MOCK_CHAT is blocked outside local/demo environments; set OMNI_ALLOW_MOCK_CHAT=true only for an explicitly approved non-live deployment"
+            .to_string(),
+    ))
+}
+
 fn configured_cors_origins() -> Option<String> {
     env::var("OMNI_ALLOWED_ORIGINS")
         .ok()
@@ -700,6 +732,7 @@ async fn main() -> Result<(), AppError> {
     let mock_mode = env::var("MOCK_CHAT")
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
         .unwrap_or(false);
+    validate_mock_mode_for_environment(mock_mode)?;
     let python_entry = resolve_python_entry();
     let project_root = resolve_project_root(&python_entry);
     let python_root = resolve_python_root(&project_root, &python_entry);
@@ -2978,6 +3011,7 @@ fn extract_stop_reason_from_python_json(json: &Value) -> Option<String> {
 #[derive(Debug, Clone)]
 struct ParsedPythonChat {
     response: String,
+    runtime_session_id: Option<String>,
     conversation_id: Option<String>,
     cognitive_runtime_inspection: Option<Value>,
     providers: Option<Vec<String>>,
@@ -3020,6 +3054,7 @@ fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
     if trimmed.is_empty() {
         return ParsedPythonChat {
             response: PYTHON_FALLBACK_RESPONSE.to_string(),
+            runtime_session_id: None,
             conversation_id: None,
             cognitive_runtime_inspection: Some(json!({
                 "runtime_mode": "SAFE_FALLBACK",
@@ -3053,6 +3088,10 @@ fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
 
     match serde_json::from_str::<Value>(trimmed) {
         Ok(json) => {
+            let runtime_session_id = json
+                .get("runtime_session_id")
+                .and_then(Value::as_str)
+                .and_then(normalize_conversation_id_from_str);
             let conversation_id = extract_conversation_id_from_python_json(&json);
             let mut response = extract_response_text_from_python_json(&json);
             let inspection = json.get("cognitive_runtime_inspection").cloned();
@@ -3089,6 +3128,7 @@ fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
             }
             ParsedPythonChat {
                 response,
+                runtime_session_id,
                 conversation_id,
                 cognitive_runtime_inspection: inspection,
                 providers,
@@ -3101,6 +3141,7 @@ fn extract_chat_from_python_output(stdout: &str) -> ParsedPythonChat {
             let parse_detail = err.to_string();
             ParsedPythonChat {
                 response: PYTHON_PARSE_FAILURE_RESPONSE.to_string(),
+                runtime_session_id: None,
                 conversation_id: None,
                 cognitive_runtime_inspection: Some(json!({
                     "runtime_mode": "SAFE_FALLBACK",
@@ -3587,7 +3628,9 @@ async fn call_python_service(
 
     Ok(ChatResponse {
         response: parsed.response,
-        session_id: "python-session".to_string(),
+        session_id: parsed
+            .runtime_session_id
+            .unwrap_or_else(|| "python-session".to_string()),
         source: "python-service".to_string(),
         runtime_session_version: state.runtime_session_version,
         client_session_id,
@@ -3805,7 +3848,9 @@ async fn call_python_subprocess(
 
     Ok(ChatResponse {
         response: parsed.response,
-        session_id: "python-session".to_string(),
+        session_id: parsed
+            .runtime_session_id
+            .unwrap_or_else(|| "python-session".to_string()),
         source: "python-subprocess".to_string(),
         runtime_session_version: state.runtime_session_version,
         client_session_id,
@@ -4183,11 +4228,66 @@ mod tests {
         }
     }
 
+    fn with_clean_mock_env(vars: &[(&str, &str)], test: impl FnOnce()) {
+        let lock = ENV_TEST_LOCK.get_or_init(|| StdMutex::new(()));
+        let _guard = lock.lock().expect("env lock");
+        let keys = [
+            "MOCK_CHAT",
+            "OMNI_ALLOW_MOCK_CHAT",
+            "OMINI_ALLOW_MOCK_CHAT",
+            "OMNI_PUBLIC_DEMO_MODE",
+            "OMINI_PUBLIC_DEMO_MODE",
+            "OMNI_ENV",
+            "OMINI_ENV",
+            "APP_ENV",
+            "RUST_ENV",
+        ];
+        let saved: Vec<(&str, Option<String>)> =
+            keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        for key in keys {
+            env::remove_var(key);
+        }
+        for (key, value) in vars {
+            env::set_var(key, value);
+        }
+
+        test();
+
+        for (key, value) in saved {
+            match value {
+                Some(value) => env::set_var(key, value),
+                None => env::remove_var(key),
+            }
+        }
+    }
+
     fn header_values_as_strings(values: &[HeaderValue]) -> Vec<String> {
         values
             .iter()
             .map(|value| value.to_str().expect("origin header").to_string())
             .collect()
+    }
+
+    #[test]
+    fn mock_chat_is_rejected_without_explicit_non_live_authorization() {
+        with_clean_mock_env(&[], || {
+            let error =
+                validate_mock_mode_for_environment(true).expect_err("mock must fail closed");
+            assert!(error.to_string().contains("MOCK_CHAT is blocked"));
+        });
+    }
+
+    #[test]
+    fn mock_chat_is_allowed_in_local_demo_or_explicit_override() {
+        with_clean_mock_env(&[("OMNI_ENV", "development")], || {
+            validate_mock_mode_for_environment(true).expect("development mock");
+        });
+        with_clean_mock_env(&[("OMNI_PUBLIC_DEMO_MODE", "true")], || {
+            validate_mock_mode_for_environment(true).expect("public demo mock");
+        });
+        with_clean_mock_env(&[("OMNI_ALLOW_MOCK_CHAT", "true")], || {
+            validate_mock_mode_for_environment(true).expect("explicit mock override");
+        });
     }
 
     #[tokio::test]
@@ -5210,6 +5310,21 @@ print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
     }
 
     #[test]
+    fn extract_chat_from_python_output_uses_truthful_runtime_session_id() {
+        let raw = r#"{"response":"hi","runtime_session_id":"runtime-session-1"}"#;
+        let parsed = extract_chat_from_python_output(raw);
+        assert_eq!(
+            parsed.runtime_session_id.as_deref(),
+            Some("runtime-session-1")
+        );
+
+        let invalid = extract_chat_from_python_output(
+            r#"{"response":"hi","runtime_session_id":"bad\nsession"}"#,
+        );
+        assert!(invalid.runtime_session_id.is_none());
+    }
+
+    #[test]
     fn extract_chat_from_python_output_ignores_invalid_conversation_id() {
         let raw = format!(
             r#"{{"response":"x","conversation_id":"{}"}}"#,
@@ -5533,6 +5648,17 @@ print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
             .expect("python success");
         assert_eq!(response.response, "ok");
         assert_eq!(response.conversation_id.as_deref(), Some("real-1"));
+    }
+
+    #[tokio::test]
+    async fn call_python_maps_runtime_session_id_from_stdout_json() {
+        let script = r#"print('{"response":"ok","runtime_session_id":"runtime-real-1"}')"#;
+        let state = build_test_state(temp_script(script, "runtime-session-id"), 15_000);
+        let response = call_python(&state, "hello", Some("client-1".into()), None, None)
+            .await
+            .expect("python success");
+        assert_eq!(response.session_id, "runtime-real-1");
+        assert_eq!(response.client_session_id.as_deref(), Some("client-1"));
     }
 
     #[test]

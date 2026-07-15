@@ -65,6 +65,15 @@ jobs:
       - name: Run Python runtime pytest suite
         run: npm run test:python:pytest
 
+      - name: Run runtime hardening and performance gates
+        run: >-
+          python -m pytest -q
+          tests/runtime/test_metrics_collector.py
+          tests/runtime/test_jsonl_retention.py
+          tests/performance/test_jsonl_runtime_performance.py
+          tests/e2e/test_runtime_hardening.py
+          tests/fase10/test_task_service.py
+
       - name: Run Rust API tests
         working-directory: backend/rust
         run: cargo test

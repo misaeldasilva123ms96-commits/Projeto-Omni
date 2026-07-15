@@ -16,7 +16,10 @@ def run_cli(argv: list[str] | None = None) -> int:
         message, bridge = resolve_entry_message()
         apply_bridge_env(bridge)
     orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(Path(__file__)))
-    response = orchestrator.run(message, bridge=bridge if isinstance(bridge, dict) else {})
+    try:
+        response = orchestrator.run(message, bridge=bridge if isinstance(bridge, dict) else {})
+    finally:
+        orchestrator.close()
     try:
         print(response)
     except UnicodeEncodeError:

@@ -413,6 +413,7 @@ def build_cognitive_runtime_inspection(
         "NODE_BRIDGE_NONZERO_EXIT",
         "NODE_BRIDGE_TIMEOUT",
         "NODE_EMPTY_RESPONSE",
+        "NODE_CIRCUIT_OPEN",
     }
     node_failure = semantic_lane == LANE_SAFE_DEGRADED_FALLBACK and runtime_reason in node_failure_reasons
     fallback_triggered = (
