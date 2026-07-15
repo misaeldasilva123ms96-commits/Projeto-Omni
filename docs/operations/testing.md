@@ -4,8 +4,8 @@ This page documents the current local validation matrix for the audited multi-ru
 
 Latest audit base used for this update:
 
-- Branch audited: `release/omni-current-state-2026-05-21`
-- Base: `origin/main` after PR #171
+- Branch audited: `docs/runtime-state-post-pr542`
+- Base: `origin/main` after PR #542
 
 ## Primary Local Matrix
 
@@ -17,6 +17,7 @@ Run from the repository root unless a command states otherwise.
 | `npm run test:js-runtime` | Node QueryEngine runner, runtime truth contracts, specialists, Supabase optional dependency handling | PASS |
 | `npm run test:python:pytest` | Python runtime pytest suite, observability, governance, learning, training gates | PASS |
 | `npm run test:security` | Consolidated security regression suite across hardening phases | PASS |
+| `npm run validate:env-aliases` | Canonical `OMNI_*` inventory and legacy alias policy | PASS |
 | `npm run validate:public-demo` | Static public demo readiness validator | PASS |
 | `npm run validate:audit-pack` | Static audit-pack validator | PASS |
 | `git diff --check` | Whitespace and patch hygiene | Required before commit |
@@ -29,6 +30,7 @@ node tests/runtime/providerRouterMetadata.test.mjs
 node tests/runtime/remoteProviderExecutor.test.mjs
 node tests/runtime/runtimeTruthContract.test.mjs
 python -m pytest tests/runtime/test_bridge_pipeline.py tests/runtime/test_cognitive_orchestration.py -v
+python -m pytest tests/config/test_encrypted_credential_store.py tests/config/test_provider_credential_adapter.py tests/config/test_provider_health.py -v
 ```
 
 ## Focused Runtime/Security Commands
@@ -81,7 +83,7 @@ docker build -f Dockerfile.demo -t omni-demo:local-validation .
 docker compose -f docker-compose.demo.yml up --build
 ```
 
-The latest documentation audit verified the static validators, not a fresh Docker image build/runtime smoke in that pass.
+The latest documentation audit verified repository evidence and the merged PR check rollups, not a fresh Docker image build/runtime smoke in that pass.
 
 ## Interpreting Success
 

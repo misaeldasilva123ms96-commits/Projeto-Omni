@@ -1,6 +1,6 @@
-# Session BYOK
+# BYOK Boundaries
 
-BYOK means bring your own key. Omni currently supports session-only BYOK at the Rust -> Python -> Node bridge boundary.
+BYOK means bring your own key. Omni has two distinct credential surfaces: request-scoped session BYOK for chat execution and authenticated persistent provider settings. They are not yet connected into one end-to-end execution path.
 
 ## Current Scope
 
@@ -12,15 +12,18 @@ Implemented:
 - request-scoped Node env overlay
 - fail-closed BYOK execution policy
 - cross-language tests for forwarding, isolation, and redaction
+- authenticated provider-settings API
+- encrypted per-user provider credential storage
+- frontend Provider Center for configure, update, delete, and explicit connection tests
 
-Not implemented:
+Not implemented end to end:
 
-- persistent credential storage
-- encrypted user credential vault
-- tenant/account credential management
-- frontend key-entry UI
+- automatic use of the authenticated user's stored provider credential by the normal chat path
+- propagation of authenticated chat identity into `JSRuntimeAdapter.build_env()` credential resolution
 - billing, quotas, or hosted BYOK governance
 - local URL BYOK overrides
+
+Persistent settings therefore must not be described as executable chat BYOK. Until identity propagation and fallback policy are explicitly wired and tested, chat execution uses either request-scoped `session_provider_credentials` or system environment credentials.
 
 ## Request Shape
 
