@@ -112,6 +112,23 @@ What is still true:
 - `configured`, `executable`, and legacy `available` are configuration/capability signals. Active `reachable` and `healthy` evidence exists only after an explicit cached health test; the router does not ping providers on each request.
 - A selected provider does not guarantee an actual remote provider call happened on that turn.
 
+## Persistent provider settings and chat execution
+
+Status: **PARTIALLY FIXED**
+
+What changed:
+
+- Authenticated users can configure, update, delete, and explicitly test provider credentials through the settings API and Provider Center.
+- Credentials are stored encrypted and are isolated by authenticated user and provider.
+- The credential adapter defines stored-user credentials as higher precedence than system environment credentials when a `user_id` is provided.
+
+What is still true:
+
+- The normal chat runtime does not currently pass the authenticated user identity into `JSRuntimeAdapter.build_env()`.
+- Persistently configured credentials therefore are not automatically used for chat execution.
+- Session request credentials and system environment credentials remain the executable chat inputs.
+- Wiring this boundary requires an explicit security review so user credentials cannot fall back to owner/system keys or cross tenant boundaries.
+
 ## Tool runtime reliability
 
 Status: **PARTIALLY FIXED**

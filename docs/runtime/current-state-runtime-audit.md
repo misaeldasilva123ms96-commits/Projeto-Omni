@@ -1,8 +1,8 @@
 # Omni Current Runtime State Audit
 
-Date: 2026-05-21
+Date: 2026-07-14
 
-This page summarizes the current public repository state after the provider, BYOK, diagnostics, redaction, and Node-default runtime updates merged through PR #171.
+This page summarizes the public repository state after the evidence-based audit remediation cycle merged through PR #542. It describes implemented boundaries separately from paths that are present but not yet connected end to end.
 
 ## Current Implementation Status
 
@@ -16,7 +16,7 @@ Rust API boundary
   -> Rust public response
 ```
 
-Node is the default JavaScript runtime. Bun is available only when explicitly selected with `OMNI_JS_RUNTIME_BIN=bun`. The deprecated `OMINI_JS_RUNTIME_BIN` alias remains supported when `OMNI_JS_RUNTIME_BIN` is unset.
+Node is the default JavaScript runtime. Bun is available only when explicitly selected with `OMNI_JS_RUNTIME_BIN=bun`. `OMNI_*` is the canonical configuration namespace. The deprecated `OMINI_*` aliases remain temporarily supported under the migration policy in `docs/runtime/env-alias-migration.md`; canonical values win conflicts.
 
 ## Implemented
 
@@ -25,72 +25,73 @@ Node is the default JavaScript runtime. Bun is available only when explicitly se
 - Node QueryEngine runner with provider routing, fallback, runtime truth, and provenance metadata.
 - Provider adapters for Groq, OpenRouter, OpenAI, Anthropic, Gemini, Ollama, and LM Studio.
 - DeepSeek registry metadata with unsupported/non-executable status.
-- Legacy `provider_diagnostics` array plus `provider_diagnostics_snapshot` object for complete provider state.
-- Session-only BYOK typed boundary and fail-closed execution policy.
+- Provider diagnostics that separate configured/executable capability from cached reachable/healthy evidence.
+- Session-only BYOK typed boundary with request-scoped credential overlay and fail-closed fallback policy.
+- Authenticated provider-settings API and frontend Provider Center for saving, updating, deleting, and explicitly testing provider credentials.
+- AES-256-GCM encrypted credential storage, keyed by authenticated user and provider.
 - Redaction coverage for API keys, auth headers, key-bearing URLs, raw request/response bodies, stack traces, unsafe status text, and credential objects.
+- Workspace containment for local engineering file tools, including traversal and symlink/junction escape defenses.
+- Supabase JWT issuer, expiry, and audience validation for protected routes.
+- Required live Rust -> Python -> Node -> Rust contract validation in CI.
 - Public-safe runner smoke diagnostic endpoint.
 
 ## Experimental Or Limited
 
-- Persistent Python and Node service modes exist as opt-in architecture paths, but subprocess mode is still the default contributor/demo path.
-- BYOK is session-only. There is no encrypted persistent user credential storage and no frontend key-entry UI.
-- Ollama and LM Studio require explicit local URL envs and are not auto-probed.
+- Persistent Python and Node service modes exist as opt-in architecture paths, but subprocess mode remains the default contributor/demo path.
+- Provider credentials can be managed persistently, but the normal chat runtime does not yet resolve the authenticated user's stored credential: `JSRuntimeAdapter.build_env()` calls the credential merge without a `user_id`. Session request credentials and system environment credentials remain the executable chat inputs.
+- Cached provider health is created only by an explicit provider test. The router does not probe providers on every request.
+- Ollama and LM Studio require explicit local URL environment variables and are not auto-probed.
+- Compatibility execution remains a supported degraded path and can still be selected for conservative or ambiguous prompt families.
+- Runtime truth can prove which path ran; it does not guarantee that a downstream provider or tool action succeeded.
 - The runtime remains a controlled-demo/research system, not a production autonomous decision system.
 
 ## Not Implemented
 
-- Persistent BYOK storage.
-- Tenant/user credential vault.
+- End-to-end use of authenticated stored provider credentials by the normal chat execution path.
 - Billing, governance quotas, and abuse controls for hosted provider access.
-- Frontend BYOK management UI.
 - DeepSeek execution adapter.
 - Automatic main promotion or autonomous repository mutation.
+- A current reproducible cross-runtime load/throughput baseline; the older measurements are retained only in `docs/reports/repository-archive/PERFORMANCE_BASELINE.md`.
 
-## Recent PR Range
+## Latest Audit Remediation Cycle
 
-The current state incorporates merged PRs #157-#171:
+The current state incorporates these merged evidence-based corrections:
 
-- #157 OpenRouter adapter
-- #158 OpenAI adapter
-- #159 Anthropic adapter
-- #160 Gemini adapter
-- #161 Ollama/LM Studio local adapters
-- #162 provider env propagation
-- #163 provider diagnostics snapshot
-- #164 session BYOK typed boundary
-- #165 BYOK execution fail-closed policy
-- #166 cross-language BYOK tests
-- #167 provider router policy matrix tests
-- #168 provider redaction matrix and status text hardening
-- #169 diagnostics snapshot compatibility tests
-- #170 Node default JS runtime
-- #171 public-safe runner smoke diagnostic
+- #537 contained engineering tool paths inside the approved workspace.
+- #538 restored cognitive execution routing for deterministic tool-capable prompts.
+- #539 enforced Supabase JWT audience validation.
+- #540 made a live cross-runtime contract a required CI check.
+- #541 added explicit cached provider reachability and health signals.
+- #542 established canonical `OMNI_*` configuration and governed legacy alias migration.
+
+All checks attached to PRs #537-#542 completed without failure or pending status before this audit refresh.
 
 ## Validation Matrix
 
 Recommended broad validation:
 
 ```bash
-git diff --check
+cargo test --locked --manifest-path backend/rust/Cargo.toml
 npm run test:js-runtime
+npm run test:python:pytest
 npm run test:security
-python -m pytest tests/runtime/test_bridge_pipeline.py tests/runtime/test_cognitive_orchestration.py -v
-cd backend/rust && cargo test
+npm run validate:env-aliases
+npm run validate:audit-pack
+npm run validate:public-demo
 ```
 
 Use frontend validation for UI/debug-surface changes:
 
 ```bash
-cd frontend
-npm test
-npm run typecheck
-npm run build
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
 ```
 
 ## Follow-Up Work
 
-- Add a frontend BYOK UX only after storage and policy decisions are explicit.
-- Add encrypted persisted user credential storage as a separate security-reviewed phase.
-- Add a dedicated provider diagnostics UI for the snapshot object.
-- Add deployment documentation for reading `/api/v1/runtime/runner-smoke` after Render/Cloudflare deploys.
-- Continue expanding cross-language tests when runtime truth fields change.
+- Define and security-review how authenticated chat identity reaches Python credential resolution before wiring stored provider credentials into execution.
+- Keep stored credentials fail-closed: no fallback from a user's selected credential to an owner/system key.
+- Build a reproducible offline and live performance baseline before setting latency or throughput targets.
+- Continue increasing non-compat execution activation and decision quality with contract-backed prompt families.
+- Continue expanding cross-language tests whenever runtime truth fields or credential boundaries change.
