@@ -85,9 +85,9 @@ const commands = [
     cwd: path.join(projectRoot, 'backend', 'rust'),
   },
   {
-    label: 'phase-5 api validation env aliases',
+    label: 'phase-5 canonical environment validation',
     command: 'cargo',
-    args: ['test', 'chat_security_env_aliases_work', '--', '--nocapture'],
+    args: ['test', 'chat_security_canonical_env_works', '--', '--nocapture'],
     cwd: path.join(projectRoot, 'backend', 'rust'),
   },
   {
@@ -144,12 +144,9 @@ for (const item of commands) {
     env: {
       ...process.env,
       OMNI_PUBLIC_DEMO_MODE: '',
-      OMINI_PUBLIC_DEMO_MODE: '',
       OMNI_ALLOW_SHELL_TOOLS: '',
-      OMINI_ALLOW_SHELL_TOOLS: '',
       ALLOW_SHELL: '',
       OMNI_DEBUG_INTERNAL_ERRORS: '',
-      OMINI_DEBUG_INTERNAL_ERRORS: '',
     },
   });
   if (result.status !== 0) {

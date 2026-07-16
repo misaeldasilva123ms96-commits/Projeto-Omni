@@ -1,5 +1,5 @@
 const { OMNI_ERROR_CODE, buildPublicError } = require('./errorTaxonomy');
-const { readEnvAliasBool } = require('../config/envAlias');
+const { readEnvBool } = require('../config/env');
 
 const TOOL_TAXONOMY = {
   none: { category: 'direct_response', policy_level: 'low', mutating: false, privileged: false },
@@ -35,7 +35,7 @@ const NETWORK_TOOLS = new Set(['curl', 'fetch', 'web_request', 'network_request'
 const GIT_SENSITIVE_TOOLS = new Set(['git_commit', 'git_push', 'git_branch_mutation']);
 
 function isPublicDemoMode() {
-  return readEnvAliasBool('OMNI_PUBLIC_DEMO_MODE', 'OMINI_PUBLIC_DEMO_MODE');
+  return readEnvBool('OMNI_PUBLIC_DEMO_MODE');
 }
 
 function classifyToolCategory(toolName) {

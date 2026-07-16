@@ -1,5 +1,7 @@
 # PHASE 1B LOGGING HARDENING — Projeto Omni
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 Date: 2026-04-30
 
 Branch: hardening/logging-01b

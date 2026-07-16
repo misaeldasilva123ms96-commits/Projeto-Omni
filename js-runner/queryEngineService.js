@@ -6,7 +6,7 @@ const {
   buildPublicError,
 } = require('../runtime/tooling/errorTaxonomy');
 const runner = require('./queryEngineRunner');
-const { readEnvAlias } = require('../runtime/config/envAlias');
+const { readEnv } = require('../runtime/config/env');
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 7020;
@@ -20,10 +20,10 @@ const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{10,}\b/gi;
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 
 function getServiceConfig() {
-  const rawPort = Number.parseInt(readEnvAlias('OMNI_NODE_SERVICE_PORT', 'OMINI_NODE_SERVICE_PORT', String(DEFAULT_PORT)), 10);
+  const rawPort = Number.parseInt(readEnv('OMNI_NODE_SERVICE_PORT', String(DEFAULT_PORT)), 10);
   const port = Number.isFinite(rawPort) ? Math.max(1, Math.min(65535, rawPort)) : DEFAULT_PORT;
   return {
-    host: readEnvAlias('OMNI_NODE_SERVICE_HOST', 'OMINI_NODE_SERVICE_HOST', DEFAULT_HOST),
+    host: readEnv('OMNI_NODE_SERVICE_HOST', DEFAULT_HOST),
     port,
   };
 }

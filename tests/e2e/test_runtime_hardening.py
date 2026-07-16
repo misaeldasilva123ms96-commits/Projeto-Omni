@@ -31,7 +31,7 @@ class RuntimeHardeningTest(unittest.TestCase):
             "OMNI_NODE_BIN",
             "OMNI_NODE_SUBPROCESS_TIMEOUT_SECONDS",
             "OMNI_RUNTIME_MODE",
-            "OMINI_FORCE_SPECIALIST_FAILURE",
+            "OMNI_FORCE_SPECIALIST_FAILURE",
             "AI_SESSION_ID",
         ]:
             os.environ.pop(key, None)

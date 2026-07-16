@@ -31,14 +31,14 @@ class RuntimeIntegrationTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="omni-rti-test-"))
         self._audit_path = self._tmp / "test-audit.jsonl"
         self._sqlite_path = self._tmp / "test-memory.sqlite"
-        os.environ["OMINI_JSONL_MEMORY_PATH"] = str(self._audit_path)
-        os.environ["OMINI_SQLITE_MEMORY_PATH"] = str(self._sqlite_path)
+        os.environ["OMNI_JSONL_MEMORY_PATH"] = str(self._audit_path)
+        os.environ["OMNI_SQLITE_MEMORY_PATH"] = str(self._sqlite_path)
         reset_for_testing()
 
     def tearDown(self) -> None:
         close()
-        for key in ("OMINI_JSONL_MEMORY_PATH", "OMINI_SQLITE_MEMORY_PATH",
-                     "OMINI_ENABLE_SQLITE_MEMORY", "OMINI_MEMORY_BACKEND"):
+        for key in ("OMNI_JSONL_MEMORY_PATH", "OMNI_SQLITE_MEMORY_PATH",
+                     "OMNI_ENABLE_SQLITE_MEMORY", "OMNI_MEMORY_BACKEND"):
             os.environ.pop(key, None)
         shutil.rmtree(self._tmp, ignore_errors=True)
 
@@ -186,7 +186,7 @@ class RuntimeIntegrationTest(unittest.TestCase):
 
     def test_lazy_init_failure_does_not_break_subsequent_calls(self) -> None:
         close()
-        os.environ["OMINI_JSONL_MEMORY_PATH"] = "/nonexistent/path/audit.jsonl"
+        os.environ["OMNI_JSONL_MEMORY_PATH"] = "/nonexistent/path/audit.jsonl"
         reset_for_testing()
         record_runtime_event(
             event_type="bad_path",
@@ -201,7 +201,7 @@ class RuntimeIntegrationTest(unittest.TestCase):
     # ----------------------------------------------------------------
     def test_sqlite_enabled_when_env_set(self) -> None:
         close()
-        os.environ["OMINI_ENABLE_SQLITE_MEMORY"] = "true"
+        os.environ["OMNI_ENABLE_SQLITE_MEMORY"] = "true"
         reset_for_testing()
         facade = _lazy_facade()
         self.assertIsNotNone(facade)
@@ -373,7 +373,7 @@ class RuntimeIntegrationTest(unittest.TestCase):
 
     def test_jsonl_fallback_when_sqlite_enabled(self) -> None:
         close()
-        os.environ["OMINI_ENABLE_SQLITE_MEMORY"] = "true"
+        os.environ["OMNI_ENABLE_SQLITE_MEMORY"] = "true"
         reset_for_testing()
         record_runtime_event(
             event_type="sqlite_on_test",

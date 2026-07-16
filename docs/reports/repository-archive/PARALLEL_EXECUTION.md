@@ -1,5 +1,7 @@
 # Parallel Execution
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Scope
 
 Phase 5 introduces controlled parallelism only for safe read-only work.

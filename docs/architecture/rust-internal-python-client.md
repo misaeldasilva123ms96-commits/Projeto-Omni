@@ -25,13 +25,13 @@ Canonical env var:
 OMNI_PYTHON_MODE=subprocess|service
 ```
 
-Legacy alias:
+Canonical variable:
 
 ```txt
-OMINI_PYTHON_MODE=subprocess|service
+OMNI_PYTHON_MODE=subprocess|service
 ```
 
-`OMNI_*` values take precedence over `OMINI_*`. Invalid values safely fall back to `subprocess`.
+`OMNI_*` values take precedence over `OMNI_*`. Invalid values safely fall back to `subprocess`.
 
 ## Service Configuration
 
@@ -43,12 +43,12 @@ OMNI_PYTHON_SERVICE_PORT=7010
 OMNI_PYTHON_SERVICE_TIMEOUT_MS=30000
 ```
 
-Legacy aliases:
+Canonical variables:
 
 ```txt
-OMINI_PYTHON_SERVICE_HOST
-OMINI_PYTHON_SERVICE_PORT
-OMINI_PYTHON_SERVICE_TIMEOUT_MS
+OMNI_PYTHON_SERVICE_HOST
+OMNI_PYTHON_SERVICE_PORT
+OMNI_PYTHON_SERVICE_TIMEOUT_MS
 ```
 
 ## Service Endpoint
@@ -116,7 +116,7 @@ Set:
 OMNI_PYTHON_MODE=subprocess
 ```
 
-or unset `OMNI_PYTHON_MODE` and `OMINI_PYTHON_MODE`.
+or unset `OMNI_PYTHON_MODE` and `OMNI_PYTHON_MODE`.
 
 Code rollback:
 

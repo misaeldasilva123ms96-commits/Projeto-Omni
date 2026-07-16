@@ -47,7 +47,7 @@ Run the chat contract:
 npm run test:e2e:chat-contract
 ```
 
-The command above always checks fixture parity. To require the live Rust → Python → Node → Rust path, start the API and set both `OMNI_E2E_API_URL=http://127.0.0.1:3001` and `OMNI_E2E_REQUIRE_LIVE=true`. The legacy `OMINI_E2E_API_URL` name is accepted temporarily, but new configuration should use `OMNI_E2E_API_URL`.
+The command above always checks fixture parity. To require the live Rust → Python → Node → Rust path, start the API and set both `OMNI_E2E_API_URL=http://127.0.0.1:3001` and `OMNI_E2E_REQUIRE_LIVE=true`. The legacy `OMNI_E2E_API_URL` name is accepted temporarily, but new configuration should use `OMNI_E2E_API_URL`.
 
 ## Reproducing current runtime behavior
 

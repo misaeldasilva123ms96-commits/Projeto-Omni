@@ -22,36 +22,36 @@ function createBridge(workspaceRoot, relativePath) {
 }
 
 const bunMetadata = runnerModule.resolveRuntimeMetadata(
-  { OMINI_JS_RUNTIME: 'bun', OMINI_JS_RUNTIME_SOURCE: 'bun_detected' },
+  { OMNI_JS_RUNTIME: 'bun', OMNI_JS_RUNTIME_SOURCE: 'bun_detected' },
   { bun: '1.2.0', node: process.versions.node },
 );
 assert.equal(bunMetadata.runtime_mode, 'bun');
 assert.equal(bunMetadata.runtime_reason, 'bun_native');
 
 const nodeFallbackMetadata = runnerModule.resolveRuntimeMetadata(
-  { OMINI_JS_RUNTIME: 'node', OMINI_JS_RUNTIME_SOURCE: 'node_fallback' },
+  { OMNI_JS_RUNTIME: 'node', OMNI_JS_RUNTIME_SOURCE: 'node_fallback' },
   { node: process.versions.node },
 );
 assert.equal(nodeFallbackMetadata.runtime_mode, 'node');
 assert.equal(nodeFallbackMetadata.runtime_reason, 'node_fallback_no_bun');
 
 const apiMissingMetadata = runnerModule.resolveRuntimeMetadata(
-  { OMINI_JS_RUNTIME: 'node', OMINI_JS_RUNTIME_SOURCE: 'bun_api_missing' },
+  { OMNI_JS_RUNTIME: 'node', OMNI_JS_RUNTIME_SOURCE: 'bun_api_missing' },
   { node: process.versions.node },
 );
 assert.equal(apiMissingMetadata.runtime_mode, 'node');
 assert.equal(apiMissingMetadata.runtime_reason, 'node_fallback_api_missing');
 
 const runtimeErrorMetadata = runnerModule.resolveRuntimeMetadata(
-  { OMINI_JS_RUNTIME: 'node', OMINI_JS_RUNTIME_SOURCE: 'bun_error' },
+  { OMNI_JS_RUNTIME: 'node', OMNI_JS_RUNTIME_SOURCE: 'bun_error' },
   { node: process.versions.node },
 );
 assert.equal(runtimeErrorMetadata.runtime_mode, 'node');
 assert.equal(runtimeErrorMetadata.runtime_reason, 'node_fallback_error');
 
-const originalEnableNodeRustDirect = process.env.OMINI_ENABLE_NODE_RUST_DIRECT;
+const originalEnableNodeRustDirect = process.env.OMNI_ENABLE_NODE_RUST_DIRECT;
 try {
-  process.env.OMINI_ENABLE_NODE_RUST_DIRECT = 'true';
+  process.env.OMNI_ENABLE_NODE_RUST_DIRECT = 'true';
 
   const linuxWorkspace = makeTempWorkspace();
   createBridge(linuxWorkspace, 'backend/rust/target/debug/executor_bridge');
@@ -72,9 +72,9 @@ try {
   assert.equal(fallbackMode.compiled_bridge_available, false);
 } finally {
   if (typeof originalEnableNodeRustDirect === 'string') {
-    process.env.OMINI_ENABLE_NODE_RUST_DIRECT = originalEnableNodeRustDirect;
+    process.env.OMNI_ENABLE_NODE_RUST_DIRECT = originalEnableNodeRustDirect;
   } else {
-    delete process.env.OMINI_ENABLE_NODE_RUST_DIRECT;
+    delete process.env.OMNI_ENABLE_NODE_RUST_DIRECT;
   }
 }
 
@@ -96,17 +96,17 @@ const emptySanitized = runnerModule.sanitizeForUser('');
 assert.equal(emptySanitized.error.failure_class, 'NODE_EMPTY_RESPONSE');
 assert.equal(typeof emptySanitized.response, 'string');
 
-const previousLogLevel = process.env.LOG_LEVEL;
+const previousLogLevel = process.env.OMNI_LOG_LEVEL;
 const previousPublicDemo = process.env.OMNI_PUBLIC_DEMO_MODE;
 try {
-  process.env.LOG_LEVEL = 'debug';
+  process.env.OMNI_LOG_LEVEL = 'debug';
   delete process.env.OMNI_PUBLIC_DEMO_MODE;
   assert.equal(runnerModule.isDebugLoggingEnabled(), true);
   process.env.OMNI_PUBLIC_DEMO_MODE = 'true';
   assert.equal(runnerModule.isDebugLoggingEnabled(), false);
 } finally {
-  if (previousLogLevel === undefined) delete process.env.LOG_LEVEL;
-  else process.env.LOG_LEVEL = previousLogLevel;
+  if (previousLogLevel === undefined) delete process.env.OMNI_LOG_LEVEL;
+  else process.env.OMNI_LOG_LEVEL = previousLogLevel;
   if (previousPublicDemo === undefined) delete process.env.OMNI_PUBLIC_DEMO_MODE;
   else process.env.OMNI_PUBLIC_DEMO_MODE = previousPublicDemo;
 }

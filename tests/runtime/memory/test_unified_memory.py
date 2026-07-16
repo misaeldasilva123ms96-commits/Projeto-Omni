@@ -55,7 +55,7 @@ class UnifiedMemoryLayerTest(unittest.TestCase):
 
     def test_unified_memory_retrieval_is_ranked_and_bounded(self) -> None:
         with self.temp_workspace() as workspace_root:
-            with patch.dict(os.environ, {"OMINI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL": "0.0"}):
+            with patch.dict(os.environ, {"OMNI_MEMORY_MIN_CONFIDENCE_FOR_SEMANTIC_RECALL": "0.0"}):
                 transcript = TranscriptStore(workspace_root / "backend" / "python" / "transcripts")
                 transcript.append_turn("sess-32", "Analise runtime policy", "Ok.")
                 transcript.append_turn("sess-32", "Precisamos validar governanca", "Certo.")

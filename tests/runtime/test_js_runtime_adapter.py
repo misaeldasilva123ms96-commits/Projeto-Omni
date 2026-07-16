@@ -25,11 +25,9 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         self.env_backup = {
             key: os.environ.get(key)
             for key in (
-                "OMINI_JS_RUNTIME_BIN",
                 "OMNI_JS_RUNTIME_BIN",
                 "BUN_BIN",
                 "OMNI_NODE_BIN",
-                "OMINI_NODE_BIN",
                 "NODE_BIN",
                 "BASE_DIR",
                 "PYTHON_BASE_DIR",
@@ -62,9 +60,9 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         self.assertEqual(selection.source, "node_default")
         self.assertFalse(selection.fallback_used)
 
-    def test_canonical_node_bin_takes_precedence_over_legacy_alias(self) -> None:
+    def test_canonical_node_bin_ignores_unprefixed_name(self) -> None:
         os.environ["OMNI_NODE_BIN"] = "canonical-missing-node"
-        os.environ["NODE_BIN"] = "legacy-node"
+        os.environ["NODE_BIN"] = "unprefixed-node"
 
         with patch("brain.runtime.js_runtime_adapter.shutil.which", return_value=None):
             selection = self.adapter.select_runtime()
@@ -75,8 +73,7 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         self.assertFalse(selection.node_available)
         self.assertEqual(env["NODE_BIN"], "canonical-missing-node")
 
-    def test_canonical_omni_runtime_bin_takes_precedence_over_legacy_alias(self) -> None:
-        os.environ["OMINI_JS_RUNTIME_BIN"] = "node"
+    def test_canonical_omni_runtime_bin_selects_explicit_runtime(self) -> None:
         os.environ["OMNI_JS_RUNTIME_BIN"] = "bun"
         with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: f"C:/{name}.exe"):
             selection = self.adapter.select_runtime()
@@ -84,18 +81,8 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         self.assertEqual(selection.runtime_name, "bun")
         self.assertEqual(selection.source, "explicit_env")
 
-    def test_legacy_omini_runtime_bin_alias_is_preserved(self) -> None:
-        os.environ.pop("OMINI_JS_RUNTIME_BIN", None)
-        os.environ.pop("OMNI_JS_RUNTIME_BIN", None)
-        os.environ["OMINI_JS_RUNTIME_BIN"] = "node"
-        with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: f"C:/{name}.exe"):
-            selection = self.adapter.select_runtime()
-
-        self.assertEqual(selection.runtime_name, "node")
-        self.assertEqual(selection.source, "explicit_env")
-
     def test_bun_is_explicit_opt_in(self) -> None:
-        os.environ["OMINI_JS_RUNTIME_BIN"] = "bun"
+        os.environ["OMNI_JS_RUNTIME_BIN"] = "bun"
         with patch("brain.runtime.js_runtime_adapter.shutil.which", side_effect=lambda name: "C:/bun.exe" if name == "bun" else "C:/node.exe"):
             selection = self.adapter.select_runtime()
 
@@ -120,7 +107,6 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         )
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(selection.runtime_name, env["OMINI_JS_RUNTIME"])
         self.assertEqual(selection.runtime_name, env["OMNI_JS_RUNTIME"])
 
     @unittest.skipUnless(os.name == "nt", "Windows-only Node subprocess environment guard")

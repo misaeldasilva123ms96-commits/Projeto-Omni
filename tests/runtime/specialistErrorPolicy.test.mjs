@@ -10,10 +10,8 @@ import {
 
 const ENV_KEYS = [
   'OMNI_DEBUG_INTERNAL_ERRORS',
-  'OMINI_DEBUG_INTERNAL_ERRORS',
   'OMNI_PUBLIC_DEMO_MODE',
-  'OMINI_PUBLIC_DEMO_MODE',
-  'OMINI_FORCE_SPECIALIST_FAILURE',
+  'OMNI_FORCE_SPECIALIST_FAILURE',
 ];
 
 function clearPolicyEnv() {
@@ -54,7 +52,7 @@ function sensitiveError() {
 }
 
 clearPolicyEnv();
-process.env.OMINI_FORCE_SPECIALIST_FAILURE = 'dependency_impact_specialist';
+process.env.OMNI_FORCE_SPECIALIST_FAILURE = 'dependency_impact_specialist';
 const normal = captureConsoleError(() =>
   reviewDependencyImpact({
     repositoryImpactAnalysis: { module_change_candidates: [{ path: 'src/a.ts' }] },

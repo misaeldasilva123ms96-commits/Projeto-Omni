@@ -12,10 +12,10 @@ const previousLegacy = process.env.OMINI_MAX_STEPS;
 try {
   process.env.OMNI_MAX_STEPS = '9';
   process.env.OMINI_MAX_STEPS = '3';
-  assert.equal(loadRuntimeConfig().maxSteps, 9, 'OMNI_* must take precedence over OMINI_*');
+  assert.equal(loadRuntimeConfig().maxSteps, 9, 'canonical configuration must be used');
 
   delete process.env.OMNI_MAX_STEPS;
-  assert.equal(loadRuntimeConfig().maxSteps, 3, 'legacy OMINI_* aliases must remain compatible');
+  assert.notEqual(loadRuntimeConfig().maxSteps, 3, 'obsolete-only configuration must be ignored');
 } finally {
   if (previousCanonical === undefined) delete process.env.OMNI_MAX_STEPS;
   else process.env.OMNI_MAX_STEPS = previousCanonical;
@@ -37,4 +37,4 @@ assert.match(androidGradle, /applicationId "com\.omni\.app"/);
 assert.match(capacitorConfig, /appId: 'com\.omni\.app'/);
 assert.ok(fs.existsSync(path.join(root, 'frontend', 'mobile', 'android', 'app', 'src', 'main', 'java', 'com', 'omni', 'app', 'MainActivity.java')));
 
-console.log('canonical Omni naming tests: ok');
+console.log('canonical-only Omni naming tests: ok');

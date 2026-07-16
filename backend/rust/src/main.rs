@@ -6,13 +6,13 @@ mod protected_historical_audit;
 mod run_control;
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     env, fmt, fs,
     io::Seek,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -572,13 +572,13 @@ fn env_truthy(name: &str) -> bool {
 }
 
 fn is_local_or_demo_cors_mode() -> bool {
-    if env_truthy("OMNI_PUBLIC_DEMO_MODE") || env_truthy("OMINI_PUBLIC_DEMO_MODE") {
+    if env_truthy("OMNI_PUBLIC_DEMO_MODE") {
         return true;
     }
 
-    ["OMNI_ENV", "OMINI_ENV", "APP_ENV", "RUST_ENV"]
+    env::var("OMNI_ENV")
+        .ok()
         .into_iter()
-        .filter_map(|name| env::var(name).ok())
         .map(|value| value.trim().to_ascii_lowercase())
         .any(|value| {
             matches!(
@@ -589,13 +589,13 @@ fn is_local_or_demo_cors_mode() -> bool {
 }
 
 fn is_local_or_demo_runtime_mode() -> bool {
-    if env_truthy("OMNI_PUBLIC_DEMO_MODE") || env_truthy("OMINI_PUBLIC_DEMO_MODE") {
+    if env_truthy("OMNI_PUBLIC_DEMO_MODE") {
         return true;
     }
 
-    ["OMNI_ENV", "OMINI_ENV", "APP_ENV", "RUST_ENV"]
+    env::var("OMNI_ENV")
+        .ok()
         .into_iter()
-        .filter_map(|name| env::var(name).ok())
         .map(|value| value.trim().to_ascii_lowercase())
         .any(|value| {
             matches!(
@@ -606,11 +606,7 @@ fn is_local_or_demo_runtime_mode() -> bool {
 }
 
 fn validate_mock_mode_for_environment(mock_mode: bool) -> Result<(), AppError> {
-    if !mock_mode
-        || is_local_or_demo_runtime_mode()
-        || env_truthy("OMNI_ALLOW_MOCK_CHAT")
-        || env_truthy("OMINI_ALLOW_MOCK_CHAT")
-    {
+    if !mock_mode || is_local_or_demo_runtime_mode() || env_truthy("OMNI_ALLOW_MOCK_CHAT") {
         return Ok(());
     }
 
@@ -625,12 +621,6 @@ fn configured_cors_origins() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .or_else(|| {
-            env::var("OMINI_ALLOWED_ORIGINS")
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-        })
 }
 
 fn parse_cors_origin_list(raw: &str, allow_wildcard: bool) -> (Vec<HeaderValue>, bool) {
@@ -931,7 +921,7 @@ fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "omini_api=debug,tower_http=debug,info".into()),
+                .unwrap_or_else(|_| "omni_api=debug,tower_http=debug,info".into()),
         )
         .init();
 }
@@ -1004,7 +994,7 @@ fn resolve_runtime_mode(mock_mode: bool) -> String {
     if mock_mode {
         return "mock".to_string();
     }
-    let mode = read_env_alias_string("OMNI_RUNTIME_MODE", "OMINI_RUNTIME_MODE", "live")
+    let mode = read_env_string("OMNI_RUNTIME_MODE", "live")
         .trim()
         .to_lowercase();
     match mode.as_str() {
@@ -1045,66 +1035,26 @@ fn unix_timestamp_ms() -> u64 {
         .unwrap_or(0)
 }
 
-static ENV_ALIAS_EVENTS_LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-
-fn warn_env_alias_once(event: &'static str, canonical: &str, legacy: &str) {
-    let key = format!("{event}:{canonical}:{legacy}");
-    let should_log = ENV_ALIAS_EVENTS_LOGGED
-        .get_or_init(|| Mutex::new(HashSet::new()))
-        .lock()
-        .map(|mut seen| seen.insert(key))
-        .unwrap_or(true);
-    if should_log {
-        warn!(
-            event = event,
-            canonical = canonical,
-            legacy = legacy,
-            "environment alias migration signal"
-        );
-    }
-}
-
-fn read_env_alias_value(canonical: &str, legacy: &str) -> Option<String> {
-    let canonical_value = env::var(canonical)
+fn read_env_value(canonical: &str) -> Option<String> {
+    env::var(canonical)
         .ok()
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let legacy_value = env::var(legacy)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-
-    if let Some(value) = canonical_value {
-        if legacy_value.is_some() {
-            warn_env_alias_once("env_alias_canonical_override", canonical, legacy);
-        }
-        return Some(value);
-    }
-    if let Some(value) = legacy_value {
-        warn_env_alias_once("deprecated_env_alias_used", canonical, legacy);
-        return Some(value);
-    }
-    None
+        .filter(|value| !value.is_empty())
 }
 
-fn read_env_alias_usize(canonical: &str, legacy: &str, default: usize) -> usize {
-    read_env_alias_value(canonical, legacy)
+fn read_env_usize(canonical: &str, default: usize) -> usize {
+    read_env_value(canonical)
         .and_then(|value| value.trim().parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default)
 }
 
-fn read_env_alias_usize_clamped(
-    canonical: &str,
-    legacy: &str,
-    default: usize,
-    max: usize,
-) -> usize {
-    read_env_alias_usize(canonical, legacy, default).min(max)
+fn read_env_usize_clamped(canonical: &str, default: usize, max: usize) -> usize {
+    read_env_usize(canonical, default).min(max)
 }
 
-fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
-    read_env_alias_value(canonical, legacy)
+fn read_env_bool(canonical: &str, default: bool) -> bool {
+    read_env_value(canonical)
         .map(|value| {
             matches!(
                 value.trim().to_lowercase().as_str(),
@@ -1114,19 +1064,19 @@ fn read_env_alias_bool(canonical: &str, legacy: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-fn read_env_alias_string(canonical: &str, legacy: &str, default: &str) -> String {
-    read_env_alias_value(canonical, legacy).unwrap_or_else(|| default.to_string())
+fn read_env_string(canonical: &str, default: &str) -> String {
+    read_env_value(canonical).unwrap_or_else(|| default.to_string())
 }
 
-fn read_env_alias_u16(canonical: &str, legacy: &str, default: u16) -> u16 {
-    read_env_alias_value(canonical, legacy)
+fn read_env_u16(canonical: &str, default: u16) -> u16 {
+    read_env_value(canonical)
         .and_then(|value| value.trim().parse::<u16>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default)
 }
 
-fn read_env_alias_u64(canonical: &str, legacy: &str, default: u64) -> u64 {
-    read_env_alias_value(canonical, legacy)
+fn read_env_u64(canonical: &str, default: u64) -> u64 {
+    read_env_value(canonical)
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(default)
@@ -1136,47 +1086,23 @@ impl PythonRuntimeConfig {
     fn from_env() -> Self {
         Self {
             mode: PythonRuntimeMode::from_env(),
-            service_host: read_env_alias_string(
-                "OMNI_PYTHON_SERVICE_HOST",
-                "OMINI_PYTHON_SERVICE_HOST",
-                "127.0.0.1",
-            ),
-            service_port: read_env_alias_u16(
-                "OMNI_PYTHON_SERVICE_PORT",
-                "OMINI_PYTHON_SERVICE_PORT",
-                7010,
-            ),
-            service_timeout_ms: read_env_alias_u64(
-                "OMNI_PYTHON_SERVICE_TIMEOUT_MS",
-                "OMINI_PYTHON_SERVICE_TIMEOUT_MS",
-                30_000,
-            ),
-            fallback_to_subprocess: read_env_alias_bool(
+            service_host: read_env_string("OMNI_PYTHON_SERVICE_HOST", "127.0.0.1"),
+            service_port: read_env_u16("OMNI_PYTHON_SERVICE_PORT", 7010),
+            service_timeout_ms: read_env_u64("OMNI_PYTHON_SERVICE_TIMEOUT_MS", 30_000),
+            fallback_to_subprocess: read_env_bool(
                 "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
-                "OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
                 false,
             ),
-            retry_attempts: read_env_alias_usize_clamped(
-                "OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS",
-                "OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS",
-                0,
-                3,
-            ),
-            circuit_breaker_enabled: read_env_alias_bool(
+            retry_attempts: read_env_usize_clamped("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", 0, 3),
+            circuit_breaker_enabled: read_env_bool(
                 "OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
-                "OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
                 true,
             ),
-            circuit_failure_threshold: read_env_alias_usize(
+            circuit_failure_threshold: read_env_usize(
                 "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
-                "OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
                 3,
             ),
-            circuit_reset_ms: read_env_alias_u64(
-                "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
-                "OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
-                30_000,
-            ),
+            circuit_reset_ms: read_env_u64("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", 30_000),
         }
     }
 }
@@ -1265,7 +1191,7 @@ impl PythonCircuitBreaker {
 
 impl PythonRuntimeMode {
     fn from_env() -> Self {
-        let raw = read_env_alias_string("OMNI_PYTHON_MODE", "OMINI_PYTHON_MODE", "subprocess");
+        let raw = read_env_string("OMNI_PYTHON_MODE", "subprocess");
         match raw.trim().to_lowercase().as_str() {
             "service" => Self::Service,
             _ => Self::Subprocess,
@@ -1277,26 +1203,10 @@ impl ChatSecurityState {
     fn from_env() -> Self {
         Self {
             config: ChatSecurityConfig {
-                max_message_chars: read_env_alias_usize(
-                    "OMNI_MAX_MESSAGE_CHARS",
-                    "OMINI_MAX_MESSAGE_CHARS",
-                    8_000,
-                ),
-                max_body_bytes: read_env_alias_usize(
-                    "OMNI_MAX_BODY_BYTES",
-                    "OMINI_MAX_BODY_BYTES",
-                    65_536,
-                ),
-                rate_limit_enabled: read_env_alias_bool(
-                    "OMNI_RATE_LIMIT_ENABLED",
-                    "OMINI_RATE_LIMIT_ENABLED",
-                    true,
-                ),
-                rate_limit_per_minute: read_env_alias_usize(
-                    "OMNI_RATE_LIMIT_PER_MINUTE",
-                    "OMINI_RATE_LIMIT_PER_MINUTE",
-                    30,
-                ),
+                max_message_chars: read_env_usize("OMNI_MAX_MESSAGE_CHARS", 8_000),
+                max_body_bytes: read_env_usize("OMNI_MAX_BODY_BYTES", 65_536),
+                rate_limit_enabled: read_env_bool("OMNI_RATE_LIMIT_ENABLED", true),
+                rate_limit_per_minute: read_env_usize("OMNI_RATE_LIMIT_PER_MINUTE", 30),
             },
             rate_limiter: Mutex::new(HashMap::new()),
         }
@@ -2738,11 +2648,7 @@ fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResu
 }
 
 fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
-    let client_key = if read_env_alias_bool(
-        "OMNI_TRUST_PROXY_HEADERS",
-        "OMINI_TRUST_PROXY_HEADERS",
-        false,
-    ) {
+    let client_key = if read_env_bool("OMNI_TRUST_PROXY_HEADERS", false) {
         headers
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok())
@@ -2939,7 +2845,6 @@ const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text",
 fn python_debug_logging_enabled() -> bool {
     let public_demo_enabled = env::var("OMNI_PUBLIC_DEMO_MODE")
         .ok()
-        .or_else(|| env::var("OMINI_PUBLIC_DEMO_MODE").ok())
         .map(|value| {
             matches!(
                 value.trim().to_ascii_lowercase().as_str(),
@@ -2952,8 +2857,6 @@ fn python_debug_logging_enabled() -> bool {
     }
     env::var("OMNI_LOG_LEVEL")
         .ok()
-        .or_else(|| env::var("OMINI_LOG_LEVEL").ok())
-        .or_else(|| env::var("LOG_LEVEL").ok())
         .map(|value| value.trim().eq_ignore_ascii_case("debug"))
         .unwrap_or(false)
 }
@@ -3249,11 +3152,7 @@ async fn post_python_service(
 ) -> Result<(u16, String), &'static str> {
     let host = state.python_runtime.service_host.as_str();
     let port = state.python_runtime.service_port;
-    let service_token = read_env_alias_string(
-        "OMNI_PYTHON_SERVICE_TOKEN",
-        "OMINI_PYTHON_SERVICE_TOKEN",
-        "",
-    );
+    let service_token = read_env_string("OMNI_PYTHON_SERVICE_TOKEN", "");
     let request = format!(
         "POST /internal/brain/run HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         service_token,
@@ -4201,11 +4100,8 @@ mod tests {
         let _guard = lock.lock().expect("env lock");
         let keys = [
             "OMNI_ALLOWED_ORIGINS",
-            "OMINI_ALLOWED_ORIGINS",
             "OMNI_PUBLIC_DEMO_MODE",
-            "OMINI_PUBLIC_DEMO_MODE",
             "OMNI_ENV",
-            "OMINI_ENV",
             "APP_ENV",
             "RUST_ENV",
         ];
@@ -4234,11 +4130,8 @@ mod tests {
         let keys = [
             "MOCK_CHAT",
             "OMNI_ALLOW_MOCK_CHAT",
-            "OMINI_ALLOW_MOCK_CHAT",
             "OMNI_PUBLIC_DEMO_MODE",
-            "OMINI_PUBLIC_DEMO_MODE",
             "OMNI_ENV",
-            "OMINI_ENV",
             "APP_ENV",
             "RUST_ENV",
         ];
@@ -4377,18 +4270,32 @@ mod tests {
     }
 
     #[test]
-    fn security_audit_cors_supports_legacy_omini_alias() {
-        with_clean_cors_env(
-            &[("OMINI_ALLOWED_ORIGINS", "https://legacy.example.com")],
-            || {
-                let config = resolve_cors_origin_config();
-                assert_eq!(
-                    header_values_as_strings(&config.origins),
-                    vec!["https://legacy.example.com".to_string()]
-                );
-                assert!(!config.wildcard);
-            },
-        );
+    fn security_audit_cors_ignores_obsolete_prefix() {
+        let lock = ENV_TEST_LOCK
+            .get_or_init(|| StdMutex::new(()))
+            .lock()
+            .unwrap();
+        let obsolete_name = ["OMIN", "I_ALLOWED_ORIGINS"].concat();
+        let saved_canonical = env::var("OMNI_ALLOWED_ORIGINS").ok();
+        let saved_obsolete = env::var(&obsolete_name).ok();
+        env::remove_var("OMNI_ALLOWED_ORIGINS");
+        env::set_var(&obsolete_name, "https://obsolete.example.com");
+
+        let config = resolve_cors_origin_config();
+        assert!(config.origins.is_empty());
+        assert!(!config.wildcard);
+
+        if let Some(value) = saved_canonical {
+            env::set_var("OMNI_ALLOWED_ORIGINS", value);
+        } else {
+            env::remove_var("OMNI_ALLOWED_ORIGINS");
+        }
+        if let Some(value) = saved_obsolete {
+            env::set_var(&obsolete_name, value);
+        } else {
+            env::remove_var(&obsolete_name);
+        }
+        drop(lock);
     }
 
     #[test]
@@ -4745,44 +4652,40 @@ print(json.dumps({
     }
 
     #[test]
-    fn chat_security_env_aliases_work() {
+    fn chat_security_canonical_env_works() {
         let lock = ENV_TEST_LOCK
             .get_or_init(|| StdMutex::new(()))
             .lock()
             .unwrap();
         let keys = [
             "OMNI_MAX_MESSAGE_CHARS",
-            "OMINI_MAX_MESSAGE_CHARS",
             "OMNI_MAX_BODY_BYTES",
-            "OMINI_MAX_BODY_BYTES",
             "OMNI_RATE_LIMIT_ENABLED",
-            "OMINI_RATE_LIMIT_ENABLED",
             "OMNI_RATE_LIMIT_PER_MINUTE",
-            "OMINI_RATE_LIMIT_PER_MINUTE",
         ];
         let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
         for key in keys {
             env::remove_var(key);
         }
-        env::set_var("OMINI_MAX_MESSAGE_CHARS", "123");
-        env::set_var("OMINI_MAX_BODY_BYTES", "456");
-        env::set_var("OMINI_RATE_LIMIT_ENABLED", "false");
-        env::set_var("OMINI_RATE_LIMIT_PER_MINUTE", "7");
-        let legacy = ChatSecurityState::from_env();
-        assert_eq!(legacy.config.max_message_chars, 123);
-        assert_eq!(legacy.config.max_body_bytes, 456);
-        assert!(!legacy.config.rate_limit_enabled);
-        assert_eq!(legacy.config.rate_limit_per_minute, 7);
+        env::set_var("OMNI_MAX_MESSAGE_CHARS", "123");
+        env::set_var("OMNI_MAX_BODY_BYTES", "456");
+        env::set_var("OMNI_RATE_LIMIT_ENABLED", "false");
+        env::set_var("OMNI_RATE_LIMIT_PER_MINUTE", "7");
+        let canonical = ChatSecurityState::from_env();
+        assert_eq!(canonical.config.max_message_chars, 123);
+        assert_eq!(canonical.config.max_body_bytes, 456);
+        assert!(!canonical.config.rate_limit_enabled);
+        assert_eq!(canonical.config.rate_limit_per_minute, 7);
 
         env::set_var("OMNI_MAX_MESSAGE_CHARS", "321");
         env::set_var("OMNI_MAX_BODY_BYTES", "654");
         env::set_var("OMNI_RATE_LIMIT_ENABLED", "true");
         env::set_var("OMNI_RATE_LIMIT_PER_MINUTE", "9");
-        let canonical = ChatSecurityState::from_env();
-        assert_eq!(canonical.config.max_message_chars, 321);
-        assert_eq!(canonical.config.max_body_bytes, 654);
-        assert!(canonical.config.rate_limit_enabled);
-        assert_eq!(canonical.config.rate_limit_per_minute, 9);
+        let updated = ChatSecurityState::from_env();
+        assert_eq!(updated.config.max_message_chars, 321);
+        assert_eq!(updated.config.max_body_bytes, 654);
+        assert!(updated.config.rate_limit_enabled);
+        assert_eq!(updated.config.rate_limit_per_minute, 9);
 
         for (key, value) in saved {
             if let Some(value) = value {
@@ -4800,18 +4703,13 @@ print(json.dumps({
             .get_or_init(|| StdMutex::new(()))
             .lock()
             .unwrap();
-        let keys = [
-            "OMINI_LOG_LEVEL",
-            "LOG_LEVEL",
-            "OMNI_PUBLIC_DEMO_MODE",
-            "OMINI_PUBLIC_DEMO_MODE",
-        ];
+        let keys = ["LOG_LEVEL", "OMNI_PUBLIC_DEMO_MODE", "OMNI_LOG_LEVEL"];
         let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
         for key in keys {
             env::remove_var(key);
         }
 
-        env::set_var("LOG_LEVEL", "debug");
+        env::set_var("OMNI_LOG_LEVEL", "debug");
         assert!(python_debug_logging_enabled());
         env::set_var("OMNI_PUBLIC_DEMO_MODE", "true");
         assert!(!python_debug_logging_enabled());
@@ -4827,30 +4725,21 @@ print(json.dumps({
     }
 
     #[test]
-    fn python_runtime_mode_env_aliases_and_precedence_work() {
+    fn python_runtime_mode_canonical_env_works() {
         let lock = ENV_TEST_LOCK
             .get_or_init(|| StdMutex::new(()))
             .lock()
             .unwrap();
         let keys = [
             "OMNI_PYTHON_MODE",
-            "OMINI_PYTHON_MODE",
             "OMNI_PYTHON_SERVICE_HOST",
-            "OMINI_PYTHON_SERVICE_HOST",
             "OMNI_PYTHON_SERVICE_PORT",
-            "OMINI_PYTHON_SERVICE_PORT",
             "OMNI_PYTHON_SERVICE_TIMEOUT_MS",
-            "OMINI_PYTHON_SERVICE_TIMEOUT_MS",
             "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
-            "OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS",
             "OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS",
-            "OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS",
             "OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
-            "OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED",
             "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
-            "OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
             "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
-            "OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
         ];
         let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
         for key in keys {
@@ -4868,25 +4757,25 @@ print(json.dumps({
         assert_eq!(default.circuit_failure_threshold, 3);
         assert_eq!(default.circuit_reset_ms, 30_000);
 
-        env::set_var("OMINI_PYTHON_MODE", "service");
-        env::set_var("OMINI_PYTHON_SERVICE_HOST", "127.0.0.2");
-        env::set_var("OMINI_PYTHON_SERVICE_PORT", "7011");
-        env::set_var("OMINI_PYTHON_SERVICE_TIMEOUT_MS", "1234");
-        env::set_var("OMINI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "true");
-        env::set_var("OMINI_PYTHON_SERVICE_RETRY_ATTEMPTS", "9");
-        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "false");
-        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "2");
-        env::set_var("OMINI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "4567");
-        let legacy = PythonRuntimeConfig::from_env();
-        assert_eq!(legacy.mode, PythonRuntimeMode::Service);
-        assert_eq!(legacy.service_host, "127.0.0.2");
-        assert_eq!(legacy.service_port, 7011);
-        assert_eq!(legacy.service_timeout_ms, 1234);
-        assert!(legacy.fallback_to_subprocess);
-        assert_eq!(legacy.retry_attempts, 3);
-        assert!(!legacy.circuit_breaker_enabled);
-        assert_eq!(legacy.circuit_failure_threshold, 2);
-        assert_eq!(legacy.circuit_reset_ms, 4567);
+        env::set_var("OMNI_PYTHON_MODE", "service");
+        env::set_var("OMNI_PYTHON_SERVICE_HOST", "127.0.0.2");
+        env::set_var("OMNI_PYTHON_SERVICE_PORT", "7011");
+        env::set_var("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "1234");
+        env::set_var("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "true");
+        env::set_var("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "9");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "false");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "2");
+        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "4567");
+        let configured = PythonRuntimeConfig::from_env();
+        assert_eq!(configured.mode, PythonRuntimeMode::Service);
+        assert_eq!(configured.service_host, "127.0.0.2");
+        assert_eq!(configured.service_port, 7011);
+        assert_eq!(configured.service_timeout_ms, 1234);
+        assert!(configured.fallback_to_subprocess);
+        assert_eq!(configured.retry_attempts, 3);
+        assert!(!configured.circuit_breaker_enabled);
+        assert_eq!(configured.circuit_failure_threshold, 2);
+        assert_eq!(configured.circuit_reset_ms, 4567);
 
         env::set_var("OMNI_PYTHON_MODE", "subprocess");
         env::set_var("OMNI_PYTHON_SERVICE_HOST", "127.0.0.3");
@@ -4917,7 +4806,7 @@ print(json.dumps({
         env::set_var("OMNI_PYTHON_MODE", "   ");
         assert_eq!(
             PythonRuntimeConfig::from_env().mode,
-            PythonRuntimeMode::Service
+            PythonRuntimeMode::Subprocess
         );
 
         for (key, value) in saved {

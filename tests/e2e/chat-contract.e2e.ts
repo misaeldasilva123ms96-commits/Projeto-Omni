@@ -5,7 +5,7 @@
  * `stop_reason`, `cognitive_runtime_inspection.execution_tier`, and `wireHealth`.
  *
  * Live HTTP: set `OMNI_E2E_API_URL` (e.g. `http://127.0.0.1:3001`) and run the Rust API
- * (`cd backend/rust && PORT=3001 cargo run`). `OMINI_E2E_API_URL` remains a temporary alias.
+ * (`cd backend/rust && PORT=3001 cargo run`).
  * Set `OMNI_E2E_REQUIRE_LIVE=true` in CI so an absent or unreachable server fails the test.
  */
 import assert from 'node:assert/strict'
@@ -85,20 +85,15 @@ function envTruthy(value: string | undefined) {
 }
 
 function resolveLiveBaseUrl() {
-  const canonical = process.env.OMNI_E2E_API_URL?.trim()
-  const legacy = process.env.OMINI_E2E_API_URL?.trim()
-
-  if (canonical && legacy && canonical !== legacy) {
-    console.warn('[e2e] OMNI_E2E_API_URL takes precedence over the legacy OMINI_E2E_API_URL alias.')
-  } else if (!canonical && legacy) {
-    console.warn('[e2e] OMINI_E2E_API_URL is deprecated; migrate to OMNI_E2E_API_URL.')
-  }
-
-  return canonical || legacy
+  return process.env.OMNI_E2E_API_URL?.trim()
 }
 
 async function tryLiveHttp(baseUrl: string, required: boolean) {
   const url = `${baseUrl.replace(/\/$/, '')}/api/v1/chat`
+  const configuredTimeout = Number(process.env.OMNI_E2E_HTTP_TIMEOUT_MS)
+  const httpTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? Math.min(configuredTimeout, 600_000)
+    : 120_000
   const body = {
     message: 'analise o arquivo package.json',
     client_context: { source: 'e2e-chat-contract' },
@@ -109,7 +104,7 @@ async function tryLiveHttp(baseUrl: string, required: boolean) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(httpTimeoutMs),
     })
   } catch (error) {
     if (required) {

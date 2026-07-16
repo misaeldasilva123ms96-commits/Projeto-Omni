@@ -1,5 +1,7 @@
 # Phase 1A Shell Hardening
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Branch / Base
 - Branch: `hardening/shell-01a`
 - Base branch: `audit/code-map-00-5`

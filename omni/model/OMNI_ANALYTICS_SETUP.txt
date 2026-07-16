@@ -19,7 +19,7 @@ Omni Analytics + Supabase: runtime tool success model
 
 4) Runtime writer (optional env)
    - Set SUPABASE_SERVICE_ROLE_KEY in the Python process environment (never commit real keys).
-   - Optional: OMINI_SUPABASE_TOOL_EVENTS_DISABLE=1 to turn off POSTs.
+   - Optional: OMNI_SUPABASE_TOOL_EVENTS_DISABLE=1 to turn off POSTs.
    - Backend posts via PostgREST: POST /rest/v1/runtime_tool_events
 
 Validation

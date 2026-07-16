@@ -73,7 +73,7 @@ The current autonomy stack is advisory-only:
 - `AutonomyController` evaluates policy and records advisory receipts.
 - Governance events may be recorded through `MemoryFacade`.
 - `MemoryFacade` writes JSONL by default and can additionally use SQLite when
-  `OMINI_ENABLE_SQLITE_MEMORY=true`.
+  `OMNI_ENABLE_SQLITE_MEMORY=true`.
 - Cockpit autonomy views are read-only and display current decision, controller
   stats, and decision timeline metadata.
 

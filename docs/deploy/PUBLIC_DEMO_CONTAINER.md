@@ -40,18 +40,15 @@ The demo image and compose file set:
 
 ```txt
 OMNI_PUBLIC_DEMO_MODE=true
-OMINI_PUBLIC_DEMO_MODE=true
 OMNI_ALLOW_SHELL_TOOLS=false
-OMINI_ALLOW_SHELL_TOOLS=false
 OMNI_DEBUG_INTERNAL_ERRORS=false
-OMINI_DEBUG_INTERNAL_ERRORS=false
 OMNI_RATE_LIMIT_ENABLED=true
 OMNI_RATE_LIMIT_PER_MINUTE=30
 OMNI_MAX_MESSAGE_CHARS=8000
 OMNI_MAX_BODY_BYTES=65536
 ```
 
-`OMNI_*` is the canonical prefix. `OMINI_*` is kept for legacy compatibility where the runtime already supports it.
+`OMNI_*` is the exclusive runtime configuration prefix.
 
 ## Forbidden Secrets
 

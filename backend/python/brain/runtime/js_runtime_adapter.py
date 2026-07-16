@@ -79,9 +79,6 @@ class JSRuntimeAdapter:
         env["OMNI_JS_RUNTIME"] = selection.runtime_name
         env["OMNI_JS_RUNTIME_BIN"] = selection.executable
         env["OMNI_JS_RUNTIME_SOURCE"] = selection.source
-        env["OMINI_JS_RUNTIME"] = selection.runtime_name
-        env["OMINI_JS_RUNTIME_BIN"] = selection.executable
-        env["OMINI_JS_RUNTIME_SOURCE"] = selection.source
         node_candidate = read_env("OMNI_NODE_BIN", "node") or "node"
         env["NODE_BIN"] = self._resolve_candidate(node_candidate) or node_candidate
         return env, selection

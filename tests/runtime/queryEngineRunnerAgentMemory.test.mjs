@@ -10,7 +10,6 @@ const { isAgentMemoryEnabled, loadAgentMemoryContext } = require('../../js-runne
 const ENV_KEYS = [
   'NODE_RUNNER_BASE_DIR',
   'OMNI_PUBLIC_DEMO_MODE',
-  'OMINI_PUBLIC_DEMO_MODE',
   'OMNI_ENABLE_AGENT_MEMORY',
 ];
 

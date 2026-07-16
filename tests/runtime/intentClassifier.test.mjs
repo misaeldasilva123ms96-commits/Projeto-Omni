@@ -17,10 +17,8 @@ const ORIGINAL_ENV = { ...process.env }
 function resetEnv() {
   for (const key of [
     'OMNI_INTENT_CLASSIFIER',
-    'OMINI_INTENT_CLASSIFIER',
     'OMNI_MATCHER_MODE',
-    'OMINI_MATCHER_MODE',
-    'OMINI_SKIP_CONVERSATIONAL_MATCHERS',
+    'OMNI_SKIP_CONVERSATIONAL_MATCHERS',
   ]) {
     delete process.env[key]
   }
@@ -36,10 +34,10 @@ function testDefaultClassifierMode() {
   assert.equal(resolveMatcherMode(), 'enabled')
 }
 
-function testLegacyAliases() {
+function testCanonicalEnvironmentModes() {
   resetEnv()
-  process.env.OMINI_INTENT_CLASSIFIER = 'hybrid'
-  process.env.OMINI_MATCHER_MODE = 'labeled_only'
+  process.env.OMNI_INTENT_CLASSIFIER = 'hybrid'
+  process.env.OMNI_MATCHER_MODE = 'labeled_only'
   assert.equal(resolveIntentClassifierMode(), 'hybrid')
   assert.equal(resolveMatcherMode(), 'labeled_only')
 
@@ -147,7 +145,7 @@ function testEvalHarness() {
 
 try {
   testDefaultClassifierMode()
-  testLegacyAliases()
+  testCanonicalEnvironmentModes()
   testRegexCompatibility()
   await testMatcherEnabledIsLabeled()
   await testMatcherDisabledDoesNotBreakFallback()

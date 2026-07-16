@@ -15,7 +15,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from config.encrypted_credential_store import (
     AES256_KEY_LENGTH,
     KEY_ENV_VAR,
-    KEY_ENV_VAR_LEGACY,
     STORE_PATH_ENV_VAR,
     CredentialMetadata,
     CredentialNotFoundError,
@@ -45,7 +44,6 @@ class CredentialStoreTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         os.environ.pop(KEY_ENV_VAR, None)
-        os.environ.pop(KEY_ENV_VAR_LEGACY, None)
         os.environ.pop(STORE_PATH_ENV_VAR, None)
         if self._saved_env is not None:
             os.environ[KEY_ENV_VAR] = self._saved_env
@@ -469,15 +467,14 @@ class CredentialStoreTest(unittest.TestCase):
         )
 
     # ------------------------------------------------------------------
-    # Legacy env var support
+    # Obsolete env var rejection
     # ------------------------------------------------------------------
 
-    def test_legacy_env_var(self) -> None:
+    def test_obsolete_env_var_is_ignored(self) -> None:
         os.environ.pop(KEY_ENV_VAR, None)
         os.environ["OMINI_CREDENTIAL_STORE_KEY"] = VALID_KEY_HEX
-        store = self._make_store()
-        saved = store.save_credential(TEST_USER, TEST_PROVIDER, TEST_SECRET)
-        self.assertEqual(store.get_decrypted_secret(saved.credential_id), TEST_SECRET)
+        with self.assertRaises(EncryptionKeyError):
+            self._make_store()
 
 
 if __name__ == "__main__":

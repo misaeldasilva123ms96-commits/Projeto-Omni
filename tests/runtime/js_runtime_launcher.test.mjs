@@ -15,17 +15,17 @@ assert.equal(defaultSelected.fallbackUsed, false);
 
 const explicitNodeSelected = launcherModule.detectJsRuntime({
   OMNI_JS_RUNTIME_BIN: process.execPath,
-  OMINI_JS_RUNTIME_BIN: 'bun',
   NODE_BIN: process.execPath,
 });
 assert.equal(explicitNodeSelected.runtimeName, 'node');
 assert.equal(explicitNodeSelected.source, 'explicit_env');
 
-const aliasNodeSelected = launcherModule.detectJsRuntime({
-  OMINI_JS_RUNTIME_BIN: process.execPath,
-  NODE_BIN: 'definitely-missing-node',
+const obsoleteOnlySelected = launcherModule.detectJsRuntime({
+  OMINI_JS_RUNTIME_BIN: 'bun',
+  NODE_BIN: process.execPath,
 });
-assert.equal(aliasNodeSelected.runtimeName, 'node');
+assert.equal(obsoleteOnlySelected.runtimeName, 'node');
+assert.equal(obsoleteOnlySelected.source, 'node_default');
 
 const explicitBunSelected = launcherModule.detectJsRuntime({
   OMNI_JS_RUNTIME_BIN: 'bun',

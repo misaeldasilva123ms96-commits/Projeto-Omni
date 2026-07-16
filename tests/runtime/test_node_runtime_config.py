@@ -19,7 +19,7 @@ def test_node_runtime_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "OMNI_NODE_CIRCUIT_RESET_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
-        monkeypatch.delenv(key.replace("OMNI_", "OMINI_"), raising=False)
+        monkeypatch.delenv(key.replace("OMNI_", "OMNI_"), raising=False)
 
     config = load_config()
 

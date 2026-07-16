@@ -145,11 +145,11 @@ class EndToEndAdvisoryEvidenceTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = Path(tempfile.mkdtemp(prefix="omni-autonomy-e2e-"))
         self._old_env = {
-            "OMINI_JSONL_MEMORY_PATH": os.environ.get("OMINI_JSONL_MEMORY_PATH"),
-            "OMINI_ENABLE_SQLITE_MEMORY": os.environ.get("OMINI_ENABLE_SQLITE_MEMORY"),
+            "OMNI_JSONL_MEMORY_PATH": os.environ.get("OMNI_JSONL_MEMORY_PATH"),
+            "OMNI_ENABLE_SQLITE_MEMORY": os.environ.get("OMNI_ENABLE_SQLITE_MEMORY"),
         }
-        os.environ["OMINI_JSONL_MEMORY_PATH"] = str(self._tmp / "audit.jsonl")
-        os.environ["OMINI_ENABLE_SQLITE_MEMORY"] = "false"
+        os.environ["OMNI_JSONL_MEMORY_PATH"] = str(self._tmp / "audit.jsonl")
+        os.environ["OMNI_ENABLE_SQLITE_MEMORY"] = "false"
         runtime_integration.reset_for_testing()
         reset_controller_for_testing()
 

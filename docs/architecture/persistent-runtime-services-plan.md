@@ -171,17 +171,17 @@ OMNI_PYTHON_MODE=subprocess|service
 OMNI_NODE_MODE=subprocess|service
 ```
 
-Legacy aliases:
+Canonical variables:
 
 ```txt
-OMINI_PYTHON_MODE=subprocess|service
-OMINI_NODE_MODE=subprocess|service
+OMNI_PYTHON_MODE=subprocess|service
+OMNI_NODE_MODE=subprocess|service
 ```
 
 Precedence:
 
 - `OMNI_*` is preferred.
-- `OMINI_*` remains a fallback alias.
+- `OMNI_*` remains a fallback alias.
 - Default remains `subprocess`.
 
 ## Backward Compatibility

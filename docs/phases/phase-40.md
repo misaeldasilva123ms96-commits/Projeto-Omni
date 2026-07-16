@@ -31,7 +31,7 @@ Phase 40 adds a **governed improvement orchestration layer** downstream of Phase
 - `OMNI_PHASE40_APPROVE=true` — explicit operator-style approval when auto path is off.
 - `OMNI_PHASE40_FORCE_APPROVE=true` — **tests / emergency only**; bypasses normal gates.
 
-The corresponding `OMINI_*` names remain temporary compatibility aliases; canonical `OMNI_*` values take precedence.
+Only the documented `OMNI_*` names are accepted as runtime configuration.
 
 ## Governance
 

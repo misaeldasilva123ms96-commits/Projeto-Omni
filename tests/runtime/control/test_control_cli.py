@@ -131,8 +131,8 @@ class ControlCliTest(unittest.TestCase):
             with patch.dict(
                 "os.environ",
                 {
-                    "OMINI_RUN_CONTROL_POLL_SECONDS": "0.05",
-                    "OMINI_RUN_CONTROL_MAX_WAIT_SECONDS": "1",
+                    "OMNI_RUN_CONTROL_POLL_SECONDS": "0.05",
+                    "OMNI_RUN_CONTROL_MAX_WAIT_SECONDS": "1",
                 },
                 clear=False,
             ):
@@ -186,8 +186,8 @@ class ControlCliTest(unittest.TestCase):
             with patch.dict(
                 "os.environ",
                 {
-                    "OMINI_RUN_CONTROL_POLL_SECONDS": "0.05",
-                    "OMINI_RUN_CONTROL_MAX_WAIT_SECONDS": "0.15",
+                    "OMNI_RUN_CONTROL_POLL_SECONDS": "0.05",
+                    "OMNI_RUN_CONTROL_MAX_WAIT_SECONDS": "0.15",
                 },
                 clear=False,
             ):
@@ -282,7 +282,7 @@ class ControlCliTest(unittest.TestCase):
             sqlite_path = workspace_root / "memory.sqlite"
             jsonl_path = workspace_root / "audit.jsonl"
             stream = io.StringIO()
-            with patch.dict("os.environ", {"OMINI_ENABLE_SQLITE_MEMORY": "false"}, clear=False):
+            with patch.dict("os.environ", {"OMNI_ENABLE_SQLITE_MEMORY": "false"}, clear=False):
                 with patch.object(
                     sys,
                     "argv",

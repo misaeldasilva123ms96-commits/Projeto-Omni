@@ -1,5 +1,7 @@
 # Phase 17 - Adaptive Continuation Layer
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Mission
 
 Phase 17 adds the bounded decision layer that evaluates operational plan health and decides what Omni should do next after a step result, repair outcome, checkpoint transition, or resume event.

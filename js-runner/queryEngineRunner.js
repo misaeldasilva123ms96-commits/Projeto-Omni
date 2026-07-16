@@ -297,7 +297,7 @@ function getQueryEngineCandidates(
       ]
     : [];
   const tail = [...javascriptTail, ...typescriptTail];
-  const preferDistFirst = String(process.env.OMNI_QUERY_ENGINE_ORDER || process.env.OMINI_QUERY_ENGINE_ORDER || '')
+  const preferDistFirst = String(process.env.OMNI_QUERY_ENGINE_ORDER || '')
     .trim()
     .toLowerCase() === 'dist_first';
   if (preferDistFirst) {
@@ -324,8 +324,8 @@ function resolveRuntimeMetadata(env = process.env, runtimeVersions = process.ver
     };
   }
 
-  const runtimeName = String(env.OMNI_JS_RUNTIME || env.OMINI_JS_RUNTIME || '').trim().toLowerCase();
-  const runtimeSource = String(env.OMNI_JS_RUNTIME_SOURCE || env.OMINI_JS_RUNTIME_SOURCE || '').trim().toLowerCase();
+  const runtimeName = String(env.OMNI_JS_RUNTIME || '').trim().toLowerCase();
+  const runtimeSource = String(env.OMNI_JS_RUNTIME_SOURCE || '').trim().toLowerCase();
 
   if (runtimeName === 'bun') {
     return {
@@ -551,13 +551,12 @@ function isDebugLoggingEnabled() {
   if (isPublicDemoMode()) {
     return false;
   }
-  const level = String(process.env.OMNI_LOG_LEVEL || process.env.OMINI_LOG_LEVEL || process.env.LOG_LEVEL || '').toLowerCase().trim();
+  const level = String(process.env.OMNI_LOG_LEVEL || '').toLowerCase().trim();
   return level === 'debug';
 }
 
 function isPublicDemoMode() {
-  return ['1', 'true', 'yes', 'on'].includes(String(process.env.OMNI_PUBLIC_DEMO_MODE || '').trim().toLowerCase())
-    || ['1', 'true', 'yes', 'on'].includes(String(process.env.OMNI_PUBLIC_DEMO_MODE || process.env.OMINI_PUBLIC_DEMO_MODE || '').trim().toLowerCase());
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env.OMNI_PUBLIC_DEMO_MODE || '').trim().toLowerCase());
 }
 
 function sanitizeDebugPayload(value, depth = 0) {

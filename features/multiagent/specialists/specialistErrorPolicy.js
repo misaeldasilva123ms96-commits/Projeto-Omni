@@ -6,14 +6,14 @@ function truthyEnv(name) {
 }
 
 function isPublicDemoMode() {
-  return truthyEnv('OMNI_PUBLIC_DEMO_MODE') || truthyEnv('OMINI_PUBLIC_DEMO_MODE');
+  return truthyEnv('OMNI_PUBLIC_DEMO_MODE');
 }
 
 function isInternalDebugEnabled() {
   if (isPublicDemoMode()) {
     return false;
   }
-  return truthyEnv('OMNI_DEBUG_INTERNAL_ERRORS') || truthyEnv('OMINI_DEBUG_INTERNAL_ERRORS');
+  return truthyEnv('OMNI_DEBUG_INTERNAL_ERRORS');
 }
 
 function sanitizeText(value, limit) {

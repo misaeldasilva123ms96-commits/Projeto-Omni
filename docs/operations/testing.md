@@ -19,7 +19,7 @@ Run from the repository root unless a command states otherwise.
 | `npm run test:js-runtime` | Node QueryEngine runner, runtime truth contracts, specialists, Supabase optional dependency handling | PASS |
 | `npm run test:python:pytest` | Python runtime pytest suite, observability, governance, learning, training gates | PASS |
 | `npm run test:security` | Consolidated security regression suite across hardening phases | PASS |
-| `npm run validate:env-aliases` | Canonical `OMNI_*` inventory and legacy alias policy | PASS |
+| `npm run validate:env-aliases` | Canonical-only `OMNI_*` environment policy | PASS |
 | `npm run validate:public-demo` | Static public demo readiness validator | PASS |
 | `npm run validate:audit-pack` | Static audit-pack validator | PASS |
 | `git diff --check` | Whitespace and patch hygiene | Required before commit |
@@ -62,7 +62,8 @@ Frontend tests may emit Vite or chart layout warnings. Treat warnings as investi
 
 ## Integration And E2E Notes
 
-- `OMNI_E2E_API_URL` is the canonical live HTTP E2E URL. `OMINI_E2E_API_URL` remains a temporary compatibility alias, with the canonical value taking precedence when both are set.
+- `OMNI_E2E_API_URL` is the only supported live HTTP E2E URL.
+- `OMNI_E2E_HTTP_TIMEOUT_MS` may raise the live HTTP timeout on slow local machines; it defaults to 120 seconds and is capped at 600 seconds.
 - `npm run test:e2e:chat-contract` always validates fixtures. Set `OMNI_E2E_REQUIRE_LIVE=true` together with `OMNI_E2E_API_URL` to make an absent, unreachable, non-2xx, degraded, or incomplete Rust → Python → Node → Rust path fail the command.
 - `.github/workflows/omni-live-e2e-ci.yml` starts the local Rust API and runs that required live contract on pull requests, `main`, `ci/**`, and manual dispatches. It does not depend on a deployed environment or provider secret.
 - The same workflow starts an isolated API with an invalid `NODE_BIN` and runs `runtime-failure-contract.e2e.ts`, preventing degraded execution from being reported as healthy success.

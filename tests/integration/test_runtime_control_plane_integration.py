@@ -110,21 +110,21 @@ def test_governance_integration_timeout_path_updates_registry_via_run_lifecycle(
             get_controller=lambda: None,
             run_lifecycle=run_lifecycle,
         )
-        previous_poll = os.environ.get("OMINI_RUN_CONTROL_POLL_SECONDS")
-        previous_wait = os.environ.get("OMINI_RUN_CONTROL_MAX_WAIT_SECONDS")
-        os.environ["OMINI_RUN_CONTROL_POLL_SECONDS"] = "0.05"
-        os.environ["OMINI_RUN_CONTROL_MAX_WAIT_SECONDS"] = "0.1"
+        previous_poll = os.environ.get("OMNI_RUN_CONTROL_POLL_SECONDS")
+        previous_wait = os.environ.get("OMNI_RUN_CONTROL_MAX_WAIT_SECONDS")
+        os.environ["OMNI_RUN_CONTROL_POLL_SECONDS"] = "0.05"
+        os.environ["OMNI_RUN_CONTROL_MAX_WAIT_SECONDS"] = "0.1"
         try:
             clearance = service.await_run_control_clearance(run_id=run_id)
         finally:
             if previous_poll is None:
-                os.environ.pop("OMINI_RUN_CONTROL_POLL_SECONDS", None)
+                os.environ.pop("OMNI_RUN_CONTROL_POLL_SECONDS", None)
             else:
-                os.environ["OMINI_RUN_CONTROL_POLL_SECONDS"] = previous_poll
+                os.environ["OMNI_RUN_CONTROL_POLL_SECONDS"] = previous_poll
             if previous_wait is None:
-                os.environ.pop("OMINI_RUN_CONTROL_MAX_WAIT_SECONDS", None)
+                os.environ.pop("OMNI_RUN_CONTROL_MAX_WAIT_SECONDS", None)
             else:
-                os.environ["OMINI_RUN_CONTROL_MAX_WAIT_SECONDS"] = previous_wait
+                os.environ["OMNI_RUN_CONTROL_MAX_WAIT_SECONDS"] = previous_wait
 
         assert clearance["status"] == "failed"
         assert clearance["error"] == "operator_timeout"

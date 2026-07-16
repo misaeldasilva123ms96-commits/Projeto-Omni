@@ -36,7 +36,7 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                     "BASE_DIR": str(workspace_root),
                     "PYTHON_BASE_DIR": str(PROJECT_ROOT / "backend" / "python"),
                     "AI_SESSION_ID": "sess-r31-int",
-                    "OMINI_RUNTIME_MODE": "live",
+                    "OMNI_RUNTIME_MODE": "live",
                 },
                 clear=False,
             ):

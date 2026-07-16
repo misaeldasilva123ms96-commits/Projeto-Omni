@@ -8,7 +8,7 @@ const engineAdoptionPath = path.join(projectRoot, '.logs', 'fusion-runtime', 'en
 process.env.BASE_DIR = projectRoot;
 process.env.NODE_RUNNER_BASE_DIR = projectRoot;
 // Integration suite asserts packaged dist behaviour (phase-27 rollback, etc.). Production defaults to adapter-first.
-process.env.OMINI_QUERY_ENGINE_ORDER = 'dist_first';
+process.env.OMNI_QUERY_ENGINE_ORDER = 'dist_first';
 if (fs.existsSync(engineAdoptionPath)) {
   fs.rmSync(engineAdoptionPath, { force: true });
 }

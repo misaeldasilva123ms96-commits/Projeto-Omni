@@ -1,5 +1,7 @@
 # Phase 20 - Governed Self-Evolution Layer
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 ## Mission
 
 Phase 20 introduces the governed self-evolution layer: a bounded, policy-driven mechanism that can identify recurring operational weaknesses, propose conservative improvements, classify scope and risk, build validation plans, record governance decisions, and keep promotion blocked by default.

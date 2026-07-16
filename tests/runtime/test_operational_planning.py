@@ -250,7 +250,7 @@ class OperationalPlanningTest(unittest.TestCase):
     def test_planning_layer_coexists_with_execution_and_repair_receipts(self) -> None:
         os.environ["BASE_DIR"] = str(PROJECT_ROOT)
         os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
-        os.environ["OMINI_ENABLE_SELF_REPAIR"] = "true"
+        os.environ["OMNI_ENABLE_SELF_REPAIR"] = "true"
         orchestrator = BrainOrchestrator(
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )

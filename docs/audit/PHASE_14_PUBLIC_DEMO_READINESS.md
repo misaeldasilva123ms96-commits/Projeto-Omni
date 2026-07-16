@@ -1,5 +1,7 @@
 # PHASE 14 PUBLIC DEMO READINESS
 
+> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+
 Branch: `release/public-demo-readiness-14`
 
 Base branch: `intelligence/intent-classifier-12`
