@@ -5,7 +5,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(test)]
+// This module is compiled and tested but intentionally disconnected from production state.
+#[allow(dead_code)]
+mod supabase_capability_grant_repository;
+
 pub(crate) const HISTORICAL_AUDIT_CAPABILITY_SOURCE_MODE_SUPABASE_GRANTS: &str = "supabase_grants";
 #[cfg(test)]
 pub(crate) const HISTORICAL_AUDIT_CAPABILITY_SOURCE_MODE_STATIC_TEST: &str = "static_test";
@@ -66,6 +69,7 @@ pub(crate) enum CapabilityGrantLookup {
     Timeout,
     Misconfigured,
     Forbidden,
+    Malformed,
 }
 
 pub(crate) trait CapabilityGrantRepository: Send + Sync {
@@ -161,6 +165,9 @@ impl HistoricalAuditCapabilityResolver {
             }
             CapabilityGrantLookup::Forbidden => {
                 CapabilityDecision::deny("capability_source_forbidden", source_mode)
+            }
+            CapabilityGrantLookup::Malformed => {
+                CapabilityDecision::deny("capability_source_malformed", source_mode)
             }
         }
     }
@@ -511,6 +518,13 @@ mod tests {
                 .authorize_at("operator-123", 1_000)
                 .reason,
             "capability_source_forbidden"
+        );
+        let malformed =
+            resolver(CapabilityGrantLookup::Malformed).authorize_at("operator-123", 1_000);
+        assert_eq!(malformed.reason, "capability_source_malformed");
+        assert_eq!(
+            malformed.source_mode,
+            HISTORICAL_AUDIT_CAPABILITY_SOURCE_MODE_SUPABASE_GRANTS
         );
     }
 

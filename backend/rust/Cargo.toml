@@ -18,6 +18,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 thiserror = "2"
 runtime = { path = "crates/runtime" }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "query"] }
+rustls = { version = "0.23.42", default-features = false, features = ["ring", "std", "tls12"] }
+uuid = "1.24.0"
+time = { version = "0.3.53", features = ["parsing", "formatting"] }
 
 [dev-dependencies]
 tower = "0.5"
