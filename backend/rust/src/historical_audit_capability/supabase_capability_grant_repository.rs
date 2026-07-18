@@ -74,8 +74,8 @@ struct CapabilityGrantTransportResponse {
     content_type: Option<String>,
     content_encoding: Option<String>,
     content_length: Option<u64>,
-    content_length_invalid: bool,
     content_range: Option<String>,
+    headers_invalid: bool,
     body: Vec<u8>,
     oversized: bool,
 }
@@ -102,10 +102,13 @@ impl CapabilityGrantTransport for ReqwestCapabilityGrantTransport {
                 .map_err(map_send_error)?;
 
             let status = response.status();
-            let content_type = safe_header_value(response.headers(), CONTENT_TYPE);
-            let content_encoding = safe_header_value(response.headers(), CONTENT_ENCODING);
-            let content_range = safe_header_value(response.headers(), CONTENT_RANGE);
-            let (content_length, content_length_invalid) = parse_content_length(response.headers());
+            let ResponseHeaderMetadata {
+                content_type,
+                content_encoding,
+                content_length,
+                content_range,
+                invalid: headers_invalid,
+            } = parse_response_headers(response.headers());
 
             if status != StatusCode::OK {
                 return Ok(CapabilityGrantTransportResponse {
@@ -113,8 +116,8 @@ impl CapabilityGrantTransport for ReqwestCapabilityGrantTransport {
                     content_type,
                     content_encoding,
                     content_length,
-                    content_length_invalid,
                     content_range,
+                    headers_invalid,
                     body: Vec::new(),
                     oversized: false,
                 });
@@ -129,8 +132,8 @@ impl CapabilityGrantTransport for ReqwestCapabilityGrantTransport {
                     content_type,
                     content_encoding,
                     content_length,
-                    content_length_invalid,
                     content_range,
+                    headers_invalid,
                     body: Vec::new(),
                     oversized: true,
                 });
@@ -149,8 +152,8 @@ impl CapabilityGrantTransport for ReqwestCapabilityGrantTransport {
                         content_type,
                         content_encoding,
                         content_length,
-                        content_length_invalid,
                         content_range,
+                        headers_invalid,
                         body: Vec::new(),
                         oversized: true,
                     });
@@ -163,8 +166,8 @@ impl CapabilityGrantTransport for ReqwestCapabilityGrantTransport {
                 content_type,
                 content_encoding,
                 content_length,
-                content_length_invalid,
                 content_range,
+                headers_invalid,
                 body,
                 oversized: false,
             })
@@ -188,23 +191,46 @@ fn map_body_error(error: reqwest::Error) -> TransportFailure {
     }
 }
 
-fn safe_header_value(headers: &HeaderMap, name: HeaderName) -> Option<String> {
-    headers.get(name).map(|value| {
-        value
-            .to_str()
-            .map(str::to_owned)
-            .unwrap_or_else(|_| String::new())
-    })
+struct ResponseHeaderMetadata {
+    content_type: Option<String>,
+    content_encoding: Option<String>,
+    content_length: Option<u64>,
+    content_range: Option<String>,
+    invalid: bool,
 }
 
-fn parse_content_length(headers: &HeaderMap) -> (Option<u64>, bool) {
-    let Some(value) = headers.get(CONTENT_LENGTH) else {
-        return (None, false);
-    };
-    match value.to_str().ok().and_then(|raw| raw.parse::<u64>().ok()) {
-        Some(length) => (Some(length), false),
-        None => (None, true),
+fn parse_response_headers(headers: &HeaderMap) -> ResponseHeaderMetadata {
+    let content_type = single_header_value(headers, &CONTENT_TYPE);
+    let content_encoding = single_header_value(headers, &CONTENT_ENCODING);
+    let content_range = single_header_value(headers, &CONTENT_RANGE);
+    let content_length = single_header_value(headers, &CONTENT_LENGTH).and_then(|value| {
+        value
+            .map(|raw| raw.parse::<u64>().map_err(|_| ()))
+            .transpose()
+    });
+    let invalid = content_type.is_err()
+        || content_encoding.is_err()
+        || content_length.is_err()
+        || content_range.is_err();
+
+    ResponseHeaderMetadata {
+        content_type: content_type.unwrap_or(None),
+        content_encoding: content_encoding.unwrap_or(None),
+        content_length: content_length.unwrap_or(None),
+        content_range: content_range.unwrap_or(None),
+        invalid,
     }
+}
+
+fn single_header_value(headers: &HeaderMap, name: &HeaderName) -> Result<Option<String>, ()> {
+    let mut values = headers.get_all(name).iter();
+    let Some(value) = values.next() else {
+        return Ok(None);
+    };
+    if values.next().is_some() {
+        return Err(());
+    }
+    value.to_str().map(str::to_owned).map(Some).map_err(|_| ())
 }
 
 #[derive(Clone)]
@@ -278,9 +304,11 @@ impl SecretServiceRoleKey {
         if normalized.is_empty() || normalized != raw || is_placeholder_secret(normalized) {
             return Err(());
         }
-        let api_key = HeaderValue::from_str(normalized).map_err(|_| ())?;
-        let authorization =
+        let mut api_key = HeaderValue::from_str(normalized).map_err(|_| ())?;
+        let mut authorization =
             HeaderValue::from_str(&format!("Bearer {normalized}")).map_err(|_| ())?;
+        api_key.set_sensitive(true);
+        authorization.set_sensitive(true);
         Ok(Self {
             api_key,
             authorization,
@@ -456,35 +484,8 @@ fn dns_error(message: &'static str) -> Box<dyn Error + Send + Sync> {
 fn is_public_destination(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => is_public_ipv4(address),
-        IpAddr::V6(address) => {
-            if let Some(mapped) = address.to_ipv4_mapped() {
-                return is_public_ipv4(mapped);
-            }
-            is_public_ipv6(address)
-        }
+        IpAddr::V6(_) => false,
     }
-}
-
-fn is_public_ipv6(address: std::net::Ipv6Addr) -> bool {
-    if address.is_unspecified() || address.is_loopback() || address.is_multicast() {
-        return false;
-    }
-    let segments = address.segments();
-    let unique_local = segments[0] & 0xfe00 == 0xfc00;
-    let link_local = segments[0] & 0xffc0 == 0xfe80;
-    let site_local = segments[0] & 0xffc0 == 0xfec0;
-    let documentation = segments[0] == 0x2001 && segments[1] == 0x0db8;
-    let benchmarking = segments[0] == 0x2001 && segments[1] == 0x0002;
-    let discard_only =
-        segments[0] == 0x0100 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0;
-    let global_unicast = segments[0] & 0xe000 == 0x2000;
-    global_unicast
-        && !unique_local
-        && !link_local
-        && !site_local
-        && !documentation
-        && !benchmarking
-        && !discard_only
 }
 
 fn is_public_ipv4(address: Ipv4Addr) -> bool {
@@ -613,7 +614,7 @@ impl SupabaseCapabilityGrantRepository {
             return map_http_status(response.status);
         }
         if response.oversized
-            || response.content_length_invalid
+            || response.headers_invalid
             || response.body.len() > MAX_RESPONSE_BODY_BYTES
             || !valid_json_content_type(response.content_type.as_deref())
             || !valid_content_encoding(response.content_encoding.as_deref())
@@ -683,26 +684,10 @@ fn valid_content_encoding(value: Option<&str>) -> bool {
 }
 
 fn valid_content_range(value: Option<&str>, row_count: usize) -> bool {
-    let Some(value) = value else {
-        return true;
-    };
-    let Some((range, total)) = value.split_once('/') else {
-        return false;
-    };
-    if row_count == 0 {
-        return range == "*" && total == "0";
-    }
-    let Some((start, end)) = range.split_once('-') else {
-        return false;
-    };
-    if start != "0" || end.parse::<usize>().ok() != Some(row_count - 1) {
-        return false;
-    }
-    total == "*"
-        || total
-            .parse::<usize>()
-            .ok()
-            .is_some_and(|total| total >= row_count)
+    matches!(
+        (value, row_count),
+        (None, _) | (Some("*/0"), 0) | (Some("0-0/*" | "0-0/1"), 1) | (Some("0-1/*" | "0-1/2"), 2)
+    )
 }
 
 fn parse_canonical_uuid(value: &str) -> Option<Uuid> {
@@ -884,7 +869,7 @@ mod tests {
     struct CapturedRequest {
         path: String,
         query: Vec<(&'static str, String)>,
-        header_names: Vec<String>,
+        header_sensitivity: Vec<(String, bool)>,
     }
 
     struct FakeTransport {
@@ -926,10 +911,10 @@ mod tests {
                 .push(CapturedRequest {
                     path: request.url.path().to_string(),
                     query: request.query,
-                    header_names: request
+                    header_sensitivity: request
                         .headers
-                        .keys()
-                        .map(|name| name.as_str().to_string())
+                        .iter()
+                        .map(|(name, value)| (name.as_str().to_string(), value.is_sensitive()))
                         .collect(),
                 });
             let response = self
@@ -965,8 +950,8 @@ mod tests {
             content_type: Some("application/json".to_string()),
             content_encoding: None,
             content_length: Some(body.len() as u64),
-            content_length_invalid: false,
             content_range: None,
+            headers_invalid: false,
             body,
             oversized: false,
         }
@@ -978,11 +963,24 @@ mod tests {
             content_type: Some("application/json; charset=utf-8".to_string()),
             content_encoding: Some("identity".to_string()),
             content_length: Some(body.len() as u64),
-            content_length_invalid: false,
             content_range: None,
+            headers_invalid: false,
             body: body.to_vec(),
             oversized: false,
         }
+    }
+
+    fn response_with_headers(
+        mut response: CapabilityGrantTransportResponse,
+        headers: &HeaderMap,
+    ) -> CapabilityGrantTransportResponse {
+        let metadata = parse_response_headers(headers);
+        response.content_type = metadata.content_type;
+        response.content_encoding = metadata.content_encoding;
+        response.content_length = metadata.content_length;
+        response.content_range = metadata.content_range;
+        response.headers_invalid = metadata.invalid;
+        response
     }
 
     fn repository_with(
@@ -1168,6 +1166,8 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
             IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)),
             IpAddr::V6(Ipv6Addr::LOCALHOST),
+            IpAddr::V6("3fff::1".parse().expect("reserved")),
+            IpAddr::V6("3ffe::1".parse().expect("former 6bone")),
             IpAddr::V6("fc00::1".parse().expect("unique local")),
             IpAddr::V6("fe80::1".parse().expect("link local")),
             IpAddr::V6("::ffff:127.0.0.1".parse().expect("mapped loopback")),
@@ -1177,7 +1177,7 @@ mod tests {
             .into_iter()
             .all(|address| !is_public_destination(address)));
         assert!(is_public_destination(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
-        assert!(is_public_destination(IpAddr::V6(
+        assert!(!is_public_destination(IpAddr::V6(
             "2606:4700:4700::1111".parse().expect("public v6")
         )));
     }
@@ -1188,6 +1188,17 @@ mod tests {
         let debug = format!("{secret:?}");
         assert_eq!(debug, "SecretServiceRoleKey([REDACTED])");
         assert!(!debug.contains(TEST_SECRET));
+        let headers = secret.headers();
+        assert!(headers.get(APIKEY).is_some_and(HeaderValue::is_sensitive));
+        assert!(headers
+            .get(AUTHORIZATION)
+            .is_some_and(HeaderValue::is_sensitive));
+        assert!(headers.get(ACCEPT).is_some_and(|value| {
+            !value.is_sensitive() && value.as_bytes() == b"application/json"
+        }));
+        assert!(headers
+            .get(ACCEPT_ENCODING)
+            .is_some_and(|value| { !value.is_sensitive() && value.as_bytes() == b"identity" }));
     }
 
     #[tokio::test]
@@ -1221,14 +1232,31 @@ mod tests {
                 ("limit", "2".to_string()),
             ]
         );
-        assert_eq!(request.header_names.len(), 4);
-        assert!(request.header_names.iter().any(|name| name == "apikey"));
+        assert_eq!(request.header_sensitivity.len(), 4);
         assert!(request
-            .header_names
+            .header_sensitivity
             .iter()
-            .any(|name| name == "authorization"));
-        assert!(!request.header_names.iter().any(|name| name == "range"));
-        assert!(!request.header_names.iter().any(|name| name == "cookie"));
+            .any(|(name, sensitive)| name == "apikey" && *sensitive));
+        assert!(request
+            .header_sensitivity
+            .iter()
+            .any(|(name, sensitive)| name == "authorization" && *sensitive));
+        assert!(request
+            .header_sensitivity
+            .iter()
+            .any(|(name, sensitive)| name == "accept" && !*sensitive));
+        assert!(request
+            .header_sensitivity
+            .iter()
+            .any(|(name, sensitive)| name == "accept-encoding" && !*sensitive));
+        assert!(!request
+            .header_sensitivity
+            .iter()
+            .any(|(name, _)| name == "range"));
+        assert!(!request
+            .header_sensitivity
+            .iter()
+            .any(|(name, _)| name == "cookie"));
     }
 
     #[tokio::test]
@@ -1397,9 +1425,9 @@ mod tests {
         let mut unsupported_encoding = response(StatusCode::OK, json!([]));
         unsupported_encoding.content_encoding = Some("gzip".to_string());
         cases.push(unsupported_encoding);
-        let mut invalid_length = response(StatusCode::OK, json!([]));
-        invalid_length.content_length_invalid = true;
-        cases.push(invalid_length);
+        let mut invalid_headers = response(StatusCode::OK, json!([]));
+        invalid_headers.headers_invalid = true;
+        cases.push(invalid_headers);
         let mut wrong_length = response(StatusCode::OK, json!([]));
         wrong_length.content_length = Some(999);
         cases.push(wrong_length);
@@ -1503,8 +1531,83 @@ mod tests {
         )));
         assert!(valid_content_range(Some("*/0"), 0));
         assert!(valid_content_range(Some("0-0/*"), 1));
-        assert!(valid_content_range(Some("0-1/3"), 2));
+        assert!(valid_content_range(Some("0-0/1"), 1));
+        assert!(valid_content_range(Some("0-1/*"), 2));
+        assert!(valid_content_range(Some("0-1/2"), 2));
+        assert!(!valid_content_range(Some("0-0/2"), 1));
+        assert!(!valid_content_range(Some("0-1/3"), 2));
         assert!(!valid_content_range(Some("0-2/*"), 2));
+    }
+
+    #[tokio::test]
+    async fn content_range_rejects_partial_effective_grant_responses() {
+        let cases = [
+            (vec![row(CALLER)], "0-0/2", false),
+            (vec![row(CALLER), row(CALLER)], "0-1/3", false),
+            (vec![row(CALLER)], "0-0/1", true),
+            (vec![row(CALLER), row(CALLER)], "0-1/2", true),
+            (vec![row(CALLER)], "0-0/*", true),
+            (vec![row(CALLER), row(CALLER)], "0-1/*", true),
+        ];
+        for (rows, content_range, valid) in cases {
+            let mut transport_response = response(StatusCode::OK, Value::Array(rows));
+            transport_response.content_range = Some(content_range.to_string());
+            let transport = Arc::new(FakeTransport::new([Ok(transport_response)]));
+            let lookup = repository_with(transport, 750)
+                .lookup_grants(CALLER, HISTORICAL_AUDIT_CAPABILITY, NOW_MS)
+                .await;
+            if valid {
+                assert!(matches!(lookup, CapabilityGrantLookup::Records(_)));
+            } else {
+                assert!(matches!(lookup, CapabilityGrantLookup::Malformed));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn duplicate_conflicting_and_invalid_response_headers_are_malformed() {
+        let mut cases = Vec::new();
+
+        let mut duplicate_content_type = HeaderMap::new();
+        duplicate_content_type.append(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        duplicate_content_type.append(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        cases.push(duplicate_content_type);
+
+        let mut duplicate_encoding = HeaderMap::new();
+        duplicate_encoding.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        duplicate_encoding.append(CONTENT_ENCODING, HeaderValue::from_static("identity"));
+        duplicate_encoding.append(CONTENT_ENCODING, HeaderValue::from_static("identity"));
+        cases.push(duplicate_encoding);
+
+        let mut conflicting_length = HeaderMap::new();
+        conflicting_length.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        conflicting_length.append(CONTENT_LENGTH, HeaderValue::from_static("2"));
+        conflicting_length.append(CONTENT_LENGTH, HeaderValue::from_static("3"));
+        cases.push(conflicting_length);
+
+        let mut conflicting_range = HeaderMap::new();
+        conflicting_range.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        conflicting_range.append(CONTENT_RANGE, HeaderValue::from_static("*/0"));
+        conflicting_range.append(CONTENT_RANGE, HeaderValue::from_static("0-0/*"));
+        cases.push(conflicting_range);
+
+        let mut invalid_bytes = HeaderMap::new();
+        invalid_bytes.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_bytes(b"\xff").expect("opaque header"),
+        );
+        cases.push(invalid_bytes);
+
+        for headers in cases {
+            let transport_response =
+                response_with_headers(response(StatusCode::OK, json!([])), &headers);
+            assert!(transport_response.headers_invalid);
+            let transport = Arc::new(FakeTransport::new([Ok(transport_response)]));
+            let lookup = repository_with(transport, 750)
+                .lookup_grants(CALLER, HISTORICAL_AUDIT_CAPABILITY, NOW_MS)
+                .await;
+            assert!(matches!(lookup, CapabilityGrantLookup::Malformed));
+        }
     }
 
     #[test]

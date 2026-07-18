@@ -55,7 +55,7 @@ A pure private parser receives an injected key/value lookup; tests do not mutate
 
 ## 11. Secret boundary
 
-The secret wrapper has redacted `Debug`, no `Display`, no serialization, and no public accessor. It prevalidates only presence, placeholder rejection, whitespace, and safe request-value construction. Secret values are copied only into the outbound request immediately before sending and never enter lookup outcomes, errors, metadata, logs, URLs, docs, or snapshots.
+The secret wrapper has redacted `Debug`, no `Display`, no serialization, and no public accessor. It prevalidates only presence, placeholder rejection, whitespace, and safe request-value construction. Both `apikey` and `Authorization` `HeaderValue` instances are marked sensitive before storage or request construction; `Accept` and `Accept-Encoding` remain nonsensitive and contain only fixed public values. Secret values are copied only into the outbound request immediately before sending and never enter lookup outcomes, errors, metadata, logs, URLs, docs, or snapshots.
 
 ## 12. URL validation
 
@@ -63,7 +63,7 @@ The origin parser requires lowercase absolute HTTPS, no userinfo, query, fragmen
 
 ## 13. DNS/SSRF implementation status
 
-DNS/IP enforcement is implemented, not inferred from hostname validation. A custom `reqwest` resolver accepts only the previously validated exact host, resolves it for port 443, rejects every non-public IPv4/IPv6 destination including mapped private addresses, and returns only the filtered addresses to the client that opens the connection. TLS hostname validation remains tied to the validated host. Redirects and ambient proxies are disabled. Tests cover public, loopback, private, link-local, shared, documentation, benchmark, unique-local, mapped, and lookalike cases.
+DNS/IP enforcement is implemented, not inferred from hostname validation. A custom `reqwest` resolver accepts only the previously validated exact host, resolves it for port 443, permits only validated public IPv4 destinations, rejects every IPv6 destination in this initial adapter (including IPv4-mapped forms), and returns only filtered IPv4 addresses to the client that opens the connection. This deliberately avoids a partial claim of exhaustive IPv6 or IANA special-purpose classification. TLS hostname validation remains tied to the validated host. Redirects and ambient proxies are disabled. Tests cover public IPv4 plus loopback, private, link-local, shared, documentation, benchmark, mapped, reserved, former-6bone, unique-local, and other IPv6 cases.
 
 ## 14. Exact PostgREST request
 
@@ -71,7 +71,7 @@ Each lookup can issue exactly one `GET` to the compile-time resource `/rest/v1/o
 
 ## 15. Response parser
 
-Successful bodies are capped at 16,384 bytes before and during streaming. Only JSON with optional UTF-8 charset and identity/no content encoding is accepted. A complete top-level array may contain zero, one, or two rows. A custom DTO visitor rejects duplicate, missing, unknown, wrongly typed, or invalid-null fields. UUID and timestamp parsing is strict; timestamp conversion rejects local, pre-epoch, lossy sub-millisecond, expired, and invalid values.
+Successful bodies are capped at 16,384 bytes before and during streaming. `Content-Type` must occur exactly once; `Content-Encoding`, `Content-Length`, and `Content-Range` may occur at most once. Duplicated, conflicting, or invalid-byte header values are malformed. Only JSON with optional UTF-8 charset and identity/no content encoding is accepted. Missing `Content-Range` is accepted; otherwise zero rows require `*/0`, one row requires `0-0/*` or `0-0/1`, and two rows require `0-1/*` or `0-1/2`. Numeric totals that differ from the received row count are rejected so partial effective-grant responses cannot authorize. A complete top-level array may contain zero, one, or two rows. A custom DTO visitor rejects duplicate, missing, unknown, wrongly typed, or invalid-null fields. UUID and timestamp parsing is strict; timestamp conversion rejects local, pre-epoch, lossy sub-millisecond, expired, and invalid values.
 
 ## 16. Error mappings
 
@@ -91,15 +91,15 @@ The adapter stores only origin, secret, timeout, and transport/client. It stores
 
 ## 20. Tests and counts
 
-The Rust suite passes 135 tests. The adapter module contributes 23 focused tests covering configuration, URL/DNS/IP policy, exact request, source stability, zero/one/two rows, strict malformed matrix, status matrix, UUID/time conversion, secret redaction, no cache, no retry, timeout cancellation, and dormant client construction. Existing resolver, protected-route, auth, control, and runtime regression tests also pass.
+The Rust suite passes 137 tests. The adapter module contributes 25 focused tests covering configuration, IPv4-only DNS/IP policy, exact request, source stability, zero/one/two rows, fail-closed `Content-Range`, duplicate/conflicting/invalid response headers, strict malformed matrix, status matrix, UUID/time conversion, sensitive secret headers, no cache, no retry, timeout cancellation, and dormant client construction. Existing resolver, protected-route, auth, control, and runtime regression tests also pass.
 
 ## 21. Redaction evidence
 
-Synthetic low-entropy values are used. Tests prove the secret is absent from wrapper/adapter debug output and categorical results, the origin and caller are absent from adapter debug output, only the expected privileged request fields are present, no cookie/range/browser/caller-token surface is added, and response bodies cannot propagate through the lookup enum.
+Synthetic low-entropy values are used. Tests prove the secret is absent from wrapper/adapter debug output and categorical results, both privileged headers carry the sensitive marker, the test transport retains only header names and sensitivity booleans, the origin and caller are absent from adapter debug output, only the expected privileged request fields are present, no cookie/range/browser/caller-token surface is added, and response bodies cannot propagate through the lookup enum.
 
 ## 22. Dependency/security audit
 
-Rust formatting, compilation, all 135 tests, and Clippy with warnings denied pass. The resolved dependency graph excludes AWS-LC and uses the explicitly selected ring provider. `cargo audit` passes with only the repository's existing allowed yanked-crate warning for `spin 0.9.8`; it reports no new blocking advisory. `npm run test:security`, `npm run validate:public-demo`, and `npm run validate:audit-pack` all pass. Unresolved high/critical findings remain a no-go.
+Rust formatting, compilation, all 137 tests, and Clippy with warnings denied pass. The resolved dependency graph excludes AWS-LC and uses the explicitly selected ring provider. `cargo audit` passes with only the repository's existing allowed yanked-crate warning for `spin 0.9.8`; it reports no new blocking advisory. `npm run test:security`, `npm run validate:public-demo`, and `npm run validate:audit-pack` all pass. Unresolved high/critical findings remain a no-go.
 
 ## 23. Confirmed prohibited files untouched
 
@@ -116,6 +116,7 @@ No router, handler, state field, route switch, public payload, frontend client, 
 ## 26. Known limitations
 
 - The existing `CapabilityGrantRepository`/resolver boundary is synchronous. Integrating an async network adapter would require a separately approved resolver/consumer change; it is intentionally deferred.
+- IPv6 destinations are intentionally rejected rather than relying on incomplete manual special-purpose classification; deployments require a public IPv4 resolution path.
 - Existing protected-route tests rely on legacy allow/missing reason strings. This branch adds the required malformed reason but does not silently migrate externally relied-on allow/missing reasons.
 - No real Supabase project or credential is used. Preview/staging integration remains a later controlled validation.
 - Service-role privilege remains broader than the fixed query; secret isolation and future least-privilege review remain operational requirements.
