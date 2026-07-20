@@ -11,7 +11,6 @@ import os
 import re
 import shlex
 import subprocess
-import tempfile
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -35,7 +34,7 @@ MAX_TIMEOUT_SECONDS = 300
 MIN_TIMEOUT_SECONDS = 1
 DEFAULT_OUTPUT_BYTES = 20000
 
-_REPO_ROOT = Path(__file__).resolve().parents[6]
+_WORKSPACE_MARKERS = (".git", "package.json", "backend/python")
 _SHELL_OPERATOR_PATTERNS = (
     re.compile(r";"),
     re.compile(r"&&"),
@@ -53,8 +52,7 @@ _CREDENTIAL_PATTERNS = (
     re.compile("API" + r"_KEY", re.IGNORECASE),
     re.compile("SEC" + r"RET", re.IGNORECASE),
     re.compile(
-        r"(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])?TO"
-        r"KEN(?:[_-][A-Za-z0-9]+)?\s*(?:=|:)\s*\S+",
+        r"(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])?TO" r"KEN(?:[_-][A-Za-z0-9]+)?\s*(?:=|:)\s*\S+",
         re.IGNORECASE,
     ),
     re.compile("PASS" + r"WORD", re.IGNORECASE),
@@ -81,13 +79,9 @@ _SECRET_PATH_PARTS = frozenset(
 _ALLOWED_ENV_KEYS = frozenset(
     {
         "PATH",
-        "HOME",
-        "USERPROFILE",
         "SYSTEMROOT",
         "COMSPEC",
         "PATHEXT",
-        "TEMP",
-        "TMP",
         "PYTHONPATH",
     }
 )
@@ -123,8 +117,9 @@ def run_sandbox_command(
         )
     )
     argv, parse_error = _parse_argv(gate.normalized_command)
-    cwd, cwd_error = _resolve_working_directory(request.working_directory)
-    allowlist_error = _validate_executable_argv(argv, cwd)
+    workspace_root, workspace_root_error = _resolve_workspace_root(request.workspace_root)
+    cwd, cwd_error = _resolve_working_directory(request.working_directory, workspace_root)
+    allowlist_error = _validate_executable_argv(argv, cwd, workspace_root)
     secret_detected = any(
         (
             command_redacted,
@@ -140,6 +135,7 @@ def run_sandbox_command(
         request=request,
         gate=gate,
         parse_error=parse_error,
+        workspace_root_error=workspace_root_error,
         cwd_error=cwd_error,
         allowlist_error=allowlist_error,
         secret_detected=secret_detected,
@@ -207,7 +203,7 @@ def run_sandbox_command(
         completed = subprocess.run(
             argv,
             cwd=str(cwd),
-            env=_sanitized_environment(cwd),
+            env=_sanitized_environment(cwd, workspace_root),
             timeout=timeout_seconds,
             capture_output=True,
             shell=False,
@@ -307,6 +303,7 @@ def _coerce_request(
         requested_by=str(payload.get("requested_by") or "unknown"),
         runner_mode=str(payload.get("runner_mode") or DEFAULT_RUNNER_MODE),
         command_mode=str(payload.get("command_mode") or "sandbox_allowed"),
+        workspace_root=payload.get("workspace_root"),
         working_directory=payload.get("working_directory"),
         timeout_seconds=int(
             payload["timeout_seconds"] if payload.get("timeout_seconds") is not None else 60
@@ -328,6 +325,7 @@ def _blocked_reason(
     request: SandboxCommandRunnerRequest,
     gate: Any,
     parse_error: str | None,
+    workspace_root_error: str | None,
     cwd_error: str | None,
     allowlist_error: str | None,
     secret_detected: bool,
@@ -354,6 +352,8 @@ def _blocked_reason(
         return "Phase 17 executes only read-safe commands."
     if parse_error:
         return parse_error
+    if workspace_root_error:
+        return workspace_root_error
     if cwd_error:
         return cwd_error
     if allowlist_error:
@@ -380,7 +380,11 @@ def _parse_argv(command: str) -> tuple[list[str], str | None]:
     return argv, None
 
 
-def _validate_executable_argv(argv: list[str], cwd: Path | None) -> str | None:
+def _validate_executable_argv(
+    argv: list[str],
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> str | None:
     if not argv:
         return "Command is empty."
     command = argv[0].lower()
@@ -396,8 +400,8 @@ def _validate_executable_argv(argv: list[str], cwd: Path | None) -> str | None:
 
     validators = (
         _is_allowed_git(argv),
-        _is_allowed_python(argv, cwd),
-        _is_allowed_pytest(argv, cwd),
+        _is_allowed_python(argv, cwd, workspace_root),
+        _is_allowed_pytest(argv, cwd, workspace_root),
         _is_allowed_npm(argv),
         _is_allowed_node(argv),
         _is_allowed_cargo(argv),
@@ -418,20 +422,28 @@ def _is_allowed_git(argv: list[str]) -> bool:
     )
 
 
-def _is_allowed_python(argv: list[str], cwd: Path | None) -> bool:
+def _is_allowed_python(
+    argv: list[str],
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> bool:
     if argv == ["python", "--version"]:
         return True
     if len(argv) >= 4 and argv[:3] == ["python", "-m", "pytest"]:
-        return _safe_path_args(argv[3:], cwd)
+        return _safe_path_args(argv[3:], cwd, workspace_root)
     if len(argv) >= 4 and argv[:3] == ["python", "-m", "json.tool"]:
-        return _safe_path_args(argv[3:], cwd)
+        return _safe_path_args(argv[3:], cwd, workspace_root)
     if len(argv) >= 4 and argv[:3] == ["python", "-m", "compileall"]:
-        return _safe_path_args(argv[3:], cwd)
+        return _safe_path_args(argv[3:], cwd, workspace_root)
     return False
 
 
-def _is_allowed_pytest(argv: list[str], cwd: Path | None) -> bool:
-    return len(argv) >= 2 and argv[0] == "pytest" and _safe_path_args(argv[1:], cwd)
+def _is_allowed_pytest(
+    argv: list[str],
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> bool:
+    return len(argv) >= 2 and argv[0] == "pytest" and _safe_path_args(argv[1:], cwd, workspace_root)
 
 
 def _is_allowed_npm(argv: list[str]) -> bool:
@@ -463,16 +475,24 @@ def _is_allowed_rustc(argv: list[str]) -> bool:
     return argv == ["rustc", "--version"]
 
 
-def _safe_path_args(args: list[str], cwd: Path | None) -> bool:
+def _safe_path_args(
+    args: list[str],
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> bool:
     if not args:
         return False
     path_args = [arg for arg in args if not arg.startswith("-")]
     if not path_args:
         return False
-    return all(_is_safe_argument_path(arg, cwd) for arg in path_args)
+    return all(_is_safe_argument_path(arg, cwd, workspace_root) for arg in path_args)
 
 
-def _is_safe_argument_path(value: str, cwd: Path | None) -> bool:
+def _is_safe_argument_path(
+    value: str,
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> bool:
     if not value or _contains_credential_like(value):
         return False
     path = Path(value)
@@ -480,18 +500,85 @@ def _is_safe_argument_path(value: str, cwd: Path | None) -> bool:
         return False
     if any(part.lower() in _SECRET_PATH_PARTS for part in path.parts):
         return False
-    base = cwd or _REPO_ROOT
+    if workspace_root is None:
+        return False
+    base = cwd or workspace_root
     candidate = path if path.is_absolute() else base / path
     try:
         resolved = candidate.resolve(strict=False)
     except OSError:
         return False
-    return _is_inside(resolved, _REPO_ROOT) or _is_inside_safe_temp(resolved)
+    return _is_inside(resolved, workspace_root)
 
 
-def _resolve_working_directory(value: str | None) -> tuple[Path | None, str | None]:
+def _resolve_workspace_root(explicit_root: str | None) -> tuple[Path | None, str | None]:
+    if explicit_root is not None:
+        return _validate_workspace_root(explicit_root, require_markers=False)
+
+    configured_root = os.environ.get("OMNI_WORKSPACE_ROOT")
+    if configured_root is not None:
+        return _validate_workspace_root(configured_root, require_markers=True)
+
+    discovered = _discover_repository_root(Path(__file__).resolve().parent)
+    if discovered is None:
+        return None, "Sandbox workspace root could not be established safely."
+    return discovered, None
+
+
+def _validate_workspace_root(
+    value: str,
+    *,
+    require_markers: bool,
+) -> tuple[Path | None, str | None]:
+    if not value or _contains_credential_like(value):
+        return None, "Sandbox workspace root is missing or contains secret-like content."
+    path = Path(value)
+    if not path.is_absolute():
+        return None, "Sandbox workspace root must be absolute."
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError:
+        return None, "Sandbox workspace root must already exist."
+    if not resolved.is_dir():
+        return None, "Sandbox workspace root must be a directory."
+    if _is_filesystem_root(resolved):
+        return None, "Filesystem root cannot be a sandbox workspace root."
+    try:
+        user_home = Path.home().resolve(strict=True)
+    except OSError:
+        user_home = None
+    if user_home is not None and resolved == user_home:
+        return None, "User home cannot be a sandbox workspace root."
+    if require_markers and not _has_workspace_markers(resolved):
+        return None, "Configured sandbox workspace root does not match a repository checkout."
+    return resolved, None
+
+
+def _discover_repository_root(start: Path) -> Path | None:
+    for candidate in (start, *start.parents):
+        if _is_filesystem_root(candidate):
+            break
+        if _has_workspace_markers(candidate):
+            resolved, error = _validate_workspace_root(
+                str(candidate),
+                require_markers=True,
+            )
+            return None if error else resolved
+    return None
+
+
+def _has_workspace_markers(path: Path) -> bool:
+    return all((path / marker).exists() for marker in _WORKSPACE_MARKERS)
+
+
+def _resolve_working_directory(
+    value: str | None,
+    workspace_root: Path | None,
+) -> tuple[Path | None, str | None]:
+    if workspace_root is None:
+        return None, "Sandbox workspace root is unavailable."
     if not value:
-        return _REPO_ROOT, None
+        return workspace_root, None
     if _contains_credential_like(value):
         return None, "Working directory contains secret-like content."
     path = Path(value)
@@ -508,9 +595,9 @@ def _resolve_working_directory(value: str | None) -> tuple[Path | None, str | No
         return None, "Working directory cannot target repository internals or secrets."
     if _is_filesystem_root(resolved):
         return None, "Filesystem root is not an allowed working directory."
-    if _is_inside(resolved, _REPO_ROOT) or _is_inside_safe_temp(resolved):
+    if _is_inside(resolved, workspace_root):
         return resolved, None
-    return None, "Working directory must stay inside the repository or a safe test temp directory."
+    return None, "Working directory must stay inside the configured sandbox workspace."
 
 
 def _is_inside(path: Path, root: Path) -> bool:
@@ -521,20 +608,15 @@ def _is_inside(path: Path, root: Path) -> bool:
         return False
 
 
-def _is_inside_safe_temp(path: Path) -> bool:
-    temp_root = Path(tempfile.gettempdir()).resolve(strict=False)
-    resolved = path.resolve(strict=False)
-    if resolved == temp_root:
-        return False
-    return _is_inside(resolved, temp_root)
-
-
 def _is_filesystem_root(path: Path) -> bool:
     resolved = path.resolve(strict=False)
     return str(resolved) == resolved.anchor or resolved.parent == resolved
 
 
-def _sanitized_environment(cwd: Path | None) -> dict[str, str]:
+def _sanitized_environment(
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> dict[str, str]:
     safe_env: dict[str, str] = {}
     for key, value in os.environ.items():
         upper_key = key.upper()
@@ -542,13 +624,23 @@ def _sanitized_environment(cwd: Path | None) -> dict[str, str]:
             continue
         if _contains_credential_like(key) or _contains_credential_like(value):
             continue
-        if upper_key == "PYTHONPATH" and not _env_path_is_safe(value, cwd):
+        if upper_key == "PYTHONPATH" and not _env_path_is_safe(
+            value,
+            cwd,
+            workspace_root,
+        ):
             continue
         safe_env[key] = value
     return safe_env
 
 
-def _env_path_is_safe(value: str, cwd: Path | None) -> bool:
+def _env_path_is_safe(
+    value: str,
+    cwd: Path | None,
+    workspace_root: Path | None,
+) -> bool:
+    if workspace_root is None:
+        return False
     separator = os.pathsep
     for part in value.split(separator):
         if not part:
@@ -557,7 +649,7 @@ def _env_path_is_safe(value: str, cwd: Path | None) -> bool:
             resolved = Path(part).resolve(strict=False)
         except OSError:
             return False
-        if not (_is_inside(resolved, _REPO_ROOT) or _is_inside_safe_temp(resolved)):
+        if not _is_inside(resolved, workspace_root):
             return False
         if cwd and not (_is_inside(resolved, cwd) or _is_inside(cwd, resolved)):
             return False

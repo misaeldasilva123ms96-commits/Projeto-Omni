@@ -12,6 +12,7 @@ class SandboxCommandRunnerRequest:
     requested_by: str = "unknown"
     runner_mode: str = "disabled"
     command_mode: str = "sandbox_allowed"
+    workspace_root: Optional[str] = None
     working_directory: Optional[str] = None
     timeout_seconds: int = 60
     max_stdout_bytes: int = 20000
