@@ -35,7 +35,23 @@ class Phase2RuntimeTest(unittest.TestCase):
             "PYTHON_BASE_DIR": str(PYTHON_ROOT),
             "CI": "1",
         }
-        for key in ("PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH", "NODE_PATH"):
+        for key in (
+            "PATH",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "PYTHONPATH",
+            "NODE_PATH",
+            "OMNI_TEST_MODE",
+            "OMNI_MEMORY_DIR",
+            "OMNI_MEMORY_JSON_PATH",
+            "OMNI_JSONL_MEMORY_PATH",
+            "OMNI_SQLITE_MEMORY_PATH",
+            "OMNI_ENABLE_SQLITE_MEMORY",
+            "OMNI_ARTIFACT_ROOT",
+            "OMNI_LOG_ROOT",
+            "OMNI_CACHE_ROOT",
+        ):
             value = os.environ.get(key)
             if value:
                 env[key] = value
@@ -107,7 +123,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         return BrainOrchestrator(BrainPaths.from_entrypoint(PYTHON_ROOT / "brain" / "runtime" / "main.py"))
 
     def make_temp_python_repo(self) -> Path:
-        base_temp = PROJECT_ROOT / ".phase9-temp"
+        base_temp = Path(os.environ.get("OMNI_ARTIFACT_ROOT", PROJECT_ROOT / ".phase9-temp"))
         base_temp.mkdir(parents=True, exist_ok=True)
         temp_root = base_temp / f"omni-phase9-{uuid4().hex[:8]}"
         shutil.rmtree(temp_root, ignore_errors=True)

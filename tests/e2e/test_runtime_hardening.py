@@ -71,7 +71,8 @@ class RuntimeHardeningTest(unittest.TestCase):
         self.assertTrue(str(saved_path).endswith("fase3-checkpoint.json"))
 
     def test_patch_set_manager_apply_failure_returns_descriptive_error(self) -> None:
-        temp_root = PROJECT_ROOT / ".phase9-temp" / f"fase3-io-{uuid4().hex[:8]}"
+        artifact_root = Path(os.environ.get("OMNI_ARTIFACT_ROOT", PROJECT_ROOT / ".phase9-temp"))
+        temp_root = artifact_root / f"fase3-io-{uuid4().hex[:8]}"
         shutil.rmtree(temp_root, ignore_errors=True)
         (temp_root / "pkg").mkdir(parents=True, exist_ok=True)
         (temp_root / "pkg" / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")
