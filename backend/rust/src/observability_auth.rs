@@ -31,6 +31,7 @@ use crate::AppState;
 const OBSERVABILITY_STREAM_TICKET_TTL_SECONDS: u64 = 30;
 const MAX_ACTIVE_STREAM_TICKETS: usize = 1_024;
 const SUPABASE_AUTHENTICATED_AUDIENCE: &str = "authenticated";
+const MINIMUM_HS256_SECRET_BYTES: usize = 32;
 pub(crate) const OBSERVABILITY_STREAM_TICKET_STORE_MODE_ENV: &str =
     "OMNI_OBSERVABILITY_STREAM_TICKET_STORE_MODE";
 
@@ -293,25 +294,24 @@ struct UnauthorizedBody {
 
 impl SupabaseAuthConfig {
     pub(crate) fn from_env() -> Result<Self, String> {
-        let public_demo_mode = env_flag("OMNI_PUBLIC_DEMO_MODE").unwrap_or(false);
-
-        let jwt_secret = match env::var("SUPABASE_JWT_SECRET") {
-            Ok(value) => value,
-            Err(_) if public_demo_mode => "omni-public-demo-local-auth-key".to_string(),
-            Err(_) => return Err("missing SUPABASE_JWT_SECRET environment variable".to_string()),
-        };
+        let jwt_secret = env::var("SUPABASE_JWT_SECRET")
+            .map_err(|_| "missing SUPABASE_JWT_SECRET environment variable".to_string())?;
         if jwt_secret.trim().is_empty() {
             return Err("SUPABASE_JWT_SECRET cannot be empty".to_string());
         }
+        if jwt_secret.as_bytes().len() < MINIMUM_HS256_SECRET_BYTES {
+            return Err(format!(
+                "SUPABASE_JWT_SECRET must contain at least {MINIMUM_HS256_SECRET_BYTES} bytes"
+            ));
+        }
 
-        let supabase_url = match env::var("SUPABASE_URL").or_else(|_| env::var("VITE_SUPABASE_URL")) {
-            Ok(value) => value,
-            Err(_) if public_demo_mode => "https://public-demo.local".to_string(),
-            Err(_) => return Err(
+        let supabase_url =
+            env::var("SUPABASE_URL")
+                .or_else(|_| env::var("VITE_SUPABASE_URL"))
+                .map_err(|_| {
                 "missing SUPABASE_URL (or VITE_SUPABASE_URL) required for Supabase issuer validation"
-                    .to_string(),
-            ),
-        };
+                    .to_string()
+            })?;
         let normalized_url = supabase_url.trim().trim_end_matches('/');
         if normalized_url.is_empty() {
             return Err("SUPABASE_URL cannot be empty".to_string());
@@ -340,15 +340,6 @@ impl SupabaseAuthConfig {
         )
         .map(|data| data.claims)
     }
-}
-
-fn env_flag(name: &str) -> Option<bool> {
-    env::var(name).ok().map(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
 }
 
 pub(crate) async fn require_supabase_auth(
@@ -490,18 +481,24 @@ mod tests {
     };
     use jsonwebtoken::{encode, EncodingKey, Header};
     use serde_json::{json, Value};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, OnceLock};
     use tower::ServiceExt;
+
+    static AUTH_ENV_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn build_config() -> SupabaseAuthConfig {
         SupabaseAuthConfig {
-            jwt_secret: "test-secret".to_string(),
+            jwt_secret: "test-only-high-entropy-secret-material".to_string(),
             issuer: "https://example.supabase.co/auth/v1".to_string(),
         }
     }
 
     #[test]
-    fn public_demo_mode_uses_local_auth_defaults_without_env_secret() {
+    fn public_demo_mode_without_explicit_auth_config_fails_closed() {
+        let _guard = AUTH_ENV_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("auth env lock");
         let previous_secret = env::var("SUPABASE_JWT_SECRET").ok();
         let previous_url = env::var("SUPABASE_URL").ok();
         let previous_vite_url = env::var("VITE_SUPABASE_URL").ok();
@@ -512,9 +509,9 @@ mod tests {
         env::remove_var("VITE_SUPABASE_URL");
         env::set_var("OMNI_PUBLIC_DEMO_MODE", "true");
 
-        let config = SupabaseAuthConfig::from_env().expect("public demo auth config");
-        assert_eq!(config.issuer, "https://public-demo.local/auth/v1");
-        assert!(!config.jwt_secret.trim().is_empty());
+        let error = SupabaseAuthConfig::from_env()
+            .expect_err("public demo must not synthesize authentication configuration");
+        assert!(error.contains("SUPABASE_JWT_SECRET"));
 
         if let Some(value) = previous_secret {
             env::set_var("SUPABASE_JWT_SECRET", value);
@@ -535,6 +532,43 @@ mod tests {
             env::set_var("OMNI_PUBLIC_DEMO_MODE", value);
         } else {
             env::remove_var("OMNI_PUBLIC_DEMO_MODE");
+        }
+    }
+
+    #[test]
+    fn explicit_high_entropy_auth_config_is_accepted() {
+        let _guard = AUTH_ENV_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("auth env lock");
+        let previous_secret = env::var("SUPABASE_JWT_SECRET").ok();
+        let previous_url = env::var("SUPABASE_URL").ok();
+        let previous_vite_url = env::var("VITE_SUPABASE_URL").ok();
+
+        env::set_var(
+            "SUPABASE_JWT_SECRET",
+            "test-only-high-entropy-secret-material",
+        );
+        env::set_var("SUPABASE_URL", "https://example.supabase.co");
+        env::remove_var("VITE_SUPABASE_URL");
+
+        let config = SupabaseAuthConfig::from_env().expect("explicit secure auth config");
+        assert_eq!(config.issuer, "https://example.supabase.co/auth/v1");
+
+        if let Some(value) = previous_secret {
+            env::set_var("SUPABASE_JWT_SECRET", value);
+        } else {
+            env::remove_var("SUPABASE_JWT_SECRET");
+        }
+        if let Some(value) = previous_url {
+            env::set_var("SUPABASE_URL", value);
+        } else {
+            env::remove_var("SUPABASE_URL");
+        }
+        if let Some(value) = previous_vite_url {
+            env::set_var("VITE_SUPABASE_URL", value);
+        } else {
+            env::remove_var("VITE_SUPABASE_URL");
         }
     }
 
@@ -570,13 +604,18 @@ mod tests {
         }
     }
 
-    fn token_with_audience(exp_offset_seconds: i64, audience: Option<Value>) -> String {
+    fn token_with_issuer_secret_and_audience(
+        exp_offset_seconds: i64,
+        issuer: &str,
+        secret: &str,
+        audience: Option<Value>,
+    ) -> String {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("unix epoch")
             .as_secs() as i64;
         let mut claims = json!({
-            "iss": "https://example.supabase.co/auth/v1",
+            "iss": issuer,
             "sub": "operator-123",
             "exp": now + exp_offset_seconds,
         });
@@ -587,9 +626,18 @@ mod tests {
         encode(
             &Header::new(Algorithm::HS256),
             &claims,
-            &EncodingKey::from_secret("test-secret".as_bytes()),
+            &EncodingKey::from_secret(secret.as_bytes()),
         )
         .expect("encode test jwt")
+    }
+
+    fn token_with_audience(exp_offset_seconds: i64, audience: Option<Value>) -> String {
+        token_with_issuer_secret_and_audience(
+            exp_offset_seconds,
+            "https://example.supabase.co/auth/v1",
+            "test-only-high-entropy-secret-material",
+            audience,
+        )
     }
 
     fn token_with_offset(exp_offset_seconds: i64) -> String {
@@ -729,6 +777,52 @@ mod tests {
 
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
+    }
+
+    #[tokio::test]
+    async fn token_with_wrong_issuer_returns_401() {
+        let token = token_with_issuer_secret_and_audience(
+            300,
+            "https://attacker.invalid/auth/v1",
+            "test-only-high-entropy-secret-material",
+            Some(json!("authenticated")),
+        );
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/observability/snapshot")
+                    .header(AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn token_with_wrong_signature_returns_401() {
+        let token = token_with_issuer_secret_and_audience(
+            300,
+            "https://example.supabase.co/auth/v1",
+            "different-test-only-high-entropy-secret",
+            Some(json!("authenticated")),
+        );
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/observability/snapshot")
+                    .header(AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

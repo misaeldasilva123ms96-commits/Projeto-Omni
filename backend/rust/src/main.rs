@@ -3859,6 +3859,7 @@ mod tests {
         body::{to_bytes, Body},
         http::{Method, Request},
     };
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use std::fs;
     use std::sync::{Mutex as StdMutex, OnceLock};
     use tower::ServiceExt;
@@ -3950,7 +3951,7 @@ mod tests {
             node_bin: "node".to_string(),
             python_health: Arc::new(RwLock::new(DependencyStatus::default())),
             supabase_auth: Arc::new(SupabaseAuthConfig {
-                jwt_secret: "test-secret".to_string(),
+                jwt_secret: "test-only-high-entropy-secret-material".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
             observability_stream_tickets: Arc::new(
@@ -4225,6 +4226,42 @@ mod tests {
             ))
             .await
             .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn historical_demo_key_is_rejected_by_protected_internal_route() {
+        let historical_key = ["omni", "public", "demo", "local", "auth", "key"].join("-");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("unix epoch")
+            .as_secs();
+        let claims = json!({
+            "iss": "https://public-demo.local/auth/v1",
+            "sub": "audit-reproducer",
+            "aud": "authenticated",
+            "exp": now + 300,
+        });
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(historical_key.as_bytes()),
+        )
+        .expect("encode audit token");
+        let state = build_test_state(
+            temp_script(
+                "print('{\"response\":\"unused\"}')\n",
+                "historical-demo-key",
+            ),
+            15_000,
+        );
+        let app = protected_internal_router(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(get_request_with_bearer("/internal/runtime-signals", &token))
+            .await
+            .expect("protected route response");
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
