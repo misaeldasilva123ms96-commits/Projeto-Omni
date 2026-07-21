@@ -5,11 +5,27 @@ import socket
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
+import conftest as omni_conftest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _hook_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        rootpath=PROJECT_ROOT,
+        option=SimpleNamespace(basetemp=None),
+    )
+
+
+def _finish_hook(config: SimpleNamespace, exitstatus: int = 0) -> None:
+    omni_conftest.pytest_sessionfinish(
+        SimpleNamespace(config=config),
+        exitstatus,
+    )
 
 
 @pytest.mark.parametrize(
@@ -86,7 +102,10 @@ def test_test_mode_contract_is_explicit() -> None:
     assert os.environ["OMNI_ENABLE_SQLITE_MEMORY"] == "false"
     assert Path(os.environ["OMNI_BASE_DIR"]).resolve() == PROJECT_ROOT
     assert Path(os.environ["OMNI_PYTHON_BASE_DIR"]).resolve() == PROJECT_ROOT / "backend" / "python"
-    assert Path(os.environ["OMNI_PYTHON_ENTRY"]).resolve() == PROJECT_ROOT / "backend" / "python" / "main.py"
+    assert (
+        Path(os.environ["OMNI_PYTHON_ENTRY"]).resolve()
+        == PROJECT_ROOT / "backend" / "python" / "main.py"
+    )
     assert os.environ["OMNI_RUNTIME_MODE"] == "live"
     assert Path(os.environ["OMNI_WORKSPACE_ROOT"]).resolve() == PROJECT_ROOT
 
@@ -181,3 +200,101 @@ def test_failed_pytest_process_removes_temporary_state(tmp_path) -> None:
         root = Path(marker.read_text(encoding="utf-8")).resolve()
         assert completed.returncode == 1
         assert not root.exists()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "OMNI_TEST_MODE",
+        "HOME",
+        "USERPROFILE",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+    ],
+)
+def test_pytest_hooks_restore_existing_environment_values(monkeypatch, name) -> None:
+    original = f"original-{name.lower()}"
+    monkeypatch.setenv(name, original)
+    config = _hook_config()
+
+    omni_conftest.pytest_configure(config)
+    assert os.environ.get(name) != original
+    _finish_hook(config)
+
+    assert os.environ[name] == original
+
+
+def test_pytest_hooks_remove_variables_that_were_originally_absent(monkeypatch) -> None:
+    monkeypatch.delenv("OMNI_UPLOAD_ROOT", raising=False)
+    config = _hook_config()
+
+    omni_conftest.pytest_configure(config)
+    assert "OMNI_UPLOAD_ROOT" in os.environ
+    _finish_hook(config)
+
+    assert "OMNI_UPLOAD_ROOT" not in os.environ
+
+
+@pytest.mark.parametrize("name", ["OPENAI_API_KEY", "SUPABASE_URL", "SSH_AUTH_SOCK", "GIT_ASKPASS"])
+def test_sensitive_environment_is_hidden_then_restored(monkeypatch, name) -> None:
+    monkeypatch.setenv(name, "sensitive-test-marker")
+    config = _hook_config()
+
+    omni_conftest.pytest_configure(config)
+    assert name not in os.environ
+    _finish_hook(config)
+
+    assert os.environ[name] == "sensitive-test-marker"
+
+
+def test_cleanup_failure_still_restores_environment(monkeypatch) -> None:
+    monkeypatch.setenv("HOME", "original-home")
+    config = _hook_config()
+    omni_conftest.pytest_configure(config)
+    monkeypatch.setattr(
+        omni_conftest.shutil,
+        "rmtree",
+        lambda path: (_ for _ in ()).throw(OSError("cleanup probe")),
+    )
+
+    with pytest.warns(RuntimeWarning, match="cleanup failed"):
+        _finish_hook(config, exitstatus=1)
+
+    assert os.environ["HOME"] == "original-home"
+
+
+def test_multiple_sequential_hook_sessions_remain_isolated(monkeypatch) -> None:
+    monkeypatch.setenv("HOME", "caller-home")
+    roots = []
+
+    for exitstatus in [0, 1]:
+        config = _hook_config()
+        omni_conftest.pytest_configure(config)
+        roots.append(config._omni_isolation_root)
+        assert os.environ["HOME"] != "caller-home"
+        _finish_hook(config, exitstatus=exitstatus)
+        assert os.environ["HOME"] == "caller-home"
+
+    assert roots[0] != roots[1]
+    assert all(not root.exists() for root in roots)
+
+
+@pytest.mark.parametrize("probe_fails", [False, True])
+def test_pytest_main_does_not_contaminate_caller_environment(
+    monkeypatch,
+    tmp_path,
+    probe_fails,
+) -> None:
+    monkeypatch.setenv("HOME", "pytest-main-caller-home")
+    monkeypatch.setenv("OPENAI_API_KEY", "pytest-main-sensitive-marker")
+    probe = tmp_path / f"test_nested_{probe_fails}.py"
+    assertion = "assert False" if probe_fails else "assert True"
+    probe.write_text(f"def test_nested():\n    {assertion}\n", encoding="utf-8")
+
+    result = pytest.main(["-q", str(probe), "-p", "no:cacheprovider"])
+
+    assert result == (pytest.ExitCode.TESTS_FAILED if probe_fails else pytest.ExitCode.OK)
+    assert os.environ["HOME"] == "pytest-main-caller-home"
+    assert os.environ["OPENAI_API_KEY"] == "pytest-main-sensitive-marker"
