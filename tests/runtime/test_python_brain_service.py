@@ -155,6 +155,8 @@ class FakeOrchestrator:
         }}
     def run(self, message, bridge=None):
         return {{"response": "ok", "server_conversation_id": "conv-1"}}
+    def close(self):
+        pass
 
 main.BrainOrchestrator = FakeOrchestrator
 raise SystemExit(main.main())

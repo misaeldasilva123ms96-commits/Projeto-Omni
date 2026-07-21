@@ -83,6 +83,17 @@ def _orchestrator():
         shutil.rmtree(path, ignore_errors=True)
 
 
+def _allow_synthetic_execution(orchestrator: BrainOrchestrator):
+    evaluate_control_layer = orchestrator._evaluate_control_layer
+
+    def allow(**kwargs):
+        result = evaluate_control_layer(**kwargs)
+        result["allowed"] = True
+        return result
+
+    return patch.object(orchestrator, "_evaluate_control_layer", side_effect=allow)
+
+
 def test_prompt_greeting_triggers_matcher_shortcut_lane() -> None:
     with _orchestrator() as orchestrator:
         with (
@@ -135,6 +146,7 @@ def test_prompt_bridge_execution_triggers_bridge_execution_request_lane() -> Non
     with _orchestrator() as orchestrator:
         with (
             patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
+            _allow_synthetic_execution(orchestrator),
             patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=BRIDGE_NODE_RESPONSE),
             patch.object(BrainOrchestrator, "_resolve_node_command_context", return_value={
                 "node_resolved": True, "runner_exists": True, "cwd_exists": True,
@@ -147,7 +159,7 @@ def test_prompt_bridge_execution_triggers_bridge_execution_request_lane() -> Non
                 "env_preview": "PATH=...",
             }),
         ):
-            response = orchestrator.run("analise este fluxo")
+            response = orchestrator.run("implemente este fluxo via node runtime")
     inspection = orchestrator.last_cognitive_runtime_inspection or {}
     signals = inspection.get("signals", {})
     assert signals.get("semantic_runtime_lane") == LANE_BRIDGE_EXECUTION_REQUEST, (
@@ -162,6 +174,7 @@ def test_prompt_true_action_triggers_true_action_execution_lane() -> None:
     with _orchestrator() as orchestrator:
         with (
             patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
+            _allow_synthetic_execution(orchestrator),
             patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=TRUE_ACTION_NODE_RESPONSE),
             patch.object(BrainOrchestrator, "_execute_runtime_actions", return_value=step_results),
             patch.object(BrainOrchestrator, "_resolve_node_command_context", return_value={
@@ -175,7 +188,7 @@ def test_prompt_true_action_triggers_true_action_execution_lane() -> None:
                 "env_preview": "PATH=...",
             }),
         ):
-            response = orchestrator.run("analise o arquivo package.json")
+            response = orchestrator.run("implemente via node runtime uma inspeção de package.json")
     inspection = orchestrator.last_cognitive_runtime_inspection or {}
     signals = inspection.get("signals", {})
     assert signals.get("semantic_runtime_lane") == LANE_TRUE_ACTION_EXECUTION, (

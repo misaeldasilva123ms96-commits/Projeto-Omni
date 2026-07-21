@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,21 @@ def test_test_mode_contract_is_explicit() -> None:
     assert Path(os.environ["OMNI_WORKSPACE_ROOT"]).resolve() == PROJECT_ROOT
 
 
+@pytest.mark.parametrize(
+    "path_name",
+    [
+        "OMNI_MEMORY_JSON_PATH",
+        "OMNI_JSONL_MEMORY_PATH",
+        "OMNI_SQLITE_MEMORY_PATH",
+    ],
+)
+def test_memory_file_paths_are_not_created_as_directories(path_name) -> None:
+    path = Path(os.environ[path_name]).resolve()
+
+    assert path.parent.is_dir()
+    assert not path.is_dir()
+
+
 def _write_nested_isolation_probe(path: Path, *, fail: bool = False) -> None:
     assertion = "assert False, 'intentional isolation probe failure'" if fail else "assert True"
     path.write_text(
@@ -108,50 +124,56 @@ def _write_nested_isolation_probe(path: Path, *, fail: bool = False) -> None:
 
 
 def test_parallel_pytest_processes_receive_separate_roots(tmp_path) -> None:
-    probe = tmp_path / "test_parallel_probe.py"
-    _write_nested_isolation_probe(probe)
-    processes = []
-    markers = [tmp_path / f"parallel-{index}.txt" for index in range(2)]
+    probe_parent = PROJECT_ROOT / ".tmp"
+    probe_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="parallel-isolation-", dir=probe_parent) as temp_dir:
+        probe = Path(temp_dir) / "test_parallel_probe.py"
+        _write_nested_isolation_probe(probe)
+        processes = []
+        markers = [tmp_path / f"parallel-{index}.txt" for index in range(2)]
 
-    for marker in markers:
-        env = os.environ.copy()
-        env["OMNI_ISOLATION_MARKER"] = str(marker)
-        processes.append(
-            subprocess.Popen(
-                [sys.executable, "-m", "pytest", "-q", str(probe)],
-                cwd=PROJECT_ROOT,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+        for marker in markers:
+            env = os.environ.copy()
+            env["OMNI_ISOLATION_MARKER"] = str(marker)
+            processes.append(
+                subprocess.Popen(
+                    [sys.executable, "-m", "pytest", "-q", str(probe)],
+                    cwd=PROJECT_ROOT,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
             )
-        )
 
-    results = [process.communicate(timeout=120) for process in processes]
+        results = [process.communicate(timeout=120) for process in processes]
 
-    assert [process.returncode for process in processes] == [0, 0], results
-    roots = [Path(marker.read_text(encoding="utf-8")).resolve() for marker in markers]
-    assert roots[0] != roots[1]
-    assert all(not root.exists() for root in roots)
+        assert [process.returncode for process in processes] == [0, 0], results
+        roots = [Path(marker.read_text(encoding="utf-8")).resolve() for marker in markers]
+        assert roots[0] != roots[1]
+        assert all(not root.exists() for root in roots)
 
 
 def test_failed_pytest_process_removes_temporary_state(tmp_path) -> None:
-    probe = tmp_path / "test_failed_probe.py"
-    marker = tmp_path / "failed.txt"
-    _write_nested_isolation_probe(probe, fail=True)
-    env = os.environ.copy()
-    env["OMNI_ISOLATION_MARKER"] = str(marker)
+    probe_parent = PROJECT_ROOT / ".tmp"
+    probe_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="failed-isolation-", dir=probe_parent) as temp_dir:
+        probe = Path(temp_dir) / "test_failed_probe.py"
+        marker = tmp_path / "failed.txt"
+        _write_nested_isolation_probe(probe, fail=True)
+        env = os.environ.copy()
+        env["OMNI_ISOLATION_MARKER"] = str(marker)
 
-    completed = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", str(probe)],
-        cwd=PROJECT_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+        completed = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", str(probe)],
+            cwd=PROJECT_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
 
-    root = Path(marker.read_text(encoding="utf-8")).resolve()
-    assert completed.returncode == 1
-    assert not root.exists()
+        root = Path(marker.read_text(encoding="utf-8")).resolve()
+        assert completed.returncode == 1
+        assert not root.exists()

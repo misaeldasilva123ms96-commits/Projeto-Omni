@@ -39,12 +39,9 @@ function isolatedEnvironment(root) {
     env[key] = value
   }
 
-  const roots = {
+  const directoryRoots = {
     OMNI_MEMORY_ROOT: join(root, 'memory'),
     OMNI_MEMORY_DIR: join(root, 'memory'),
-    OMNI_MEMORY_JSON_PATH: join(root, 'memory', 'memory.json'),
-    OMNI_JSONL_MEMORY_PATH: join(root, 'memory', 'audit.jsonl'),
-    OMNI_SQLITE_MEMORY_PATH: join(root, 'memory', 'memory.sqlite'),
     OMNI_CACHE_ROOT: join(root, 'cache'),
     OMNI_ARTIFACT_ROOT: join(root, 'artifacts'),
     OMNI_LOG_ROOT: join(root, 'logs'),
@@ -53,15 +50,21 @@ function isolatedEnvironment(root) {
     OMNI_PROVIDER_STATE_ROOT: join(root, 'providers'),
     OMNI_RUNTIME_SESSION_ROOT: join(root, 'sessions'),
     OMNI_UPLOAD_ROOT: join(root, 'uploads'),
-    OMNI_WORKSPACE_ROOT: REPO_ROOT,
   }
-  for (const path of [...Object.values(roots), join(root, 'home'), join(root, 'tmp')]) {
+  const filePaths = {
+    OMNI_MEMORY_JSON_PATH: join(root, 'memory', 'memory.json'),
+    OMNI_JSONL_MEMORY_PATH: join(root, 'memory', 'audit.jsonl'),
+    OMNI_SQLITE_MEMORY_PATH: join(root, 'memory', 'memory.sqlite'),
+  }
+  for (const path of [...Object.values(directoryRoots), join(root, 'home'), join(root, 'tmp')]) {
     mkdirSync(path, { recursive: true })
   }
 
   return {
     ...env,
-    ...roots,
+    ...directoryRoots,
+    ...filePaths,
+    OMNI_WORKSPACE_ROOT: REPO_ROOT,
     OMNI_TEST_MODE: 'true',
     OMNI_ENABLE_SQLITE_MEMORY: 'false',
     HOME: join(root, 'home'),

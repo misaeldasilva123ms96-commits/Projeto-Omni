@@ -44,9 +44,9 @@ class TestDetectEnv:
     def test_returns_dict_with_expected_keys(self) -> None:
         env = _detect_env()
         assert isinstance(env, dict)
-        assert "BASE_DIR" in env
+        assert "OMNI_BASE_DIR" in env
         assert "OMNI_JS_RUNTIME_BIN" in env
-        assert "NODE_BIN" in env
+        assert "OMNI_NODE_BIN" in env
         assert "OMNI_RUNTIME_MODE" in env
         assert "_node_on_path" in env
 

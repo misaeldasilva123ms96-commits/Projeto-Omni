@@ -53,9 +53,15 @@ def pytest_configure(config: pytest.Config) -> None:
         "OMNI_UPLOAD_ROOT": root / "uploads",
         "OMNI_WORKSPACE_ROOT": Path(config.rootpath),
     }
+    file_path_keys = {
+        "OMNI_MEMORY_JSON_PATH",
+        "OMNI_JSONL_MEMORY_PATH",
+        "OMNI_SQLITE_MEMORY_PATH",
+    }
     for key, value in isolated.items():
         if isinstance(value, Path):
-            value.mkdir(parents=True, exist_ok=True)
+            target = value.parent if key in file_path_keys else value
+            target.mkdir(parents=True, exist_ok=True)
             os.environ[key] = str(value)
         else:
             os.environ[key] = value

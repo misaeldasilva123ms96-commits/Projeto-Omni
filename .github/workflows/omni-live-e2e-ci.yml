@@ -69,6 +69,8 @@ jobs:
           OMNI_E2E_REQUIRE_LIVE: "true"
         run: |
           set -euo pipefail
+          export SUPABASE_JWT_SECRET="$(openssl rand -hex 32)"
+          export SUPABASE_URL="https://ci.invalid.supabase.co"
           mkdir -p .logs/ci
           backend/rust/target/debug/omni-api > .logs/ci/omni-api.log 2>&1 &
           server_pid=$!
@@ -125,6 +127,8 @@ jobs:
           OMNI_E2E_API_URL: http://127.0.0.1:3002
         run: |
           set -euo pipefail
+          export SUPABASE_JWT_SECRET="$(openssl rand -hex 32)"
+          export SUPABASE_URL="https://ci.invalid.supabase.co"
           mkdir -p .logs/ci
           backend/rust/target/debug/omni-api > .logs/ci/omni-api-node-failure.log 2>&1 &
           server_pid=$!
