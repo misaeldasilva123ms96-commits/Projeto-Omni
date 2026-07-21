@@ -143,10 +143,10 @@ async function tryLiveHttp(baseUrl: string, required: boolean) {
   if (required) {
     assert.ok(inspection && typeof inspection === 'object', 'live: runtime inspection must be present')
     const runtime = inspection as Record<string, unknown>
-    assert.equal(runtime.runtime_mode, 'FULL_COGNITIVE_RUNTIME', 'live: full cognitive runtime must execute')
-    assert.equal(runtime.runtime_reason, 'node_execution_request', 'live: Python must delegate to Node')
-    assert.equal(runtime.fallback_triggered, false, 'live: full-stack execution must not fall back')
-    assert.equal(runtime.tool_status, 'executed', 'live: Node-selected tool must execute successfully')
+    assert.equal(runtime.runtime_mode, 'LOCAL_TOOL_SUCCESS', 'live: bounded file read must execute locally')
+    assert.equal(runtime.runtime_reason, 'local_tool_execution', 'live: Python must select the local tool path')
+    assert.equal(runtime.fallback_triggered, false, 'live: bounded local execution must not fall back')
+    assert.equal(runtime.tool_status, 'executed', 'live: selected local tool must execute successfully')
   }
 
   assertWireUiParity('live-v1-chat', raw)
