@@ -37,6 +37,10 @@ def pytest_configure(config: pytest.Config) -> None:
         config.option.basetemp = str(root / "pytest")
     isolated = {
         "OMNI_TEST_MODE": "true",
+        "OMNI_BASE_DIR": Path(config.rootpath),
+        "OMNI_PYTHON_BASE_DIR": Path(config.rootpath) / "backend" / "python",
+        "OMNI_PYTHON_ENTRY": Path(config.rootpath) / "backend" / "python" / "main.py",
+        "OMNI_RUNTIME_MODE": "live",
         "OMNI_MEMORY_ROOT": root / "memory",
         "OMNI_MEMORY_DIR": root / "memory",
         "OMNI_MEMORY_JSON_PATH": root / "memory" / "memory.json",
@@ -54,6 +58,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "OMNI_WORKSPACE_ROOT": Path(config.rootpath),
     }
     file_path_keys = {
+        "OMNI_PYTHON_ENTRY",
         "OMNI_MEMORY_JSON_PATH",
         "OMNI_JSONL_MEMORY_PATH",
         "OMNI_SQLITE_MEMORY_PATH",

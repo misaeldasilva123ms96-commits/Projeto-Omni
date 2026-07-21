@@ -31,13 +31,24 @@ class Phase2RuntimeTest(unittest.TestCase):
     def minimal_subprocess_env(self, session_id: str) -> dict[str, str]:
         env: dict[str, str] = {
             "AI_SESSION_ID": session_id,
-            "BASE_DIR": str(PROJECT_ROOT),
-            "PYTHON_BASE_DIR": str(PYTHON_ROOT),
+            "OMNI_BASE_DIR": str(PROJECT_ROOT),
+            "OMNI_PYTHON_BASE_DIR": str(PYTHON_ROOT),
+            "OMNI_PYTHON_ENTRY": str(MAIN_PY),
+            "OMNI_WORKSPACE_ROOT": str(PROJECT_ROOT),
+            "OMNI_RUNTIME_MODE": "live",
             "CI": "1",
         }
         for key in (
             "PATH",
+            "PATHEXT",
+            "COMSPEC",
+            "SystemRoot",
+            "SYSTEMROOT",
+            "WINDIR",
             "HOME",
+            "USERPROFILE",
+            "TEMP",
+            "TMP",
             "LANG",
             "LC_ALL",
             "PYTHONPATH",
@@ -99,8 +110,11 @@ class Phase2RuntimeTest(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = self.minimal_subprocess_env(session_id) if isolated_env else os.environ.copy()
         env["AI_SESSION_ID"] = session_id
-        env["BASE_DIR"] = str(PROJECT_ROOT)
-        env["PYTHON_BASE_DIR"] = str(PYTHON_ROOT)
+        env["OMNI_BASE_DIR"] = str(PROJECT_ROOT)
+        env["OMNI_PYTHON_BASE_DIR"] = str(PYTHON_ROOT)
+        env["OMNI_PYTHON_ENTRY"] = str(MAIN_PY)
+        env["OMNI_WORKSPACE_ROOT"] = str(PROJECT_ROOT)
+        env["OMNI_RUNTIME_MODE"] = "live"
         command = [sys.executable, str(MAIN_PY), prompt]
         return subprocess.run(
             command,

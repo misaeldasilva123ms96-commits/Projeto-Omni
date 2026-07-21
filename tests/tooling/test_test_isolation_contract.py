@@ -84,6 +84,10 @@ def test_global_git_configuration_is_not_loaded_from_developer_home() -> None:
 def test_test_mode_contract_is_explicit() -> None:
     assert os.environ["OMNI_TEST_MODE"] == "true"
     assert os.environ["OMNI_ENABLE_SQLITE_MEMORY"] == "false"
+    assert Path(os.environ["OMNI_BASE_DIR"]).resolve() == PROJECT_ROOT
+    assert Path(os.environ["OMNI_PYTHON_BASE_DIR"]).resolve() == PROJECT_ROOT / "backend" / "python"
+    assert Path(os.environ["OMNI_PYTHON_ENTRY"]).resolve() == PROJECT_ROOT / "backend" / "python" / "main.py"
+    assert os.environ["OMNI_RUNTIME_MODE"] == "live"
     assert Path(os.environ["OMNI_WORKSPACE_ROOT"]).resolve() == PROJECT_ROOT
 
 
