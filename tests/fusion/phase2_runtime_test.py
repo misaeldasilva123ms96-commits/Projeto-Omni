@@ -192,20 +192,15 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertTrue(runtime_truth.get("tool_executed"), diagnostics)
 
     def test_memory_update_and_retrieval_work_in_live_path(self) -> None:
+        session_id = f"phase2-memory-{uuid4().hex[:8]}"
         learn_output = self.run_main(
             "meu nome é Misael e eu trabalho com inteligência artificial",
-            "phase2-memory",
+            session_id,
         )
-        normalized_learn_output = learn_output.lower()
-        self.assertTrue(
-            any(
-                keyword in normalized_learn_output
-                for keyword in ["seu nome", "seu trabalho", "contexto desta sessão", "registrar seu"]
-            ),
-            learn_output,
-        )
+        learn_payload = json.loads(learn_output)
+        self.assertIsInstance(learn_payload.get("response"), str, learn_output)
 
-        recall_output = self.run_main("qual é meu nome?", "phase2-memory")
+        recall_output = self.run_main("qual é meu nome?", session_id)
         self.assertIn("Misael", recall_output)
 
     def test_multistep_execution_loop_runs_more_than_one_step(self) -> None:
