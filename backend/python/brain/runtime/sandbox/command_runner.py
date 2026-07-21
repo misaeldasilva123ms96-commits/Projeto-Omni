@@ -404,7 +404,7 @@ def _validate_executable_argv(
         _is_allowed_pytest(argv, cwd, workspace_root),
         _is_allowed_npm(argv),
         _is_allowed_node(argv),
-        _is_allowed_cargo(argv),
+        _is_allowed_cargo(argv, cwd, workspace_root),
         _is_allowed_rustc(argv),
     )
     if any(validators):
@@ -430,7 +430,12 @@ def _is_allowed_python(
     if argv == ["python", "--version"]:
         return True
     if len(argv) >= 4 and argv[:3] == ["python", "-m", "pytest"]:
-        return _safe_path_args(argv[3:], cwd, workspace_root)
+        return _safe_path_args(
+            argv[3:],
+            cwd,
+            workspace_root,
+            path_flags={"--basetemp", "--rootdir", "--config-file", "-c"},
+        )
     if len(argv) >= 4 and argv[:3] == ["python", "-m", "json.tool"]:
         return _safe_path_args(argv[3:], cwd, workspace_root)
     if len(argv) >= 4 and argv[:3] == ["python", "-m", "compileall"]:
@@ -443,7 +448,16 @@ def _is_allowed_pytest(
     cwd: Path | None,
     workspace_root: Path | None,
 ) -> bool:
-    return len(argv) >= 2 and argv[0] == "pytest" and _safe_path_args(argv[1:], cwd, workspace_root)
+    return (
+        len(argv) >= 2
+        and argv[0] == "pytest"
+        and _safe_path_args(
+            argv[1:],
+            cwd,
+            workspace_root,
+            path_flags={"--basetemp", "--rootdir", "--config-file", "-c"},
+        )
+    )
 
 
 def _is_allowed_npm(argv: list[str]) -> bool:
@@ -461,13 +475,24 @@ def _is_allowed_node(argv: list[str]) -> bool:
     return argv == ["node", "--version"]
 
 
-def _is_allowed_cargo(argv: list[str]) -> bool:
-    return argv in (
-        ["cargo", "--version"],
-        ["cargo", "check"],
-        ["cargo", "test"],
-        ["cargo", "clippy"],
-        ["cargo", "fmt", "--check"],
+def _is_allowed_cargo(
+    argv: list[str],
+    cwd: Path | None = None,
+    workspace_root: Path | None = None,
+) -> bool:
+    if argv in (["cargo", "--version"], ["cargo", "fmt", "--check"]):
+        return True
+    if len(argv) < 2 or argv[1] not in {"check", "test", "clippy"}:
+        return False
+    if len(argv) == 2:
+        return True
+    return _safe_path_args(
+        argv[2:],
+        cwd,
+        workspace_root,
+        path_flags={"--manifest-path"},
+        require_path=False,
+        allowed_bare_flags={"--locked", "--all", "--all-targets", "--all-features"},
     )
 
 
@@ -479,13 +504,77 @@ def _safe_path_args(
     args: list[str],
     cwd: Path | None,
     workspace_root: Path | None,
+    *,
+    path_flags: set[str] | None = None,
+    require_path: bool = True,
+    allowed_bare_flags: set[str] | None = None,
 ) -> bool:
     if not args:
-        return False
-    path_args = [arg for arg in args if not arg.startswith("-")]
-    if not path_args:
+        return not require_path
+    supported_path_flags = path_flags or set()
+    supported_bare_flags = allowed_bare_flags
+    path_args: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if not arg.startswith("-"):
+            path_args.append(arg)
+            index += 1
+            continue
+
+        flag, separator, inline_value = arg.partition("=")
+        if flag in supported_path_flags:
+            if separator:
+                value = inline_value
+            else:
+                index += 1
+                if index >= len(args):
+                    return False
+                value = args[index]
+            if not value or value.startswith("-"):
+                return False
+            path_args.append(value)
+            index += 1
+            continue
+
+        if _looks_like_security_sensitive_path_flag(flag):
+            return False
+        if supported_bare_flags is not None and arg not in supported_bare_flags:
+            return False
+        if separator and _looks_like_path_value(inline_value):
+            return False
+        index += 1
+
+    if require_path and not path_args:
         return False
     return all(_is_safe_argument_path(arg, cwd, workspace_root) for arg in path_args)
+
+
+def _looks_like_security_sensitive_path_flag(flag: str) -> bool:
+    normalized = flag.lstrip("-").lower().replace("_", "-")
+    components = {part for part in normalized.split("-") if part}
+    return bool(
+        components
+        & {
+            "config",
+            "cwd",
+            "dir",
+            "file",
+            "manifest",
+            "output",
+            "path",
+            "root",
+            "temp",
+            "workspace",
+        }
+    ) or normalized in {"cov", "junitxml", "rootdir", "basetemp"}
+
+
+def _looks_like_path_value(value: str) -> bool:
+    if not value:
+        return False
+    path = Path(value)
+    return path.is_absolute() or value.startswith((".", "~")) or "/" in value or "\\" in value
 
 
 def _is_safe_argument_path(

@@ -265,14 +265,14 @@ def test_working_directory_boundaries(workspace_temp_dir) -> None:
     traversal = _run(working_directory=str(PROJECT_ROOT / ".."))
     git_internal = _run(working_directory=str(PROJECT_ROOT / ".git"))
     env_path = _run(working_directory=str(PROJECT_ROOT / ".env"))
-    temp_root = _run(working_directory=os.path.abspath(os.getenv("TMPDIR") or "/tmp"))
+    filesystem_root = _run(working_directory=PROJECT_ROOT.anchor)
 
     assert safe_repo.executed is True
     assert safe_temp.executed is True
     assert traversal.blocked is True
     assert git_internal.blocked is True
     assert env_path.blocked is True
-    assert temp_root.blocked is True
+    assert filesystem_root.blocked is True
 
 
 def test_configured_workspace_root_denies_sibling_directory(monkeypatch, tmp_path) -> None:
@@ -588,6 +588,195 @@ def test_path_arguments_block_traversal_and_secret_paths(workspace_temp_dir) -> 
     assert traversal.blocked is True
     assert env_arg.blocked is True
     assert safe.executed is True
+
+
+@pytest.mark.parametrize(
+    ("flag", "command_prefix"),
+    [
+        ("--basetemp", "python -m pytest"),
+        ("--rootdir", "pytest"),
+        ("--config-file", "python -m pytest"),
+        ("--manifest-path", "cargo test"),
+    ],
+)
+@pytest.mark.parametrize("form", ["equals", "separated"])
+def test_supported_path_flags_accept_internal_values(
+    monkeypatch,
+    tmp_path,
+    flag,
+    command_prefix,
+    form,
+) -> None:
+    workspace = tmp_path / "workspace"
+    internal = workspace / "path with spaces" / "config.toml"
+    internal.parent.mkdir(parents=True)
+    internal.write_text("", encoding="utf-8")
+    calls: list[object] = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(args[0])
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
+    encoded = f'"{internal.as_posix()}"'
+    flag_arg = f"{flag}={encoded}" if form == "equals" else f"{flag} {encoded}"
+    result = _run(
+        command=f"{command_prefix} {flag_arg}",
+        workspace_root=str(workspace),
+        working_directory=str(workspace),
+    )
+
+    assert result.executed is True
+    assert result.blocked is False
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("flag", ["--basetemp", "--rootdir", "--config-file"])
+@pytest.mark.parametrize("form", ["equals", "separated"])
+def test_pytest_path_flags_reject_external_values(monkeypatch, tmp_path, flag, form) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "outside"
+    workspace.mkdir()
+    external.mkdir()
+    calls: list[object] = []
+    monkeypatch.setattr(
+        command_runner.subprocess, "run", lambda *args, **kwargs: calls.append(args)
+    )
+    encoded = f'"{external.as_posix()}"'
+    flag_arg = f"{flag}={encoded}" if form == "equals" else f"{flag} {encoded}"
+
+    result = _run(
+        command=f"python -m pytest {flag_arg}",
+        workspace_root=str(workspace),
+        working_directory=str(workspace),
+    )
+
+    assert result.blocked is True
+    assert result.executed is False
+    assert calls == []
+
+
+@pytest.mark.parametrize("form", ["equals", "separated"])
+def test_cargo_manifest_path_rejects_external_values(monkeypatch, tmp_path, form) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "outside" / "Cargo.toml"
+    workspace.mkdir()
+    external.parent.mkdir()
+    external.write_text("[package]\n", encoding="utf-8")
+    calls: list[object] = []
+    monkeypatch.setattr(
+        command_runner.subprocess, "run", lambda *args, **kwargs: calls.append(args)
+    )
+    encoded = f'"{external.as_posix()}"'
+    flag_arg = f"--manifest-path={encoded}" if form == "equals" else f"--manifest-path {encoded}"
+
+    result = _run(
+        command=f"cargo test {flag_arg}",
+        workspace_root=str(workspace),
+        working_directory=str(workspace),
+    )
+
+    assert result.blocked is True
+    assert result.executed is False
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "flag_arg",
+    [
+        "--output=inside/result.txt",
+        "--output inside/result.txt",
+        "--basetemp",
+        "--basetemp --rootdir",
+        "--basetemp=../outside",
+        "--basetemp ../outside",
+    ],
+)
+def test_path_flags_fail_closed_for_unknown_missing_or_unsafe_values(
+    monkeypatch,
+    tmp_path,
+    flag_arg,
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "inside").mkdir(parents=True)
+    calls: list[object] = []
+    monkeypatch.setattr(
+        command_runner.subprocess, "run", lambda *args, **kwargs: calls.append(args)
+    )
+
+    result = _run(
+        command=f"python -m pytest {flag_arg}",
+        workspace_root=str(workspace),
+        working_directory=str(workspace),
+    )
+
+    assert result.blocked is True
+    assert result.executed is False
+    assert calls == []
+
+
+def test_path_flags_reject_symlink_escape(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "outside"
+    workspace.mkdir()
+    external.mkdir()
+    link = workspace / "linked-outside"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink unavailable: {error}")
+    calls: list[object] = []
+    monkeypatch.setattr(
+        command_runner.subprocess, "run", lambda *args, **kwargs: calls.append(args)
+    )
+
+    result = _run(
+        command=f"python -m pytest --basetemp={link}",
+        workspace_root=str(workspace),
+        working_directory=str(workspace),
+    )
+
+    assert result.blocked is True
+    assert result.executed is False
+    assert calls == []
+
+
+def test_path_flag_accepts_safe_relative_value(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "internal-temp").mkdir(parents=True)
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
+    result = _run(
+        command="python -m pytest --basetemp internal-temp tests",
+        workspace_root=str(workspace),
+        working_directory=str(workspace),
+    )
+
+    assert result.executed is True
+    assert result.blocked is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path casing behavior")
+def test_path_flag_accepts_internal_windows_case_variant(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "WorkspaceCase"
+    internal = workspace / "TempCase"
+    internal.mkdir(parents=True)
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
+    result = _run(
+        command=f"python -m pytest --basetemp={str(internal).swapcase()}",
+        workspace_root=str(workspace).upper(),
+        working_directory=str(workspace).lower(),
+    )
+
+    assert result.executed is True
+    assert result.blocked is False
 
 
 def test_secret_like_environment_is_removed_and_output_is_redacted(monkeypatch) -> None:
