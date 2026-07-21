@@ -7266,6 +7266,8 @@ class BrainOrchestrator:
 
         normalized = self._normalize_text(message)
         nome = str(user.get("nome", "")).strip()
+        if normalized.startswith("meu nome e ") and nome:
+            return f"Registrei seu nome como {nome} no contexto desta sessão."
         if normalized in {
             "qual meu nome",
             "qual e meu nome",

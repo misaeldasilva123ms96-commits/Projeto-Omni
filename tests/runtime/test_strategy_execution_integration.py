@@ -32,6 +32,19 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
         finally:
             shutil.rmtree(path, ignore_errors=True)
 
+    @staticmethod
+    def node_file_routing(orchestrator: BrainOrchestrator):
+        routing = orchestrator.capability_router.classify_task("analise o arquivo package.json")
+        return type(routing)(
+            **{
+                **routing.as_dict(),
+                "preferred_mode": routing.preferred_mode,
+                "strategy": "NODE_RUNTIME_DELEGATION",
+                "requires_node_runtime": True,
+                "decision_reason_codes": ["explicit_node_test_route"],
+            }
+        )
+
     def test_dispatch_strategy_execution_uses_manifest_driven_executor(self) -> None:
         with self.temp_workspace() as workspace_root:
             os.environ["BASE_DIR"] = str(workspace_root)
@@ -109,6 +122,11 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             ]
             with (
                 patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
+                patch.object(
+                    orchestrator.capability_router,
+                    "classify_task",
+                    return_value=self.node_file_routing(orchestrator),
+                ),
                 patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=transport_payload),
                 patch.object(BrainOrchestrator, "_execute_runtime_actions", return_value=step_results) as execute_actions,
             ):
@@ -150,6 +168,11 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             )
             with (
                 patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
+                patch.object(
+                    orchestrator.capability_router,
+                    "classify_task",
+                    return_value=self.node_file_routing(orchestrator),
+                ),
                 patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=transport_payload),
                 patch.object(BrainOrchestrator, "_execute_runtime_actions") as execute_actions,
             ):
