@@ -14,10 +14,10 @@ suite passed.
 
 | Finding | Baseline evidence | Remediation | Current classification |
 | --- | --- | --- | --- |
-| Static demo JWT secret | The public-demo configuration path selected a repository-known HS256 secret and predictable issuer. Protected routers were merged into the application. The initial end-to-end reproduction build did not complete inside the first ten-minute window. | Authentication now requires an explicit `SUPABASE_JWT_SECRET` of at least 32 bytes and an explicit Supabase URL. Public-demo mode grants no authentication configuration. Route-level regression rejects a token signed with the historical material. | Code-level risk confirmed; fixed and verified after implementation. Pre-fix end-to-end exploitability was not established. |
-| Sandbox root escapes | `Path(__file__).resolve().parents[6]` resolved to the worktree container in the isolated checkout, so a sibling worktree was inside the calculated boundary. Safe temporary directories outside the repository were also accepted. | The root is explicit or marker-discovered, validated, and threaded through command validation. Exact resolved containment rejects parents, siblings, symlink escapes, home, filesystem roots, relative/nonexistent roots, and Windows case variants. | Independently reproduced; fixed and verified. |
+| Static demo JWT secret | The public-demo configuration path selected a repository-known HS256 secret and predictable issuer. Protected routers were merged into the application. The initial end-to-end reproduction build did not complete inside the first ten-minute window. | Authentication now requires an explicit `SUPABASE_JWT_SECRET` of at least 32 bytes and a clean HTTPS Supabase project base URL. URL parsing rejects missing hosts, credentials, paths, query strings, fragments, non-HTTPS schemes, and ambiguous malformed forms. Public-demo mode grants no authentication configuration. Route-level regression rejects a token signed with the historical material while all other claims remain valid. | Code-level risk confirmed; fixed and verified after implementation. Pre-fix end-to-end exploitability was not established. |
+| Sandbox root escapes | `Path(__file__).resolve().parents[6]` resolved to the worktree container in the isolated checkout, so a sibling worktree was inside the calculated boundary. Safe temporary directories outside the repository were also accepted. Path-valued flags were skipped because every dash-prefixed argument was ignored. | The root is explicit or marker-discovered, validated, and threaded through command validation. Exact resolved containment rejects parents, siblings, symlink escapes, home, filesystem roots, relative/nonexistent roots, and Windows case variants. Supported pytest and Cargo path flags are parsed in equals and separated forms; unknown security-sensitive path flags fail closed. | Independently reproduced; fixed and verified. |
 | Incomplete Python CI | Default collection covered only `backend/python/tests`; the broader `tests` tree was omitted. Test dependencies were installed ad hoc and `asyncio_mode` had no declared executor in the baseline environment. | A canonical runner invokes both trees in separate processes, always aggregates both exit codes, declares the complete test dependency set, and is used by pre-merge and validation workflows. | Fixed at repository-command level; full execution exposes the broader legacy failure inventory listed below. |
-| Persistent test state | A direct async suite changed tracked files under `backend/python/memory`. Several runtime tests used `.phase9-temp` in the checkout. | Canonical and direct pytest runs receive per-process memory, cache, database, artifact, log, credential, session, upload, home, and temp roots. Memory aliases used by the runtime are included. Legacy `.phase9-temp` tests use the isolated artifact root. External network and provider credentials are denied by default. | Independently reproduced; fixed for the exercised paths and guarded by contract tests plus before/after Git status comparison. |
+| Persistent test state | A direct async suite changed tracked files under `backend/python/memory`. Several runtime tests used `.phase9-temp` in the checkout. | Canonical and direct pytest runs receive per-session memory, cache, database, artifact, log, credential, session, upload, home, temp, and XDG roots. The root hook snapshots every environment key it mutates or removes and restores the caller environment after success, test failure, or cleanup failure. The canonical runner starts from an explicit host-environment allowlist. | Independently reproduced; fixed for the exercised paths and guarded by contract tests plus before/after Git status comparison. |
 | Main branch protection | GitHub returned `404 Branch not protected` for `main` on 2026-07-20. | Stable workflow/job names are defined below. Repository settings were intentionally not mutated by the agent. | Pending repository-owner action. |
 
 ## Authentication behavior
@@ -50,6 +50,12 @@ and cannot equal the filesystem root or user home. Every requested working direc
 path-like argument must resolve inside that exact root via `Path.relative_to`. Subprocesses
 do not inherit developer `HOME`, `USERPROFILE`, `TEMP`, or `TMP`.
 
+Supported path-valued command flags are explicit: pytest accepts `--basetemp`,
+`--rootdir`, `--config-file`, and `-c`; Cargo accepts `--manifest-path` for the
+already-allowed `check`, `test`, and `clippy` commands. Both `--flag=value` and
+`--flag value` forms pass through the same normalized containment check. Other
+security-sensitive path flags are rejected rather than treated as ordinary options.
+
 ## Canonical Python test contract
 
 Commands:
@@ -58,6 +64,7 @@ Commands:
 npm run test:python:backend
 npm run test:python:runtime
 npm run test:python:all
+npm run test:python:coverage
 ```
 
 `test:python:all` launches both suites in separate pytest processes even if the first
@@ -67,16 +74,29 @@ failure. `backend/python/requirements-test.txt` is the single declared installat
 for runtime and test dependencies, including `pytest-asyncio`, `pytest-cov`, and
 `hypothesis`.
 
+`test:python:coverage` runs the same backend and runtime suites through the same isolated
+runner, combines their measurements in `.tmp/python-coverage/.coverage`, prints a report,
+enforces the `.coveragerc` threshold of 40%, and writes
+`.tmp/python-coverage/coverage.xml`. Any suite failure, missing coverage data, report
+failure, XML-generation failure, or threshold miss returns a nonzero status.
+
 ## CI and main protection
 
-The canonical all-suite command is used by:
+The workflow inventory is:
 
-- `CI`;
-- `Omni Python CI`;
-- `Omni Runtime CI`;
-- `Omni Security CI` dependency setup;
-- `Manual Full Validation`;
-- `Post-Merge Validation`.
+| Workflow | Job | Installs canonical dependencies | Backend suite | Runtime suite | Aggregate command | Timing | Required-check candidate |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `CI` | `build-and-test-js-python (24.x, 3.11)` | Yes | No | No | None | Pull request and `main` push | No, not a Python-suite gate |
+| `Omni Python CI` | `Python All Tests` | Yes | Yes | Yes | `test:python:all` | Pull request/manual | Yes; stable pre-merge Python gate |
+| `Omni Runtime CI` | `Full runtime stack` | Yes | Yes | Yes, plus a focused runtime/performance rerun | `test:python:all` | Pull request, selected pushes, manual | Yes, broader duplicate validation |
+| `Omni Security CI` | `Security and public-boundary regression` | Yes | No | No | None | Pull request/manual | No, it runs `test:security` rather than pytest suites |
+| `Manual Full Validation` | `Manual pre-merge full validation` | Yes | Yes | Yes | `test:python:all` | Manual pre-merge | Manual evidence, not an automatic required check |
+| `Post-Merge Validation` | `Full validation` | Yes | Yes | Yes | `test:python:coverage` | `main` push/manual | Post-merge required coverage gate, not pre-merge |
+
+Only `Omni Python CI`, `Omni Runtime CI`, and `Manual Full Validation` invoke the literal
+`npm run test:python:all` command. Installing `requirements-test.txt` is not described as
+suite execution. The combined `CI` job intentionally avoids another multi-hour duplicate;
+`Python All Tests` remains the unambiguous pre-merge Python gate.
 
 `Omni Python CI` no longer has path filters, so its stable job is present on every pull
 request. The owner should protect `main` with these exact required checks after observing
@@ -105,34 +125,60 @@ Recommended protection settings:
 This configuration is pending repository-owner action. The agent did not change branch
 protection and will not merge the pull request.
 
+## Coverage decision
+
+Coverage remains a required post-merge gate. The earlier post-merge command measured
+`brain` and sandbox modules and inherited the 40% `.coveragerc` threshold, but the first
+canonical-runner migration replaced it with plain pytest and therefore removed that
+enforcement. `test:python:coverage` restores the threshold without bypassing either
+canonical tree. It measures the configured language, control, observability,
+orchestrator-services, and sandbox modules; emits terminal output and
+`.tmp/python-coverage/coverage.xml`; and is blocking in `Post-Merge Validation`. The XML
+file is uploaded as the `python-coverage` artifact even when the validation step fails.
+
+## Network-isolation guarantee and follow-up
+
+The current guarantee is deliberately limited: in-process Python `socket.connect` and
+`connect_ex` calls made by tests are denied for non-loopback destinations, while loopback
+remains available. Provider and credential environment variables are removed from direct
+pytest and canonical-runner environments. This monkeypatch does **not** propagate into
+Python, Node, curl, Git, provider-client, or other subprocesses, so subprocess egress is
+not fully blocked.
+
+Full subprocess isolation is deferred as a P1 infrastructure-hardening task because this
+PR has to work on Windows developer hosts and GitHub-hosted Linux runners, and a pytest
+hook cannot create a trustworthy cross-platform network boundary. The follow-up plan is:
+
+1. Threat model subprocess DNS, TCP/UDP, proxy, Git transport, package-manager, and
+   provider-client egress while preserving loopback integration tests.
+2. Enforce the boundary outside pytest: a network-disabled Linux container or namespace
+   is preferred in CI; Windows should use an isolated container or an owner-managed
+   firewall policy rather than command-name interception.
+3. Test Python, Node, curl, Git remote, and provider-client subprocesses against denied
+   external endpoints plus allowed IPv4/IPv6 loopback servers.
+4. Roll out first as an advisory dedicated job, then make it blocking after platform and
+   local-integration compatibility is established.
+5. Roll back by disabling only that dedicated infrastructure job/policy; retain the
+   in-process socket guard and credential stripping.
+
 ## Full-suite residual failures
 
-The canonical backend suite executed 709 tests and reported one failure:
-`test_prompt_bridge_execution_triggers_bridge_execution_request_lane` expected
-`bridge_execution_request` but received `safe_degraded_fallback`. The failure reproduced
-without the new root `conftest.py`, so it is not caused by the isolation fixture.
+The follow-up canonical backend execution is green: 709 passed plus 20 subtests. The
+canonical runtime execution reports 1,844 passed, 7 failed, 4 skipped, 133 subtests, and
+3 warnings. All seven failures are in `tests/fusion/phase2_runtime_test.py` and exercise
+the Rust/Cargo executor bridge. A representative failure was rerun directly outside the
+Node canonical runner and still returned `rust_bridge_timeout`, so the failures are not
+caused by the runner environment allowlist or aggregate logic.
 
-The canonical runtime suite completed after 40 minutes 59 seconds: 1,736 passed,
-25 failed, 40 errored, 3 skipped, and 133 subtests passed. Most Phase 2 failures exercise
-legacy live-path assumptions that conflict with current fail-closed shell/provider
-behavior; the autonomous debug-loop case, for example, receives `SHELL_TOOL_BLOCKED`.
-The run also exposed tests whose Git commit/push fixtures require a clean checkout and
-therefore errored while this remediation was uncommitted. After the five remediation
-commits were created, a 54-test focused battery covering those commit/push fixtures and
-residuals reported 52 passed and 2 failed. This confirms the Git-fixture errors were state
-artifacts. The two remaining focused failures are the Python service fixture lacking the
-current `close()` contract and a debug-node test expecting obsolete `BASE_DIR` rather than
-the canonical environment keys.
+`test:python:all` reproduces the same split: the backend tree passes, the runtime tree
+returns the same seven failures, and the aggregate correctly returns nonzero. The coverage
+command also preserves those failures while still producing its report: total measured
+coverage is 87.13%, above the required 40%, and `coverage.xml` is written successfully.
+The command returns nonzero because suite failures are never hidden by coverage success.
 
-The first complete runtime execution also caught tracked memory writes. The root fixture
-was subsequently strengthened to reapply isolated memory aliases before every test,
-because legacy tests remove environment variables in teardown. Focused memory/live-path
-re-execution after that correction left the tracked memory files clean, although three
-legacy behavior tests still failed (two process timeouts and one cross-process memory
-recall assertion). A second 41-minute full runtime execution was not claimed.
-
-These failures keep the overall remediation verdict at `PARTIAL` until their owning
-runtime behavior is resolved in a separate change.
+These pre-existing bridge failures keep the local overall remediation verdict at
+`PARTIAL`. Resolving the executor-bridge cold-build/timeout behavior requires separate
+runtime ownership and is not folded into this security follow-up.
 
 ## Security pattern review
 
@@ -148,7 +194,7 @@ runtime behavior is resolved in a separate change.
 | Workflow-local Python test dependencies | Replaced by `requirements-test.txt` in the affected workflows. |
 | `asyncio_mode` without an executor | `pytest-asyncio` is declared. |
 | Repository memory writes during tests | Reproduced, redirected, and guarded. |
-| Real provider or Supabase access | Provider credentials are stripped and non-loopback sockets are blocked by default. |
+| Real provider or Supabase access | Provider credentials are stripped. Non-loopback sockets are blocked only in the pytest process; subprocess egress remains an explicit P1 infrastructure risk. |
 | Mutable GitHub Action references | Existing workflows still contain mutable version tags. Pinning all third-party actions is future supply-chain work because it is broader than the P0 correction. |
 
 ## BrainOrchestrator decomposition plan

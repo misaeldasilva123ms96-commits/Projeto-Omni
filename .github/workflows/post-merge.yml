@@ -45,8 +45,16 @@ jobs:
       - name: Run Node tests
         run: npm run test:node
 
-      - name: Run all canonical Python suites
-        run: npm run test:python:all
+      - name: Run canonical Python suites with required coverage
+        run: npm run test:python:coverage
+
+      - name: Upload Python coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-coverage
+          path: .tmp/python-coverage/coverage.xml
+          if-no-files-found: warn
 
       - name: Run Rust tests
         working-directory: backend/rust

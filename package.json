@@ -19,6 +19,7 @@
     "test:python:backend": "node scripts/run_python_tests.mjs backend",
     "test:python:runtime": "node scripts/run_python_tests.mjs runtime",
     "test:python:all": "node scripts/run_python_tests.mjs all",
+    "test:python:coverage": "node scripts/run_python_tests.mjs coverage",
     "test:python:pytest": "python -m pytest -q tests/contracts tests/integration tests/runtime/control tests/runtime/language tests/runtime/observability tests/runtime/test_orchestrator_decomposition.py tests/cognitive/test_decision_quality.py --cov=backend/python/brain/runtime/language --cov=backend/python/brain/runtime/control --cov=backend/python/brain/runtime/observability --cov=backend/python/brain/runtime/orchestrator_services --cov-config=.coveragerc --cov-report=term-missing",
     "test:python:pytest:audit": "python -m pytest -q tests/performance tests/contracts/test_runtime_contract_audit.py",
     "test:security": "node tests/security/security-regression-suite.mjs",
