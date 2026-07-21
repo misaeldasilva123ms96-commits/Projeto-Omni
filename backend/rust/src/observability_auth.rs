@@ -299,7 +299,7 @@ impl SupabaseAuthConfig {
         if jwt_secret.trim().is_empty() {
             return Err("SUPABASE_JWT_SECRET cannot be empty".to_string());
         }
-        if jwt_secret.as_bytes().len() < MINIMUM_HS256_SECRET_BYTES {
+        if jwt_secret.len() < MINIMUM_HS256_SECRET_BYTES {
             return Err(format!(
                 "SUPABASE_JWT_SECRET must contain at least {MINIMUM_HS256_SECRET_BYTES} bytes"
             ));
