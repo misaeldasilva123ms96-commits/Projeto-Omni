@@ -3231,10 +3231,19 @@ class BrainOrchestrator:
                 "upgrade_artifacts": upgrade_artifacts,
                 "decision_ranking": ranking_payload,
             }
-        effective_routing_decision = self._ranked_routing_decision(
-            routing_decision,
-            ranking_result.selected_strategy,
-            ranking_result.ranked_confidence,
+        deterministic_tool_first = bool(getattr(routing_decision, "must_execute", False)) and (
+            "deterministic_tool_first"
+            in list(getattr(routing_decision, "decision_reason_codes", []) or [])
+        )
+        ranking_payload["override_suppressed"] = deterministic_tool_first
+        effective_routing_decision = (
+            routing_decision
+            if deterministic_tool_first
+            else self._ranked_routing_decision(
+                routing_decision,
+                ranking_result.selected_strategy,
+                ranking_result.ranked_confidence,
+            )
         )
         effective_upgrade_artifacts = upgrade_artifacts
         if effective_routing_decision is not routing_decision:

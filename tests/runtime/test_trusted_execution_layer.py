@@ -121,6 +121,34 @@ class TrustedExecutionLayerTest(unittest.TestCase):
         self.assertEqual(result.receipt.verification_status, "passed")
         self.assertIn("workspace_root", result.verification.observed_effects)
 
+    def test_autonomous_debug_result_exposes_patch_as_observable_effect(self) -> None:
+        executor = TrustedExecutor(available_tools={"autonomous_debug_loop"})
+        result = executor.execute(
+            intent=ExecutionIntent(
+                action_id="debug-1",
+                action_type="mutate",
+                capability="autonomous_debug_loop",
+                description="Repair a failing test",
+                input_payload_summary={"tool_arguments": {"workspace_root": str(PROJECT_ROOT)}},
+                expected_outcome="Tests pass after a bounded patch.",
+                reversible=True,
+                target_subsystem="engineering_tools",
+                session_id="sess-debug",
+            ),
+            execute_callback=lambda: {
+                "ok": True,
+                "result_payload": {
+                    "status": "success",
+                    "patch_history": [{"patch_file": "mathlib/ops.py"}],
+                    "verification_summary": {"ok": True},
+                },
+            },
+        )
+
+        self.assertTrue(result.result["ok"])
+        self.assertEqual(result.receipt.verification_status, "passed")
+        self.assertIn("patch_history", result.verification.observed_effects)
+
     def test_execution_failure_generates_proper_receipt(self) -> None:
         executor = TrustedExecutor(available_tools={"filesystem_read"})
         result = executor.execute(

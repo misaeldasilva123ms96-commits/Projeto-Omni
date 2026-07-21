@@ -128,6 +128,8 @@ function main() {
     process.stderr.write(
       '\nPython tests changed the repository worktree. Persistent test writes are prohibited.\n',
     )
+    process.stderr.write(`Status before:\n${before || '(clean)\n'}`)
+    process.stderr.write(`Status after:\n${after || '(clean)\n'}`)
     return 1
   }
   return aggregateExitCode(results)

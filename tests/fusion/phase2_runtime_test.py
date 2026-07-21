@@ -8,6 +8,7 @@ import shutil
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 
@@ -1084,18 +1085,26 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_autonomous_debug_loop_fixes_failing_test_case(self) -> None:
         repo_root = self.make_temp_python_repo()
-        controller = DebugLoopController(repo_root)
-        result = controller.run(
-            task_message="corrija os testes com seguranca",
-            test_command=[sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
-            max_iterations=2,
-            repository_analysis={
-                "file_index": [
-                    {"path": "mathlib/ops.py", "language": "python"},
-                    {"path": "tests/test_ops.py", "language": "python"},
-                ]
+        with patch.dict(
+            os.environ,
+            {
+                "OMNI_WORKSPACE_ROOT": str(repo_root),
+                "OMNI_ENGINEERING_ALLOWED_ROOTS": str(repo_root),
+                "OMNI_ALLOW_SHELL_TOOLS": "true",
             },
-        )
+        ):
+            controller = DebugLoopController(repo_root)
+            result = controller.run(
+                task_message="corrija os testes com seguranca",
+                test_command=[sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+                max_iterations=2,
+                repository_analysis={
+                    "file_index": [
+                        {"path": "mathlib/ops.py", "language": "python"},
+                        {"path": "tests/test_ops.py", "language": "python"},
+                    ]
+                },
+            )
         self.assertEqual(result.get("status"), "success")
         self.assertGreater(len(result.get("patch_history", [])), 0)
         self.assertGreater(len(result.get("iterations", [])), 0)
@@ -1113,53 +1122,61 @@ class Phase2RuntimeTest(unittest.TestCase):
                 {"path": "tests/test_ops.py", "language": "python"},
             ],
         }
-        results = orchestrator._execute_runtime_actions(
-            session_id="phase9-engineering",
-            message="corrija os testes do workspace temporario",
-            actions=[
-                {
-                    "action_id": "phase9-debug",
-                    "step_id": "phase9-debug",
-                    "strategy": "engineering_execution",
-                    "selected_tool": "autonomous_debug_loop",
-                    "selected_agent": "coder_agent",
-                    "permission_requirement": "explicit_approval_required",
-                    "approval_state": "approved",
-                    "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
-                    "execution_context": {"project_root": str(repo_root), "runtime_mode": "python-rust-cargo", "goal_id": "goal:engineering"},
-                    "tool_arguments": {
-                        "workspace_root": str(repo_root),
-                        "task_message": "corrija os testes do workspace temporario",
-                        "test_command": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
-                        "max_iterations": 2,
-                        "repository_analysis": repository_analysis,
-                    },
-                    "retry_policy": {"max_attempts": 1},
-                    "transcript_link": {"session_id": "phase9-engineering"},
-                    "memory_update_hints": {},
-                }
-            ],
-            task_id="task-phase9-engineering",
-            run_id=run_id,
-            provider="test-runtime",
-            intent="engineering",
-            delegation={"delegates": ["task_planner", "coder_agent", "reviewer_agent"], "specialists": ["coder_agent", "reviewer_agent"]},
-            critic_review={"invoked": True, "decision": "approve"},
-            plan_kind="hierarchical",
-            plan_graph={"version": 1, "mode": "engineering", "nodes": []},
-            semantic_retrieval=[],
-            plan_hierarchy={"root_goal_id": "goal:engineering", "subgoals": [{"goal_id": "goal:repo"}, {"goal_id": "goal:debug"}]},
-            learning_guidance=[],
-            policy_summary=[],
-            execution_tree={"version": 1, "root_node_id": "tree:root", "nodes": []},
-            negotiation_summary={"invoked": True, "final_decision": "proceed", "turns": []},
-            strategy_optimization={"invoked": True, "preferred_plan_mode": "tree"},
-            repository_analysis=repository_analysis,
-            engineering_review={"invoked": True, "risk_level": "medium"},
-            engineering_workflow={"mode": "autonomous-debug"},
-        )
+        with patch.dict(
+            os.environ,
+            {
+                "OMNI_WORKSPACE_ROOT": str(repo_root),
+                "OMNI_ENGINEERING_ALLOWED_ROOTS": str(repo_root),
+                "OMNI_ALLOW_SHELL_TOOLS": "true",
+            },
+        ):
+            results = orchestrator._execute_runtime_actions(
+                session_id="phase9-engineering",
+                message="corrija os testes do workspace temporario",
+                actions=[
+                    {
+                        "action_id": "phase9-debug",
+                        "step_id": "phase9-debug",
+                        "strategy": "engineering_execution",
+                        "selected_tool": "autonomous_debug_loop",
+                        "selected_agent": "coder_agent",
+                        "permission_requirement": "explicit_approval_required",
+                        "approval_state": "approved",
+                        "policy_decision": {"decision": "allow", "reason_code": "policy_allows_execution"},
+                        "execution_context": {"project_root": str(repo_root), "runtime_mode": "python-rust-cargo", "goal_id": "goal:engineering"},
+                        "tool_arguments": {
+                            "workspace_root": str(repo_root),
+                            "task_message": "corrija os testes do workspace temporario",
+                            "test_command": [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+                            "max_iterations": 2,
+                            "repository_analysis": repository_analysis,
+                        },
+                        "retry_policy": {"max_attempts": 1},
+                        "transcript_link": {"session_id": "phase9-engineering"},
+                        "memory_update_hints": {},
+                    }
+                ],
+                task_id="task-phase9-engineering",
+                run_id=run_id,
+                provider="test-runtime",
+                intent="engineering",
+                delegation={"delegates": ["task_planner", "coder_agent", "reviewer_agent"], "specialists": ["coder_agent", "reviewer_agent"]},
+                critic_review={"invoked": True, "decision": "approve"},
+                plan_kind="hierarchical",
+                plan_graph={"version": 1, "mode": "engineering", "nodes": []},
+                semantic_retrieval=[],
+                plan_hierarchy={"root_goal_id": "goal:engineering", "subgoals": [{"goal_id": "goal:repo"}, {"goal_id": "goal:debug"}]},
+                learning_guidance=[],
+                policy_summary=[],
+                execution_tree={"version": 1, "root_node_id": "tree:root", "nodes": []},
+                negotiation_summary={"invoked": True, "final_decision": "proceed", "turns": []},
+                strategy_optimization={"invoked": True, "preferred_plan_mode": "tree"},
+                repository_analysis=repository_analysis,
+                engineering_review={"invoked": True, "risk_level": "medium"},
+                engineering_workflow={"mode": "autonomous-debug"},
+            )
         self.assertEqual(len(results), 1)
-        self.assertTrue(results[0].get("ok"))
+        self.assertTrue(results[0].get("ok"), results)
         payload = results[0].get("result_payload", {})
         self.assertEqual(payload.get("status"), "success")
 

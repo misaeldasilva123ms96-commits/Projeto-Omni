@@ -30,12 +30,12 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
 
     def test_run_emits_reasoning_trace_and_persists_reasoning_payload(self) -> None:
         with self.temp_workspace() as workspace_root:
+            session_id = f"sess-r31-int-{uuid4().hex[:8]}"
             with patch.dict(
                 os.environ,
                 {
-                    "BASE_DIR": str(workspace_root),
-                    "PYTHON_BASE_DIR": str(PROJECT_ROOT / "backend" / "python"),
-                    "AI_SESSION_ID": "sess-r31-int",
+                    "OMNI_ARTIFACT_ROOT": str(workspace_root),
+                    "AI_SESSION_ID": session_id,
                     "OMNI_RUNTIME_MODE": "live",
                 },
                 clear=False,
@@ -49,7 +49,13 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
 
                 audit_path = orchestrator.paths.root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
                 self.assertTrue(audit_path.exists())
-                lines = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+                lines = [
+                    item
+                    for line in audit_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                    for item in [json.loads(line)]
+                    if item.get("session_id") == session_id
+                ]
                 reasoning_events = [item for item in lines if item.get("event_type") == "runtime.reasoning.trace"]
                 self.assertGreaterEqual(len(reasoning_events), 1)
                 latest_reasoning = reasoning_events[-1]
@@ -63,7 +69,7 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 pe = planning_events[-1]
                 self.assertIn("planning_trace", pe)
                 self.assertIn("execution_plan", pe)
-                self.assertGreaterEqual(int(pe["planning_trace"].get("step_count", 0)), 1)
+                self.assertGreaterEqual(len(pe["execution_plan"].get("steps", [])), 1)
                 strategy_events = [item for item in lines if item.get("event_type") == "runtime.strategy_adaptation.trace"]
                 self.assertGreaterEqual(len(strategy_events), 1)
                 se = strategy_events[-1]
@@ -71,7 +77,7 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 self.assertIn("selected_strategy", se)
                 self.assertIn("fallback_strategy", se)
 
-                session_path = orchestrator.session_store.path_for("sess-r31-int")
+                session_path = orchestrator.session_store.path_for(session_id)
                 payload = json.loads(session_path.read_text(encoding="utf-8"))
                 self.assertIn("reasoning", payload)
                 self.assertIn("execution_handoff", payload["reasoning"])

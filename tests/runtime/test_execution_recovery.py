@@ -27,6 +27,23 @@ ENV_KEYS_TO_CLEAR = (
     "OMNI_AVAILABLE_PROVIDERS",
     "BUN_INSTALL",
 )
+ISOLATION_ENV_KEYS = (
+    "OMNI_TEST_MODE",
+    "OMNI_MEMORY_ROOT",
+    "OMNI_MEMORY_DIR",
+    "OMNI_MEMORY_JSON_PATH",
+    "OMNI_JSONL_MEMORY_PATH",
+    "OMNI_SQLITE_MEMORY_PATH",
+    "OMNI_ENABLE_SQLITE_MEMORY",
+    "OMNI_CACHE_ROOT",
+    "OMNI_ARTIFACT_ROOT",
+    "OMNI_LOG_ROOT",
+    "OMNI_DATABASE_ROOT",
+    "OMNI_CREDENTIAL_ROOT",
+    "OMNI_PROVIDER_STATE_ROOT",
+    "OMNI_RUNTIME_SESSION_ROOT",
+    "OMNI_UPLOAD_ROOT",
+)
 
 sys.path.insert(0, str(PYTHON_ROOT))
 
@@ -43,7 +60,7 @@ class ExecutionRecoveryTest(unittest.TestCase):
             for key in (
                 "PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH", "NODE_PATH",
                 "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TMP", "TEMP"
-            )
+            ) + ISOLATION_ENV_KEYS
             if key in os.environ and os.environ[key]
         }
         os.environ.clear()
@@ -51,8 +68,11 @@ class ExecutionRecoveryTest(unittest.TestCase):
         os.environ.update(
             {
                 "AI_SESSION_ID": session_id,
-                "BASE_DIR": str(PROJECT_ROOT),
-                "PYTHON_BASE_DIR": str(PYTHON_ROOT),
+                "OMNI_BASE_DIR": str(PROJECT_ROOT),
+                "OMNI_PYTHON_BASE_DIR": str(PYTHON_ROOT),
+                "OMNI_PYTHON_ENTRY": str(MAIN_PY),
+                "OMNI_WORKSPACE_ROOT": str(PROJECT_ROOT),
+                "OMNI_RUNTIME_MODE": "live",
                 "CI": "1",
             }
         )
@@ -123,17 +143,16 @@ class ExecutionRecoveryTest(unittest.TestCase):
             self.assertTrue(PACKAGE_JSON.is_file(), diagnostics)
             self.assertTrue(response.strip(), diagnostics)
             self.assertNotEqual(inspection.get("runtime_mode"), "SAFE_FALLBACK", diagnostics)
-            self.assertEqual(inspection.get("runtime_mode"), "FULL_COGNITIVE_RUNTIME", diagnostics)
-            self.assertEqual(inspection.get("runtime_reason"), "node_execution_request", diagnostics)
-            self.assertEqual(signals.get("execution_path_used"), "node_execution", diagnostics)
+            self.assertEqual(inspection.get("runtime_mode"), "LOCAL_TOOL_SUCCESS", diagnostics)
+            self.assertEqual(inspection.get("runtime_reason"), "local_tool_execution", diagnostics)
+            self.assertEqual(signals.get("execution_path_used"), "local_tool_execution", diagnostics)
             self.assertFalse(signals.get("fallback_triggered", True), diagnostics)
-            self.assertEqual(signals.get("transport_status"), "success", diagnostics)
             self.assertTrue(tool_execution.get("tool_requested"), diagnostics)
             self.assertTrue(tool_execution.get("tool_attempted"), diagnostics)
             self.assertTrue(tool_execution.get("tool_succeeded"), diagnostics)
-            self.assertEqual(strategy_execution["execution_runtime_lane"], "true_action_execution", diagnostics)
+            self.assertEqual(strategy_execution["execution_runtime_lane"], "local_tool_execution", diagnostics)
             self.assertFalse(strategy_execution["compatibility_execution_active"], diagnostics)
-            self.assertEqual(strategy_execution["execution_path_used"], "node_execution", diagnostics)
+            self.assertEqual(strategy_execution["execution_path_used"], "local_tool_execution", diagnostics)
             # Collect all known reliable sources that may contain "read_file"
             tool_calls = []
             # 1. execution_provenance.tool_calls

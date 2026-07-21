@@ -197,6 +197,35 @@ class DecisionRankingTest(unittest.TestCase):
             self.assertIn("routing_decision", bundle)
             self.assertIn("upgrade_artifacts", bundle)
 
+    def test_ranking_does_not_override_deterministic_tool_first_route(self) -> None:
+        with self.temp_workspace():
+            orchestrator = BrainOrchestrator(
+                BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
+            )
+            routing = orchestrator.capability_router.classify_task("analise o arquivo package.json")
+            artifacts = orchestrator._build_runtime_upgrade_artifacts(
+                message="analise o arquivo package.json",
+                session_id="deterministic-tool-first",
+                run_id="",
+                routing_decision=routing,
+                strategy_payload={},
+                selected_tools=["read_file"],
+                provider_path="",
+            )
+
+            bundle = orchestrator._apply_decision_ranking(
+                session_id="deterministic-tool-first",
+                message="analise o arquivo package.json",
+                routing_decision=routing,
+                upgrade_artifacts=artifacts,
+                strategy_payload={},
+                selected_tools=["read_file"],
+                provider_path="",
+            )
+
+            self.assertIs(bundle["routing_decision"], routing)
+            self.assertTrue(bundle["decision_ranking"]["override_suppressed"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -90,7 +90,19 @@ class PostActionVerifier:
 
     def _collect_observed_effects(self, payload: dict[str, Any]) -> list[str]:
         effects: list[str] = []
-        for key in ("workspace_root", "patch", "patch_set", "matches", "tree", "runs", "file"):
+        for key in (
+            "workspace_root",
+            "patch",
+            "patch_set",
+            "patch_history",
+            "patch_sets",
+            "verification_summary",
+            "workspace_state",
+            "matches",
+            "tree",
+            "runs",
+            "file",
+        ):
             value = payload.get(key)
             if value:
                 effects.append(key)

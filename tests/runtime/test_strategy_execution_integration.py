@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
 from brain.runtime.observability.runtime_lane_classifier import (  # noqa: E402
     LANE_BRIDGE_EXECUTION_REQUEST,
+    LANE_LOCAL_DIRECT_RESPONSE,
     LANE_TRUE_ACTION_EXECUTION,
 )
 from brain.runtime.node_transport import NodeTransportResult  # noqa: E402
@@ -208,16 +209,19 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             self.assertTrue(payload["tool_execution"]["tool_denied"])
             self.assertEqual(payload["tool_execution"]["tool_failure_class"], "permission_denied")
 
-    def test_real_runner_prompt_can_trigger_true_action_execution_end_to_end(self) -> None:
-        os.environ["BASE_DIR"] = str(PROJECT_ROOT)
-        os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+    def test_explicit_file_read_uses_local_tool_execution_end_to_end(self) -> None:
+        os.environ["OMNI_BASE_DIR"] = str(PROJECT_ROOT)
+        os.environ["OMNI_PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+        os.environ["OMNI_WORKSPACE_ROOT"] = str(PROJECT_ROOT)
+        os.environ["OMNI_RUNTIME_MODE"] = "live"
         orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py"))
         with patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""):
             response = orchestrator.run("analise o arquivo package.json")
         self.assertTrue(response.strip())
-        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["semantic_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
-        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["execution_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
-        self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
+        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["semantic_runtime_lane"], LANE_LOCAL_DIRECT_RESPONSE)
+        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["execution_runtime_lane"], "local_tool_execution")
+        self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], "local_tool_execution")
+        self.assertTrue(orchestrator.last_strategy_execution["tool_execution"]["tool_succeeded"])
         self.assertNotIn("[execução_python_requerida]", response)
 
 
