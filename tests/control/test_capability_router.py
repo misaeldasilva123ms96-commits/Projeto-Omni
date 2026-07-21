@@ -122,6 +122,12 @@ class CapabilityRouterTest(unittest.TestCase):
         self.assertTrue(decision.must_execute)
         self.assertIn("explicit_file_read", decision.decision_reason_codes)
 
+    def test_file_read_phrase_without_target_does_not_force_tool_execution(self) -> None:
+        decision = self.router.classify_task("analise o arquivo sobre schema validation")
+        self.assertEqual(decision.strategy, "DIRECT_RESPONSE")
+        self.assertFalse(decision.requires_tools)
+        self.assertFalse(decision.must_execute)
+
     def test_file_search_route_prefers_glob_search(self) -> None:
         decision = self.router.classify_task("encontre o arquivo tsconfig.json")
         self.assertEqual(decision.strategy, "TOOL_ASSISTED")

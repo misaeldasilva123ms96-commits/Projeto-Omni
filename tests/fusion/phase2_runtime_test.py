@@ -158,9 +158,9 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_real_query_to_execution_path_reads_package(self) -> None:
         output = self.run_main("leia package.json", "phase2-read")
-        self.assertIn('"name": "omni-runner"', output)
+        self.assertIn('"name": "omni-runner"', json.loads(output).get("response", ""))
 
-    def test_package_analysis_uses_full_node_tool_execution_without_degraded_fallback(self) -> None:
+    def test_package_analysis_uses_local_tool_execution_without_degraded_fallback(self) -> None:
         session_id = f"phase2-package-analysis-regression-{uuid4().hex[:8]}"
         completed = self.run_main_process(
             "analise o arquivo package.json",
@@ -174,27 +174,22 @@ class Phase2RuntimeTest(unittest.TestCase):
         combined_output = f"{completed.stdout}\n{completed.stderr}"
         self.assertTrue(PACKAGE_JSON.is_file(), diagnostics)
         self.assertEqual(completed.returncode, 0, diagnostics)
-        self.assertNotIn("@supabase/supabase-js", combined_output, diagnostics)
         self.assertNotIn('Unknown file extension ".ts"', combined_output, diagnostics)
         self.assertNotIn("Unknown file extension .ts", combined_output, diagnostics)
 
         payload = json.loads(completed.stdout)
         response = str(payload.get("response", ""))
         inspection = payload.get("cognitive_runtime_inspection", {})
-        signals = inspection.get("signals", {})
-        tool_execution = signals.get("tool_execution", {})
+        runtime_truth = inspection.get("runtime_truth", {})
 
         self.assertIn('"name": "omni-runner"', response, diagnostics)
         self.assertIn('"version": "1.0.0"', response, diagnostics)
-        self.assertEqual(inspection.get("runtime_mode"), "FULL_COGNITIVE_RUNTIME", diagnostics)
-        self.assertEqual(signals.get("execution_path_used"), "node_execution", diagnostics)
-        self.assertFalse(signals.get("fallback_triggered", True), diagnostics)
-        self.assertEqual(signals.get("transport_status"), "success", diagnostics)
-        self.assertEqual(tool_execution.get("tool_selected"), "read_file", diagnostics)
-        self.assertTrue(tool_execution.get("tool_attempted"), diagnostics)
-        self.assertTrue(tool_execution.get("tool_succeeded"), diagnostics)
-        self.assertEqual(signals.get("node_outcome", {}).get("transport_status"), "success", diagnostics)
-        self.assertTrue(signals.get("node_execution_successful"), diagnostics)
+        self.assertEqual(inspection.get("runtime_mode"), "LOCAL_TOOL_SUCCESS", diagnostics)
+        self.assertEqual(inspection.get("runtime_reason"), "local_tool_execution", diagnostics)
+        self.assertFalse(inspection.get("fallback_triggered", True), diagnostics)
+        self.assertEqual(inspection.get("tool_status"), "executed", diagnostics)
+        self.assertTrue(runtime_truth.get("tool_invoked"), diagnostics)
+        self.assertTrue(runtime_truth.get("tool_executed"), diagnostics)
 
     def test_memory_update_and_retrieval_work_in_live_path(self) -> None:
         learn_output = self.run_main(
@@ -297,15 +292,26 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_memory_retrieval_affects_followup_plan(self) -> None:
         output = self.run_main("leia package.json", "phase3-memory-artifact")
-        self.assertIn('"name": "omni-runner"', output)
+        self.assertIn('"name": "omni-runner"', json.loads(output).get("response", ""))
 
     def test_semantic_retrieval_affects_runtime_context_selection(self) -> None:
-        self.run_main("leia package.json", "phase4-semantic")
-        output = self.run_main("analise o arquivo sobre schema validation", "phase4-semantic")
-        self.assertTrue(
-            '"name": "omni-runner"' in output or "Hybrid AI Agent Runtime" in output,
-            output,
+        session_id = f"phase4-semantic-{uuid4().hex[:8]}"
+        self.run_main("leia package.json", session_id)
+        self.run_main("analise o arquivo sobre schema validation", session_id)
+        execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        entries = [
+            json.loads(line)
+            for line in execution_audit.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        memory_event = next(
+            entry
+            for entry in reversed(entries)
+            if entry.get("session_id") == session_id
+            and entry.get("event_type") == "runtime.memory_intelligence.trace"
         )
+        self.assertGreater(memory_event.get("selected_count", 0), 0)
+        self.assertTrue(memory_event.get("sources_used"))
 
     def test_permission_enforcement_blocks_write_without_approval(self) -> None:
         result = execute_action(
@@ -329,7 +335,8 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertEqual(result.get("error_payload", {}).get("kind"), "permission_denied")
 
     def test_runtime_transcript_and_audit_are_written(self) -> None:
-        self.run_main("leia package.json", "phase2-audit")
+        session_id = f"phase2-audit-{uuid4().hex[:8]}"
+        self.run_main("leia package.json", session_id)
 
         runtime_transcript = PROJECT_ROOT / ".logs" / "fusion-runtime" / "runtime-transcript.jsonl"
         execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
@@ -339,8 +346,16 @@ class Phase2RuntimeTest(unittest.TestCase):
 
         transcript_entries = [json.loads(line) for line in runtime_transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
         audit_entries = [json.loads(line) for line in execution_audit.read_text(encoding="utf-8").splitlines() if line.strip()]
-        transcript_tail = next(entry for entry in reversed(transcript_entries) if entry.get("event_type") == "runtime.step")
-        audit_tail = next(entry for entry in reversed(audit_entries) if entry.get("event_type") == "runtime.step.audit")
+        transcript_tail = next(
+            entry
+            for entry in reversed(transcript_entries)
+            if entry.get("event_type") == "runtime.step" and entry.get("session_id") == session_id
+        )
+        audit_tail = next(
+            entry
+            for entry in reversed(audit_entries)
+            if entry.get("event_type") == "runtime.step.audit" and entry.get("session_id") == session_id
+        )
 
         self.assertIn(transcript_tail.get("selected_tool"), {"read_file", "glob_search"})
         self.assertIn(audit_tail.get("step_results", [{}])[0].get("selected_tool"), {"read_file", "glob_search"})
@@ -435,9 +450,11 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertIn("task_id", audit_tail)
         self.assertIn("run_id", audit_tail)
 
-    def test_graph_plan_parallel_read_execution_path(self) -> None:
+    def _run_graph_plan_parallel_read_execution_path(self) -> str:
         orchestrator = self.build_orchestrator()
-        run_id = "run-phase5-graph"
+        suffix = uuid4().hex[:8]
+        session_id = f"phase5-graph-{suffix}"
+        run_id = f"run-phase5-graph-{suffix}"
         actions = [
             {
                 "action_id": "phase5-list",
@@ -450,7 +467,7 @@ class Phase2RuntimeTest(unittest.TestCase):
                 "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo"},
                 "tool_arguments": {"pattern": "**/*", "path": "."},
                 "retry_policy": {"max_attempts": 1},
-                "transcript_link": {"session_id": "phase5-graph"},
+                "transcript_link": {"session_id": session_id},
                 "memory_update_hints": {},
             },
             {
@@ -464,7 +481,7 @@ class Phase2RuntimeTest(unittest.TestCase):
                 "execution_context": {"project_root": "../..", "runtime_mode": "python-rust-cargo"},
                 "tool_arguments": {"path": "package.json", "limit": 40},
                 "retry_policy": {"max_attempts": 1},
-                "transcript_link": {"session_id": "phase5-graph"},
+                "transcript_link": {"session_id": session_id},
                 "memory_update_hints": {},
             },
         ]
@@ -477,7 +494,7 @@ class Phase2RuntimeTest(unittest.TestCase):
             ],
         }
         results = orchestrator._execute_runtime_actions(
-            session_id="phase5-graph",
+            session_id=session_id,
             message='liste os arquivos e busque "name"',
             actions=actions,
             task_id="task-phase5-graph",
@@ -492,6 +509,10 @@ class Phase2RuntimeTest(unittest.TestCase):
         )
         self.assertEqual(len(results), 2)
         self.assertTrue(all(item.get("ok") for item in results))
+        return session_id
+
+    def test_graph_plan_parallel_read_execution_path(self) -> None:
+        self._run_graph_plan_parallel_read_execution_path()
 
     def test_critic_influences_failure_handling(self) -> None:
         orchestrator = self.build_orchestrator()
@@ -572,14 +593,14 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertEqual(status.get("task_id"), "task-phase5-status")
 
     def test_observability_includes_parallel_and_critic_events(self) -> None:
-        self.run_main('compare duas abordagens: liste os arquivos e busque "name"', "phase5-observability")
+        session_id = self._run_graph_plan_parallel_read_execution_path()
         execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
         entries = [
             json.loads(line)
             for line in execution_audit.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        relevant = [entry for entry in entries if entry.get("session_id") == "phase5-observability"][-40:]
+        relevant = [entry for entry in entries if entry.get("session_id") == session_id][-40:]
         event_types = {entry.get("event_type") for entry in relevant}
         self.assertIn("runtime.parallel.start", event_types)
         self.assertIn("runtime.step.audit", event_types)

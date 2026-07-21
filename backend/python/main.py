@@ -49,6 +49,15 @@ OPERATIONAL_MESSAGE_MARKERS = (
     "runtimemode",
     "specialists",
 )
+OPERATIONAL_STRUCTURE_KEYS = {
+    "execution_request",
+    "plan_graph",
+    "execution_tree",
+    "source_map",
+    "policy_summary",
+    "runtimemode",
+    "specialists",
+}
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 LOGGER = logging.getLogger(__name__)
@@ -115,6 +124,26 @@ def is_operational_message(value: str) -> bool:
     return any(marker in normalized for marker in OPERATIONAL_MESSAGE_MARKERS)
 
 
+def _contains_operational_structure(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if _normalize_for_matching(str(key)) in OPERATIONAL_STRUCTURE_KEYS:
+                return True
+            if _contains_operational_structure(nested):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_operational_structure(item) for item in value)
+    return False
+
+
+def _is_public_structured_document(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and not any(key in value for key in RESPONSE_CANDIDATE_KEYS)
+        and not _contains_operational_structure(value)
+    )
+
+
 def _extract_truthful_conversation_id(d: dict) -> str | None:
     """Return a single canonical id string when the orchestrator supplied one; never invent."""
     for key in ("server_conversation_id", "conversation_id"):
@@ -153,6 +182,9 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
                     "message": "Python main received an empty string response.",
                 },
             }
+        parsed = _parse_structured_string(trimmed)
+        if parsed is not None and _is_public_structured_document(parsed):
+            return {"response": trimmed}
         if is_operational_message(trimmed):
             LOGGER.debug("python_sanitizer_blocked_operational")
             return {
@@ -162,7 +194,6 @@ def sanitize_for_user(internal_obj: Any) -> dict[str, Any]:
                     "message": "Python main blocked an operational/control-layer message from public response.",
                 },
             }
-        parsed = _parse_structured_string(trimmed)
         if parsed is not None:
             return sanitize_for_user(parsed)
         out: dict[str, Any] = {"response": trimmed}

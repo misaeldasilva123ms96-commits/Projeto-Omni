@@ -225,6 +225,15 @@ class DecisionRankingTest(unittest.TestCase):
 
             self.assertIs(bundle["routing_decision"], routing)
             self.assertTrue(bundle["decision_ranking"]["override_suppressed"])
+            self.assertEqual(
+                orchestrator._select_primary_execution_type(
+                    routing_decision=routing,
+                    upgrade_artifacts=bundle["upgrade_artifacts"],
+                    selected_tools=["read_file", "code_search"],
+                    direct_response="",
+                ),
+                "LOCAL_TOOL_EXECUTION",
+            )
 
 
 if __name__ == "__main__":
