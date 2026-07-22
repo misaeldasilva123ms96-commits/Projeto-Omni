@@ -29,9 +29,7 @@
     "test": "npm run test:node && npm run test:python",
     "test:e2e:chat-contract": "tsx tests/e2e/chat-contract.e2e.ts",
     "test:queryengine": "node tests/runtime/queryengine.smoke.test.mjs",
-    "check:queryengine": "node scripts/check-queryengine.mjs",
-    "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "check:queryengine": "node scripts/check-queryengine.mjs"
   },
   "keywords": [
     "ai",
@@ -48,7 +46,6 @@
     "ajv": "^8.17.1"
   },
   "devDependencies": {
-    "tsx": "^4.23.1",
-    "wrangler": "^4.112.0"
+    "tsx": "^4.23.1"
   }
 }
