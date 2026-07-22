@@ -3231,10 +3231,21 @@ class BrainOrchestrator:
                 "upgrade_artifacts": upgrade_artifacts,
                 "decision_ranking": ranking_payload,
             }
-        effective_routing_decision = self._ranked_routing_decision(
-            routing_decision,
-            ranking_result.selected_strategy,
-            ranking_result.ranked_confidence,
+        deterministic_tool_first = bool(getattr(routing_decision, "must_execute", False)) and (
+            "deterministic_tool_first"
+            in list(getattr(routing_decision, "decision_reason_codes", []) or [])
+        )
+        ranking_override_allowed = bool(ambiguity.is_ambiguous and ambiguity.safe_to_rank)
+        override_suppressed = deterministic_tool_first or not ranking_override_allowed
+        ranking_payload["override_suppressed"] = override_suppressed
+        effective_routing_decision = (
+            routing_decision
+            if override_suppressed
+            else self._ranked_routing_decision(
+                routing_decision,
+                ranking_result.selected_strategy,
+                ranking_result.ranked_confidence,
+            )
         )
         effective_upgrade_artifacts = upgrade_artifacts
         if effective_routing_decision is not routing_decision:
@@ -3368,6 +3379,16 @@ class BrainOrchestrator:
         oil_intent = str((upgrade_artifacts.get("oil_summary") or {}).get("intent", "") or "").strip().lower()
         output_mode = str(manifest_payload.get("output_mode", "") or "").strip().lower()
         selected_strategy = str(getattr(routing_decision, "strategy", "") or "").strip().upper()
+        deterministic_tool_first = bool(getattr(routing_decision, "must_execute", False)) and (
+            "deterministic_tool_first"
+            in list(getattr(routing_decision, "decision_reason_codes", []) or [])
+        )
+        if (
+            deterministic_tool_first
+            and selected_tools
+            and all(supports_engineering_tool(str(tool)) for tool in selected_tools)
+        ):
+            return "LOCAL_TOOL_EXECUTION"
         if "delegate" in step_kinds or bool(getattr(routing_decision, "requires_node_runtime", False)):
             return "NODE_EXECUTION"
         if selected_strategy == "MULTI_STEP_REASONING":

@@ -43,7 +43,7 @@ jobs:
       - name: Install Python test tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-cov
+          python -m pip install -r backend/python/requirements-test.txt
 
       - name: Audit Node dependencies (advisory)
         continue-on-error: true

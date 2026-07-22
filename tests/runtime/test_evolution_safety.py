@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import unittest
@@ -17,7 +18,8 @@ from brain.evolution.strategy_updater import StrategyUpdater  # noqa: E402
 
 class EvolutionSafetyTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.evolution_dir = PROJECT_ROOT / ".phase9-temp" / f"fase2-evolution-{uuid4().hex[:8]}"
+        artifact_root = Path(os.environ.get("OMNI_ARTIFACT_ROOT", PROJECT_ROOT / ".phase9-temp"))
+        self.evolution_dir = artifact_root / f"fase2-evolution-{uuid4().hex[:8]}"
         shutil.rmtree(self.evolution_dir, ignore_errors=True)
         self.updater = StrategyUpdater(self.evolution_dir)
 

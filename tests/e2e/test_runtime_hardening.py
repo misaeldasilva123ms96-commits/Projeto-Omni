@@ -41,21 +41,21 @@ class RuntimeHardeningTest(unittest.TestCase):
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )
 
-    def test_node_unavailable_triggers_explicit_fallback(self) -> None:
+    def test_node_unavailable_does_not_block_bounded_local_file_read(self) -> None:
         os.environ["OMNI_NODE_BIN"] = "definitely-missing-node-binary"
         os.environ["OMNI_NODE_SUBPROCESS_TIMEOUT_SECONDS"] = "1"
         with self.build_orchestrator() as orchestrator:
             response = orchestrator.run("analise package.json")
             metrics = orchestrator.get_runtime_metrics()
 
-            self.assertIn("Modo fallback ativo", response)
-            self.assertEqual(orchestrator.last_runtime_mode, "fallback")
-            self.assertIn(
-                orchestrator.last_runtime_reason,
-                {"NODE_BRIDGE_NONZERO_EXIT", "NODE_BRIDGE_TIMEOUT", "NODE_CIRCUIT_OPEN"},
+            self.assertIn('"name": "omni-runner"', response)
+            self.assertEqual(orchestrator.last_runtime_reason, "local_tool_execution")
+            self.assertEqual(
+                orchestrator.last_strategy_execution.get("execution_path_used"),
+                "local_tool_execution",
             )
             self.assertGreaterEqual(metrics["latency_sample_count"]["runtime_turn"], 1)
-            self.assertGreaterEqual(metrics["latency_sample_count"]["node_boundary"], 1)
+            self.assertEqual(metrics["latency_sample_count"].get("node_boundary", 0), 0)
 
     def test_mock_runtime_mode_is_explicit(self) -> None:
         os.environ["OMNI_RUNTIME_MODE"] = "mock"
@@ -71,7 +71,8 @@ class RuntimeHardeningTest(unittest.TestCase):
         self.assertTrue(str(saved_path).endswith("fase3-checkpoint.json"))
 
     def test_patch_set_manager_apply_failure_returns_descriptive_error(self) -> None:
-        temp_root = PROJECT_ROOT / ".phase9-temp" / f"fase3-io-{uuid4().hex[:8]}"
+        artifact_root = Path(os.environ.get("OMNI_ARTIFACT_ROOT", PROJECT_ROOT / ".phase9-temp"))
+        temp_root = artifact_root / f"fase3-io-{uuid4().hex[:8]}"
         shutil.rmtree(temp_root, ignore_errors=True)
         (temp_root / "pkg").mkdir(parents=True, exist_ok=True)
         (temp_root / "pkg" / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")

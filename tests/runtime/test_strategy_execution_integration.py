@@ -32,6 +32,19 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
         finally:
             shutil.rmtree(path, ignore_errors=True)
 
+    @staticmethod
+    def node_file_routing(orchestrator: BrainOrchestrator):
+        routing = orchestrator.capability_router.classify_task("analise o arquivo package.json")
+        return type(routing)(
+            **{
+                **routing.as_dict(),
+                "preferred_mode": routing.preferred_mode,
+                "strategy": "NODE_RUNTIME_DELEGATION",
+                "requires_node_runtime": True,
+                "decision_reason_codes": ["explicit_node_test_route"],
+            }
+        )
+
     def test_dispatch_strategy_execution_uses_manifest_driven_executor(self) -> None:
         with self.temp_workspace() as workspace_root:
             os.environ["BASE_DIR"] = str(workspace_root)
@@ -109,6 +122,11 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             ]
             with (
                 patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
+                patch.object(
+                    orchestrator.capability_router,
+                    "classify_task",
+                    return_value=self.node_file_routing(orchestrator),
+                ),
                 patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=transport_payload),
                 patch.object(BrainOrchestrator, "_execute_runtime_actions", return_value=step_results) as execute_actions,
             ):
@@ -150,6 +168,11 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             )
             with (
                 patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""),
+                patch.object(
+                    orchestrator.capability_router,
+                    "classify_task",
+                    return_value=self.node_file_routing(orchestrator),
+                ),
                 patch("brain.runtime.orchestrator.call_node_with_preflight", return_value=transport_payload),
                 patch.object(BrainOrchestrator, "_execute_runtime_actions") as execute_actions,
             ):
@@ -208,16 +231,20 @@ class StrategyExecutionIntegrationTest(unittest.TestCase):
             self.assertTrue(payload["tool_execution"]["tool_denied"])
             self.assertEqual(payload["tool_execution"]["tool_failure_class"], "permission_denied")
 
-    def test_real_runner_prompt_can_trigger_true_action_execution_end_to_end(self) -> None:
-        os.environ["BASE_DIR"] = str(PROJECT_ROOT)
-        os.environ["PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+    def test_explicit_file_read_uses_local_tool_execution_end_to_end(self) -> None:
+        os.environ["OMNI_BASE_DIR"] = str(PROJECT_ROOT)
+        os.environ["OMNI_PYTHON_BASE_DIR"] = str(PROJECT_ROOT / "backend" / "python")
+        os.environ["OMNI_WORKSPACE_ROOT"] = str(PROJECT_ROOT)
+        os.environ["OMNI_RUNTIME_MODE"] = "live"
         orchestrator = BrainOrchestrator(BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py"))
         with patch.object(BrainOrchestrator, "_answer_from_memory", return_value=""):
             response = orchestrator.run("analise o arquivo package.json")
+        diagnostics = str(orchestrator.last_strategy_execution)
         self.assertTrue(response.strip())
-        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["semantic_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
-        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["execution_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
-        self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], LANE_TRUE_ACTION_EXECUTION)
+        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["runtime_mode"], "LOCAL_TOOL_SUCCESS", diagnostics)
+        self.assertEqual(orchestrator.last_cognitive_runtime_inspection["signals"]["execution_runtime_lane"], "local_tool_execution", diagnostics)
+        self.assertEqual(orchestrator.last_strategy_execution["execution_runtime_lane"], "local_tool_execution", diagnostics)
+        self.assertTrue(orchestrator.last_strategy_execution["tool_execution"]["tool_succeeded"], diagnostics)
         self.assertNotIn("[execução_python_requerida]", response)
 
 

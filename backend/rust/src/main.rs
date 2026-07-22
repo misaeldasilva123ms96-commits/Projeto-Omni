@@ -4,6 +4,8 @@ mod observability;
 mod observability_auth;
 mod protected_historical_audit;
 mod run_control;
+#[cfg(test)]
+mod test_support;
 
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
@@ -3855,15 +3857,14 @@ fn read_latest_jsonl(path: &Path) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::EnvTestGuard;
     use axum::{
         body::{to_bytes, Body},
         http::{Method, Request},
     };
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use std::fs;
-    use std::sync::{Mutex as StdMutex, OnceLock};
     use tower::ServiceExt;
-
-    static ENV_TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
 
     #[test]
     fn provider_settings_health_signals_round_trip_without_secret_fields() {
@@ -3950,7 +3951,7 @@ mod tests {
             node_bin: "node".to_string(),
             python_health: Arc::new(RwLock::new(DependencyStatus::default())),
             supabase_auth: Arc::new(SupabaseAuthConfig {
-                jwt_secret: "test-secret".to_string(),
+                jwt_secret: "test-only-high-entropy-secret-material".to_string(),
                 issuer: "https://example.supabase.co/auth/v1".to_string(),
             }),
             observability_stream_tickets: Arc::new(
@@ -4096,8 +4097,6 @@ mod tests {
     }
 
     fn with_clean_cors_env(vars: &[(&str, &str)], test: impl FnOnce()) {
-        let lock = ENV_TEST_LOCK.get_or_init(|| StdMutex::new(()));
-        let _guard = lock.lock().expect("env lock");
         let keys = [
             "OMNI_ALLOWED_ORIGINS",
             "OMNI_PUBLIC_DEMO_MODE",
@@ -4105,28 +4104,18 @@ mod tests {
             "APP_ENV",
             "RUST_ENV",
         ];
-        let saved: Vec<(&str, Option<String>)> =
-            keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        let env = EnvTestGuard::new(&keys);
         for key in keys {
-            env::remove_var(key);
+            env.remove(key);
         }
         for (key, value) in vars {
-            env::set_var(key, value);
+            env.set(key, value);
         }
 
         test();
-
-        for (key, value) in saved {
-            match value {
-                Some(value) => env::set_var(key, value),
-                None => env::remove_var(key),
-            }
-        }
     }
 
     fn with_clean_mock_env(vars: &[(&str, &str)], test: impl FnOnce()) {
-        let lock = ENV_TEST_LOCK.get_or_init(|| StdMutex::new(()));
-        let _guard = lock.lock().expect("env lock");
         let keys = [
             "MOCK_CHAT",
             "OMNI_ALLOW_MOCK_CHAT",
@@ -4135,23 +4124,15 @@ mod tests {
             "APP_ENV",
             "RUST_ENV",
         ];
-        let saved: Vec<(&str, Option<String>)> =
-            keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        let env = EnvTestGuard::new(&keys);
         for key in keys {
-            env::remove_var(key);
+            env.remove(key);
         }
         for (key, value) in vars {
-            env::set_var(key, value);
+            env.set(key, value);
         }
 
         test();
-
-        for (key, value) in saved {
-            match value {
-                Some(value) => env::set_var(key, value),
-                None => env::remove_var(key),
-            }
-        }
     }
 
     fn header_values_as_strings(values: &[HeaderValue]) -> Vec<String> {
@@ -4230,6 +4211,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn historical_demo_key_is_rejected_by_protected_internal_route() {
+        let historical_key = ["omni", "public", "demo", "local", "auth", "key"].join("-");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("unix epoch")
+            .as_secs();
+        let claims = json!({
+            "iss": "https://example.supabase.co/auth/v1",
+            "sub": "audit-reproducer",
+            "aud": "authenticated",
+            "exp": now + 300,
+        });
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(historical_key.as_bytes()),
+        )
+        .expect("encode audit token");
+        let state = build_test_state(
+            temp_script(
+                "print('{\"response\":\"unused\"}')\n",
+                "historical-demo-key",
+            ),
+            15_000,
+        );
+        let app = protected_internal_router(state.clone()).with_state(state);
+
+        let response = app
+            .oneshot(get_request_with_bearer("/internal/runtime-signals", &token))
+            .await
+            .expect("protected route response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn security_audit_public_routes_remain_public_without_bearer_token() {
         let state = build_test_state(
             temp_script("print('{\"response\":\"unused\"}')\n", "public-routes"),
@@ -4271,31 +4288,14 @@ mod tests {
 
     #[test]
     fn security_audit_cors_ignores_obsolete_prefix() {
-        let lock = ENV_TEST_LOCK
-            .get_or_init(|| StdMutex::new(()))
-            .lock()
-            .unwrap();
         let obsolete_name = ["OMIN", "I_ALLOWED_ORIGINS"].concat();
-        let saved_canonical = env::var("OMNI_ALLOWED_ORIGINS").ok();
-        let saved_obsolete = env::var(&obsolete_name).ok();
-        env::remove_var("OMNI_ALLOWED_ORIGINS");
-        env::set_var(&obsolete_name, "https://obsolete.example.com");
+        let env = EnvTestGuard::new(&["OMNI_ALLOWED_ORIGINS", &obsolete_name]);
+        env.remove("OMNI_ALLOWED_ORIGINS");
+        env.set(&obsolete_name, "https://obsolete.example.com");
 
         let config = resolve_cors_origin_config();
         assert!(config.origins.is_empty());
         assert!(!config.wildcard);
-
-        if let Some(value) = saved_canonical {
-            env::set_var("OMNI_ALLOWED_ORIGINS", value);
-        } else {
-            env::remove_var("OMNI_ALLOWED_ORIGINS");
-        }
-        if let Some(value) = saved_obsolete {
-            env::set_var(&obsolete_name, value);
-        } else {
-            env::remove_var(&obsolete_name);
-        }
-        drop(lock);
     }
 
     #[test]
@@ -4653,83 +4653,53 @@ print(json.dumps({
 
     #[test]
     fn chat_security_canonical_env_works() {
-        let lock = ENV_TEST_LOCK
-            .get_or_init(|| StdMutex::new(()))
-            .lock()
-            .unwrap();
         let keys = [
             "OMNI_MAX_MESSAGE_CHARS",
             "OMNI_MAX_BODY_BYTES",
             "OMNI_RATE_LIMIT_ENABLED",
             "OMNI_RATE_LIMIT_PER_MINUTE",
         ];
-        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        let env = EnvTestGuard::new(&keys);
         for key in keys {
-            env::remove_var(key);
+            env.remove(key);
         }
-        env::set_var("OMNI_MAX_MESSAGE_CHARS", "123");
-        env::set_var("OMNI_MAX_BODY_BYTES", "456");
-        env::set_var("OMNI_RATE_LIMIT_ENABLED", "false");
-        env::set_var("OMNI_RATE_LIMIT_PER_MINUTE", "7");
+        env.set("OMNI_MAX_MESSAGE_CHARS", "123");
+        env.set("OMNI_MAX_BODY_BYTES", "456");
+        env.set("OMNI_RATE_LIMIT_ENABLED", "false");
+        env.set("OMNI_RATE_LIMIT_PER_MINUTE", "7");
         let canonical = ChatSecurityState::from_env();
         assert_eq!(canonical.config.max_message_chars, 123);
         assert_eq!(canonical.config.max_body_bytes, 456);
         assert!(!canonical.config.rate_limit_enabled);
         assert_eq!(canonical.config.rate_limit_per_minute, 7);
 
-        env::set_var("OMNI_MAX_MESSAGE_CHARS", "321");
-        env::set_var("OMNI_MAX_BODY_BYTES", "654");
-        env::set_var("OMNI_RATE_LIMIT_ENABLED", "true");
-        env::set_var("OMNI_RATE_LIMIT_PER_MINUTE", "9");
+        env.set("OMNI_MAX_MESSAGE_CHARS", "321");
+        env.set("OMNI_MAX_BODY_BYTES", "654");
+        env.set("OMNI_RATE_LIMIT_ENABLED", "true");
+        env.set("OMNI_RATE_LIMIT_PER_MINUTE", "9");
         let updated = ChatSecurityState::from_env();
         assert_eq!(updated.config.max_message_chars, 321);
         assert_eq!(updated.config.max_body_bytes, 654);
         assert!(updated.config.rate_limit_enabled);
         assert_eq!(updated.config.rate_limit_per_minute, 9);
-
-        for (key, value) in saved {
-            if let Some(value) = value {
-                env::set_var(key, value);
-            } else {
-                env::remove_var(key);
-            }
-        }
-        drop(lock);
     }
 
     #[test]
     fn python_debug_logging_is_disabled_in_public_demo() {
-        let lock = ENV_TEST_LOCK
-            .get_or_init(|| StdMutex::new(()))
-            .lock()
-            .unwrap();
         let keys = ["LOG_LEVEL", "OMNI_PUBLIC_DEMO_MODE", "OMNI_LOG_LEVEL"];
-        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        let env = EnvTestGuard::new(&keys);
         for key in keys {
-            env::remove_var(key);
+            env.remove(key);
         }
 
-        env::set_var("OMNI_LOG_LEVEL", "debug");
+        env.set("OMNI_LOG_LEVEL", "debug");
         assert!(python_debug_logging_enabled());
-        env::set_var("OMNI_PUBLIC_DEMO_MODE", "true");
+        env.set("OMNI_PUBLIC_DEMO_MODE", "true");
         assert!(!python_debug_logging_enabled());
-
-        for (key, value) in saved {
-            if let Some(value) = value {
-                env::set_var(key, value);
-            } else {
-                env::remove_var(key);
-            }
-        }
-        drop(lock);
     }
 
     #[test]
     fn python_runtime_mode_canonical_env_works() {
-        let lock = ENV_TEST_LOCK
-            .get_or_init(|| StdMutex::new(()))
-            .lock()
-            .unwrap();
         let keys = [
             "OMNI_PYTHON_MODE",
             "OMNI_PYTHON_SERVICE_HOST",
@@ -4741,9 +4711,9 @@ print(json.dumps({
             "OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD",
             "OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS",
         ];
-        let saved: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+        let env = EnvTestGuard::new(&keys);
         for key in keys {
-            env::remove_var(key);
+            env.remove(key);
         }
 
         let default = PythonRuntimeConfig::from_env();
@@ -4757,15 +4727,15 @@ print(json.dumps({
         assert_eq!(default.circuit_failure_threshold, 3);
         assert_eq!(default.circuit_reset_ms, 30_000);
 
-        env::set_var("OMNI_PYTHON_MODE", "service");
-        env::set_var("OMNI_PYTHON_SERVICE_HOST", "127.0.0.2");
-        env::set_var("OMNI_PYTHON_SERVICE_PORT", "7011");
-        env::set_var("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "1234");
-        env::set_var("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "true");
-        env::set_var("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "9");
-        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "false");
-        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "2");
-        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "4567");
+        env.set("OMNI_PYTHON_MODE", "service");
+        env.set("OMNI_PYTHON_SERVICE_HOST", "127.0.0.2");
+        env.set("OMNI_PYTHON_SERVICE_PORT", "7011");
+        env.set("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "1234");
+        env.set("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "true");
+        env.set("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "9");
+        env.set("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "false");
+        env.set("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "2");
+        env.set("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "4567");
         let configured = PythonRuntimeConfig::from_env();
         assert_eq!(configured.mode, PythonRuntimeMode::Service);
         assert_eq!(configured.service_host, "127.0.0.2");
@@ -4777,15 +4747,15 @@ print(json.dumps({
         assert_eq!(configured.circuit_failure_threshold, 2);
         assert_eq!(configured.circuit_reset_ms, 4567);
 
-        env::set_var("OMNI_PYTHON_MODE", "subprocess");
-        env::set_var("OMNI_PYTHON_SERVICE_HOST", "127.0.0.3");
-        env::set_var("OMNI_PYTHON_SERVICE_PORT", "7012");
-        env::set_var("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "4321");
-        env::set_var("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "false");
-        env::set_var("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "1");
-        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "true");
-        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "5");
-        env::set_var("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "9876");
+        env.set("OMNI_PYTHON_MODE", "subprocess");
+        env.set("OMNI_PYTHON_SERVICE_HOST", "127.0.0.3");
+        env.set("OMNI_PYTHON_SERVICE_PORT", "7012");
+        env.set("OMNI_PYTHON_SERVICE_TIMEOUT_MS", "4321");
+        env.set("OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS", "false");
+        env.set("OMNI_PYTHON_SERVICE_RETRY_ATTEMPTS", "1");
+        env.set("OMNI_PYTHON_SERVICE_CIRCUIT_BREAKER_ENABLED", "true");
+        env.set("OMNI_PYTHON_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "5");
+        env.set("OMNI_PYTHON_SERVICE_CIRCUIT_RESET_MS", "9876");
         let canonical = PythonRuntimeConfig::from_env();
         assert_eq!(canonical.mode, PythonRuntimeMode::Subprocess);
         assert_eq!(canonical.service_host, "127.0.0.3");
@@ -4797,26 +4767,17 @@ print(json.dumps({
         assert_eq!(canonical.circuit_failure_threshold, 5);
         assert_eq!(canonical.circuit_reset_ms, 9876);
 
-        env::set_var("OMNI_PYTHON_MODE", "invalid");
+        env.set("OMNI_PYTHON_MODE", "invalid");
         assert_eq!(
             PythonRuntimeConfig::from_env().mode,
             PythonRuntimeMode::Subprocess
         );
 
-        env::set_var("OMNI_PYTHON_MODE", "   ");
+        env.set("OMNI_PYTHON_MODE", "   ");
         assert_eq!(
             PythonRuntimeConfig::from_env().mode,
             PythonRuntimeMode::Subprocess
         );
-
-        for (key, value) in saved {
-            if let Some(value) = value {
-                env::set_var(key, value);
-            } else {
-                env::remove_var(key);
-            }
-        }
-        drop(lock);
     }
 
     #[tokio::test]

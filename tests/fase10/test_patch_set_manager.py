@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import unittest
@@ -21,7 +22,8 @@ from brain.runtime.patch_set_manager import (  # noqa: E402
 
 class PatchSetManagerTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_root = PROJECT_ROOT / ".phase9-temp" / f"fase2-patchset-{uuid4().hex[:8]}"
+        artifact_root = Path(os.environ.get("OMNI_ARTIFACT_ROOT", PROJECT_ROOT / ".phase9-temp"))
+        self.temp_root = artifact_root / f"fase2-patchset-{uuid4().hex[:8]}"
         shutil.rmtree(self.temp_root, ignore_errors=True)
         (self.temp_root / "pkg").mkdir(parents=True, exist_ok=True)
         (self.temp_root / "pkg" / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")

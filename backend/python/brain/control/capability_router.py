@@ -251,9 +251,10 @@ class CapabilityRouter:
         return False
 
     def _looks_like_file_read(self, lowered: str) -> bool:
-        if self._matches_any(lowered, self._FILE_READ_PATTERNS):
+        has_file_reference = any(hint in lowered for hint in self._FILE_REFERENCE_HINTS)
+        if self._matches_any(lowered, self._FILE_READ_PATTERNS) and has_file_reference:
             return True
-        return any(hint in lowered for hint in self._FILE_REFERENCE_HINTS) and any(
+        return has_file_reference and any(
             token in lowered for token in ("analise", "analyze", "leia", "read", "abra", "open", "explique", "explain")
         )
 

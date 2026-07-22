@@ -308,6 +308,19 @@ class BridgePipelineTest(unittest.TestCase):
         self.assertEqual(out["response"], module.USER_FALLBACK_RESPONSE)
         self.assertEqual(out["error"]["failure_class"], "NODE_BRIDGE_INVALID_JSON")
 
+    def test_sanitize_for_user_allows_non_operational_json_document(self) -> None:
+        module = _load_python_main_module()
+        document = '{"name":"omni-runner","scripts":{"deploy":"wrangler deploy"}}'
+        out = module.sanitize_for_user(document)
+        self.assertEqual(out["response"], document)
+        self.assertNotIn("error", out)
+
+    def test_sanitize_for_user_blocks_structured_control_payload(self) -> None:
+        module = _load_python_main_module()
+        out = module.sanitize_for_user('{"execution_request":{"actions":[]}}')
+        self.assertEqual(out["response"], module.USER_FALLBACK_RESPONSE)
+        self.assertEqual(out["error"]["failure_class"], "FRONTEND_RESPONSE_SHAPE_MISMATCH")
+
     def test_emit_public_json_writes_single_valid_json_object(self) -> None:
         module = _load_python_main_module()
         buf = io.StringIO()
