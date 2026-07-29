@@ -4,12 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "frontend/**"
-      - "package.json"
-      - "package-lock.json"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
   workflow_dispatch:
 
 jobs:
