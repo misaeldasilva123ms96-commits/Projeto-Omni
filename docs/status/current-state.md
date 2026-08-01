@@ -1,159 +1,141 @@
 # Omni Current State
 
-**Date:** 2026-07-02  
-**Scope:** public repository documentation state after the merged PR #490-#496 cycle.  
-**Status:** controlled-demo/research system, not production-ready autonomous infrastructure.
+**Evidence date:** 2026-08-01
 
----
+**Audited branch:** `origin/main`
 
-## Executive Summary
+**Audited commit:** `3aa51f54a3d4522eaa7021658c736b0525034658`
 
-Omni is a governed cognitive runtime project. Its current value is not just generating an answer, but exposing what happened during the turn: runtime mode, provider behavior, fallback state, tool execution, governance decisions, diagnostics, and learning signals.
+**Classification:** controlled-demo/research system; not production-ready autonomous infrastructure.
 
-The repository currently has meaningful foundations across backend runtime, provider routing, frontend Cockpit visibility, security/governance, public diagnostics, and documentation. It must still be represented honestly as experimental and evidence-driven.
+This page describes merged repository state. A workflow, test, adapter, route, or
+design document is not evidence that the corresponding production capability is
+deployed, enabled, or operational.
 
----
+## Implemented foundations
 
-## Current Implemented Foundations
-
-| Area | Current state |
+| Area | Current merged state |
 | --- | --- |
-| Rust API | HTTP/API boundary, bridge process control, and public response contract. |
-| Python Brain runtime | Orchestration, governance, runtime classification, sanitization, and learning signals. |
-| Node QueryEngine runtime | Provider routing, tool/action foundations, and execution runner. |
-| Runtime Truth | Structured metadata for runtime mode, reason, fallback, provider diagnostics, tool execution, and execution provenance. |
-| Provider Auto Routing | Foundation implemented with safe auto modes and runtime truth metadata. |
-| Token Compression | Governed foundation with explicit modes and fail-closed safety posture. |
-| Quota / Cost visibility | Dashboard foundation using safe diagnostics and optional safe metadata; no real billing API integration. |
-| Governed Agent Gateway | Internal foundation with safe capability allow-list and sensitive capabilities denied by default. |
-| Frontend / Omni Cockpit | Runtime console with chat, Runtime Truth, inspector, provider center, observability, governance, memory, agents, projects, token usage, and lab surfaces. |
-| Learning | Local/advisory improvement signals; no automatic code mutation or uncontrolled self-improvement. |
-| Public debug posture | Public-safe diagnostics, known limitations, reproduction docs, and validation scripts. |
+| Rust API | Axum HTTP boundary, authentication and public-payload controls, subprocess/service bridge selection, run control, observability, and process-local resilience controls. |
+| Python Brain runtime | Publicly inspectable orchestration, governance, sanitization, runtime classification, provenance, memory/learning signals, provider configuration, and Node bridge logic. This reconciliation inspected the principal runtime path, not every Python file. |
+| Node QueryEngine runtime | Provider selection/provenance, matcher and direct-response lanes, governed tool/action foundations, runtime-truth emission, and subprocess/service entry points. |
+| Runtime Truth | Explicit modes, reasons, fallback state, provider/tool evidence, execution lanes, provenance, and diagnostics. Transport success alone is never cognitive success. |
+| Provider routing | Remote adapters for Groq, OpenRouter, OpenAI, Anthropic, and Gemini; configured local Ollama and LM Studio adapters; local heuristic fallback. DeepSeek is metadata-only and non-executable. Selection does not prove attempted or successful provider execution. |
+| Frontend | React 19 Cockpit built with TypeScript 7 and Vite 8, with Zustand state, Recharts visualization, Framer Motion, Tailwind/PostCSS styling, and Vitest/Testing Library test foundations. It includes chat, Runtime Truth/Inspector, provider, governance, memory, agent, project, observability, token-use, history, and lab surfaces. |
+| Security | Authentication and JWT hardening, public payload and demo boundaries, path-containment and regex hardening, Gitleaks/security workflows, focused draft threat models, and regression tests. Deployment-edge controls remain external responsibilities. |
+| Autonomy and audit | Governed gateway and dry-run/historical-audit foundations exist. The protected historical-audit router and isolated Supabase capability adapter are dormant: they are not in `AppState`, not wired into the main router, and expose no endpoint. Later async-resolver work is preparation documentation, not runtime integration. |
+| Database | Supabase-oriented schema/migration foundations exist, including capability-grant storage. Their presence does not establish production provisioning or route exposure. |
+| Learning/training | Advisory learning signals, schemas, validation, dry-run export policy, and a training-pipeline workflow definition exist. No uncontrolled self-rewrite, automatic training, or unrestricted training export is authorized. |
+| Governance | Manual owner review, no direct pushes to `main`, no automatic merge, explicit capability boundaries, and documentation/runtime-truth requirements. |
 
----
+## Default runtime path
 
-## Current Default Runtime Path
-
-```txt
+```text
 Rust/Axum HTTP API
   -> Python subprocess BrainOrchestrator
   -> Node subprocess QueryEngine runner
-  -> Python public payload sanitization
+  -> Python public-payload sanitization
   -> Rust HTTP response
 ```
 
-Python and Node service modes may exist behind configuration, but they are not the default documented contributor path unless a later audited change updates this status.
+Python and Node service modes are opt-in. Subprocess execution and Node are the
+default contributor path; Bun is opt-in. Service lifecycle, shared resilience
+state, and multi-instance coordination are not production-complete.
 
----
+## Canonical runtime modes
 
-## Recently Merged Cycle: #490-#496
+The canonical modes are:
 
-| PR | Result |
-| --- | --- |
-| #490 | Added a read-only OmniRoute architectural reference study and proposed ADR context. |
-| #491 | Added Provider Auto Routing foundation. |
-| #492 | Exposed Provider Auto Routing in the Runtime Inspector. |
-| #493 | Added Governed Token Compression foundation. |
-| #494 | Added Provider Quota & Cost Dashboard foundation. |
-| #495 | Added Governed Agent Gateway foundation. |
-| #496 | Added OmniRoute adaptation-cycle summary and compliance closure. |
-
-This cycle moved Omni closer to a governed platform with provider routing, compression, usage visibility, and agent-gateway foundations, while preserving strict compliance boundaries.
-
----
-
-## Compliance Boundaries
-
-The current repository state explicitly does **not** include or authorize:
-
-- OmniRoute code copying;
-- direct OmniRoute integration;
-- MITM;
-- TLS stealth;
-- proxy or bypass flows;
-- scraping;
-- unofficial/private endpoints;
-- sensitive credential import;
-- real MCP/A2A implementation;
-- real provider billing/quota API integrations;
-- unrestricted autonomous tool execution;
-- automatic main merges;
-- direct main pushes;
-- uncontrolled self-modification;
-- training export without safety gates.
-
-OmniRoute and similar systems may be referenced for architecture research only when documentation preserves these boundaries.
-
----
-
-## Current Frontend State
-
-The frontend should be described as an **Omni Cockpit / runtime console**, not a simple chatbot UI.
-
-Current frontend surfaces include:
-
-- chat execution surface;
-- Runtime Truth topbar;
-- Runtime Inspector tabs;
-- safe debug presentation;
-- provider settings and provider center;
-- token usage visibility;
-- projects;
-- history;
-- governance center;
-- memory center;
-- agents;
-- observability;
-- lab mode;
-- responsive shell and navigation.
-
-The remaining frontend work should focus on contract alignment, data-source clarity, light/dark theme completeness, duplicated provider/settings flows, and end-to-end workflow confidence.
-
----
-
-## Current Runtime Truth Policy
-
-Transport success is not cognitive success.
-
-A response must not be documented as full cognitive execution only because it returned:
-
-- HTTP 200;
-- valid JSON;
-- `status=success`;
+- `FULL_COGNITIVE_RUNTIME`;
+- `PARTIAL_COGNITIVE_RUNTIME` / `PARTIAL_COGNITIVE`;
 - `NODE_EXECUTION_SUCCESS`;
-- any other successful boundary/transport marker.
+- `LOCAL_TOOL_SUCCESS`;
+- `MATCHER_SHORTCUT`;
+- `DIRECT_LOCAL_RESPONSE`;
+- `SAFE_FALLBACK`;
+- `SAFE_DEGRADED_FALLBACK`;
+- `NODE_FAILURE`;
+- `PROVIDER_FAILURE`;
+- `COMPATIBILITY_EXECUTION`.
 
-Claims about execution quality must inspect runtime mode, provider diagnostics, fallback flags, tool execution, governance state, and provenance.
+Their evidence requirements are defined in
+[`docs/architecture/runtime-modes.md`](../architecture/runtime-modes.md).
+HTTP 200, valid JSON, `status=success`, or `NODE_EXECUTION_SUCCESS` alone do not
+prove full cognitive execution. Provider selected is not provider attempted;
+tool planned is not tool executed.
 
----
+## Workflow inventory
 
-## Current Safety And Training Policy
+At the audited commit, `.github/workflows` contains 23 workflow definitions.
+They cover general CI, frontend, Node, Python, Rust, runtime, security and
+dependency audit, Docker, public demo, live E2E, documentation deployment, lint
+and static checks, deployment, release, post-merge validation, manual full
+validation, training, health checks, and repository automation.
 
-Learning records and improvement signals are advisory.
+This inventory proves that workflow definitions exist. It does not prove that
+every workflow ran or succeeded for this commit; current run evidence must be
+reported separately.
 
-Omni does not automatically rewrite itself, mutate runtime behavior, or export positive training examples simply because a response looked successful. Training export remains gated by documented safety criteria, redaction, runtime-mode checks, fallback/tool/governance/provider failure checks, and user-visible success.
+## Evolution after PR #496
 
----
+Major merged changes after the earlier #490-#496 baseline include:
 
-## Current Priorities
+- documentation refresh and governance/design/preparation cycles (#497,
+  #513-#516, #530-#531, #543, #546, and #600);
+- runtime and security hardening, including public-demo boundaries, canonical
+  environment naming, cognitive routing, JWT validation, provider health, and
+  multi-runtime resilience (#510, #533-#545, #560, #564, and #598-#599);
+- frontend test stabilization and runtime/provider visibility work (#532,
+  #541, and portions of the broader hardening cycles);
+- a protected historical-audit route skeleton (#512), capability-source and
+  migration foundations (#529), and an isolated Supabase grant adapter (#559),
+  all preserved without main-router endpoint exposure;
+- dependency maintenance across Rust, JavaScript, frontend/mobile, and CI
+  baselines, including the Node 24.15 compatibility cycle.
 
-1. Keep README, roadmap, docs index, governance, and status docs synchronized after major merges.
-2. Preserve Runtime Truth as the main product differentiator.
-3. Strengthen provider routing without hiding fallback or provider failures.
-4. Mature token compression while keeping it metadata-safe and fail-closed.
-5. Mature quota/cost visibility without adding real billing integrations until explicitly designed.
-6. Expand governed agent gateway capabilities only through allowlists, tests, and safe metadata.
-7. Improve integration confidence across Rust, Python, Node, and frontend surfaces.
-8. Continue frontend Cockpit contract alignment and observability usability.
+Documentation-only preparation and dormant implementations in those PRs must
+not be reported as enabled runtime capability.
 
----
+## Threat-model and security status
 
-## Documentation Authority
+Focused threat models exist for the sandbox and MCP vault under
+`docs/security/`. Both are draft/planning documents and do not prove all
+described controls are implemented. No consolidated, current, system-wide
+threat model was identified in this audit. Implemented controls must be traced
+to code, tests, and workflow evidence independently.
+
+## Active boundaries and limitations
+
+- Rate limiting and circuit-breaker state are process-local; they do not
+  coordinate across replicas.
+- Full Docker image/runtime smoke was not executed for this reconciliation and
+  still needs target-environment validation.
+- WAF/edge rate limiting, production secret management, distributed telemetry,
+  retention, quotas, and incident response remain deployment responsibilities.
+- Real external-provider availability, reliability, billing, and quota
+  integration are not proven by configuration or static inspection.
+- Protected historical-audit capability work remains disabled/dormant and no
+  endpoint is exposed by the main router.
+- Autonomous actions remain allow-listed and governed; unrestricted tool use,
+  self-modification, automatic merge, and automatic production action are not
+  authorized.
+- Training remains restricted to governed preparation/dry-run paths. This audit
+  did not start training or produce a production dataset.
+- The repository is suitable for controlled demonstration and research, not a
+  production readiness claim.
+
+See [`docs/audit/KNOWN_LIMITATIONS.md`](../audit/KNOWN_LIMITATIONS.md) for the
+active limitations and
+[`docs/audits/2026-08-01-current-state-reconciliation.md`](../audits/2026-08-01-current-state-reconciliation.md)
+for evidence and validation scope.
+
+## Documentation authority
 
 When documents conflict, use this order:
 
-1. Current implementation and merged PR evidence.
-2. This file: `docs/status/current-state.md`.
-3. Root `README.md`, `ROADMAP.md`, and `GOVERNANCE.md`.
-4. Focused architecture/runtime/frontend docs.
-5. Historical reports, archived phase notes, and superseded roadmaps.
+1. Current implementation on the latest merged `main`.
+2. Merged pull-request evidence and current tests/workflow definitions.
+3. `GOVERNANCE.md`.
+4. `ROADMAP.md`.
+5. This canonical current-state page and focused architecture documentation.
+6. Historical reports and superseded planning documents.

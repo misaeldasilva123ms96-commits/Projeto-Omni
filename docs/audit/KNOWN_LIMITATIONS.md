@@ -1,50 +1,96 @@
 # Known Limitations
 
-> Historical configuration note: Any `OMINI_*` names below are preserved only as immutable audit evidence. They are obsolete and are not accepted by the current runtime, which recognizes only `OMNI_*` configuration.
+**Evidence date:** 2026-08-01
 
-## Latest Verified Status
+**Audited branch:** `origin/main`
 
-Latest documentation audit base:
+**Audited commit:** `3aa51f54a3d4522eaa7021658c736b0525034658`
 
-| Item | Latest verified status |
-| --- | --- |
-| Branch audited | `validation/rust-run-control-fix` |
-| Commit audited | `9a6c527254fd01f6f07e9f9990b2156c07f34934` |
-| Static audit validator | Passed in latest audit pass |
-| Static public-demo validator | Passed in latest audit pass |
-| Rust/Python/JS/security suites | Passed in latest audit pass |
-| Docker image build/runtime smoke | Not reverified in latest audit pass |
+Only limitations supported by the audited implementation, configuration,
+workflow definitions, or explicitly scoped validation are retained here.
+Historical reports do not override current code.
 
-Older audit notes may record a previous Docker build or smoke result. Treat those entries as historical unless the Docker build and runtime smoke are rerun in the target environment.
+## Release and deployment status
 
-## Docker Validation
+Omni is a controlled-demo/research system, not a production-ready autonomous
+platform. There is no production release. This reconciliation does not authorize a public
+deployment, tag, merge, training run, or autonomous action.
 
-Docker image build still needs daemon-backed validation in the environment that will host any controlled demo URL. Docker runtime smoke also needs target-environment validation. Static validators and `docker compose config` are useful gates, but they do not prove the image starts, serves `/health`, accepts `/chat`, or enforces runtime policies inside the container.
+The repository includes deployment, release, Docker, health, public-demo, and
+live-E2E workflow definitions. Their existence is not evidence of a currently
+healthy deployment or a successful run at the audited commit.
 
 ## Public Traffic
 
-Public traffic needs edge/platform rate limiting. The Rust limiter is in-memory and per process, so it is not enough for multi-instance or hostile public traffic.
+The Rust chat rate limiter stores counters in process memory. Circuit-breaker
+state is also process-local. Neither provides shared enforcement or coordinated
+state across replicas, restarts, or regions. Hostile public traffic and
+multi-instance deployments require edge/platform rate limiting and shared
+operational controls.
 
 ## Runtime Scope
 
-Subprocess remains default. Python and Node service modes are opt-in. In-memory circuit breaker state is process-local. Service lifecycle, cross-process health, and multi-instance coordination are not production-complete.
+Subprocess remains the default runtime path. Python and Node service modes are
+opt-in. Cross-process lifecycle management, shared health state, distributed
+backpressure, coordinated failover, and multi-instance behavior are not proven
+production-complete.
+
+## Docker Validation
+
+Docker image build still needs daemon-backed validation. No daemon-backed Docker
+build or full container runtime smoke was executed in the 2026-08-01
+reconciliation. Static validators do not prove that the image
+starts, serves `/health`, accepts `/chat`, or preserves runtime policies on the
+target platform. A controlled deployment still needs image build, container
+startup, health/chat smoke, shutdown, and target-environment evidence.
+
+The demo container profile is not a production deployment profile. WAF/edge
+controls, secret injection and rotation, distributed monitoring, retention,
+backups, provider quotas, alerting, and incident response remain deployment
+responsibilities.
+
+## Providers
+
+Provider discovery, routing, provenance, and adapters do not prove live external
+availability or successful model execution. Real-provider billing/quota APIs
+are not integrated as production accounting. Credentials, billing, rate limits,
+regional availability, latency, and reliability must be validated in the target
+environment without exposing secrets.
+
+## Historical-audit and autonomy surfaces
+
+The protected historical-audit router, capability resolver foundations, and
+isolated Supabase capability adapter exist in the repository, but the route is
+disabled/dormant: it is not integrated into `AppState`, not wired by `main.rs`,
+and exposes no endpoint. Async resolver integration is still preparation work.
+
+Autonomous capabilities remain governed and allow-listed. The repository does
+not authorize unrestricted tool execution, caller-supplied privilege claims,
+self-modification, automatic merge, or unattended production actions.
+
+## Security assurance
+
+Focused sandbox and MCP-vault threat models exist, but both are draft/planning
+documents. A consolidated, current, system-wide threat model was not identified.
+This documentation audit is not a penetration test, hostile-traffic exercise,
+red-team assessment, or complete manual security review.
+
+Repository controls do not replace production WAF, identity, secret-management,
+network, audit-retention, and incident-response controls.
 
 ## Training
 
-No training started. No real dataset export was produced. Training readiness defines schemas, validation, and dry-run export only. Fallback, matcher, tool-blocked, provider-failure, governance-blocked, unsafe, or heavily redacted records are not positive examples.
+No training was started and no production dataset was produced by this audit.
+Learning signals are advisory. Export remains subject to redaction, governance,
+runtime-mode, fallback, tool, and provider-failure gates. The existence of the
+training workflow does not authorize or prove a training run.
 
-## Historical Data
+Historical logs are not retroactively rewritten. Hardening and redaction apply
+to the paths that use those controls after their introduction.
 
-Historical logs are not rewritten. Redaction applies to new learning/runtime persistence paths after the hardening phases.
+## Validation scope
 
-## Docker And Local Environment
-
-The demo container profile is not a production deployment profile. It uses ephemeral local storage paths and process-local controls. Provider quota management, WAF/edge controls, monitoring, retention, and platform secrets remain deployment responsibilities.
-
-## Test Suite Limitations
-
-Some broad wrappers can be slow or environment-sensitive. The live HTTP contract is now mandatory in its dedicated CI workflow and uses the canonical `OMNI_E2E_API_URL`; local ad-hoc execution still needs a running API and that variable (or the temporary `OMINI_E2E_API_URL` alias). Docker runtime validation depends on a working Docker daemon.
-
-## Release Status
-
-No production release yet. No GitHub release, public deployment, tag, automatic merge, or training run is authorized by this audit pack.
+The reconciliation report records exactly which static validators, installation
+steps, diff checks, and secret scans were executed. It does not imply that broad
+Rust/Python/JavaScript suites, live providers, Docker runtime, production
+multi-instance behavior, or every workflow were dynamically validated.
