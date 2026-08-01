@@ -119,7 +119,7 @@ pub(crate) trait CapabilityGrantRepository: Send + Sync {
 }
 ```
 
-The `&'static str` capability matches the resolver-owned compile-time requirement and prevents caller-controlled capability data. Implementations return `Box::pin(...)`; the trait remains usable as `Arc<dyn CapabilityGrantRepository>`.
+The `&'static str` capability matches the resolver-owned compile-time requirement, but `'static` controls only the reference lifetime, not the accepted string value; unrelated static literals would also satisfy the type. The security boundary is that `HistoricalAuditCapabilityResolver` is the only intended caller: it owns and supplies the server-defined capability, validates that its required capability equals exactly `historical_audit:read` before lookup, and accepts no capability from a request body, query, path, header, cookie, or caller claim. Future tests must prove that wrong resolver capability values fail before repository lookup. Implementations return `Box::pin(...)`; the trait remains usable as `Arc<dyn CapabilityGrantRepository>`.
 
 ## 22. Object-safety analysis
 
@@ -374,7 +374,21 @@ Assert by source inspection and behavior that: `main.rs` is unchanged and has no
 
 ## 69. Validation plan
 
-For this docs-only branch run `git diff --check`, verify `git diff --name-only origin/main...HEAD`, inspect `git status --short`, and scan the new document with Gitleaks/repository secret scanning before publication. No Rust test is required because no Rust/Cargo file changes.
+Validate the committed PR diff with failing checks, not only by inspecting working-tree output:
+
+```sh
+git merge-base --is-ancestor \
+  4a2e4ed5709d0c20eef15c63adf527f77224a307 \
+  origin/main
+
+git diff --check origin/main...HEAD
+
+EXPECTED_FILE="docs/runtime/autonomy-dry-run-historical-audit-api-capability-source-async-resolver-integration-preparation.md"
+
+test "$(git diff --name-only origin/main...HEAD)" = "$EXPECTED_FILE"
+```
+
+A nonzero ancestry-check exit blocks publication because the prepared async migration depends on the isolated adapter merged through PR #559. Separately, `git status --short` validates that the working tree and index contain no uncommitted changes. Scan the changed document, `origin/main...HEAD`, and the complete branch history with Gitleaks or the repository secret scan before publication. No Rust test is required because no Rust/Cargo file changes.
 
 For the future implementation branch run:
 
@@ -383,7 +397,10 @@ cargo fmt --manifest-path backend/rust/Cargo.toml -- --check
 cargo check --manifest-path backend/rust/Cargo.toml
 cargo test --manifest-path backend/rust/Cargo.toml
 cargo clippy --manifest-path backend/rust/Cargo.toml --all-targets -- -D warnings
-cargo audit
+(
+  cd backend/rust
+  cargo audit
+)
 npm run test:security
 npm run validate:public-demo
 npm run validate:audit-pack
