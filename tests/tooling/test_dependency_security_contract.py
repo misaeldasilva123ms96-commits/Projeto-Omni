@@ -46,7 +46,7 @@ def test_root_lock_excludes_unpatched_cloudflare_dependency_chain() -> None:
     assert all(version >= (3, 1, 4) for version in fast_uri_versions)
 
 
-def test_security_workflow_uses_node_24_and_keeps_cloudflare_suspended() -> None:
+def test_security_workflow_uses_node_24_15_and_keeps_cloudflare_suspended() -> None:
     security_workflow = (PROJECT_ROOT / ".github" / "workflows" / "security.yml").read_text(
         encoding="utf-8"
     )
@@ -58,7 +58,7 @@ def test_security_workflow_uses_node_24_and_keeps_cloudflare_suspended() -> None
     setup_node = dependency_audit_job.index("uses: actions/setup-node@v7")
     node_audit = dependency_audit_job.index("name: Node audit (blocking high/critical)")
     assert setup_node < node_audit
-    assert 'node-version: "24"' in dependency_audit_job[setup_node:node_audit]
+    assert 'node-version: "24.15.0"' in dependency_audit_job[setup_node:node_audit]
 
     assert "optional-wrangler-deploy" not in deploy_workflow
     assert "npx wrangler" not in deploy_workflow
