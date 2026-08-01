@@ -358,6 +358,7 @@ impl SupabaseAuthConfig {
     fn validate_token(&self, token: &str) -> Result<SupabaseClaims, jsonwebtoken::errors::Error> {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_exp = true;
+        validation.validate_nbf = true;
         validation.validate_aud = true;
         validation.leeway = 0;
         validation.set_required_spec_claims(&["exp", "iss", "aud"]);
@@ -677,6 +678,27 @@ mod tests {
         token_with_audience(exp_offset_seconds, Some(json!("authenticated")))
     }
 
+    fn token_with_nbf_offset(nbf_offset_seconds: i64) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("unix epoch")
+            .as_secs() as i64;
+        let claims = json!({
+            "iss": "https://example.supabase.co/auth/v1",
+            "sub": "operator-123",
+            "aud": "authenticated",
+            "exp": now + 300,
+            "nbf": now + nbf_offset_seconds,
+        });
+
+        encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(b"test-only-high-entropy-secret-material"),
+        )
+        .expect("encode test jwt")
+    }
+
     fn test_router() -> Router {
         async fn ok_handler() -> Json<Value> {
             Json(json!({ "ok": true }))
@@ -758,6 +780,26 @@ mod tests {
                     .method(Method::GET)
                     .uri("/api/observability/snapshot")
                     .header(AUTHORIZATION, format!("Bearer {}", token_with_offset(-60)))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn token_with_future_nbf_returns_401() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/observability/snapshot")
+                    .header(
+                        AUTHORIZATION,
+                        format!("Bearer {}", token_with_nbf_offset(60)),
+                    )
                     .body(Body::empty())
                     .expect("request"),
             )
