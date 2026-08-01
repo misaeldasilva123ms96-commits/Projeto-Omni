@@ -9,7 +9,7 @@ Omni is an open source runtime under active debugging. Please do not assume a pa
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 20+
+- Node.js 24.15+
 - Rust toolchain
 
 ### Install dependencies
