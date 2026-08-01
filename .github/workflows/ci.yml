@@ -8,6 +8,7 @@ on:
 
 jobs:
   build-and-test-js-python:
+    name: build-and-test-js-python (24.x, ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
