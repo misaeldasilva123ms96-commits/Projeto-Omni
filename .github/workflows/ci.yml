@@ -8,10 +8,11 @@ on:
 
 jobs:
   build-and-test-js-python:
+    name: build-and-test-js-python (24.x, ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [24.x]
+        node-version: [24.15.0]
         python-version: [3.11]
     steps:
       - name: Checkout

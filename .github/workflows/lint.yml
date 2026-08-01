@@ -14,7 +14,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.15.0
       - name: Install dependencies
         run: npm ci
       - name: ESLint (advisory, root + frontend)

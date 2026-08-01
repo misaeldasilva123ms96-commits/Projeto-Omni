@@ -39,7 +39,7 @@
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=24.15 <25"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
