@@ -7,7 +7,7 @@ edition = "2021"
 axum = { version = "0.8", features = ["macros"] }
 async-stream = "0.3"
 futures-core = "0.3"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 rand = "0.10"
 rand_core = "0.10"
 serde = { version = "1", features = ["derive"] }
