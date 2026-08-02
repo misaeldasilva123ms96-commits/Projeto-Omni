@@ -913,10 +913,35 @@ async fn main() -> Result<(), AppError> {
     );
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|err| AppError::Internal(format!("server failed: {err}")))?;
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                if let Err(error) = result {
+                    warn!(%error, "failed to listen for Ctrl+C");
+                }
+            }
+            _ = terminate.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    if let Err(error) = tokio::signal::ctrl_c().await {
+        warn!(%error, "failed to listen for Ctrl+C");
+    }
+
+    info!("shutdown signal received; draining HTTP connections");
 }
 
 fn init_tracing() {
@@ -2844,8 +2869,8 @@ const PYTHON_PARSE_FAILURE_RESPONSE: &str =
     "[degraded:python_stdout] A saída do adaptador Python não é JSON válido; a resposta do cérebro pode estar incompleta.";
 const PYTHON_RESPONSE_CANDIDATE_KEYS: &[&str] = &["response", "message", "text", "answer"];
 
-fn python_debug_logging_enabled() -> bool {
-    let public_demo_enabled = env::var("OMNI_PUBLIC_DEMO_MODE")
+fn public_demo_mode_enabled() -> bool {
+    env::var("OMNI_PUBLIC_DEMO_MODE")
         .ok()
         .map(|value| {
             matches!(
@@ -2853,8 +2878,11 @@ fn python_debug_logging_enabled() -> bool {
                 "1" | "true" | "yes" | "on"
             )
         })
-        .unwrap_or(false);
-    if public_demo_enabled {
+        .unwrap_or(false)
+}
+
+fn python_debug_logging_enabled() -> bool {
+    if public_demo_mode_enabled() {
         return false;
     }
     env::var("OMNI_LOG_LEVEL")
@@ -3197,6 +3225,7 @@ fn build_python_fallback_response(
     stop_reason: &str,
     detail: Option<&str>,
 ) -> ChatResponse {
+    let public_detail = (!public_demo_mode_enabled()).then_some(detail).flatten();
     let mut inspection = json!({
         "runtime_mode": "SAFE_FALLBACK",
         "runtime_reason": stop_reason,
@@ -3224,7 +3253,7 @@ fn build_python_fallback_response(
             "execution_provenance": serde_json::Value::Null,
         }
     });
-    if let Some(d) = detail {
+    if let Some(d) = public_detail {
         if let Some(obj) = inspection.as_object_mut() {
             obj.insert("detail".into(), Value::String(d.to_string()));
         }
@@ -3255,7 +3284,7 @@ fn build_python_fallback_response(
                 _ => "PYTHON_BRIDGE_NONZERO_EXIT",
             },
             PYTHON_FALLBACK_RESPONSE,
-            detail,
+            public_detail,
         )),
     }
 }
@@ -3693,19 +3722,17 @@ async fn call_python_subprocess(
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let message = format!("python adapter exited with status {}", code);
         warn!("{message}");
-        if !stderr.is_empty() {
+        if !stderr.is_empty() && python_debug_logging_enabled() {
             warn!("python stderr: {stderr}");
+        } else if !stderr.is_empty() {
+            warn!("python stderr was redacted in public demo mode");
         }
-        update_python_health(
-            state,
-            "failed",
-            Some(if stderr.is_empty() {
-                message.clone()
-            } else {
-                stderr.clone()
-            }),
-        )
-        .await;
+        let health_detail = if public_demo_mode_enabled() || stderr.is_empty() {
+            message.clone()
+        } else {
+            stderr.clone()
+        };
+        update_python_health(state, "failed", Some(health_detail)).await;
         return Ok(build_python_fallback_response(
             state,
             "python-subprocess",
@@ -3721,8 +3748,17 @@ async fn call_python_subprocess(
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if !stderr.is_empty() {
-        warn!("python adapter produced stderr on successful exit: {stderr}");
-        update_python_health(state, "stderr_warning", Some(stderr)).await;
+        if python_debug_logging_enabled() {
+            warn!("python adapter produced stderr on successful exit: {stderr}");
+        } else {
+            warn!("python adapter produced stderr; detail redacted in public demo mode");
+        }
+        let health_detail = if public_demo_mode_enabled() {
+            "python adapter produced stderr".to_string()
+        } else {
+            stderr
+        };
+        update_python_health(state, "stderr_warning", Some(health_detail)).await;
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -5470,6 +5506,38 @@ print(json.dumps({"response": "byok_seen=" + str(seen).lower()}))
                 .and_then(Value::as_str),
             Some("PYTHON_BRIDGE_NONZERO_EXIT")
         );
+    }
+
+    #[test]
+    fn public_demo_fallback_redacts_internal_detail() {
+        let keys = ["OMNI_PUBLIC_DEMO_MODE"];
+        let env = EnvTestGuard::new(&keys);
+        env.set("OMNI_PUBLIC_DEMO_MODE", "true");
+        let state = build_test_state(temp_script("print('ok')\n", "public-redaction"), 15_000);
+
+        let response = build_python_fallback_response(
+            &state,
+            "python-subprocess",
+            None,
+            "python_subprocess_nonzero_exit",
+            Some("Traceback: /home/runner/work/private.py Authorization: Bearer secret"),
+        );
+        let serialized = serde_json::to_string(&response).expect("serialize");
+
+        assert!(!serialized.contains("Traceback"));
+        assert!(!serialized.contains("/home/runner/work"));
+        assert!(!serialized.contains("Authorization"));
+        assert!(!serialized.contains("secret"));
+        assert!(response
+            .cognitive_runtime_inspection
+            .as_ref()
+            .and_then(|value| value.get("detail"))
+            .is_none());
+        assert!(response
+            .error
+            .as_ref()
+            .and_then(|value| value.get("detail"))
+            .is_none());
     }
 
     #[test]

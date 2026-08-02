@@ -311,8 +311,15 @@ class BrainPaths:
             transcripts_dir=Path(read_env("OMNI_TRANSCRIPTS_DIR", str(python_root / "transcripts"))),
             sessions_dir=Path(read_env("OMNI_SESSIONS_DIR", str(python_root / "brain" / "runtime" / "sessions"))),
             js_runner=project_root / "js-runner" / "queryEngineRunner.js",
-            swarm_log=python_root / "brain" / "runtime" / "swarm_log.json",
-            evolution_dir=python_root / "brain" / "evolution",
+            swarm_log=Path(
+                read_env(
+                    "OMNI_SWARM_LOG_PATH",
+                    str(python_root / "brain" / "runtime" / "swarm_log.json"),
+                )
+            ),
+            evolution_dir=Path(
+                read_env("OMNI_EVOLUTION_DIR", str(python_root / "brain" / "evolution"))
+            ),
         )
 
 

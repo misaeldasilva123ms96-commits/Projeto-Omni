@@ -23,8 +23,11 @@ services:
       OMNI_MATCHER_MODE: enabled
       OMNI_PYTHON_MODE: subprocess
       OMNI_NODE_MODE: subprocess
+      OMNI_DISABLE_EVOLUTION_LOOP: "true"
+      OMNI_SWARM_LOG_PATH: /app/storage/local/runtime/swarm_log.json
+      OMNI_EVOLUTION_DIR: /app/storage/local/runtime/evolution
     ports:
-      - "3001:3001"
+      - "${OMNI_DEMO_HOST_PORT:-3001}:3001"
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
