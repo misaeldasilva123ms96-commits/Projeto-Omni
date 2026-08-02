@@ -1,37 +1,80 @@
-name: Docker Build CI
+name: Docker Runtime Smoke
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - "Dockerfile*"
-      - "docker-compose*"
-      - "deploy/**"
-      - "scripts/**"
+      - ".github/workflows/docker-build-ci.yml"
+      - ".dockerignore"
+      - "Dockerfile.demo"
+      - "docker-compose.demo.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "backend/rust/**"
+      - "backend/python/**"
+      - "core/**"
+      - "configs/**"
+      - "features/**"
+      - "js-runner/**"
+      - "observability/**"
+      - "platform/**"
+      - "runtime/**"
+      - "storage/**"
+      - "src/**"
+      - "contract/**"
+      - "scripts/docker-runtime-smoke.*"
+      - "tests/runtime/dockerRuntimeSmokeValidator.test.mjs"
+      - "tests/runtime/dockerRuntimeSmokeCleanup.test.sh"
+      - "tests/runtime/test_docker_runtime_paths.py"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  docker:
-    name: Docker demo build validation
+  docker-runtime-smoke:
+    name: Controlled-demo runtime smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 35
 
     steps:
-      - name: Checkout
+      - name: Checkout pull request commit
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Build demo Docker image if present
+      - name: Test smoke response validators
         run: |
-          if [ -f Dockerfile.demo ]; then
-            docker build -f Dockerfile.demo .
+          node --test tests/runtime/dockerRuntimeSmokeValidator.test.mjs
+          bash tests/runtime/dockerRuntimeSmokeCleanup.test.sh
+
+      - name: Build and exercise controlled-demo runtime
+        env:
+          SMOKE_DIAGNOSTICS_DIR: ${{ runner.temp }}/omni-docker-smoke-diagnostics
+        run: bash scripts/docker-runtime-smoke.sh
+
+      - name: Verify failure diagnostic publication authorization
+        if: failure()
+        id: diagnostics
+        env:
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/omni-docker-smoke-diagnostics
+          DIAGNOSTICS_MARKER: ${{ runner.temp }}/omni-docker-smoke-diagnostics/.safe-to-upload
+        run: |
+          if [[ -f "$DIAGNOSTICS_MARKER" ]] \
+            && grep -Fxq 'diagnostics_verified=true' "$DIAGNOSTICS_MARKER" \
+            && node scripts/docker-runtime-smoke-validator.mjs verify-publication "$DIAGNOSTICS_DIR" >/dev/null 2>&1; then
+            echo "safe_to_upload=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Dockerfile.demo not found; skipping demo image build."
+            echo "safe_to_upload=false" >> "$GITHUB_OUTPUT"
+            echo "Failure diagnostics were withheld because safe publication was not authorized."
           fi
 
-      - name: Validate demo compose config if present
-        run: |
-          if [ -f docker-compose.demo.yml ]; then
-            docker compose -f docker-compose.demo.yml config
-          else
-            echo "docker-compose.demo.yml not found; skipping compose config validation."
-          fi
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() && steps.diagnostics.outputs.safe_to_upload == 'true' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: docker-runtime-smoke-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/omni-docker-smoke-diagnostics
+          if-no-files-found: error
+          retention-days: 7
