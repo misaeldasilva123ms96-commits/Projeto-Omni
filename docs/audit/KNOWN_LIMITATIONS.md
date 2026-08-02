@@ -6,9 +6,11 @@
 
 **Audited commit:** `3aa51f54a3d4522eaa7021658c736b0525034658`
 
-Only limitations supported by the audited implementation, configuration,
-workflow definitions, or explicitly scoped validation are retained here.
-Historical reports do not override current code.
+Only limitations supported by audited evidence are retained here, including
+current implementation, configuration, workflow definitions, explicitly scoped
+validation, governance documents, and focused security or threat-model
+documentation. Historical reports do not override the audited implementation
+or the commit-bound evidence recorded here.
 
 ## Release and deployment status
 

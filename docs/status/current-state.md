@@ -131,11 +131,17 @@ for evidence and validation scope.
 
 ## Documentation authority
 
-When documents conflict, use this order:
+For claims made by this current-state page, use this order:
 
-1. Current implementation on the latest merged `main`.
-2. Merged pull-request evidence and current tests/workflow definitions.
-3. `GOVERNANCE.md`.
-4. `ROADMAP.md`.
+1. Current implementation at audited commit
+   `3aa51f54a3d4522eaa7021658c736b0525034658`.
+2. Merged pull-request evidence, tests, and workflow definitions included in
+   that audited commit.
+3. `GOVERNANCE.md` as present at the audited commit.
+4. `ROADMAP.md` as present at the audited commit.
 5. This canonical current-state page and focused architecture documentation.
 6. Historical reports and superseded planning documents.
+
+When `main` advances beyond the audited commit, this page must be refreshed
+through a new evidence-based reconciliation before it is treated as describing
+the newer repository state.
