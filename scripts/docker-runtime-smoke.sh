@@ -82,6 +82,8 @@ request() {
 echo "Recording Docker toolchain versions"
 docker version >"$RAW_DIR/docker-version.txt"
 docker compose version >"$RAW_DIR/compose-version.txt"
+echo "Docker server version: $(docker version --format '{{.Server.Version}}')"
+echo "Docker Compose version: $(docker compose version --short)"
 
 echo "Validating the canonical Compose profile"
 docker compose --file "$COMPOSE_FILE" config >"$RAW_DIR/compose-config.txt"
