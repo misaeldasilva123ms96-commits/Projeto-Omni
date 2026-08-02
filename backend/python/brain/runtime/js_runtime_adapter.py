@@ -9,6 +9,7 @@ from typing import Any
 from brain.env import read_env
 from config.provider_registry import get_available_providers
 from config.secrets_manager import build_controlled_os_environ_base, merge_provider_credentials
+from brain.runtime.node_path_policy import validate_runtime_executable
 
 
 @dataclass(slots=True)
@@ -70,6 +71,8 @@ class JSRuntimeAdapter:
 
     def build_env(self) -> tuple[dict[str, str], JSRuntimeSelection]:
         env = merge_provider_credentials(build_controlled_os_environ_base())
+        env.pop("NODE_OPTIONS", None)
+        env.pop("NODE_PATH", None)
         env["OMNI_AVAILABLE_PROVIDERS"] = ",".join(get_available_providers())
         selection = self.select_runtime()
         root = str(self.root)
@@ -85,7 +88,14 @@ class JSRuntimeAdapter:
 
     def build_command(self, *, script_path: Path, payload: str | None = None) -> tuple[list[str], JSRuntimeSelection]:
         selection = self.select_runtime()
-        command = [selection.executable, str(script_path.resolve())]
+        executable, runtime_name = validate_runtime_executable(
+            selection.executable,
+            controlled_path=os.environ.get("PATH") or os.environ.get("Path"),
+        )
+        if runtime_name != selection.runtime_name:
+            raise ValueError("node_runtime_invalid")
+        selection.executable = str(executable)
+        command = [str(executable), str(script_path.resolve())]
         return command, selection
 
     @staticmethod

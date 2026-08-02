@@ -54,6 +54,25 @@ opt-in. Cross-process lifecycle management, shared health state, distributed
 backpressure, coordinated failover, and multi-instance behavior are not proven
 production-complete.
 
+The Python-to-Node boundary was subsequently hardened at authoritative
+technical head `a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`. Runner, policy module,
+schema, adapter, engine,
+cwd, environment, and memory paths now use an explicit canonical-root policy
+with independent Python and JavaScript validation. Security-sensitive symlinks,
+Windows junctions/reparse points, traversal, unsafe file types, mutable-plan
+tampering, reserved overlay keys, `NODE_OPTIONS`, and `NODE_PATH` fail closed.
+The final correction adds a built-in-only bootstrap before either JavaScript
+entrypoint loads `pathPolicy.js` and validates `fusionBrain.js` before any
+adapter import. Earlier implementation evidence did not cover those two gaps.
+Commit-bound evidence is recorded in
+[`docs/audits/2026-08-02-node-runner-path-containment.md`](../audits/2026-08-02-node-runner-path-containment.md).
+
+This remains application-level validation, not an OS sandbox. Node/Bun may be
+installed outside the project. A privileged local actor and filesystem-write
+TOCTOU replacement remain outside the complete guarantee. No seccomp,
+AppArmor, SELinux, production deployment, hostile multi-user host,
+penetration-test, or distributed runtime-isolation validation was added.
+
 ## Docker Validation
 
 No daemon-backed Docker build or full container runtime smoke was executed in

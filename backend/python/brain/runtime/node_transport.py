@@ -7,6 +7,12 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from brain.runtime.node_path_policy import (
+    NodePathPolicyError,
+    ValidatedNodeExecutionPlan,
+    safe_policy_failure,
+)
+
 
 @dataclass
 class NodeTransportResult:
@@ -177,13 +183,19 @@ def classify_node_subprocess_failure(
 
 def run_node_subprocess(
     *,
-    diagnostics: dict[str, Any],
+    diagnostics: ValidatedNodeExecutionPlan,
     payload: str,
     timeout_seconds: int,
 ) -> dict[str, Any]:
+    if not isinstance(diagnostics, ValidatedNodeExecutionPlan):
+        return safe_policy_failure("node_execution_plan_invalid")
+    try:
+        diagnostics.verify()
+    except NodePathPolicyError as error:
+        return safe_policy_failure(error.code)
     try:
         completed = subprocess.run(
-            diagnostics["command"],
+            list(diagnostics.command),
             input=payload,
             capture_output=True,
             text=True,
@@ -191,8 +203,9 @@ def run_node_subprocess(
             errors="replace",
             timeout=timeout_seconds,
             check=False,
-            cwd=diagnostics["cwd"],
-            env=diagnostics["subprocess_env"],
+            cwd=str(diagnostics.cwd),
+            env=dict(diagnostics.env),
+            shell=False,
         )
     except subprocess.TimeoutExpired as error:
         reason_code, details = classify_node_subprocess_failure(
@@ -291,20 +304,22 @@ def run_node_subprocess(
 
 def call_node_with_preflight(
     *,
-    diagnostics: dict[str, Any],
+    diagnostics: ValidatedNodeExecutionPlan,
     payload: str,
     timeout_seconds: int,
 ) -> NodeTransportResult:
-    if not diagnostics.get("node_resolved") or not diagnostics.get("runner_exists") or not diagnostics.get("cwd_exists"):
-        reason_code, details = classify_node_subprocess_failure(diagnostics=diagnostics)
+    if not isinstance(diagnostics, ValidatedNodeExecutionPlan):
         return NodeTransportResult(
-            ok=False, stage="preflight", reason_code=reason_code, details=details,
+            ok=False, stage="preflight", reason_code=NODE_BRIDGE_NONZERO_EXIT,
+            details={"failure_class": "node_execution_plan_invalid"},
             stdout="", stderr="", returncode=None, parsed=None,
         )
-    if diagnostics.get("missing_paths"):
-        reason_code, details = classify_node_subprocess_failure(diagnostics=diagnostics)
+    try:
+        diagnostics.verify()
+    except NodePathPolicyError as error:
         return NodeTransportResult(
-            ok=False, stage="preflight", reason_code=reason_code, details=details,
+            ok=False, stage="preflight", reason_code=NODE_BRIDGE_NONZERO_EXIT,
+            details={"failure_class": error.code},
             stdout="", stderr="", returncode=None, parsed=None,
         )
     raw = run_node_subprocess(diagnostics=diagnostics, payload=payload, timeout_seconds=timeout_seconds)

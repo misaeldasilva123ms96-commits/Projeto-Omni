@@ -50,9 +50,18 @@ OMNI_TRUSTED_PROXY_CIDRS=
 OMNI_TRUST_PROXY_MAX_HOPS=8
 OMNI_MAX_MESSAGE_CHARS=8000
 OMNI_MAX_BODY_BYTES=65536
+BASE_DIR=/app
+OMNI_BASE_DIR=/app
+NODE_RUNNER_BASE_DIR=/app
 ```
 
 `OMNI_*` is the exclusive runtime configuration prefix.
+
+`/app` is the canonical Node runner root. The profile does not configure
+`RUNNER_SCHEMA_PATH`, `RUNNER_ADAPTER_PATH`, `NODE_OPTIONS`, or `NODE_PATH`.
+The runner, schema, adapters, engine candidates, cwd, and agent-memory roots
+must satisfy the shared path policy before use; public diagnostics retain only
+safe labels such as `app` or repository-relative artifact labels.
 
 ## Forbidden Secrets
 
@@ -142,6 +151,18 @@ for the exact tests, dependency scans, workflow runs, and retained limitations.
 - Container-local writable data is ephemeral in demo compose tmpfs paths.
 - The profile is not a substitute for provider-specific production secret handling.
 - Multi-instance global rate limiting is out of scope for this phase.
+- Node path validation is application-level and is not an operating-system
+  sandbox. It does not eliminate privileged local replacement or filesystem
+  TOCTOU risk, and it adds no seccomp, AppArmor, or SELinux policy.
+
+The Node runner containment was validated at authoritative technical head
+`a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`, including built-in bootstrap
+validation of `js-runner/pathPolicy.js`, pre-import validation of
+`core/brain/fusionBrain.js`, and successful
+[Docker Runtime Smoke run 30760386640](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386640).
+See the
+[commit-bound containment evidence](../audits/2026-08-02-node-runner-path-containment.md)
+for the exact policy, tests, workflow runs, and retained limitations.
 
 ## Rollback
 

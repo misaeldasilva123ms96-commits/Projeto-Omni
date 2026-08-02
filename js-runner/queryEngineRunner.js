@@ -4,6 +4,89 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+function requireValidatedPathPolicy() {
+  const samePath = (left, right) => {
+    const a = path.resolve(left);
+    const b = path.resolve(right);
+    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  };
+  const contained = (root, candidate) => {
+    const relative = path.relative(root, candidate);
+    return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  };
+  const assertNoLinks = (candidate) => {
+    const absolute = path.resolve(candidate);
+    const parsed = path.parse(absolute);
+    const parts = absolute.slice(parsed.root.length).split(path.sep).filter(Boolean);
+    let current = parsed.root;
+    for (const part of parts) {
+      current = path.join(current, part);
+      const entry = fs.lstatSync(current);
+      if (entry.isSymbolicLink()) throw new Error('node_path_policy_bootstrap_failed');
+    }
+  };
+
+  try {
+    const lexicalRoot = path.resolve(__dirname, '..');
+    const lexicalPolicy = path.join(lexicalRoot, 'js-runner', 'pathPolicy.js');
+    assertNoLinks(lexicalRoot);
+    assertNoLinks(lexicalPolicy);
+    const canonicalRoot = fs.realpathSync(lexicalRoot);
+    const canonicalPolicy = fs.realpathSync(lexicalPolicy);
+    const policyInfo = fs.lstatSync(lexicalPolicy);
+    if (
+      !policyInfo.isFile()
+      || !samePath(lexicalRoot, canonicalRoot)
+      || !samePath(lexicalPolicy, canonicalPolicy)
+      || !contained(canonicalRoot, canonicalPolicy)
+    ) {
+      throw new Error('node_path_policy_bootstrap_failed');
+    }
+    for (const key of ['BASE_DIR', 'NODE_RUNNER_BASE_DIR']) {
+      const configured = String(process.env[key] || '').trim();
+      if (!configured) continue;
+      const lexicalConfigured = path.resolve(configured);
+      assertNoLinks(lexicalConfigured);
+      const canonicalConfigured = fs.realpathSync(lexicalConfigured);
+      if (!samePath(lexicalConfigured, canonicalConfigured) || !samePath(canonicalConfigured, canonicalRoot)) {
+        throw new Error('node_path_policy_bootstrap_failed');
+      }
+    }
+    if (require.main === module && process.argv[1]) {
+      const lexicalEntrypoint = path.resolve(process.argv[1]);
+      assertNoLinks(lexicalEntrypoint);
+      if (!samePath(lexicalEntrypoint, __filename) || !samePath(fs.realpathSync(lexicalEntrypoint), __filename)) {
+        throw new Error('node_path_policy_bootstrap_failed');
+      }
+    }
+    return require(lexicalPolicy);
+  } catch {
+    const error = new Error('node_path_policy_bootstrap_failed');
+    error.stack = `${error.name}: ${error.message}`;
+    throw error;
+  }
+}
+
+let validatedPathPolicy;
+try {
+  validatedPathPolicy = requireValidatedPathPolicy();
+} catch {
+  process.stderr.write('node_path_policy_bootstrap_failed\n');
+  process.exit(1);
+}
+
+const {
+  MEMORY_ROOTS,
+  NodePathPolicyError,
+  getAuthoritativeRoot,
+  labelForPath,
+  validateAllowedFile,
+  validateConfiguredArtifact,
+  validateMemoryRoot,
+} = validatedPathPolicy;
+
+validateAllowedFile('path_policy');
+
 let Ajv2020 = null;
 try {
   Ajv2020 = require('ajv/dist/2020');
@@ -12,6 +95,9 @@ try {
 }
 
 const MAX_MEMORY_BYTES = 16 * 1024;
+const MAX_MEMORY_DEPTH = 8;
+const MAX_MEMORY_ENTRIES = 512;
+const MAX_MEMORY_FILES = 64;
 const USER_FALLBACK_RESPONSE =
   '[degraded:node_runner] O motor Node/QueryEngine não devolveu um resultado utilizável (resolução de módulo, exceção ou resposta vazia). Verifique js-runner, OMNI_LOG_LEVEL=debug e o caminho fusionBrain (src/queryEngineRunnerAdapter.js).';
 const RESPONSE_CANDIDATE_KEYS = ['response', 'message', 'text', 'answer', 'output', 'result'];
@@ -29,20 +115,17 @@ const NODE_FALLBACK_API_MISSING_REASON = 'node_fallback_api_missing';
 const NODE_FALLBACK_ERROR_REASON = 'node_fallback_error';
 
 function getBaseDir() {
-  return process.env.BASE_DIR
-    ? path.resolve(process.env.BASE_DIR)
-    : path.resolve(__dirname, '..');
+  return getAuthoritativeRoot();
 }
 
 function loadRunnerSchema() {
-  const baseDir = getBaseDir();
-  const schemaPath = process.env.RUNNER_SCHEMA_PATH
-    ? path.resolve(process.env.RUNNER_SCHEMA_PATH)
-    : path.join(baseDir, 'contract', 'runner-schema.v1.json');
+  validateConfiguredArtifact('RUNNER_SCHEMA_PATH', ['schema']);
+  const schemaPath = validateAllowedFile('schema');
 
   return JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
 }
 
+let startupPathPolicyFailure = null;
 const validatePayload = (() => {
   if (!Ajv2020) {
     return candidate => (
@@ -58,7 +141,15 @@ const validatePayload = (() => {
   }
 
   const ajv = new Ajv2020({ allErrors: true, allowUnionTypes: true });
-  return ajv.compile(loadRunnerSchema());
+  try {
+    return ajv.compile(loadRunnerSchema());
+  } catch (error) {
+    if (error instanceof NodePathPolicyError) {
+      startupPathPolicyFailure = error.code;
+      return () => false;
+    }
+    throw error;
+  }
 })();
 
 function getRawInput() {
@@ -78,9 +169,7 @@ function getRawInput() {
 }
 
 function getWorkspaceRoot() {
-  return process.env.NODE_RUNNER_BASE_DIR
-    ? path.resolve(process.env.NODE_RUNNER_BASE_DIR)
-    : getBaseDir();
+  return getAuthoritativeRoot();
 }
 
 function emptyPayload() {
@@ -179,15 +268,16 @@ function readFileIfPresent(filePath) {
 }
 
 function collectMemoryFiles(dirPath) {
-  if (!dirPath || !fs.existsSync(dirPath)) {
+  if (!dirPath) {
     return [];
   }
 
   const entries = [];
-  const stack = [dirPath];
+  const stack = [{ current: dirPath, depth: 0 }];
+  let visited = 0;
 
-  while (stack.length > 0) {
-    const current = stack.pop();
+  while (stack.length > 0 && visited < MAX_MEMORY_ENTRIES && entries.length < MAX_MEMORY_FILES) {
+    const { current, depth } = stack.pop();
     let dirEntries = [];
 
     try {
@@ -195,18 +285,28 @@ function collectMemoryFiles(dirPath) {
     } catch {
       continue;
     }
+    dirEntries.sort((left, right) => left.name.localeCompare(right.name));
 
     for (const entry of dirEntries) {
+      if (visited >= MAX_MEMORY_ENTRIES || entries.length >= MAX_MEMORY_FILES) break;
+      visited += 1;
       const absolute = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(absolute);
-      } else if (entry.isFile() && entry.name.toUpperCase() === 'MEMORY.MD') {
+      let info;
+      try {
+        info = fs.lstatSync(absolute);
+      } catch {
+        continue;
+      }
+      if (info.isSymbolicLink()) continue;
+      if (info.isDirectory() && depth < MAX_MEMORY_DEPTH) {
+        stack.push({ current: absolute, depth: depth + 1 });
+      } else if (info.isFile() && entry.name.toUpperCase() === 'MEMORY.MD') {
         entries.push(absolute);
       }
     }
   }
 
-  return entries;
+  return entries.sort((left, right) => left.localeCompare(right));
 }
 
 function isAgentMemoryEnabled() {
@@ -221,16 +321,18 @@ function loadAgentMemoryContext() {
     return '';
   }
 
-  const workspaceRoot = getWorkspaceRoot();
-  const candidateDirs = [
-    path.join(workspaceRoot, '.claude', 'agent-memory'),
-    path.join(workspaceRoot, '.claude', 'agent-memory-local'),
-  ];
-
   const parts = [];
   let totalBytes = 0;
 
-  for (const dirPath of candidateDirs) {
+  for (const relative of MEMORY_ROOTS) {
+    let dirPath;
+    try {
+      dirPath = validateMemoryRoot(relative);
+    } catch (error) {
+      if (error instanceof NodePathPolicyError) continue;
+      throw error;
+    }
+    if (!dirPath) continue;
     const files = collectMemoryFiles(dirPath);
     for (const filePath of files) {
       const content = readFileIfPresent(filePath);
@@ -239,10 +341,11 @@ function loadAgentMemoryContext() {
       }
 
       const chunk = `# ${path.basename(path.dirname(filePath))}\n${content}\n`;
-      totalBytes += Buffer.byteLength(chunk, 'utf8');
-      if (totalBytes > MAX_MEMORY_BYTES) {
+      const chunkBytes = Buffer.byteLength(chunk, 'utf8');
+      if (totalBytes + chunkBytes > MAX_MEMORY_BYTES) {
         return parts.join('\n\n');
       }
+      totalBytes += chunkBytes;
       parts.push(chunk);
     }
   }
@@ -251,18 +354,9 @@ function loadAgentMemoryContext() {
 }
 
 function hasConfiguredTypescriptLoader(env = process.env, execArgv = process.execArgv) {
-  const enabled = String(env.OMNI_QUERY_ENGINE_TYPESCRIPT_LOADER_ENABLED || '')
-    .trim()
-    .toLowerCase();
-  if (!['1', 'true', 'yes', 'on'].includes(enabled)) {
-    return false;
-  }
-  const runtimeArgs = [
-    ...(Array.isArray(execArgv) ? execArgv : []),
-    ...String(env.NODE_OPTIONS || '').split(/\s+/),
-  ];
-  return runtimeArgs.some(arg => arg === '--loader' || arg.startsWith('--loader='))
-    || runtimeArgs.some(arg => arg === '--import' || arg.startsWith('--import='));
+  void env;
+  void execArgv;
+  return false;
 }
 
 function supportsTypescriptCandidates(
@@ -270,8 +364,7 @@ function supportsTypescriptCandidates(
   runtimeVersions = process.versions,
   execArgv = process.execArgv,
 ) {
-  return Boolean(runtimeVersions && runtimeVersions.bun)
-    || hasConfiguredTypescriptLoader(env, execArgv);
+  return Boolean(runtimeVersions && runtimeVersions.bun);
 }
 
 function getQueryEngineCandidates(
@@ -279,35 +372,34 @@ function getQueryEngineCandidates(
   runtimeVersions = process.versions,
   execArgv = process.execArgv,
 ) {
-  const workspaceRoot = getWorkspaceRoot();
-  const adapterPath = process.env.RUNNER_ADAPTER_PATH
-    ? path.resolve(process.env.RUNNER_ADAPTER_PATH)
-    : path.join(workspaceRoot, 'src', 'queryEngineRunnerAdapter.js');
-  const esmAdapterPath = adapterPath.replace(/\.js$/i, '.mjs');
-  const dist = path.join(workspaceRoot, 'dist', 'QueryEngine.js');
-  const build = path.join(workspaceRoot, 'build', 'QueryEngine.js');
+  validateAllowedFile('fusion_brain', { env });
+  validateConfiguredArtifact('RUNNER_ADAPTER_PATH', ['adapter_js', 'adapter_mjs'], env);
+  const adapterPath = validateAllowedFile('adapter_js', { env });
+  const esmAdapterPath = validateAllowedFile('adapter_mjs', { required: false, env });
+  const dist = validateAllowedFile('dist_query_engine', { required: false, env });
+  const build = validateAllowedFile('build_query_engine', { required: false, env });
   const javascriptTail = [
-    path.join(workspaceRoot, 'src', 'QueryEngine.js'),
-    path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.js'),
-  ];
+    validateAllowedFile('src_query_engine_js', { required: false, env }),
+    validateAllowedFile('runtime_query_engine_js', { required: false, env }),
+  ].filter(Boolean);
   const typescriptTail = supportsTypescriptCandidates(env, runtimeVersions, execArgv)
     ? [
-        path.join(workspaceRoot, 'src', 'QueryEngine.ts'),
-        path.join(workspaceRoot, 'runtime', 'node', 'QueryEngine.ts'),
-      ]
+        validateAllowedFile('src_query_engine_ts', { required: false, env }),
+        validateAllowedFile('runtime_query_engine_ts', { required: false, env }),
+      ].filter(Boolean)
     : [];
   const tail = [...javascriptTail, ...typescriptTail];
   const preferDistFirst = String(process.env.OMNI_QUERY_ENGINE_ORDER || '')
     .trim()
     .toLowerCase() === 'dist_first';
   if (preferDistFirst) {
-    return [dist, build, esmAdapterPath, adapterPath, ...tail];
+    return [dist, build, esmAdapterPath, adapterPath, ...tail].filter(Boolean);
   }
-  return [esmAdapterPath, adapterPath, dist, build, ...tail];
+  return [esmAdapterPath, adapterPath, dist, build, ...tail].filter(Boolean);
 }
 
 function getPackagedQueryEngineCandidate() {
-  return path.join(getWorkspaceRoot(), 'dist', 'QueryEngine.js');
+  return validateAllowedFile('dist_query_engine', { required: false });
 }
 
 function cloneMetadata(value) {
@@ -384,7 +476,8 @@ function attachRunnerMetadata(result, engineMode, engineReason) {
 }
 
 function getCandidateError(candidateErrors, candidatePath) {
-  return candidateErrors.find((item) => item && item.candidate === candidatePath) || null;
+  const label = candidatePath ? labelForPath(candidatePath) : 'dist_query_engine';
+  return candidateErrors.find((item) => item && item.candidate === label) || null;
 }
 
 function isFusionAdapterCandidate(candidatePath) {
@@ -392,8 +485,7 @@ function isFusionAdapterCandidate(candidatePath) {
 }
 
 function inferFallbackMetadata(execution) {
-  const packagedCandidate = getPackagedQueryEngineCandidate();
-  if (getCandidateError(execution.candidateErrors, packagedCandidate)) {
+  if (execution.candidateErrors.some(item => item.candidate === 'dist_query_engine')) {
     return {
       engineMode: AUTHORITY_FALLBACK_MODE,
       engineReason: PACKAGED_IMPORT_FAILED_REASON,
@@ -412,7 +504,7 @@ function enrichExecutionMetadata(execution) {
     return execution;
   }
 
-  const packagedCandidate = getPackagedQueryEngineCandidate();
+  const packagedCandidate = 'dist_query_engine';
   const metadata = result && typeof result === 'object' && !Array.isArray(result)
     ? cloneMetadata(result.metadata)
     : {};
@@ -424,7 +516,7 @@ function enrichExecutionMetadata(execution) {
     if (selectedCandidate === packagedCandidate) {
       engineMode = PACKAGED_ENGINE_MODE;
       engineReason = DIST_CANDIDATE_REASON;
-    } else if (isFusionAdapterCandidate(selectedCandidate)) {
+    } else if (selectedCandidate === 'adapter_js' || selectedCandidate === 'adapter_mjs') {
       engineMode = FUSION_ADAPTER_MODE;
       engineReason = ADAPTER_CANDIDATE_REASON;
     } else {
@@ -458,10 +550,9 @@ async function tryRunExistingQueryEngineDetailed(payload) {
   const attemptedCandidates = [];
 
   for (const candidate of getQueryEngineCandidates()) {
-    if (!fs.existsSync(candidate)) {
-      continue;
-    }
-    attemptedCandidates.push(candidate);
+    const candidateLabel = labelForPath(candidate);
+    validateAllowedFile(candidateLabel);
+    attemptedCandidates.push(candidateLabel);
     if (candidate.endsWith('.ts')) {
       attemptedTypescriptCandidate = true;
     }
@@ -483,7 +574,7 @@ async function tryRunExistingQueryEngineDetailed(payload) {
       if (result) {
         return enrichExecutionMetadata({
           result,
-          selectedCandidate: candidate,
+          selectedCandidate: candidateLabel,
           attemptedCandidates,
           attemptedTypescriptCandidate,
           candidateErrors,
@@ -491,9 +582,9 @@ async function tryRunExistingQueryEngineDetailed(payload) {
       }
     } catch (error) {
       candidateErrors.push({
-        candidate,
+        candidate: candidateLabel,
         error_name: error && error.name ? error.name : 'Error',
-        error_message: error && error.message ? String(error.message) : String(error || ''),
+        error_message: 'candidate_import_failed',
       });
       continue;
     }
@@ -713,6 +804,9 @@ function sanitizeForUser(input) {
 
 async function main() {
   try {
+    if (startupPathPolicyFailure) {
+      throw new NodePathPolicyError(startupPathPolicyFailure);
+    }
     const parsed = safeParsePayload(getRawInput());
     if (!parsed.message) {
       process.stdout.write(JSON.stringify(
@@ -779,7 +873,7 @@ async function main() {
   } catch (error) {
     debugLogInternal('node_runner_main_exception', {
       error_name: error && error.name ? error.name : 'Error',
-      error_message: error && error.message ? String(error.message) : String(error || ''),
+      error_message: error instanceof NodePathPolicyError ? error.code : 'runner_exception',
     });
     process.stdout.write(JSON.stringify(
       attachRunnerMetadata(
@@ -803,6 +897,7 @@ async function main() {
 }
 
 module.exports = {
+  collectMemoryFiles,
   emptyPayload,
   getBaseDir,
   getQueryEngineCandidates,
@@ -828,7 +923,7 @@ if (require.main === module) {
   main().catch((error) => {
     emitRunnerError('subprocess_exception', 'Unhandled Node runner exception.', {
       error_name: error && error.name ? error.name : 'Error',
-      error_message: error && error.message ? String(error.message) : String(error || ''),
+      error_message: error instanceof NodePathPolicyError ? error.code : 'runner_exception',
     });
   });
 }

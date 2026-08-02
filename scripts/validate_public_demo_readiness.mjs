@@ -17,6 +17,9 @@ const requiredFiles = [
 ]
 
 const requiredDemoEnv = [
+  ['BASE_DIR', '/app'],
+  ['OMNI_BASE_DIR', '/app'],
+  ['NODE_RUNNER_BASE_DIR', '/app'],
   ['OMNI_PUBLIC_DEMO_MODE', 'true'],
   ['OMNI_ALLOW_SHELL_TOOLS', 'false'],
   ['OMNI_DEBUG_INTERNAL_ERRORS', 'false'],
@@ -100,6 +103,7 @@ function validateDockerfile() {
   assert(/\bUSER\s+omni\b/.test(dockerfile), 'Dockerfile.demo must run as non-root user omni')
   assert(!/SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GROQ_API_KEY/.test(dockerfile), 'Dockerfile.demo must not bake provider or Supabase secrets')
   assert(/OMNI_TRUSTED_PROXY_CIDRS=""/.test(dockerfile), 'Dockerfile.demo must not guess trusted proxy CIDRs')
+  assert(!/\b(?:RUNNER_SCHEMA_PATH|RUNNER_ADAPTER_PATH|NODE_OPTIONS|NODE_PATH)\s*=/.test(dockerfile), 'Dockerfile.demo must omit unsafe Node path overrides')
 }
 
 function validateCompose() {
@@ -112,6 +116,7 @@ function validateCompose() {
   assert(!/docker\.sock/.test(compose), 'compose must not mount docker.sock')
   assert(!/SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GROQ_API_KEY/.test(compose), 'compose must not contain raw secret env names')
   assert(/OMNI_TRUSTED_PROXY_CIDRS:\s*["']{2}/.test(compose), 'compose must not guess trusted proxy CIDRs')
+  assert(!/\b(?:RUNNER_SCHEMA_PATH|RUNNER_ADAPTER_PATH|NODE_OPTIONS|NODE_PATH)\s*:/.test(compose), 'compose must omit unsafe Node path overrides')
 }
 
 function validateDockerignore() {

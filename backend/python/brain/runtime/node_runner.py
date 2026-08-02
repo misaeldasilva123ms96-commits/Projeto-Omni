@@ -8,6 +8,15 @@ from typing import Any
 
 from brain.env import read_env
 from brain.runtime.learning.redaction import redact_sensitive_payload, redact_sensitive_text
+from brain.runtime.node_path_policy import (
+    RESERVED_NODE_ENV_KEYS,
+    NodePathPolicy,
+    NodePathPolicyError,
+    ValidatedNodeExecutionPlan,
+    validate_provider_overlay,
+    validate_runtime_executable,
+)
+from config.provider_registry import PROVIDERS
 
 
 def resolve_node_bin(js_runtime_adapter: Any) -> str | None:
@@ -29,13 +38,25 @@ def build_node_subprocess_env(
     pending_policy_hint_json: str | None = None,
 ) -> dict[str, str]:
     env, selection = js_runtime_adapter.build_env()
-    if isinstance(session_provider_env_overlay, dict) and session_provider_env_overlay:
-        env.update({str(key): str(value) for key, value in session_provider_env_overlay.items() if value})
+    trusted_root = getattr(js_runtime_adapter, "root", None) or env.get("OMNI_BASE_DIR") or env.get("BASE_DIR")
+    for key in RESERVED_NODE_ENV_KEYS:
+        env.pop(key, None)
+    env.update(validate_provider_overlay(session_provider_env_overlay))
     if session_byok_active and session_provider_preference:
+        if str(session_provider_preference).strip().lower() not in PROVIDERS:
+            raise NodePathPolicyError("node_reserved_env_override")
         env["OMNI_BYOK_SESSION_MODE"] = "true"
-        env["OMNI_BYOK_PROVIDER"] = session_provider_preference
+        env["OMNI_BYOK_PROVIDER"] = str(session_provider_preference).strip().lower()
         env["OMNI_BYOK_FAIL_CLOSED"] = "true"
-    env.setdefault("NODE_BIN", resolve_node_bin(js_runtime_adapter) or "node")
+    root = str(Path(trusted_root).resolve()) if trusted_root else ""
+    executable = str(getattr(selection, "executable", "") or resolve_node_bin(js_runtime_adapter) or "node")
+    env["BASE_DIR"] = root
+    env["OMNI_BASE_DIR"] = root
+    env["NODE_RUNNER_BASE_DIR"] = root
+    env["NODE_BIN"] = executable
+    env["OMNI_JS_RUNTIME"] = selection.runtime_name
+    env["OMNI_JS_RUNTIME_BIN"] = executable
+    env["OMNI_JS_RUNTIME_SOURCE"] = str(getattr(selection, "source", "controlled"))
     env["OMNI_JS_RUNTIME_SELECTED"] = selection.runtime_name
     if session_byok_active and session_provider_preference:
         env["OMNI_POLICY_HINT_JSON"] = json.dumps(
@@ -61,20 +82,12 @@ def resolve_node_command_context(
     session_provider_preference: str = "",
     session_provider_env_overlay: dict[str, str] | None = None,
     pending_policy_hint_json: str | None = None,
-) -> dict[str, Any]:
-    cwd_path = paths.root.resolve()
-    runner_path = paths.js_runner.resolve()
-    adapter_path = (paths.root / "src" / "queryEngineRunnerAdapter.js").resolve()
-    esm_adapter_path = (paths.root / "src" / "queryEngineRunnerAdapter.mjs").resolve()
-    fusion_brain_path = (paths.root / "core" / "brain" / "fusionBrain.js").resolve()
-    healthcheck_path = (paths.root / "js-runner" / "runtimeHealthcheck.js").resolve()
-    dist_query_engine_path = (paths.root / "dist" / "QueryEngine.js").resolve()
-    build_query_engine_path = (paths.root / "build" / "QueryEngine.js").resolve()
-    ts_candidates = [
-        (paths.root / "src" / "QueryEngine.ts").resolve(),
-        (paths.root / "runtime" / "node" / "QueryEngine.ts").resolve(),
-    ]
-    command, runtime_selection = js_runtime_adapter.build_command(script_path=runner_path, payload=payload)
+) -> ValidatedNodeExecutionPlan:
+    policy = NodePathPolicy.from_runtime(
+        project_root=paths.root,
+        python_root=paths.python_root,
+        runner_path=paths.js_runner,
+    )
     env = build_node_subprocess_env(
         js_runtime_adapter,
         session_byok_active=session_byok_active,
@@ -82,62 +95,23 @@ def resolve_node_command_context(
         session_provider_env_overlay=session_provider_env_overlay,
         pending_policy_hint_json=pending_policy_hint_json,
     )
-    node_bin = resolve_node_bin(js_runtime_adapter)
-    node_resolved = shutil.which(node_bin) if node_bin and not os.path.isabs(node_bin) else node_bin
-    missing_paths = []
-    if not runner_path.exists():
-        missing_paths.append(str(runner_path))
-    if not adapter_path.exists():
-        missing_paths.append(str(adapter_path))
-    if not fusion_brain_path.exists():
-        missing_paths.append(str(fusion_brain_path))
-
-    return {
-        "node_bin": node_bin,
-        "node_resolved": node_resolved,
-        "js_runtime": runtime_selection.as_dict(),
-        "cwd": str(cwd_path),
-        "cwd_exists": cwd_path.exists(),
-        "runner_path": str(runner_path),
-        "runner_exists": runner_path.exists(),
-        "adapter_path": str(adapter_path),
-        "adapter_exists": adapter_path.exists(),
-        "esm_adapter_path": str(esm_adapter_path),
-        "esm_adapter_exists": esm_adapter_path.exists(),
-        "fusion_brain_path": str(fusion_brain_path),
-        "fusion_brain_exists": fusion_brain_path.exists(),
-        "healthcheck_path": str(healthcheck_path),
-        "healthcheck_exists": healthcheck_path.exists(),
-        "dist_query_engine_path": str(dist_query_engine_path),
-        "dist_query_engine_exists": dist_query_engine_path.exists(),
-        "build_query_engine_path": str(build_query_engine_path),
-        "build_query_engine_exists": build_query_engine_path.exists(),
-        "typescript_candidate_paths": [str(candidate) for candidate in ts_candidates],
-        "typescript_candidates_exist": [str(candidate) for candidate in ts_candidates if candidate.exists()],
-        "command": command,
-        "command_preview": [command[0], command[1], f"<payload:{len(payload)} chars>"],
-        "typescript_direct_execution_detected": str(runner_path).endswith(".ts"),
-        "compiled_runner_artifact_exists": any(
-            path_exists
-            for path_exists in (
-                adapter_path.exists(),
-                esm_adapter_path.exists(),
-                dist_query_engine_path.exists(),
-                build_query_engine_path.exists(),
-            )
-        ),
-        "missing_paths": missing_paths,
-        "env_preview": {
-            "BASE_DIR": env.get("BASE_DIR", ""),
-            "NODE_RUNNER_BASE_DIR": env.get("NODE_RUNNER_BASE_DIR", ""),
-            "NODE_BIN": env.get("NODE_BIN", ""),
-            "OMNI_JS_RUNTIME": env.get("OMNI_JS_RUNTIME", ""),
-            "OMNI_JS_RUNTIME_BIN": env.get("OMNI_JS_RUNTIME_BIN", ""),
-            "PYTHON_BIN": env.get("PYTHON_BIN", ""),
-            "PATH_HEAD": env.get("PATH", "")[:400],
-        },
-        "subprocess_env": env,
-    }
+    selected = js_runtime_adapter.select_runtime()
+    executable, runtime_name = validate_runtime_executable(
+        str(selected.executable),
+        controlled_path=env.get("PATH"),
+    )
+    if runtime_name != str(selected.runtime_name):
+        raise NodePathPolicyError("node_runtime_invalid")
+    env["NODE_BIN"] = str(executable)
+    env["OMNI_JS_RUNTIME"] = runtime_name
+    env["OMNI_JS_RUNTIME_BIN"] = str(executable)
+    env["OMNI_JS_RUNTIME_SOURCE"] = str(selected.source)
+    return ValidatedNodeExecutionPlan.create(
+        policy=policy,
+        executable=executable,
+        runtime_name=runtime_name,
+        environment=env,
+    )
 
 
 def runner_smoke_cwd_label(cwd: str) -> str:

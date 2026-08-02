@@ -29,6 +29,8 @@ class JSRuntimeAdapterTest(unittest.TestCase):
                 "BUN_BIN",
                 "OMNI_NODE_BIN",
                 "NODE_BIN",
+                "NODE_OPTIONS",
+                "NODE_PATH",
                 "BASE_DIR",
                 "PYTHON_BASE_DIR",
             )
@@ -72,6 +74,15 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         self.assertEqual(selection.source, "node_missing")
         self.assertFalse(selection.node_available)
         self.assertEqual(env["NODE_BIN"], "canonical-missing-node")
+
+    def test_controlled_environment_strips_node_startup_and_module_paths(self) -> None:
+        os.environ["NODE_OPTIONS"] = "--require external.js"
+        os.environ["NODE_PATH"] = "C:/external-modules"
+
+        env, _ = self.adapter.build_env()
+
+        self.assertNotIn("NODE_OPTIONS", env)
+        self.assertNotIn("NODE_PATH", env)
 
     def test_canonical_omni_runtime_bin_selects_explicit_runtime(self) -> None:
         os.environ["OMNI_JS_RUNTIME_BIN"] = "bun"
@@ -125,8 +136,9 @@ class JSRuntimeAdapterTest(unittest.TestCase):
         diagnostics = orchestrator._resolve_node_command_context(payload=json.dumps({"message": "oi", "history": [], "capabilities": [], "memory": {}, "session": {}}))
 
         self.assertIn("js_runtime", diagnostics)
-        self.assertEqual(diagnostics["command"][1], str((PROJECT_ROOT / "js-runner" / "queryEngineRunner.js").resolve()))
-        self.assertEqual(len(diagnostics["command"]), 2)
+        self.assertEqual(diagnostics.command[1], str((PROJECT_ROOT / "js-runner" / "queryEngineRunner.js").resolve()))
+        self.assertEqual(len(diagnostics.command), 2)
+        self.assertEqual(diagnostics["command"], ["node", "js-runner/queryEngineRunner.js"])
 
     def test_query_engine_runner_accepts_stdin_payload(self) -> None:
         script = self.root / "js-runner" / "queryEngineRunner.js"

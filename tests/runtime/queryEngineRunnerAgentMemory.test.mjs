@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const { isAgentMemoryEnabled, loadAgentMemoryContext } = require('../../js-runner/queryEngineRunner.js');
 
 const ENV_KEYS = [
+  'BASE_DIR',
   'NODE_RUNNER_BASE_DIR',
   'OMNI_PUBLIC_DEMO_MODE',
   'OMNI_ENABLE_AGENT_MEMORY',
@@ -73,7 +74,7 @@ withMemoryWorkspace(root => {
     OMNI_ENABLE_AGENT_MEMORY: 'true',
   }, () => {
     assert.equal(isAgentMemoryEnabled(), true);
-    assert.match(loadAgentMemoryContext(), /safe local context only/);
+    assert.equal(loadAgentMemoryContext(), '', 'external memory roots must not redirect the code-derived project root');
   });
 });
 
