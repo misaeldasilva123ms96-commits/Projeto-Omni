@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.demo.yml"
 VALIDATOR="$ROOT_DIR/scripts/docker-runtime-smoke-validator.mjs"
+source "$ROOT_DIR/scripts/docker-runtime-smoke-cleanup.sh"
 RUN_TOKEN="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 RUN_TOKEN="${RUN_TOKEN//[^a-zA-Z0-9-]/-}"
 PROJECT_NAME="omni-smoke-${RUN_TOKEN,,}"
@@ -16,13 +17,12 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/omni-docker-smoke.XXXXXX")"
 RAW_DIR="$WORK_DIR/raw"
 OVERRIDE_FILE="$WORK_DIR/smoke.override.yml"
 DIAGNOSTICS_DIR="${SMOKE_DIAGNOSTICS_DIR:-$WORK_DIR/diagnostics}"
-mkdir -p "$RAW_DIR" "$DIAGNOSTICS_DIR"
+mkdir -p "$RAW_DIR"
 
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" --file "$OVERRIDE_FILE")
 CONTAINER_ID=""
 IMAGE_ID=""
 SMOKE_SUCCEEDED=false
-STOP_COMPLETED=false
 
 cat >"$OVERRIDE_FILE" <<'YAML'
 services:
@@ -34,40 +34,97 @@ services:
       OMNI_SMOKE_SENTINEL: ${OMNI_SMOKE_SENTINEL:?OMNI_SMOKE_SENTINEL is required}
 YAML
 
-sanitize_copy() {
-  local source="$1" destination="$2"
-  [[ -f "$source" ]] && node "$VALIDATOR" sanitize "$source" "$destination"
+capture_diagnostic() {
+  local destination="$1"
+  shift
+  if ! "$@" >"$destination" 2>&1; then
+    : # A failing diagnostic command still produces sanitizable diagnostic text.
+  fi
 }
 
 collect_diagnostics() {
-  set +e
-  docker version >"$RAW_DIR/docker-version.txt" 2>&1
-  docker compose version >"$RAW_DIR/compose-version.txt" 2>&1
-  docker compose --file "$COMPOSE_FILE" config >"$RAW_DIR/compose-config.txt" 2>&1
-  "${COMPOSE[@]}" ps --all >"$RAW_DIR/compose-ps.txt" 2>&1
+  capture_diagnostic "$RAW_DIR/docker-version.txt" docker version
+  capture_diagnostic "$RAW_DIR/compose-version.txt" docker compose version
+  capture_diagnostic "$RAW_DIR/compose-config.txt" docker compose --file "$COMPOSE_FILE" config
+  capture_diagnostic "$RAW_DIR/compose-ps.txt" "${COMPOSE[@]}" ps --all
   if [[ -n "$CONTAINER_ID" ]]; then
-    docker inspect --format '{"id":"{{.Id}}","image":"{{.Image}}","user":"{{.Config.User}}","status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{end}}","exit_code":{{.State.ExitCode}},"oom_killed":{{.State.OOMKilled}},"restart_count":{{.RestartCount}},"read_only":{{.HostConfig.ReadonlyRootfs}},"cap_drop":{{json .HostConfig.CapDrop}},"security_opt":{{json .HostConfig.SecurityOpt}},"tmpfs":{{json .HostConfig.Tmpfs}},"ports":{{json .NetworkSettings.Ports}}}' "$CONTAINER_ID" >"$RAW_DIR/container-inspect.json" 2>&1
-    "${COMPOSE[@]}" logs --no-color --timestamps >"$RAW_DIR/container-logs.txt" 2>&1
+    capture_diagnostic "$RAW_DIR/container-inspect.json" docker inspect --format '{"id":"{{.Id}}","image":"{{.Image}}","user":"{{.Config.User}}","status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{end}}","exit_code":{{.State.ExitCode}},"oom_killed":{{.State.OOMKilled}},"restart_count":{{.RestartCount}},"read_only":{{.HostConfig.ReadonlyRootfs}},"cap_drop":{{json .HostConfig.CapDrop}},"security_opt":{{json .HostConfig.SecurityOpt}},"tmpfs":{{json .HostConfig.Tmpfs}},"ports":{{json .NetworkSettings.Ports}}}' "$CONTAINER_ID"
+    capture_diagnostic "$RAW_DIR/container-logs.txt" "${COMPOSE[@]}" logs --no-color --timestamps
   fi
-  for file in "$RAW_DIR"/*; do
-    [[ -f "$file" ]] && sanitize_copy "$file" "$DIAGNOSTICS_DIR/$(basename "$file" | sed 's/container-inspect/container-inspect-sanitized/; s/container-logs/container-logs-sanitized/')"
-  done
-  node "$VALIDATOR" scan-dir "$DIAGNOSTICS_DIR"
+  if ! node "$VALIDATOR" publish "$RAW_DIR" "$DIAGNOSTICS_DIR" >/dev/null 2>&1; then
+    rm -rf "$DIAGNOSTICS_DIR"
+    echo 'Failure diagnostics withheld because safe publication verification failed.' >&2
+    return 1
+  fi
+}
+
+compose_teardown() {
+  if ! "${COMPOSE[@]}" down --remove-orphans --volumes >/dev/null 2>&1; then
+    echo 'Docker smoke Compose teardown failed.' >&2
+    return 1
+  fi
+}
+
+verify_project_removed() {
+  local compose_resources labeled_containers labeled_networks labeled_volumes
+  if ! docker info >/dev/null 2>&1; then
+    echo 'Docker smoke cleanup could not verify the Docker daemon.' >&2
+    return 1
+  fi
+  if ! compose_resources="$("${COMPOSE[@]}" ps --all --quiet 2>/dev/null)"; then
+    echo 'Docker smoke cleanup could not verify Compose resources.' >&2
+    return 1
+  fi
+  if ! labeled_containers="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT_NAME" 2>/dev/null)"; then return 1; fi
+  if ! labeled_networks="$(docker network ls --quiet --filter "label=com.docker.compose.project=$PROJECT_NAME" 2>/dev/null)"; then return 1; fi
+  if ! labeled_volumes="$(docker volume ls --quiet --filter "label=com.docker.compose.project=$PROJECT_NAME" 2>/dev/null)"; then return 1; fi
+  if [[ -n "$compose_resources$labeled_containers$labeled_networks$labeled_volumes" ]]; then
+    echo 'Docker smoke cleanup left project resources behind.' >&2
+    return 1
+  fi
+}
+
+remove_smoke_image() {
+  if docker image inspect "$OMNI_SMOKE_IMAGE" >/dev/null 2>&1; then
+    if ! docker image rm --force "$OMNI_SMOKE_IMAGE" >/dev/null 2>&1; then
+      echo 'Docker smoke image cleanup failed.' >&2
+      return 1
+    fi
+  fi
+  if docker image inspect "$OMNI_SMOKE_IMAGE" >/dev/null 2>&1; then
+    echo 'Docker smoke image cleanup could not be verified.' >&2
+    return 1
+  fi
 }
 
 cleanup() {
-  local status=$?
+  local original_status=$? final_status
   trap - EXIT ERR
-  set +e
-  if [[ "$SMOKE_SUCCEEDED" != true ]]; then
-    collect_diagnostics
+  if (( original_status != 0 )); then
+    if omni_finalize_failed_smoke "$original_status" collect_diagnostics compose_teardown verify_project_removed remove_smoke_image; then
+      final_status=0
+    else
+      final_status=$?
+    fi
+  else
+    if omni_finalize_cleanup "$original_status" compose_teardown verify_project_removed remove_smoke_image; then
+      final_status=0
+    else
+      final_status=$?
+    fi
   fi
-  "${COMPOSE[@]}" down --remove-orphans --volumes >/dev/null 2>&1
-  if [[ -n "$IMAGE_ID" ]]; then docker image rm --force "$OMNI_SMOKE_IMAGE" >/dev/null 2>&1; fi
+  if (( original_status == 0 && final_status != 0 )); then
+    if ! collect_diagnostics; then :; fi
+  fi
   rm -f "$OVERRIDE_FILE"
   unset OMNI_SMOKE_AUTH_MATERIAL OMNI_SMOKE_SENTINEL
-  if [[ "$SMOKE_SUCCEEDED" == true || -n "${SMOKE_DIAGNOSTICS_DIR:-}" ]]; then rm -rf "$WORK_DIR"; fi
-  exit "$status"
+  rm -rf "$WORK_DIR"
+  if (( final_status == 0 )) && [[ "$SMOKE_SUCCEEDED" == true ]]; then
+    echo "Docker runtime smoke passed: image=$IMAGE_ID shutdown_exit=$exit_code runtime_truth=DIRECT_LOCAL_RESPONSE_WITH_PROVIDER_UNAVAILABLE"
+  elif (( original_status == 0 )); then
+    echo 'Docker runtime smoke checks passed, but cleanup verification failed.' >&2
+  fi
+  exit "$final_status"
 }
 trap cleanup EXIT
 trap 'echo "Docker runtime smoke failed at line $LINENO" >&2' ERR
@@ -165,7 +222,6 @@ fi
 echo "Stopping through Docker SIGTERM path"
 restart_before="$(docker inspect --format '{{.RestartCount}}' "$CONTAINER_ID")"
 docker stop --time 20 "$CONTAINER_ID" >/dev/null
-STOP_COMPLETED=true
 exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$CONTAINER_ID")"
 oom_killed="$(docker inspect --format '{{.State.OOMKilled}}' "$CONTAINER_ID")"
 restart_after="$(docker inspect --format '{{.RestartCount}}' "$CONTAINER_ID")"
@@ -177,7 +233,8 @@ sleep 2
 [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_ID")" == exited ]]
 
 cat >"$RAW_DIR/smoke-summary.txt" <<EOF
-result=passed
+runtime_checks=passed
+cleanup_verification=pending
 project=$PROJECT_NAME
 image_id=$IMAGE_ID
 container_user=omni
@@ -194,6 +251,4 @@ oom_killed=$oom_killed
 sentinel_scan=passed
 EOF
 
-collect_diagnostics
 SMOKE_SUCCEEDED=true
-echo "Docker runtime smoke passed: image=$IMAGE_ID shutdown_exit=$exit_code runtime_truth=DIRECT_LOCAL_RESPONSE_WITH_PROVIDER_UNAVAILABLE"

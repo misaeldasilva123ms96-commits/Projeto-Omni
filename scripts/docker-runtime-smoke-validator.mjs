@@ -34,6 +34,25 @@ function forbiddenPublicText(text) {
   }
 }
 
+export const DIAGNOSTICS_AUTHORIZATION_MARKER = '.safe-to-upload';
+
+function sanitizedDiagnosticName(name) {
+  const extension = path.extname(name);
+  const stem = extension ? name.slice(0, -extension.length) : name;
+  return `${stem}-sanitized${extension}`;
+}
+
+function scanDirectory(directory) {
+  const root = fs.lstatSync(directory);
+  invariant(root.isDirectory() && !root.isSymbolicLink(), 'scan root must be a real directory');
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true, recursive: true })) {
+    invariant(!entry.isSymbolicLink(), 'diagnostic publication must not contain symbolic links');
+    if (entry.isFile()) {
+      forbiddenPublicText(fs.readFileSync(path.join(entry.parentPath, entry.name), 'utf8'));
+    }
+  }
+}
+
 function parsePublicJson(text) {
   forbiddenPublicText(text);
   let value;
@@ -123,14 +142,83 @@ export function sanitizeDiagnosticText(text) {
   return sanitized;
 }
 
+export function verifyDiagnosticPublication(publicationDir) {
+  const publicationRoot = path.resolve(publicationDir);
+  const root = fs.lstatSync(publicationRoot);
+  invariant(root.isDirectory() && !root.isSymbolicLink(), 'diagnostic publication must be a real directory');
+
+  const entries = fs.readdirSync(publicationRoot, { withFileTypes: true });
+  const marker = entries.find((entry) => entry.name === DIAGNOSTICS_AUTHORIZATION_MARKER);
+  invariant(marker?.isFile() && !marker.isSymbolicLink(), 'safe-publication marker is missing or invalid');
+  invariant(
+    fs.readFileSync(path.join(publicationRoot, DIAGNOSTICS_AUTHORIZATION_MARKER), 'utf8') === 'diagnostics_verified=true\n',
+    'safe-publication marker content is invalid',
+  );
+
+  const safeFiles = entries.filter((entry) => entry.name !== DIAGNOSTICS_AUTHORIZATION_MARKER);
+  invariant(safeFiles.length > 0, 'diagnostic publication contains no sanitized files');
+  for (const entry of safeFiles) {
+    invariant(entry.isFile() && !entry.isSymbolicLink(), 'diagnostic publication must contain regular files only');
+    const extension = path.extname(entry.name);
+    const stem = extension ? entry.name.slice(0, -extension.length) : entry.name;
+    invariant(stem.endsWith('-sanitized'), 'raw diagnostic filename is not publishable');
+  }
+
+  scanDirectory(publicationRoot);
+  return { safeFiles: safeFiles.length, marker: path.join(publicationRoot, DIAGNOSTICS_AUTHORIZATION_MARKER) };
+}
+
+export function publishSanitizedDiagnostics(rawDir, publicationDir, { sanitize = sanitizeDiagnosticText } = {}) {
+  const rawRoot = path.resolve(rawDir);
+  const publicationRoot = path.resolve(publicationDir);
+  invariant(rawRoot !== publicationRoot, 'raw and publication directories must be distinct');
+
+  const stagingDir = `${publicationRoot}.staging-${process.pid}`;
+  fs.rmSync(publicationRoot, { recursive: true, force: true });
+  fs.rmSync(stagingDir, { recursive: true, force: true });
+
+  try {
+    const entries = fs.readdirSync(rawRoot, { withFileTypes: true });
+    invariant(entries.length > 0, 'no raw diagnostics were selected');
+    invariant(entries.every((entry) => entry.isFile()), 'raw diagnostics must contain regular files only');
+    fs.mkdirSync(stagingDir, { recursive: true });
+
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const rawText = fs.readFileSync(path.join(rawRoot, entry.name), 'utf8');
+      const sanitizedText = sanitize(rawText);
+      fs.writeFileSync(path.join(stagingDir, sanitizedDiagnosticName(entry.name)), sanitizedText, { flag: 'wx' });
+    }
+
+    scanDirectory(stagingDir);
+    fs.writeFileSync(
+      path.join(stagingDir, DIAGNOSTICS_AUTHORIZATION_MARKER),
+      'diagnostics_verified=true\n',
+      { flag: 'wx' },
+    );
+    verifyDiagnosticPublication(stagingDir);
+    fs.renameSync(stagingDir, publicationRoot);
+    return { selectedFiles: entries.length, marker: path.join(publicationRoot, DIAGNOSTICS_AUTHORIZATION_MARKER) };
+  } catch (error) {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.rmSync(publicationRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 function cli() {
   const [command, input, extra] = process.argv.slice(2);
-  invariant(command && input, 'usage: validator <health|status|chat|chat-v1|error|sanitize|scan|scan-dir> <path> [value]');
+  invariant(command && input, 'usage: validator <health|status|chat|chat-v1|error|sanitize|scan|scan-dir|publish|verify-publication> <path> [value]');
+  if (command === 'verify-publication') {
+    verifyDiagnosticPublication(input);
+    return;
+  }
+  if (command === 'publish') {
+    invariant(extra, 'publish requires a publication directory');
+    publishSanitizedDiagnostics(input, extra);
+    return;
+  }
   if (command === 'scan-dir') {
-    for (const entry of fs.readdirSync(input, { recursive: true })) {
-      const candidate = path.join(input, entry);
-      if (fs.statSync(candidate).isFile()) forbiddenPublicText(fs.readFileSync(candidate, 'utf8'));
-    }
+    scanDirectory(input);
     return;
   }
   const text = fs.readFileSync(input, 'utf8');

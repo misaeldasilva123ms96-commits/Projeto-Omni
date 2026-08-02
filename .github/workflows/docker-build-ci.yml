@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/docker-build-ci.yml"
+      - ".dockerignore"
       - "Dockerfile.demo"
       - "docker-compose.demo.yml"
       - "package.json"
@@ -24,6 +25,7 @@ on:
       - "contract/**"
       - "scripts/docker-runtime-smoke.*"
       - "tests/runtime/dockerRuntimeSmokeValidator.test.mjs"
+      - "tests/runtime/dockerRuntimeSmokeCleanup.test.sh"
       - "tests/runtime/test_docker_runtime_paths.py"
   workflow_dispatch:
 
@@ -43,15 +45,33 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Test smoke response validators
-        run: node --test tests/runtime/dockerRuntimeSmokeValidator.test.mjs
+        run: |
+          node --test tests/runtime/dockerRuntimeSmokeValidator.test.mjs
+          bash tests/runtime/dockerRuntimeSmokeCleanup.test.sh
 
       - name: Build and exercise controlled-demo runtime
         env:
           SMOKE_DIAGNOSTICS_DIR: ${{ runner.temp }}/omni-docker-smoke-diagnostics
         run: bash scripts/docker-runtime-smoke.sh
 
-      - name: Upload sanitized failure diagnostics
+      - name: Verify failure diagnostic publication authorization
         if: failure()
+        id: diagnostics
+        env:
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/omni-docker-smoke-diagnostics
+          DIAGNOSTICS_MARKER: ${{ runner.temp }}/omni-docker-smoke-diagnostics/.safe-to-upload
+        run: |
+          if [[ -f "$DIAGNOSTICS_MARKER" ]] \
+            && grep -Fxq 'diagnostics_verified=true' "$DIAGNOSTICS_MARKER" \
+            && node scripts/docker-runtime-smoke-validator.mjs verify-publication "$DIAGNOSTICS_DIR" >/dev/null 2>&1; then
+            echo "safe_to_upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "safe_to_upload=false" >> "$GITHUB_OUTPUT"
+            echo "Failure diagnostics were withheld because safe publication was not authorized."
+          fi
+
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() && steps.diagnostics.outputs.safe_to_upload == 'true' }}
         uses: actions/upload-artifact@v6
         with:
           name: docker-runtime-smoke-diagnostics-${{ github.run_id }}
