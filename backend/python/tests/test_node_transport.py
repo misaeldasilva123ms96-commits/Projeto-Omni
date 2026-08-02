@@ -11,7 +11,7 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
-from brain.runtime.node_path_policy import NodePathPolicy, ValidatedNodeExecutionPlan  # noqa: E402
+from brain.runtime.node_path_policy import NodePathPolicy, NodePathPolicyError, ValidatedNodeExecutionPlan  # noqa: E402
 from brain.runtime.node_transport import call_node_with_preflight, run_node_subprocess  # noqa: E402
 
 
@@ -95,3 +95,18 @@ def test_timeout_remains_a_safe_structured_failure() -> None:
     assert result["ok"] is False
     assert result["reason_code"] == "NODE_BRIDGE_TIMEOUT"
     assert result["stage"] == "timeout"
+
+
+def test_path_policy_failure_uses_safe_label_and_never_starts_subprocess() -> None:
+    plan = _valid_plan()
+    with (
+        patch.object(NodePathPolicy, "from_runtime", side_effect=NodePathPolicyError("node_path_policy_symlink_rejected")),
+        patch("brain.runtime.node_transport.subprocess.run") as run,
+    ):
+        result = call_node_with_preflight(diagnostics=plan, payload="{}", timeout_seconds=1)
+
+    assert result.ok is False
+    assert result.stage == "preflight"
+    assert result.details["failure_class"] == "node_path_policy_symlink_rejected"
+    assert "pathPolicy.js" not in str(result.details)
+    run.assert_not_called()

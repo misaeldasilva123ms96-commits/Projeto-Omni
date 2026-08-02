@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ def _fixture_repo(tmp_path: Path) -> tuple[Path, Path]:
         "package.json",
         "backend/python/brain/runtime/entrypoint.py",
         "js-runner/queryEngineRunner.js",
+        "js-runner/pathPolicy.js",
         "js-runner/runtimeHealthcheck.js",
         "contract/runner-schema.v1.json",
         "src/queryEngineRunnerAdapter.js",
@@ -55,6 +57,96 @@ def test_real_repository_root_and_required_artifacts_are_accepted() -> None:
 
     assert policy.project_root == PROJECT_ROOT.resolve()
     assert policy.runner_path.name == "queryEngineRunner.js"
+    assert policy.validate_file(PROJECT_ROOT / "js-runner/pathPolicy.js", "path_policy") == (
+        PROJECT_ROOT / "js-runner/pathPolicy.js"
+    ).resolve()
+
+
+def test_missing_path_policy_fails_preflight(tmp_path: Path) -> None:
+    root, active = _fixture_repo(tmp_path)
+    (root / "js-runner/pathPolicy.js").unlink()
+    with pytest.raises(NodePathPolicyError, match="node_path_policy_"):
+        NodePathPolicy.from_runtime(
+            project_root=root,
+            python_root=root / "backend/python",
+            runner_path=root / "js-runner/queryEngineRunner.js",
+            active_python_entrypoint=active,
+        )
+
+
+def test_path_policy_directory_is_rejected(tmp_path: Path) -> None:
+    root, active = _fixture_repo(tmp_path)
+    policy_module = root / "js-runner/pathPolicy.js"
+    policy_module.unlink()
+    policy_module.mkdir()
+    with pytest.raises(NodePathPolicyError, match="node_path_policy_"):
+        NodePathPolicy.from_runtime(
+            project_root=root,
+            python_root=root / "backend/python",
+            runner_path=root / "js-runner/queryEngineRunner.js",
+            active_python_entrypoint=active,
+        )
+
+
+@pytest.mark.parametrize("target_location", ["inside", "outside"])
+def test_path_policy_symlink_is_rejected(tmp_path: Path, target_location: str) -> None:
+    root, active = _fixture_repo(tmp_path)
+    policy_module = root / "js-runner/pathPolicy.js"
+    target = root / "js-runner/pathPolicy.real.js" if target_location == "inside" else tmp_path / "externalPolicy.js"
+    target.write_text("module.exports = {}", encoding="utf-8")
+    policy_module.unlink()
+    try:
+        policy_module.symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"symlink unavailable: {error}")
+    with pytest.raises(NodePathPolicyError, match="node_path_policy_"):
+        NodePathPolicy.from_runtime(
+            project_root=root,
+            python_root=root / "backend/python",
+            runner_path=root / "js-runner/queryEngineRunner.js",
+            active_python_entrypoint=active,
+        )
+
+
+def test_path_policy_symlinked_parent_is_rejected(tmp_path: Path) -> None:
+    root, active = _fixture_repo(tmp_path)
+    js_runner = root / "js-runner"
+    real_parent = root / "js-runner-real"
+    js_runner.rename(real_parent)
+    try:
+        js_runner.symlink_to(real_parent, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlink unavailable: {error}")
+    with pytest.raises(NodePathPolicyError, match="node_project_root_invalid|node_path_policy_"):
+        NodePathPolicy.from_runtime(
+            project_root=root,
+            python_root=root / "backend/python",
+            runner_path=root / "js-runner/queryEngineRunner.js",
+            active_python_entrypoint=active,
+        )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junction fixture is Windows-only")
+def test_path_policy_junction_parent_is_rejected_on_windows(tmp_path: Path) -> None:
+    root, active = _fixture_repo(tmp_path)
+    js_runner = root / "js-runner"
+    real_parent = root / "js-runner-real"
+    js_runner.rename(real_parent)
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(js_runner), str(real_parent)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if created.returncode != 0:
+        pytest.skip("junction creation unavailable")
+    with pytest.raises(NodePathPolicyError, match="node_project_root_invalid|node_path_policy_"):
+        NodePathPolicy.from_runtime(
+            project_root=root,
+            python_root=root / "backend/python",
+            runner_path=root / "js-runner/queryEngineRunner.js",
+            active_python_entrypoint=active,
+        )
 
 
 def test_imitation_root_is_rejected_when_active_python_code_is_external(tmp_path: Path) -> None:

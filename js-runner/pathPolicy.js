@@ -5,6 +5,7 @@ const path = require('path');
 
 const SECURITY_FILES = Object.freeze({
   runner: 'js-runner/queryEngineRunner.js',
+  path_policy: 'js-runner/pathPolicy.js',
   schema: 'contract/runner-schema.v1.json',
   adapter_js: 'src/queryEngineRunnerAdapter.js',
   adapter_mjs: 'src/queryEngineRunnerAdapter.mjs',

@@ -21,6 +21,7 @@ REQUIRED_MARKERS = (
 
 SECURITY_FILE_ALLOWLIST = (
     "js-runner/queryEngineRunner.js",
+    "js-runner/pathPolicy.js",
     "contract/runner-schema.v1.json",
     "src/queryEngineRunnerAdapter.js",
     "src/queryEngineRunnerAdapter.mjs",
@@ -36,6 +37,7 @@ SECURITY_FILE_ALLOWLIST = (
 
 REQUIRED_SECURITY_FILES = (
     "js-runner/queryEngineRunner.js",
+    "js-runner/pathPolicy.js",
     "contract/runner-schema.v1.json",
     "src/queryEngineRunnerAdapter.js",
     "core/brain/fusionBrain.js",
@@ -238,6 +240,8 @@ class NodePathPolicy:
 
 
 def _label_for(relative: str) -> str:
+    if relative == "js-runner/pathPolicy.js":
+        return "path_policy"
     if relative.startswith("js-runner/queryEngineRunner"):
         return "runner"
     if relative.startswith("contract/"):
