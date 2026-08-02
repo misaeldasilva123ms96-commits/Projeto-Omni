@@ -1,3 +1,4 @@
+mod client_identity;
 mod error;
 mod historical_audit_capability;
 mod observability;
@@ -11,7 +12,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     env, fmt, fs,
     io::Seek,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex},
@@ -20,7 +21,7 @@ use std::{
 
 use axum::{
     body::Bytes,
-    extract::{Path as AxumPath, State},
+    extract::{ConnectInfo, Path as AxumPath, State},
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE},
         HeaderMap, HeaderValue, Method, Request, StatusCode,
@@ -28,7 +29,10 @@ use axum::{
     middleware::from_fn_with_state,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Json, Router,
+    Extension, Json, Router,
+};
+use client_identity::{
+    ClientIdentitySource, TrustedProxyConfig, DEFAULT_TRUST_PROXY_MAX_HOPS, MAX_TRUST_PROXY_HOPS,
 };
 use error::AppError;
 #[cfg(test)]
@@ -121,7 +125,9 @@ struct PythonServiceFailure {
 
 pub(crate) struct ChatSecurityState {
     config: ChatSecurityConfig,
-    rate_limiter: Mutex<HashMap<String, VecDeque<Instant>>>,
+    rate_limiter: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+    rate_limit_max_clients: usize,
+    trusted_proxy: TrustedProxyConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -750,6 +756,10 @@ async fn main() -> Result<(), AppError> {
         mode = observability_stream_tickets.mode().as_str(),
         "observability stream ticket store configured"
     );
+    let chat_security = ChatSecurityState::from_env().map_err(|configuration_error| {
+        error!(%configuration_error, "chat security configuration failed");
+        AppError::Internal("chat security configuration error".to_string())
+    })?;
     let state = AppState {
         project_root,
         python_root,
@@ -774,7 +784,7 @@ async fn main() -> Result<(), AppError> {
         })),
         supabase_auth,
         observability_stream_tickets,
-        chat_security: default_chat_security_state(),
+        chat_security: Arc::new(chat_security),
     };
 
     let protected_observability = Router::new()
@@ -912,10 +922,13 @@ async fn main() -> Result<(), AppError> {
         env::var("PORT").unwrap_or_else(|_| "unset".to_string())
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(|err| AppError::Internal(format!("server failed: {err}")))?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .map_err(|err| AppError::Internal(format!("server failed: {err}")))?;
 
     Ok(())
 }
@@ -1080,6 +1093,24 @@ fn read_env_usize_clamped(canonical: &str, default: usize, max: usize) -> usize 
     read_env_usize(canonical, default).min(max)
 }
 
+fn read_bounded_env_usize(
+    canonical: &str,
+    default: usize,
+    max: usize,
+) -> Result<usize, &'static str> {
+    let Some(raw) = env::var(canonical).ok() else {
+        return Ok(default);
+    };
+    let value = raw
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| "numeric chat security configuration is invalid")?;
+    if value == 0 || value > max {
+        return Err("numeric chat security configuration is outside the accepted range");
+    }
+    Ok(value)
+}
+
 fn read_env_bool(canonical: &str, default: bool) -> bool {
     read_env_value(canonical)
         .map(|value| {
@@ -1227,8 +1258,27 @@ impl PythonRuntimeMode {
 }
 
 impl ChatSecurityState {
-    fn from_env() -> Self {
-        Self {
+    const DEFAULT_MAX_CLIENTS: usize = 10_000;
+    const MAX_CLIENTS: usize = 1_000_000;
+
+    fn from_env() -> Result<Self, &'static str> {
+        let max_hops = read_bounded_env_usize(
+            "OMNI_TRUST_PROXY_MAX_HOPS",
+            DEFAULT_TRUST_PROXY_MAX_HOPS,
+            MAX_TRUST_PROXY_HOPS,
+        )?;
+        let max_clients = read_bounded_env_usize(
+            "OMNI_RATE_LIMIT_MAX_CLIENTS",
+            Self::DEFAULT_MAX_CLIENTS,
+            Self::MAX_CLIENTS,
+        )?;
+        let trusted_proxy = TrustedProxyConfig::parse(
+            read_env_bool("OMNI_TRUST_PROXY_HEADERS", false),
+            &env::var("OMNI_TRUSTED_PROXY_CIDRS").unwrap_or_default(),
+            max_hops,
+        )?;
+
+        Ok(Self {
             config: ChatSecurityConfig {
                 max_message_chars: read_env_usize("OMNI_MAX_MESSAGE_CHARS", 8_000),
                 max_body_bytes: read_env_usize("OMNI_MAX_BODY_BYTES", 65_536),
@@ -1236,7 +1286,9 @@ impl ChatSecurityState {
                 rate_limit_per_minute: read_env_usize("OMNI_RATE_LIMIT_PER_MINUTE", 30),
             },
             rate_limiter: Mutex::new(HashMap::new()),
-        }
+            rate_limit_max_clients: max_clients,
+            trusted_proxy,
+        })
     }
 
     #[cfg(test)]
@@ -1244,10 +1296,12 @@ impl ChatSecurityState {
         Self {
             config,
             rate_limiter: Mutex::new(HashMap::new()),
+            rate_limit_max_clients: Self::DEFAULT_MAX_CLIENTS,
+            trusted_proxy: TrustedProxyConfig::direct_only(),
         }
     }
 
-    fn check_rate_limit(&self, client_key: &str, now: Instant) -> bool {
+    fn check_rate_limit(&self, client_key: IpAddr, now: Instant) -> bool {
         if !self.config.rate_limit_enabled {
             return true;
         }
@@ -1266,17 +1320,10 @@ impl ChatSecurityState {
             }
             !hits.is_empty()
         });
-        const MAX_TRACKED_CLIENTS: usize = 10_000;
-        if !guard.contains_key(client_key) && guard.len() >= MAX_TRACKED_CLIENTS {
-            if let Some(oldest_key) = guard
-                .iter()
-                .min_by_key(|(_, hits)| hits.back().copied())
-                .map(|(key, _)| key.clone())
-            {
-                guard.remove(&oldest_key);
-            }
+        if !guard.contains_key(&client_key) && guard.len() >= self.rate_limit_max_clients {
+            return false;
         }
-        let hits = guard.entry(client_key.to_string()).or_default();
+        let hits = guard.entry(client_key).or_default();
         while hits
             .front()
             .is_some_and(|instant| now.duration_since(*instant) >= window)
@@ -1291,8 +1338,9 @@ impl ChatSecurityState {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn default_chat_security_state() -> Arc<ChatSecurityState> {
-    Arc::new(ChatSecurityState::from_env())
+    Arc::new(ChatSecurityState::from_env().expect("valid chat security test configuration"))
 }
 
 /// Shared liveness snapshot used by `/health` and derived public contracts.
@@ -2674,21 +2722,28 @@ fn validate_body_size(bytes: &Bytes, max_body_bytes: usize) -> BoxedResponseResu
     }
 }
 
-fn validate_chat_rate_limit(state: &AppState, headers: &HeaderMap) -> BoxedResponseResult<()> {
-    let client_key = if read_env_bool("OMNI_TRUST_PROXY_HEADERS", false) {
-        headers
-            .get("x-forwarded-for")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("global")
-    } else {
-        "global"
+fn validate_chat_rate_limit(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: Option<SocketAddr>,
+) -> BoxedResponseResult<()> {
+    let Some(peer) = peer else {
+        warn!("chat request rejected because TCP peer identity was unavailable");
+        return Err(boxed_public_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR_REDACTED",
+        ));
     };
+    let identity = state
+        .chat_security
+        .trusted_proxy
+        .resolve(peer.ip(), headers);
+    if identity.source == ClientIdentitySource::ForwardedHeaderRejected {
+        warn!("trusted forwarding metadata was rejected; using the TCP peer identity");
+    }
     if state
         .chat_security
-        .check_rate_limit(client_key, Instant::now())
+        .check_rate_limit(identity.effective_ip, Instant::now())
     {
         Ok(())
     } else {
@@ -2711,6 +2766,7 @@ fn parse_public_chat_request(bytes: &Bytes) -> BoxedResponseResult<PublicChatReq
 
 async fn chat(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, AppError> {
@@ -2720,7 +2776,11 @@ async fn chat(
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
         return Ok(*response);
     }
-    if let Err(response) = validate_chat_rate_limit(&state, &headers) {
+    if let Err(response) = validate_chat_rate_limit(
+        &state,
+        &headers,
+        peer.map(|Extension(ConnectInfo(peer))| peer),
+    ) {
         return Ok(*response);
     }
     let payload = match parse_chat_request(&body) {
@@ -2774,6 +2834,7 @@ async fn chat(
 
 async fn public_v1_chat(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, AppError> {
@@ -2783,7 +2844,11 @@ async fn public_v1_chat(
     if let Err(response) = validate_body_size(&body, state.chat_security.config.max_body_bytes) {
         return Ok(*response);
     }
-    if let Err(response) = validate_chat_rate_limit(&state, &headers) {
+    if let Err(response) = validate_chat_rate_limit(
+        &state,
+        &headers,
+        peer.map(|Extension(ConnectInfo(peer))| peer),
+    ) {
         return Ok(*response);
     }
     let payload = match parse_public_chat_request(&body) {
@@ -4100,12 +4165,26 @@ mod tests {
     }
 
     fn json_post(path: &str, body: impl Into<Body>) -> Request<Body> {
-        Request::builder()
+        json_post_from(path, body, SocketAddr::from(([198, 51, 100, 10], 42_000)))
+    }
+
+    fn json_post_from(path: &str, body: impl Into<Body>, peer: SocketAddr) -> Request<Body> {
+        let mut request = Request::builder()
             .method(Method::POST)
             .uri(path)
             .header(CONTENT_TYPE, "application/json")
             .body(body.into())
-            .expect("request")
+            .expect("request");
+        request.extensions_mut().insert(ConnectInfo(peer));
+        request
+    }
+
+    fn with_forwarded_for(mut request: Request<Body>, value: &str) -> Request<Body> {
+        request.headers_mut().insert(
+            "x-forwarded-for",
+            HeaderValue::from_str(value).expect("forwarded header"),
+        );
+        request
     }
 
     fn get_request(path: &str) -> Request<Body> {
@@ -4639,6 +4718,263 @@ print(json.dumps({
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    fn rate_limit_state(enabled: bool, per_minute: usize, max_clients: usize) -> ChatSecurityState {
+        let mut state = ChatSecurityState::with_config(ChatSecurityConfig {
+            max_message_chars: 20,
+            max_body_bytes: 512,
+            rate_limit_enabled: enabled,
+            rate_limit_per_minute: per_minute,
+        });
+        state.rate_limit_max_clients = max_clients;
+        state
+    }
+
+    #[test]
+    fn rate_limiter_prunes_expired_buckets_before_capacity_check() {
+        let state = rate_limit_state(true, 1, 1);
+        let now = Instant::now();
+        let expired = now - Duration::from_secs(60);
+        assert!(state.check_rate_limit("198.51.100.1".parse().unwrap(), expired));
+        assert!(state.check_rate_limit("198.51.100.2".parse().unwrap(), now));
+        let guard = state.rate_limiter.lock().unwrap();
+        assert_eq!(guard.len(), 1);
+        assert!(guard.contains_key(&"198.51.100.2".parse().unwrap()));
+    }
+
+    #[test]
+    fn rate_limiter_rejects_new_client_at_capacity_without_eviction() {
+        let state = rate_limit_state(true, 2, 1);
+        let now = Instant::now();
+        let existing: IpAddr = "198.51.100.1".parse().unwrap();
+        let newcomer: IpAddr = "198.51.100.2".parse().unwrap();
+        assert!(state.check_rate_limit(existing, now));
+        assert!(!state.check_rate_limit(newcomer, now));
+        assert!(state.check_rate_limit(existing, now));
+        let guard = state.rate_limiter.lock().unwrap();
+        assert_eq!(guard.len(), 1);
+        assert!(guard.contains_key(&existing));
+        assert!(!guard.contains_key(&newcomer));
+    }
+
+    #[test]
+    fn disabled_rate_limiter_does_not_create_buckets() {
+        let state = rate_limit_state(false, 1, 1);
+        assert!(state.check_rate_limit("198.51.100.1".parse().unwrap(), Instant::now()));
+        assert!(state.rate_limiter.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn concurrent_requests_for_one_client_cannot_exceed_limit() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Barrier,
+        };
+
+        let state = Arc::new(rate_limit_state(true, 7, 100));
+        let barrier = Arc::new(Barrier::new(32));
+        let admitted = Arc::new(AtomicUsize::new(0));
+        let now = Instant::now();
+        let mut handles = Vec::new();
+        for _ in 0..32 {
+            let state = Arc::clone(&state);
+            let barrier = Arc::clone(&barrier);
+            let admitted = Arc::clone(&admitted);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                if state.check_rate_limit("198.51.100.1".parse().unwrap(), now) {
+                    admitted.fetch_add(1, Ordering::SeqCst);
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("rate limit worker");
+        }
+        assert_eq!(admitted.load(Ordering::SeqCst), 7);
+        assert_eq!(state.rate_limiter.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn concurrent_distinct_clients_remain_isolated() {
+        let state = Arc::new(rate_limit_state(true, 1, 32));
+        let now = Instant::now();
+        let handles: Vec<_> = (1..=16)
+            .map(|last_octet| {
+                let state = Arc::clone(&state);
+                std::thread::spawn(move || {
+                    state.check_rate_limit(
+                        IpAddr::V4(std::net::Ipv4Addr::new(198, 51, 100, last_octet)),
+                        now,
+                    )
+                })
+            })
+            .collect();
+        assert!(handles
+            .into_iter()
+            .all(|handle| handle.join().expect("isolated client worker")));
+        assert_eq!(state.rate_limiter.lock().unwrap().len(), 16);
+    }
+
+    #[tokio::test]
+    async fn chat_routes_use_peer_buckets_and_ignore_spoofed_headers_by_default() {
+        let state = build_test_state_with_security(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-peer-buckets"),
+            15_000,
+            ChatSecurityConfig {
+                max_message_chars: 20,
+                max_body_bytes: 512,
+                rate_limit_enabled: true,
+                rate_limit_per_minute: 1,
+            },
+        );
+        let peer_a = SocketAddr::from(([198, 51, 100, 10], 42_000));
+        let peer_b = SocketAddr::from(([198, 51, 100, 11], 42_001));
+        let first = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/chat", r#"{"message":"one"}"#, peer_a),
+                "203.0.113.1",
+            ))
+            .await
+            .expect("first peer response");
+        let spoof_changed = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/chat", r#"{"message":"two"}"#, peer_a),
+                "203.0.113.2",
+            ))
+            .await
+            .expect("same peer response");
+        let independent = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/chat", r#"{"message":"three"}"#, peer_b),
+                "203.0.113.1",
+            ))
+            .await
+            .expect("second peer response");
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(spoof_changed.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(independent.status(), StatusCode::OK);
+        assert_eq!(state.chat_security.rate_limiter.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn missing_peer_identity_fails_closed_without_runtime_invocation() {
+        let state = build_test_state_with_security(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-missing-peer",
+            ),
+            15_000,
+            test_chat_security_config(),
+        );
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/chat")
+            .header(CONTENT_TYPE, "application/json")
+            .header("x-forwarded-for", "203.0.113.7")
+            .body(Body::from(r#"{"message":"hello"}"#))
+            .expect("request without peer");
+        let response = chat_router(state.clone())
+            .oneshot(request)
+            .await
+            .expect("missing peer response");
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["error_public_code"].as_str(),
+            Some("INTERNAL_ERROR_REDACTED")
+        );
+        assert_python_not_invoked(&state).await;
+    }
+
+    #[tokio::test]
+    async fn both_chat_routes_share_trusted_chain_resolution() {
+        let mut security = rate_limit_state(true, 1, 10);
+        security.trusted_proxy =
+            TrustedProxyConfig::parse(true, "10.0.0.0/8", 8).expect("trusted proxy config");
+        let mut state = build_test_state(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-trusted-chain"),
+            15_000,
+        );
+        state.chat_security = Arc::new(security);
+        let peer = SocketAddr::from(([10, 0, 0, 2], 42_000));
+        let first = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/chat", r#"{"message":"one"}"#, peer),
+                "198.51.100.99, 203.0.113.8, 10.0.0.3",
+            ))
+            .await
+            .expect("legacy chat response");
+        let second = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/api/v1/chat", r#"{"message":"two"}"#, peer),
+                "192.0.2.99, 203.0.113.8, 10.0.0.3",
+            ))
+            .await
+            .expect("v1 chat response");
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+        let guard = state.chat_security.rate_limiter.lock().unwrap();
+        assert_eq!(guard.len(), 1);
+        assert!(guard.contains_key(&"203.0.113.8".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn malformed_trusted_headers_share_fail_closed_peer_bucket() {
+        let mut security = rate_limit_state(true, 1, 10);
+        security.trusted_proxy =
+            TrustedProxyConfig::parse(true, "10.0.0.0/8", 8).expect("trusted proxy config");
+        let mut state = build_test_state(
+            temp_script("print('{\"response\":\"ok\"}')\n", "chat-malformed-chain"),
+            15_000,
+        );
+        state.chat_security = Arc::new(security);
+        let peer = SocketAddr::from(([10, 0, 0, 2], 42_000));
+        let first = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/chat", r#"{"message":"one"}"#, peer),
+                "203.0.113.1,,10.0.0.3",
+            ))
+            .await
+            .expect("first malformed response");
+        let second = chat_router(state.clone())
+            .oneshot(with_forwarded_for(
+                json_post_from("/chat", r#"{"message":"two"}"#, peer),
+                "attacker-selected-value",
+            ))
+            .await
+            .expect("second malformed response");
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+        let guard = state.chat_security.rate_limiter.lock().unwrap();
+        assert_eq!(guard.len(), 1);
+        assert!(guard.contains_key(&"10.0.0.2".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn capacity_rejection_does_not_invoke_runtime() {
+        let mut security = rate_limit_state(true, 30, 1);
+        assert!(security.check_rate_limit("198.51.100.1".parse().unwrap(), Instant::now()));
+        let mut state = build_test_state(
+            temp_script(
+                "print('{\"response\":\"should-not-run\"}')\n",
+                "chat-capacity-block",
+            ),
+            15_000,
+        );
+        security.trusted_proxy = TrustedProxyConfig::direct_only();
+        state.chat_security = Arc::new(security);
+        let response = chat_router(state.clone())
+            .oneshot(json_post_from(
+                "/api/v1/chat",
+                r#"{"message":"blocked"}"#,
+                SocketAddr::from(([198, 51, 100, 2], 42_000)),
+            ))
+            .await
+            .expect("capacity response");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(state.chat_security.rate_limiter.lock().unwrap().len(), 1);
+        assert_python_not_invoked(&state).await;
+    }
+
     #[tokio::test]
     async fn chat_route_rate_limits_and_can_disable_rate_limit() {
         let enabled_state = build_test_state_with_security(
@@ -4694,6 +5030,10 @@ print(json.dumps({
             "OMNI_MAX_BODY_BYTES",
             "OMNI_RATE_LIMIT_ENABLED",
             "OMNI_RATE_LIMIT_PER_MINUTE",
+            "OMNI_RATE_LIMIT_MAX_CLIENTS",
+            "OMNI_TRUST_PROXY_HEADERS",
+            "OMNI_TRUSTED_PROXY_CIDRS",
+            "OMNI_TRUST_PROXY_MAX_HOPS",
         ];
         let env = EnvTestGuard::new(&keys);
         for key in keys {
@@ -4703,21 +5043,85 @@ print(json.dumps({
         env.set("OMNI_MAX_BODY_BYTES", "456");
         env.set("OMNI_RATE_LIMIT_ENABLED", "false");
         env.set("OMNI_RATE_LIMIT_PER_MINUTE", "7");
-        let canonical = ChatSecurityState::from_env();
+        let canonical = ChatSecurityState::from_env().expect("canonical chat security config");
         assert_eq!(canonical.config.max_message_chars, 123);
         assert_eq!(canonical.config.max_body_bytes, 456);
         assert!(!canonical.config.rate_limit_enabled);
         assert_eq!(canonical.config.rate_limit_per_minute, 7);
+        assert_eq!(canonical.rate_limit_max_clients, 10_000);
+        let default_identity = canonical.trusted_proxy.resolve(
+            "10.0.0.1".parse().unwrap(),
+            &HeaderMap::from_iter([(
+                "x-forwarded-for".parse().unwrap(),
+                HeaderValue::from_static("203.0.113.9"),
+            )]),
+        );
+        assert_eq!(default_identity.source, ClientIdentitySource::DirectPeer);
+        assert_eq!(
+            default_identity.effective_ip,
+            "10.0.0.1".parse::<IpAddr>().unwrap()
+        );
 
         env.set("OMNI_MAX_MESSAGE_CHARS", "321");
         env.set("OMNI_MAX_BODY_BYTES", "654");
         env.set("OMNI_RATE_LIMIT_ENABLED", "true");
         env.set("OMNI_RATE_LIMIT_PER_MINUTE", "9");
-        let updated = ChatSecurityState::from_env();
+        env.set("OMNI_RATE_LIMIT_MAX_CLIENTS", "55");
+        env.set("OMNI_TRUST_PROXY_HEADERS", "true");
+        env.set("OMNI_TRUSTED_PROXY_CIDRS", "10.0.0.1,2001:db8::/32");
+        env.set("OMNI_TRUST_PROXY_MAX_HOPS", "4");
+        let updated = ChatSecurityState::from_env().expect("updated chat security config");
         assert_eq!(updated.config.max_message_chars, 321);
         assert_eq!(updated.config.max_body_bytes, 654);
         assert!(updated.config.rate_limit_enabled);
         assert_eq!(updated.config.rate_limit_per_minute, 9);
+        assert_eq!(updated.rate_limit_max_clients, 55);
+        let forwarded = updated.trusted_proxy.resolve(
+            "10.0.0.1".parse().unwrap(),
+            &HeaderMap::from_iter([(
+                "x-forwarded-for".parse().unwrap(),
+                HeaderValue::from_static("203.0.113.9"),
+            )]),
+        );
+        assert_eq!(
+            forwarded.source,
+            ClientIdentitySource::TrustedForwardedChain
+        );
+        assert_eq!(
+            forwarded.effective_ip,
+            "203.0.113.9".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn chat_security_rejects_invalid_proxy_and_capacity_environment() {
+        let keys = [
+            "OMNI_RATE_LIMIT_MAX_CLIENTS",
+            "OMNI_TRUST_PROXY_HEADERS",
+            "OMNI_TRUSTED_PROXY_CIDRS",
+            "OMNI_TRUST_PROXY_MAX_HOPS",
+        ];
+        let env = EnvTestGuard::new(&keys);
+        for key in keys {
+            env.remove(key);
+        }
+
+        for value in ["0", "1000001", "not-a-number"] {
+            env.set("OMNI_RATE_LIMIT_MAX_CLIENTS", value);
+            assert!(ChatSecurityState::from_env().is_err());
+        }
+        env.remove("OMNI_RATE_LIMIT_MAX_CLIENTS");
+
+        env.set("OMNI_TRUST_PROXY_HEADERS", "true");
+        for cidrs in ["", "invalid", "0.0.0.0/0", "::/0"] {
+            env.set("OMNI_TRUSTED_PROXY_CIDRS", cidrs);
+            assert!(ChatSecurityState::from_env().is_err());
+        }
+        env.set("OMNI_TRUSTED_PROXY_CIDRS", "127.0.0.1");
+        for value in ["0", "65", "not-a-number"] {
+            env.set("OMNI_TRUST_PROXY_MAX_HOPS", value);
+            assert!(ChatSecurityState::from_env().is_err());
+        }
     }
 
     #[test]

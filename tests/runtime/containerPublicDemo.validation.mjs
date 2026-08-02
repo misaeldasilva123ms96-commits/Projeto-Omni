@@ -28,12 +28,18 @@ for (const [key, value] of [
   ['OMNI_DEBUG_INTERNAL_ERRORS', 'false'],
   ['OMNI_RATE_LIMIT_ENABLED', 'true'],
   ['OMNI_RATE_LIMIT_PER_MINUTE', '30'],
+  ['OMNI_RATE_LIMIT_MAX_CLIENTS', '10000'],
+  ['OMNI_TRUST_PROXY_HEADERS', 'false'],
+  ['OMNI_TRUST_PROXY_MAX_HOPS', '8'],
   ['OMNI_MAX_MESSAGE_CHARS', '8000'],
   ['OMNI_MAX_BODY_BYTES', '65536'],
 ]) {
   assertContains(dockerfile, `${key}=${value}`, 'Dockerfile.demo env');
   assertContains(compose, `${key}: "${value}"`, 'docker-compose.demo.yml env');
 }
+
+assertContains(dockerfile, 'OMNI_TRUSTED_PROXY_CIDRS=""', 'Dockerfile.demo trusted proxy CIDRs');
+assertContains(compose, 'OMNI_TRUSTED_PROXY_CIDRS: ""', 'docker-compose.demo.yml trusted proxy CIDRs');
 
 assertContains(dockerfile, 'cargo build --release --bin omni-api', 'verified Rust binary build');
 assertContains(dockerfile, 'COPY --from=rust-builder /build/backend/rust/target/release/omni-api', 'verified Rust binary copy');

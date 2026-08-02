@@ -44,6 +44,10 @@ OMNI_ALLOW_SHELL_TOOLS=false
 OMNI_DEBUG_INTERNAL_ERRORS=false
 OMNI_RATE_LIMIT_ENABLED=true
 OMNI_RATE_LIMIT_PER_MINUTE=30
+OMNI_RATE_LIMIT_MAX_CLIENTS=10000
+OMNI_TRUST_PROXY_HEADERS=false
+OMNI_TRUSTED_PROXY_CIDRS=
+OMNI_TRUST_PROXY_MAX_HOPS=8
 OMNI_MAX_MESSAGE_CHARS=8000
 OMNI_MAX_BODY_BYTES=65536
 ```
@@ -107,7 +111,31 @@ It must not expose raw stdout/stderr, env values, stack traces, headers, provide
 
 ## Rate Limit Note
 
-The Rust rate limiter is in-memory and per process. Use an edge, reverse proxy, or platform-level rate limiter for real public traffic and multi-instance deployments.
+The Rust rate limiter uses the actual TCP peer IP by default, stores at most
+`OMNI_RATE_LIMIT_MAX_CLIENTS` active process-local buckets, and keeps the
+existing 60-second sliding window. `Forwarded` and `X-Real-IP` are intentionally
+ignored. `X-Forwarded-For` is also ignored while
+`OMNI_TRUST_PROXY_HEADERS=false`.
+
+Operators may enable `X-Forwarded-For` only when they configure
+`OMNI_TRUSTED_PROXY_CIDRS` with the exact immediate reverse-proxy IPs or CIDR
+networks for their deployment. The repository does not guess ranges for
+Cloudflare, Render, Netlify, Kubernetes, Docker, or another platform. Plain IP
+addresses are exact (`/32` for IPv4 and `/128` for IPv6), blanket `/0` networks
+are rejected, and invalid configuration stops startup. A trusted chain is
+bounded to 8 hops and 8192 total header bytes by default, is parsed strictly,
+and is resolved from right to left. Malformed or unresolvable chains fall back
+to the actual peer without exposing or logging the raw header.
+
+The limiter is in-memory and per process. Use an edge, reverse proxy, or
+platform-level limiter for real public traffic and multi-instance deployments.
+
+The client-identity and bounded-map behavior was validated at technical commit
+`f70d209998e315b1e63dd8ceffdf1560c8a8c2aa`, including the successful
+[Docker Runtime Smoke run 30752270121](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30752270121).
+See the
+[commit-bound hardening evidence](../audits/2026-08-02-trusted-proxy-rate-limit-hardening.md)
+for the exact tests, dependency scans, workflow runs, and retained limitations.
 
 ## Known Limitations
 
