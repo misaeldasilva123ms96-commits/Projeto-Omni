@@ -14,8 +14,6 @@ if (fs.existsSync(engineAdoptionPath)) {
 }
 const packageModule = await import(pathToFileURL(path.join(projectRoot, 'scripts', 'package-queryengine.mjs')).href);
 packageModule.packageQueryEngine();
-const packagedCandidatePath = path.join(projectRoot, 'dist', 'QueryEngine.js');
-
 const runnerModule = await import(pathToFileURL(path.join(projectRoot, 'js-runner', 'queryEngineRunner.js')).href);
 
 const nodeCandidates = runnerModule.getQueryEngineCandidates({}, { node: process.versions.node }, []);
@@ -27,7 +25,7 @@ const loaderCandidates = runnerModule.getQueryEngineCandidates(
   { node: process.versions.node },
   ['--loader=tsx'],
 );
-assert.equal(loaderCandidates.some(candidate => candidate.endsWith('.ts')), true);
+assert.equal(loaderCandidates.some(candidate => candidate.endsWith('.ts')), false);
 const unconfirmedLoaderCandidates = runnerModule.getQueryEngineCandidates(
   { OMNI_QUERY_ENGINE_TYPESCRIPT_LOADER_ENABLED: 'true' },
   { node: process.versions.node },
@@ -53,7 +51,7 @@ const validExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
   session: valid.session,
   cwd: projectRoot,
 });
-assert.equal(validExecution.selectedCandidate, packagedCandidatePath);
+assert.equal(validExecution.selectedCandidate, 'dist_query_engine');
 assert.equal(typeof validExecution.result.response, 'string');
 assert.ok(validExecution.result.response.trim().length > 0);
 assert.equal(validExecution.result.metadata?.engine_mode, 'packaged_upstream');
@@ -80,7 +78,7 @@ const promotedExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
   session: promoted.session,
   cwd: projectRoot,
 });
-assert.equal(promotedExecution.selectedCandidate, packagedCandidatePath);
+assert.equal(promotedExecution.selectedCandidate, 'dist_query_engine');
 assert.equal(promotedExecution.result.metadata?.engine_mode, 'packaged_upstream');
 assert.equal(promotedExecution.result.metadata?.engine_reason, 'dist_candidate_selected');
 assert.equal(promotedExecution.result.metadata?.promoted_scenario, 'executor_bridge_light_request');
@@ -105,7 +103,7 @@ const legacyExecution = await runnerModule.tryRunExistingQueryEngineDetailed({
   session: legacy.session,
   cwd: projectRoot,
 });
-assert.equal(legacyExecution.selectedCandidate, packagedCandidatePath);
+assert.equal(legacyExecution.selectedCandidate, 'dist_query_engine');
 const legacyPayload = legacyExecution.result;
 assert.equal(typeof legacyPayload.execution_request, 'object');
 assert.ok(Array.isArray(legacyPayload.execution_request.actions));
@@ -142,7 +140,7 @@ const phase10Execution = await runnerModule.tryRunExistingQueryEngineDetailed({
   session: phase10Safe.session,
   cwd: projectRoot,
 });
-assert.equal(phase10Execution.selectedCandidate, packagedCandidatePath);
+assert.equal(phase10Execution.selectedCandidate, 'dist_query_engine');
 const phase10Payload = phase10Execution.result;
 assert.equal(typeof phase10Payload.execution_request.repository_analysis, 'object');
 assert.equal(typeof phase10Payload.execution_request.milestone_plan, 'object');

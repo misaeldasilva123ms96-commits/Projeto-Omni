@@ -163,9 +163,11 @@ from brain.runtime.telemetry.supabase_tool_events import (
 from brain.runtime.node_transport import (
     NODE_CIRCUIT_OPEN,
     NodeCircuitBreaker,
+    NodeTransportResult,
     call_node_with_preflight,
     run_node_subprocess,
 )
+from brain.runtime.node_path_policy import NodePathPolicyError, ValidatedNodeExecutionPlan
 from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection
 from brain.runtime.observability.runtime_lane_classifier import (
     LANE_BRIDGE_EXECUTION_REQUEST,
@@ -2120,7 +2122,7 @@ class BrainOrchestrator:
         self._pending_policy_hint_json = None
         return env
 
-    def _resolve_node_command_context(self, payload: str) -> dict[str, Any]:
+    def _resolve_node_command_context(self, payload: str) -> ValidatedNodeExecutionPlan:
         ctx = resolve_node_command_context(
             self.paths,
             self.js_runtime_adapter,
@@ -2207,7 +2209,6 @@ class BrainOrchestrator:
             self._primary_path_metrics["fallbacks"] += 1
             return NODE_FALLBACK_RESPONSE
 
-        diagnostics = self._resolve_node_command_context(payload="")
         session_payload = self.session_store.load(session_id)
         session_payload["executor_bridge"] = "python-rust"
         session_payload["runtime_mode"] = self.last_runtime_mode
@@ -2287,12 +2288,24 @@ class BrainOrchestrator:
             self._primary_path_metrics["fallbacks"] += 1
             return NODE_FALLBACK_RESPONSE
 
-        diagnostics = self._resolve_node_command_context(payload=payload)
-        transport = call_node_with_preflight(
-            diagnostics=diagnostics,
-            payload=payload,
-            timeout_seconds=node_config.node_subprocess_timeout_seconds,
-        )
+        try:
+            diagnostics = self._resolve_node_command_context(payload=payload)
+            transport = call_node_with_preflight(
+                diagnostics=diagnostics,
+                payload=payload,
+                timeout_seconds=node_config.node_subprocess_timeout_seconds,
+            )
+        except NodePathPolicyError as error:
+            transport = NodeTransportResult(
+                ok=False,
+                stage="preflight",
+                reason_code="NODE_BRIDGE_NONZERO_EXIT",
+                details={"failure_class": error.code},
+                stdout="",
+                stderr="",
+                returncode=None,
+                parsed=None,
+            )
         if transport.ok:
             self._node_circuit.record_success(enabled=node_config.node_circuit_breaker_enabled)
         else:

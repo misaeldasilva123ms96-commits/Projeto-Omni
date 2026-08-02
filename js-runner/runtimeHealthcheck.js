@@ -1,22 +1,25 @@
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
+const { getAuthoritativeRoot, validateAllowedFile } = require('./pathPolicy');
 
-const workspaceRoot = process.env.NODE_RUNNER_BASE_DIR
-  ? path.resolve(process.env.NODE_RUNNER_BASE_DIR)
-  : path.resolve(__dirname, '..');
+const workspaceRoot = getAuthoritativeRoot();
+const runnerPath = validateAllowedFile('runner');
+const adapterPath = validateAllowedFile('adapter_js');
+const fusionBrainPath = validateAllowedFile('fusion_brain');
+validateAllowedFile('schema');
+const rootLabel = path.basename(workspaceRoot).toLowerCase() === 'app' ? 'app' : 'repo';
 
 const payload = {
   status: 'ok',
   runtime_name: process.versions.bun ? 'bun' : 'node',
   runtime_version: process.versions.bun || process.version,
   node_version: process.version,
-  cwd: process.cwd(),
-  workspace_root: workspaceRoot,
-  runner_exists: fs.existsSync(path.join(workspaceRoot, 'js-runner', 'queryEngineRunner.js')),
-  adapter_exists: fs.existsSync(path.join(workspaceRoot, 'src', 'queryEngineRunnerAdapter.js')),
-  fusion_brain_exists: fs.existsSync(path.join(workspaceRoot, 'core', 'brain', 'fusionBrain.js')),
+  cwd: process.cwd() === workspaceRoot ? rootLabel : 'unknown',
+  workspace_root: rootLabel,
+  runner_exists: Boolean(runnerPath),
+  adapter_exists: Boolean(adapterPath),
+  fusion_brain_exists: Boolean(fusionBrainPath),
 };
 
 process.stdout.write(JSON.stringify(payload));

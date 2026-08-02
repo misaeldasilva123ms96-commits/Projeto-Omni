@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -10,27 +11,32 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.node_transport import NodeCircuitBreaker, run_node_subprocess  # noqa: E402
+from brain.runtime.node_path_policy import NodePathPolicy, ValidatedNodeExecutionPlan  # noqa: E402
 
 
-def _diagnostics() -> dict[str, object]:
-    return {
-        "command": ["node", "runner.js"],
-        "cwd": str(PROJECT_ROOT),
-        "subprocess_env": {"BASE_DIR": str(PROJECT_ROOT)},
-        "runner_path": "runner.js",
-        "adapter_path": "adapter.js",
-        "fusion_brain_path": "fusionBrain.js",
-        "command_preview": ["node", "runner.js", "<payload:10 chars>"],
-        "node_bin": "node",
-        "node_resolved": "node",
-        "typescript_direct_execution_detected": False,
-        "typescript_candidates_exist": [],
-        "compiled_runner_artifact_exists": True,
-        "missing_paths": [],
-        "env_preview": {"BASE_DIR": str(PROJECT_ROOT)},
-        "runner_exists": True,
-        "cwd_exists": True,
-    }
+def _diagnostics() -> ValidatedNodeExecutionPlan:
+    executable = Path(shutil.which("node") or "node").resolve(strict=True)
+    policy = NodePathPolicy.from_runtime(
+        project_root=PROJECT_ROOT,
+        python_root=PROJECT_ROOT / "backend" / "python",
+        runner_path=PROJECT_ROOT / "js-runner" / "queryEngineRunner.js",
+    )
+    root = str(PROJECT_ROOT.resolve())
+    return ValidatedNodeExecutionPlan.create(
+        policy=policy,
+        executable=executable,
+        runtime_name="node",
+        environment={
+            "BASE_DIR": root,
+            "OMNI_BASE_DIR": root,
+            "NODE_RUNNER_BASE_DIR": root,
+            "NODE_BIN": str(executable),
+            "OMNI_JS_RUNTIME": "node",
+            "OMNI_JS_RUNTIME_SELECTED": "node",
+            "OMNI_JS_RUNTIME_BIN": str(executable),
+            "OMNI_JS_RUNTIME_SOURCE": "test",
+        },
+    )
 
 
 class NodeTransportTest(unittest.TestCase):

@@ -35,7 +35,7 @@ const execution = await runnerModule.tryRunExistingQueryEngineDetailed({
 assert.ok(execution.result, 'expected engine result');
 assert.match(
   String(execution.selectedCandidate || ''),
-  /queryEngineRunnerAdapter\.(js|mjs)$/,
+  /^adapter_(js|mjs)$/,
   `expected fusion adapter, got ${execution.selectedCandidate}`,
 );
 assert.equal(execution.result.metadata?.engine_mode, 'fusion_authority');

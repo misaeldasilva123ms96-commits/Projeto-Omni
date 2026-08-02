@@ -23,6 +23,20 @@ const publicDoc = read('docs/deploy/PUBLIC_DEMO_CONTAINER.md');
 const auditDoc = read('docs/audit/PHASE_6_CONTAINER_PUBLIC_DEMO.md');
 
 for (const [key, value] of [
+  ['BASE_DIR', '/app'],
+  ['OMNI_BASE_DIR', '/app'],
+  ['NODE_RUNNER_BASE_DIR', '/app'],
+]) {
+  assertContains(dockerfile, `${key}=${value}`, 'Dockerfile.demo canonical root');
+  assertContains(compose, `${key}: ${value}`, 'docker-compose.demo.yml canonical root');
+}
+
+for (const forbiddenKey of ['RUNNER_SCHEMA_PATH', 'RUNNER_ADAPTER_PATH', 'NODE_OPTIONS', 'NODE_PATH']) {
+  assert.equal(new RegExp(`\\b${forbiddenKey}\\s*[:=]`).test(dockerfile), false, `Dockerfile.demo must omit ${forbiddenKey}`);
+  assert.equal(new RegExp(`\\b${forbiddenKey}\\s*[:=]`).test(compose), false, `docker-compose.demo.yml must omit ${forbiddenKey}`);
+}
+
+for (const [key, value] of [
   ['OMNI_PUBLIC_DEMO_MODE', 'true'],
   ['OMNI_ALLOW_SHELL_TOOLS', 'false'],
   ['OMNI_DEBUG_INTERNAL_ERRORS', 'false'],
