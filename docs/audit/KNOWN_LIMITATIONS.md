@@ -44,12 +44,13 @@ the historical 2026-08-01 reconciliation. That historical scope remains
 unchanged.
 
 A GitHub-hosted CI runtime smoke was subsequently verified at implementation
-commit `9e6d3df8c2affc08865c7d0b588e3ad42f0880e3` in
-[Actions run 30729056467](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30729056467).
+commit `d9a0be591c52645aa3bf08f03b9f72a6340f1340` in
+[Actions run 30731215303](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30731215303).
 The tested controlled-demo image built, became healthy, served health/status/chat,
 preserved Runtime Truth and request boundaries, enforced its effective container
-hardening, passed synthetic-secret leakage checks, and exited normally through
-the tested SIGTERM path. The commit-bound details are recorded in
+hardening, passed fail-closed diagnostic-publication and synthetic-secret
+leakage checks, verified final cleanup, and exited normally through the tested
+SIGTERM path. The commit-bound details are recorded in
 [`docs/audits/2026-08-02-docker-runtime-smoke.md`](../audits/2026-08-02-docker-runtime-smoke.md).
 
 The target deployment environment remains unverified. Target deployment Docker image build still needs daemon-backed validation. A production container profile
