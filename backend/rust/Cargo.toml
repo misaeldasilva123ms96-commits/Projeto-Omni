@@ -8,6 +8,7 @@ axum = { version = "0.8", features = ["macros"] }
 async-stream = "0.3"
 futures-core = "0.3"
 jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+ipnet = "2"
 rand = "0.10"
 rand_core = "0.10"
 serde = { version = "1", features = ["derive"] }

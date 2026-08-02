@@ -22,6 +22,9 @@ const requiredDemoEnv = [
   ['OMNI_DEBUG_INTERNAL_ERRORS', 'false'],
   ['OMNI_RATE_LIMIT_ENABLED', 'true'],
   ['OMNI_RATE_LIMIT_PER_MINUTE', '30'],
+  ['OMNI_RATE_LIMIT_MAX_CLIENTS', '10000'],
+  ['OMNI_TRUST_PROXY_HEADERS', 'false'],
+  ['OMNI_TRUST_PROXY_MAX_HOPS', '8'],
   ['OMNI_MAX_MESSAGE_CHARS', '8000'],
   ['OMNI_MAX_BODY_BYTES', '65536'],
   ['OMNI_INTENT_CLASSIFIER', 'regex'],
@@ -96,6 +99,7 @@ function validateDockerfile() {
   validateDemoEnv(dockerfile, 'Dockerfile.demo')
   assert(/\bUSER\s+omni\b/.test(dockerfile), 'Dockerfile.demo must run as non-root user omni')
   assert(!/SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GROQ_API_KEY/.test(dockerfile), 'Dockerfile.demo must not bake provider or Supabase secrets')
+  assert(/OMNI_TRUSTED_PROXY_CIDRS=""/.test(dockerfile), 'Dockerfile.demo must not guess trusted proxy CIDRs')
 }
 
 function validateCompose() {
@@ -107,6 +111,7 @@ function validateCompose() {
   assert(!/privileged:\s*true/.test(compose), 'compose must not use privileged mode')
   assert(!/docker\.sock/.test(compose), 'compose must not mount docker.sock')
   assert(!/SUPABASE_SERVICE_ROLE_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GROQ_API_KEY/.test(compose), 'compose must not contain raw secret env names')
+  assert(/OMNI_TRUSTED_PROXY_CIDRS:\s*["']{2}/.test(compose), 'compose must not guess trusted proxy CIDRs')
 }
 
 function validateDockerignore() {
