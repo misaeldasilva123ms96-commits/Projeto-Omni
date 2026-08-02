@@ -199,6 +199,10 @@ class NodePathPolicy:
     ) -> Path | None:
         raw = Path(os.path.abspath(candidate))
         _relative(raw, self.project_root, code)
+        try:
+            _assert_no_link_components(raw, include_leaf=False)
+        except NodePathPolicyError as error:
+            raise NodePathPolicyError(code) from error
         exists = os.path.lexists(raw)
         if not exists:
             if required:
