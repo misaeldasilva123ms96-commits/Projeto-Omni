@@ -30,6 +30,23 @@ state across replicas, restarts, or regions. Hostile public traffic and
 multi-instance deployments require edge/platform rate limiting and shared
 operational controls.
 
+The trusted-proxy and bounded-client-map hardening was subsequently verified at
+technical commit `f70d209998e315b1e63dd8ceffdf1560c8a8c2aa`. Direct chat
+requests now use the actual TCP peer IP instead of a shared `global` bucket.
+`X-Forwarded-For` can influence identity only when the immediate peer belongs
+to deployment-specific `OMNI_TRUSTED_PROXY_CIDRS`; `Forwarded` and
+`X-Real-IP` remain intentionally ignored. Invalid proxy configuration fails
+startup, malformed chains fall back to the peer, and a full active bucket map
+rejects new identities without evicting active clients. Commit-bound local and
+remote evidence is recorded in
+[`docs/audits/2026-08-02-trusted-proxy-rate-limit-hardening.md`](../audits/2026-08-02-trusted-proxy-rate-limit-hardening.md).
+
+This does not make the limiter distributed or the deployment production-ready.
+It remains process-local, resets on restart, and requires edge/platform
+enforcement for replicas. Proxy CIDRs must be configured for each deployment.
+No WAF, hostile internet traffic, production deployment, multi-instance
+coordination, distributed rate-limit store, or penetration test was validated.
+
 ## Runtime Scope
 
 Subprocess remains the default runtime path. Python and Node service modes are

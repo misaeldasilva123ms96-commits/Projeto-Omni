@@ -130,6 +130,13 @@ to the actual peer without exposing or logging the raw header.
 The limiter is in-memory and per process. Use an edge, reverse proxy, or
 platform-level limiter for real public traffic and multi-instance deployments.
 
+The client-identity and bounded-map behavior was validated at technical commit
+`f70d209998e315b1e63dd8ceffdf1560c8a8c2aa`, including the successful
+[Docker Runtime Smoke run 30752270121](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30752270121).
+See the
+[commit-bound hardening evidence](../audits/2026-08-02-trusted-proxy-rate-limit-hardening.md)
+for the exact tests, dependency scans, workflow runs, and retained limitations.
+
 ## Known Limitations
 
 - Container-local writable data is ephemeral in demo compose tmpfs paths.
