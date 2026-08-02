@@ -155,9 +155,11 @@ for the exact tests, dependency scans, workflow runs, and retained limitations.
   sandbox. It does not eliminate privileged local replacement or filesystem
   TOCTOU risk, and it adds no seccomp, AppArmor, or SELinux policy.
 
-The Node runner containment was validated at implementation head
-`0981bb093fc96b92c925d86414f95234d1f744de`, including successful
-[Docker Runtime Smoke run 30758463759](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463759).
+The Node runner containment was validated at authoritative technical head
+`a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`, including built-in bootstrap
+validation of `js-runner/pathPolicy.js`, pre-import validation of
+`core/brain/fusionBrain.js`, and successful
+[Docker Runtime Smoke run 30760386640](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386640).
 See the
 [commit-bound containment evidence](../audits/2026-08-02-node-runner-path-containment.md)
 for the exact policy, tests, workflow runs, and retained limitations.

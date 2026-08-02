@@ -8,7 +8,11 @@
 
 **Technical commit:** `fffe0a20e1e4c477d3978b8ffddd4a0d923acc58`
 
-**Corrective implementation head:** `0981bb093fc96b92c925d86414f95234d1f744de`
+**First corrective implementation commit:** `0981bb093fc96b92c925d86414f95234d1f744de`
+
+**Bootstrap-containment correction:** `a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`
+
+**Authoritative technical head:** `a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`
 
 **Pull request:** [#604](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/pull/604) (draft)
 
@@ -54,6 +58,37 @@ Required files fail closed when missing. Optional engine candidates may be
 absent, but an existing candidate of the wrong type or one reached through a
 symlink/junction fails closed. The corrective implementation head also checks
 parent components before returning for a missing optional leaf.
+
+## Bootstrap and transitive-import follow-up
+
+The original implementation and first correction did not completely close two
+paths. Both `queryEngineRunner.js` and `runtimeHealthcheck.js` required
+`js-runner/pathPolicy.js` before that policy module had been validated, and the
+query runner did not independently validate `core/brain/fusionBrain.js` before
+an allow-listed adapter could import it. Those gaps were discovered after the
+earlier evidence commit and are corrected only by technical commit
+`a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`.
+
+Python now treats `js-runner/pathPolicy.js` as a required security-sensitive
+file with the safe `path_policy` label. Preflight and immediate pre-launch plan
+verification require the exact allow-listed relative path, a regular file,
+canonical containment, and no symlink, junction, reparse-point leaf or parent.
+A missing or unsafe module fails before `subprocess.run`.
+
+Before either JavaScript entrypoint requires the policy module, a deliberately
+small duplicated bootstrap uses only Node `fs` and `path`. It derives the root
+from `__dirname`, constructs the exact policy path, applies `lstatSync` to each
+component, rejects links, requires a regular leaf, compares lexical and
+`realpathSync` identities, proves containment, checks configured roots and the
+direct entrypoint identity, and emits only
+`node_path_policy_bootstrap_failed` on failure. No unchecked local helper is
+loaded to perform this bootstrap.
+
+`getQueryEngineCandidates()` now calls
+`validateAllowedFile('fusion_brain')` before returning any adapter candidate,
+so neither the CommonJS nor ESM adapter can execute first. Missing,
+wrong-type, internally linked, externally linked, or link-parent
+`fusionBrain.js` fixtures fail closed before adapter import.
 
 ## File allow-list and independent JavaScript validation
 
@@ -178,6 +213,30 @@ Fresh local results on the implementation content included:
 - Rust formatting and Clippy with warnings denied: passed.
 - Rust locked test suite: 170 passed.
 
+Follow-up correction results:
+
+- Python path-policy tests: 18 passed and 8 platform skips on Windows,
+  including a successful Windows junction/reparse rejection fixture.
+- Python node-runner tests: 9 passed.
+- Python node-transport tests: 5 passed, including proof that a safe
+  `path_policy` failure never invokes `subprocess.run`.
+- Bootstrap and fusion tests locally: 8 passed and 6 file-symlink fixtures
+  skipped because Windows denied their creation; directory and Windows
+  junction-parent cases passed.
+- The canonical Linux Node workflow executed the same new suite with 14
+  passed, 0 failed, and 0 skipped. Both entrypoints rejected internal and
+  external policy symlinks, directory leaves, and symlinked parents. All four
+  fusion substitutions were rejected before adapter import.
+- Sentinel modules that would create a file if loaded were not executed, and
+  stdout/stderr contained no rejected external path.
+- The canonical Node suite includes the new adversarial suite and passed.
+- Complete local Python backend suite: 741 passed, 8 skipped, and 20 subtests
+  passed.
+- The follow-up local broad Python runtime run completed 1850 passing tests,
+  4 skips, and 133 subtests but retained 6 Rust-bridge cold-build failures in
+  the same Windows temporary-target segment. The authoritative Linux Python
+  and full-runtime workflows passed the complete canonical suites.
+
 The first local broad Python runtime attempt completed 1851 tests but had four
 Rust tool-bridge failures caused by a fresh Windows temporary Cargo target and
 its cold build exceeding the bridge timeout. The same target built successfully
@@ -195,18 +254,18 @@ compatibility, Python-to-Node execution, and Runtime Truth compatibility.
 
 ## Docker evidence
 
-The local daemon-backed smoke used Docker Engine 29.4.1 and Compose 5.1.3,
-built image
-`sha256:51b6e563347dec2930ad7ef580a800814f40603d8cc2c40bd425be962cddf148`,
+The final follow-up local daemon-backed smoke used Docker Engine 29.4.1 and
+Compose 5.1.3, built image
+`sha256:33fb130f8b7267c84db348448c65658cdf9ac162936040aa4a7da29eca13a941`,
 verified `/app` as the controlled root, the read-only root filesystem,
 canonical runner execution, safe labels, Runtime Truth
 `DIRECT_LOCAL_RESPONSE_WITH_PROVIDER_UNAVAILABLE`, graceful shutdown with exit
 0, and removal of the container, network, and image.
 
-The authoritative hosted Docker job is
-[91524653683](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463759/job/91524653683).
+The corrected authoritative hosted Docker job is
+[91529708915](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386640/job/91529708915).
 It used Compose 2.38.2, built image
-`sha256:f65338e9239c06bcc123571872e68bd4e8e77be1dfedccdee41413610bfc40a3`,
+`sha256:2980d197d206281f648a7485392597400f6a916e9f260875380e97ef862a6b03`,
 reported the same Runtime Truth classification, and completed shutdown with
 exit 0.
 
@@ -218,29 +277,30 @@ exit 0.
   vulnerabilities.
 - `(cd backend/rust && cargo audit)`: no advisory vulnerability; the existing
   allowed yanked warning for `spin 0.9.8` remains.
-- Gitleaks 8.30.1 found no leaks in each changed implementation file, either
-  implementation commit, or the complete implementation range.
+- Gitleaks 8.30.1 found no leaks in each changed correction file, the new
+  technical correction commit, the earlier implementation commits, or the
+  complete implementation range.
 
 ## Authoritative implementation-head workflows
 
-GitHub marks both implementation commit signatures as verified with
-`reason: valid`. Every workflow on corrective implementation head
-`0981bb093fc96b92c925d86414f95234d1f744de` completed successfully:
+GitHub marks all three implementation commit signatures as verified with
+`reason: valid`. Every workflow on authoritative technical head
+`a6f6b34e79f560e9dfc71455d1ef63ab893c96f7` completed successfully:
 
 | Workflow | Run | Conclusion |
 | --- | --- | --- |
-| Pull Request Labeler | [30758462755](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758462755) | success |
-| Omni Node CI | [30758463712](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463712) | success |
-| Security Checks | [30758463714](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463714) | success |
-| Omni Python CI | [30758463724](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463724) | success |
-| Omni Live E2E CI | [30758463725](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463725) | success |
-| Frontend CI | [30758463726](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463726) | success |
-| Omni Security CI | [30758463729](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463729) | success |
-| Omni Runtime CI | [30758463736](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463736) | success |
-| CI | [30758463738](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463738) | success |
-| Lint & Static Checks | [30758463739](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463739) | success |
-| Docker Runtime Smoke | [30758463759](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463759) | success |
-| Omni Public Demo CI | [30758463820](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30758463820) | success |
+| Pull Request Labeler | [30760385803](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760385803) | success |
+| Omni Public Demo CI | [30760386636](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386636) | success |
+| Docker Runtime Smoke | [30760386640](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386640) | success |
+| Security Checks | [30760386643](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386643) | success |
+| Frontend CI | [30760386649](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386649) | success |
+| Lint & Static Checks | [30760386656](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386656) | success |
+| Omni Runtime CI | [30760386662](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386662) | success |
+| Omni Security CI | [30760386681](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386681) | success |
+| Omni Node CI | [30760386685](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386685) | success |
+| CI | [30760386688](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386688) | success |
+| Omni Python CI | [30760386698](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386698) | success |
+| Omni Live E2E CI | [30760386712](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30760386712) | success |
 
 ## Residual limitations
 

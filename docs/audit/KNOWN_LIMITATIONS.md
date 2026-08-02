@@ -54,12 +54,16 @@ opt-in. Cross-process lifecycle management, shared health state, distributed
 backpressure, coordinated failover, and multi-instance behavior are not proven
 production-complete.
 
-The Python-to-Node boundary was subsequently hardened at implementation head
-`0981bb093fc96b92c925d86414f95234d1f744de`. Runner, schema, adapter, engine,
+The Python-to-Node boundary was subsequently hardened at authoritative
+technical head `a6f6b34e79f560e9dfc71455d1ef63ab893c96f7`. Runner, policy module,
+schema, adapter, engine,
 cwd, environment, and memory paths now use an explicit canonical-root policy
 with independent Python and JavaScript validation. Security-sensitive symlinks,
 Windows junctions/reparse points, traversal, unsafe file types, mutable-plan
 tampering, reserved overlay keys, `NODE_OPTIONS`, and `NODE_PATH` fail closed.
+The final correction adds a built-in-only bootstrap before either JavaScript
+entrypoint loads `pathPolicy.js` and validates `fusionBrain.js` before any
+adapter import. Earlier implementation evidence did not cover those two gaps.
 Commit-bound evidence is recorded in
 [`docs/audits/2026-08-02-node-runner-path-containment.md`](../audits/2026-08-02-node-runner-path-containment.md).
 
