@@ -39,12 +39,24 @@ production-complete.
 
 ## Docker Validation
 
-Docker image build still needs daemon-backed validation. No daemon-backed Docker
-build or full container runtime smoke was executed in the 2026-08-01
-reconciliation. Static validators do not prove that the image
-starts, serves `/health`, accepts `/chat`, or preserves runtime policies on the
-target platform. A controlled deployment still needs image build, container
-startup, health/chat smoke, shutdown, and target-environment evidence.
+No daemon-backed Docker build or full container runtime smoke was executed in
+the historical 2026-08-01 reconciliation. That historical scope remains
+unchanged.
+
+A GitHub-hosted CI runtime smoke was subsequently verified at implementation
+commit `9e6d3df8c2affc08865c7d0b588e3ad42f0880e3` in
+[Actions run 30729056467](https://github.com/misaeldasilva123ms96-commits/Projeto-Omni/actions/runs/30729056467).
+The tested controlled-demo image built, became healthy, served health/status/chat,
+preserved Runtime Truth and request boundaries, enforced its effective container
+hardening, passed synthetic-secret leakage checks, and exited normally through
+the tested SIGTERM path. The commit-bound details are recorded in
+[`docs/audits/2026-08-02-docker-runtime-smoke.md`](../audits/2026-08-02-docker-runtime-smoke.md).
+
+The target deployment environment remains unverified. Target deployment Docker image build still needs daemon-backed validation. A production container profile
+remains nonexistent or unverified. Hostile traffic, multi-instance
+behavior, target-platform secret management, and target-platform deployment
+health remain unverified. Static validation and GitHub-hosted runner evidence do
+not establish any of those properties.
 
 The demo container profile is not a production deployment profile. WAF/edge
 controls, secret injection and rotation, distributed monitoring, retention,
