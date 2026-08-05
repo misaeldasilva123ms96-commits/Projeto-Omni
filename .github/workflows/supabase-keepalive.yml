@@ -1,0 +1,69 @@
+name: Supabase Daily Keepalive
+
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily at 06:17 UTC (03:17 America/Sao_Paulo)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-daily-keepalive
+  cancel-in-progress: false
+
+jobs:
+  database-query:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+    steps:
+      - name: Validate Supabase configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SUPABASE_URL}" || -z "${SUPABASE_ANON_KEY}" ]]; then
+            echo "::error::Configure SUPABASE_URL and SUPABASE_ANON_KEY as repository secrets."
+            exit 1
+          fi
+
+          if [[ ! "${SUPABASE_URL}" =~ ^https://[a-z0-9-]+\.supabase\.co/?$ ]]; then
+            echo "::error::SUPABASE_URL must be a standard HTTPS Supabase project URL."
+            exit 1
+          fi
+
+          if [[ ! "${SUPABASE_ANON_KEY}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::SUPABASE_ANON_KEY contains unexpected characters."
+            exit 1
+          fi
+
+      - name: Run read-only database keepalive query
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          endpoint="${SUPABASE_URL%/}/rest/v1/profiles?select=id&limit=1"
+          status="$(curl \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --max-time 30 \
+            --retry 2 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --header "apikey: ${SUPABASE_ANON_KEY}" \
+            --header "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            --header 'Accept: application/json' \
+            "${endpoint}")"
+
+          if [[ "${status}" != '200' ]]; then
+            echo "::error::Supabase keepalive query failed with HTTP ${status}."
+            exit 1
+          fi
+
+          echo "Supabase read-only keepalive query completed successfully."
