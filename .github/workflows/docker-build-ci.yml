@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload sanitized failure diagnostics
         if: ${{ failure() && steps.diagnostics.outputs.safe_to_upload == 'true' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: docker-runtime-smoke-diagnostics-${{ github.run_id }}
           path: ${{ runner.temp }}/omni-docker-smoke-diagnostics
