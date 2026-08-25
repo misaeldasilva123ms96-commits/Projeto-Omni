@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.evolution.controlled_apply import Phase39TuningStore  # noqa: E402
 from brain.runtime.improvement.improvement_orchestrator import ImprovementOrchestrator  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 def _proposal_dict(*, opp_id: str, new_value: int = 8) -> dict:
@@ -56,7 +57,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
                 os.environ[k] = v
 
     def test_disabled(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-improvement"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-improvement"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
@@ -73,7 +74,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_idle_when_phase40_off(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-improvement"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-improvement"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
@@ -90,7 +91,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_pending_without_auto_approve(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-improvement"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-improvement"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
@@ -117,7 +118,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_gradual_rollout_three_stages(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-improvement"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-improvement"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
@@ -156,7 +157,7 @@ class ImprovementOrchestratorTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_regression_triggers_rollback(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-improvement"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-improvement"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)

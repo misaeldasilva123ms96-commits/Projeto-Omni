@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from brain.runtime.planning import TaskPlan, TaskPlanStatus
+from brain.runtime.artifact_paths import artifact_logs_root
 from brain.runtime.planning.checkpoint_manager import CheckpointManager
 from brain.runtime.planning.operational_summary import OperationalSummaryBuilder
 from brain.runtime.planning.task_state_store import TaskStateStore
@@ -21,7 +22,7 @@ class EscalationHandler:
         self.store = store
         self.checkpoints = checkpoints
         self.summary_builder = summary_builder
-        self.escalations_dir = root / ".logs" / "fusion-runtime" / "continuation" / "escalations"
+        self.escalations_dir = artifact_logs_root(root) / "fusion-runtime" / "continuation" / "escalations"
         self.escalations_dir.mkdir(parents=True, exist_ok=True)
 
     def escalate(self, *, plan: TaskPlan, reason: str, payload: dict[str, object]) -> TaskPlan:

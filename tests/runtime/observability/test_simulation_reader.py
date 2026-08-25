@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import shutil
@@ -7,6 +7,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / 'backend' / 'python'))
@@ -17,7 +18,7 @@ from brain.runtime.observability.simulation_reader import SimulationReader  # no
 class SimulationReaderTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / '.logs' / 'test-observability'
+        base = artifact_logs_root(PROJECT_ROOT) / 'test-observability'
         base.mkdir(parents=True, exist_ok=True)
         path = base / f'simulation-reader-{uuid4().hex[:8]}'
         path.mkdir(parents=True, exist_ok=True)
@@ -28,7 +29,7 @@ class SimulationReaderTest(unittest.TestCase):
 
     def test_simulation_reader_reads_recent_simulations_safely(self) -> None:
         with self.temp_workspace() as workspace_root:
-            log_dir = workspace_root / '.logs' / 'fusion-runtime' / 'simulation'
+            log_dir = artifact_logs_root(workspace_root) / 'fusion-runtime' / 'simulation'
             log_dir.mkdir(parents=True, exist_ok=True)
             path = log_dir / 'simulation_log.jsonl'
             path.write_text(

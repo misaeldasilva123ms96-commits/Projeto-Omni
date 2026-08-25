@@ -13,12 +13,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.goals import FailureTolerance, Goal, GoalStore, ToleranceType  # noqa: E402
 from brain.runtime.specialists import SpecialistCoordinator  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class SpecialistCoordinatorTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-specialists"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-specialists"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"coordinator-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -86,6 +87,6 @@ class SpecialistCoordinatorTest(unittest.TestCase):
                 execute_callback=lambda: {"ok": False, "progress_score": 0.2},
             )
 
-            self.assertTrue((workspace_root / ".logs" / "fusion-runtime" / "specialists" / "coordination_log.jsonl").exists())
+            self.assertTrue((artifact_logs_root(workspace_root) / "fusion-runtime" / "specialists" / "coordination_log.jsonl").exists())
             self.assertIn(trace.final_outcome, {"achieved", "failed", "completed_step"})
             self.assertTrue(any(item.get("specialist_type") == "repair" for item in trace.decisions))

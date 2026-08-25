@@ -13,12 +13,13 @@ from brain.runtime.control.governance_controller import GovernanceResolutionCont
 from brain.runtime.control.governance_taxonomy import GovernanceReason  # noqa: E402
 from brain.runtime.control.run_registry import RunRegistry, RunStatus  # noqa: E402
 from brain.runtime.observability.run_reader import read_run  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GovernanceResolutionControllerTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-governance-controller"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-governance-controller"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"ctrl-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

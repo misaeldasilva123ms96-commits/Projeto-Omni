@@ -9,6 +9,9 @@ from uuid import uuid4
 from .models import utc_now_iso
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class EvolutionApplicationStatus(str, Enum):
     PENDING = "pending"
     APPLYING = "applying"
@@ -100,7 +103,7 @@ class EvolutionApplicationAttempt:
 
 
 def _sandbox_root(root: Path) -> Path:
-    return root / ".logs" / "fusion-runtime" / "evolution" / "sandbox"
+    return artifact_logs_root(root) / "fusion-runtime" / "evolution" / "sandbox"
 
 
 def _resolve_target_path(*, root: Path, target_path: str) -> Path:

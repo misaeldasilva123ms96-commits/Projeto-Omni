@@ -4,12 +4,13 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class MemorySync:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.base_dir = root / ".logs" / "fusion-runtime" / "memory"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "memory"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.export_path = self.base_dir / "sync-export.jsonl"
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="omni-memory-sync")

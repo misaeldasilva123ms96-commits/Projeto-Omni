@@ -18,12 +18,13 @@ from brain.runtime.evolution import (  # noqa: E402
     validate_governed_evolution_summary_shape,
 )
 from brain.runtime.observability.run_reader import read_evolution_summary  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class EvolutionProgramClosureTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-evolution-program-closure"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-evolution-program-closure"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"evolution-closure-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

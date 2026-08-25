@@ -15,6 +15,7 @@ from brain.runtime.evolution.controlled_evolution_engine import ControlledEvolut
 from brain.runtime.evolution.controlled_evolution_models import ImprovementOpportunity  # noqa: E402
 from brain.runtime.evolution.controlled_proposal_builder import ControlledProposalBuilder  # noqa: E402
 from brain.runtime.evolution.controlled_validation import validate_governed_proposal  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ControlledEvolutionEngineTest(unittest.TestCase):
@@ -29,7 +30,7 @@ class ControlledEvolutionEngineTest(unittest.TestCase):
             os.environ["OMNI_PHASE39_DISABLE"] = self._prev_disable
 
     def test_disabled_env(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-controlled-evo"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-controlled-evo"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,7 @@ class ControlledEvolutionEngineTest(unittest.TestCase):
             os.environ.pop("OMNI_PHASE39_DISABLE", None)
 
     def test_detect_validate_apply_rollback(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-controlled-evo"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-controlled-evo"
         base.mkdir(parents=True, exist_ok=True)
         root = base / uuid4().hex[:10]
         root.mkdir(parents=True, exist_ok=True)

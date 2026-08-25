@@ -5,12 +5,13 @@ import threading
 from pathlib import Path
 
 from .models import ProceduralPattern
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ProceduralRegistry:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.base_dir = root / ".logs" / "fusion-runtime" / "memory"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "memory"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / "procedural_patterns.json"
         self._lock = threading.RLock()

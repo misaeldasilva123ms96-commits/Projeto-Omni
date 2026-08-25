@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 import sys
@@ -6,6 +6,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / 'backend' / 'python'))
@@ -17,7 +18,7 @@ from brain.runtime.observability.goal_reader import GoalReader  # noqa: E402
 class GoalReaderTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / '.logs' / 'test-observability'
+        base = artifact_logs_root(PROJECT_ROOT) / 'test-observability'
         base.mkdir(parents=True, exist_ok=True)
         path = base / f'goal-reader-{uuid4().hex[:8]}'
         path.mkdir(parents=True, exist_ok=True)

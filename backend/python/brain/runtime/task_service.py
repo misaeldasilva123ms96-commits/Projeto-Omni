@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.observability._reader_utils import read_tail_jsonl
+from brain.runtime.artifact_paths import artifact_logs_root
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths
 from brain.runtime.service_contracts import build_task_envelope, build_task_status, validate_start_task_request
 
@@ -66,7 +67,7 @@ class TaskService:
         }
 
     def inspect_learning_memory(self) -> dict[str, Any]:
-        learning_path = self.orchestrator.paths.root / ".logs" / "fusion-runtime" / "execution-learning-memory.json"
+        learning_path = artifact_logs_root(self.orchestrator.paths.root) / "fusion-runtime" / "execution-learning-memory.json"
         if not learning_path.exists():
             return {"entries": []}
         import json
@@ -193,7 +194,7 @@ class TaskService:
 
     def inspect_run_intelligence(self, *, run_id: str) -> dict[str, Any]:
         checkpoint = self.orchestrator.checkpoint_store.load(run_id)
-        run_summary_path = self.orchestrator.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
+        run_summary_path = artifact_logs_root(self.orchestrator.paths.root) / "fusion-runtime" / "run-summaries.jsonl"
         latest_summary = None
         for candidate in reversed(
             read_tail_jsonl(run_summary_path, limit=RUN_SUMMARY_TAIL_LIMIT, max_bytes=JSONL_TAIL_MAX_BYTES)

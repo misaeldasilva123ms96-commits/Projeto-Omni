@@ -18,12 +18,13 @@ from brain.runtime.goals import Constraint, ConstraintType, GoalFactory, GoalSta
 from brain.runtime.learning.learning_executor import LearningExecutor  # noqa: E402
 from brain.runtime.orchestration import OrchestrationExecutor  # noqa: E402
 from brain.runtime.planning.planning_executor import PlanningExecutor  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GoalConstraintIntegrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-goal-integration"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-goal-integration"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase21-int-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -109,7 +110,7 @@ class GoalConstraintIntegrationTest(unittest.TestCase):
             )
 
             self.assertEqual(update["ingested_evidence"], 1)
-            evidence_path = workspace_root / ".logs" / "fusion-runtime" / "learning" / "evidence" / "execution_receipt.jsonl"
+            evidence_path = artifact_logs_root(workspace_root) / "fusion-runtime" / "learning" / "evidence" / "execution_receipt.jsonl"
             payload = json.loads(evidence_path.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(payload["goal_id"], plan.goal_id)
 

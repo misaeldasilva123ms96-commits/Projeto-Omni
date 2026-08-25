@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.observability._reader_utils import read_tail_jsonl
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
@@ -14,7 +15,7 @@ class RuntimeLearningStore:
     """Append-only bounded persistence for Phase 34 turn records (same tree as LearningStore evidence)."""
 
     def __init__(self, root: Path) -> None:
-        self._path = root / ".logs" / "fusion-runtime" / "learning" / "evidence" / "runtime_turn_records.jsonl"
+        self._path = artifact_logs_root(root) / "fusion-runtime" / "learning" / "evidence" / "runtime_turn_records.jsonl"
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     @property

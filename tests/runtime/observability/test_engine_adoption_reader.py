@@ -13,12 +13,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.engine_adoption_store import EngineAdoptionStore  # noqa: E402
 from brain.runtime.observability.engine_adoption_reader import read_engine_adoption  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class EngineAdoptionReaderTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-observability"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-observability"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"engine-adoption-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -60,7 +61,7 @@ class EngineAdoptionReaderTest(unittest.TestCase):
                 session_id="sess-26",
             )
             payload = json.loads(
-                (workspace_root / ".logs" / "fusion-runtime" / "engine_adoption.json").read_text(encoding="utf-8")
+                (artifact_logs_root(workspace_root) / "fusion-runtime" / "engine_adoption.json").read_text(encoding="utf-8")
             )
             breakdown = payload["engine_counters"]["fallback_by_reason"]
             self.assertEqual(breakdown["packaged_import_failed"], 1)
@@ -103,7 +104,7 @@ class EngineAdoptionReaderTest(unittest.TestCase):
                 },
             )
 
-            path = workspace_root / ".logs" / "fusion-runtime"
+            path = artifact_logs_root(workspace_root) / "fusion-runtime"
             path.mkdir(parents=True, exist_ok=True)
             (path / "engine_adoption.json").write_text('{"scope": ', encoding="utf-8")
             self.assertEqual(read_engine_adoption(workspace_root)["promotion_ready"], False)

@@ -17,12 +17,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.continuation import ContinuationDecisionType, ContinuationExecutor  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
 from brain.runtime.planning.planning_executor import PlanningExecutor  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class AdaptiveContinuationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-continuation"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-continuation"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase17-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -295,7 +296,7 @@ class AdaptiveContinuationTest(unittest.TestCase):
             )
 
             assert decision is not None and updated is not None
-            path = workspace_root / ".logs" / "fusion-runtime" / "continuation" / "escalations" / f"{updated.plan_id}.jsonl"
+            path = artifact_logs_root(workspace_root) / "fusion-runtime" / "continuation" / "escalations" / f"{updated.plan_id}.jsonl"
             self.assertTrue(path.exists())
             payload = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(payload["decision"]["decision_type"], "escalate_failure")

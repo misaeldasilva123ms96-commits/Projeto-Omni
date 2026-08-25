@@ -12,12 +12,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.specialists import RepairSpecialist  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class RepairSpecialistTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-specialists"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-specialists"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"repair-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

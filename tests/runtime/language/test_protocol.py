@@ -36,6 +36,7 @@ from brain.runtime.language import (  # noqa: E402
 )
 from brain.runtime.language.types import OILErrorDetails, OIL_VERSION  # noqa: E402
 from brain.runtime.specialists import SpecialistCoordinator  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class OilTransportEnvelopeTest(unittest.TestCase):
@@ -249,7 +250,7 @@ class SpecialistCoordinatorProtocolAdoptionTest(unittest.TestCase):
 
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-protocol-coordinator"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-protocol-coordinator"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"coord-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

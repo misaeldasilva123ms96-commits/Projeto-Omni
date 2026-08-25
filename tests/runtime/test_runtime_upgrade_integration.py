@@ -13,12 +13,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class RuntimeUpgradeIntegrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-runtime-upgrade"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-runtime-upgrade"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"upgrade-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

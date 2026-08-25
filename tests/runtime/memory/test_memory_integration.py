@@ -16,12 +16,13 @@ from brain.runtime.goals import ConstraintRegistry, GoalEvaluator, GoalFactory  
 from brain.runtime.learning.learning_executor import LearningExecutor  # noqa: E402
 from brain.runtime.memory import MemoryFacade  # noqa: E402
 from brain.runtime.planning.planning_executor import PlanningExecutor  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class MemoryIntegrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-memory"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-memory"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"integration-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

@@ -135,6 +135,7 @@ except ImportError:
         return None
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer
 from brain.runtime.orchestration import OrchestrationExecutor
+from brain.runtime.artifact_paths import artifact_logs_root
 from brain.runtime.orchestrator_services import (
     ActionExecutionService,
     CompletionService,
@@ -330,7 +331,7 @@ class BrainOrchestrator:
         self.session_manager = SessionManager(paths)
         self._closed = False
         self.hybrid_memory = HybridMemory(paths.memory_dir)
-        memory_log_dir = paths.root / ".logs" / "fusion-runtime"
+        memory_log_dir = artifact_logs_root(paths.root) / "fusion-runtime"
         self.working_memory = WorkingMemoryStore(memory_log_dir / "working-memory.json")
         self.decision_memory = DecisionMemoryStore(memory_log_dir / "decision-memory.json")
         self.evidence_memory = EvidenceMemoryStore(memory_log_dir / "evidence-memory.json")
@@ -2785,7 +2786,7 @@ class BrainOrchestrator:
         details: dict[str, Any],
     ) -> None:
         self._append_jsonl(
-            self.paths.root / ".logs" / "fusion-runtime" / "execution-audit.jsonl",
+            artifact_logs_root(self.paths.root) / "fusion-runtime" / "execution-audit.jsonl",
             {
                 "timestamp": self._utc_now(),
                 "event_type": "runtime.mode.transition",
@@ -4722,7 +4723,7 @@ class BrainOrchestrator:
         run_id: str,
         payload: dict[str, Any],
     ) -> None:
-        log_dir = self.paths.root / ".logs" / "fusion-runtime"
+        log_dir = artifact_logs_root(self.paths.root) / "fusion-runtime"
         log_dir.mkdir(parents=True, exist_ok=True)
         entry = {
             "timestamp": self._utc_now(),
@@ -4755,7 +4756,7 @@ class BrainOrchestrator:
         trigger: str,
         metadata: dict[str, Any],
     ) -> None:
-        learning_path = self.paths.root / ".logs" / "fusion-runtime" / "execution-learning-memory.json"
+        learning_path = artifact_logs_root(self.paths.root) / "fusion-runtime" / "execution-learning-memory.json"
         learning_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             current = json.loads(learning_path.read_text(encoding="utf-8"))
@@ -4862,7 +4863,7 @@ class BrainOrchestrator:
         repository_analysis: dict[str, Any] | None = None,
         engineering_data: dict[str, Any] | None = None,
     ) -> None:
-        run_summary_path = self.paths.root / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
+        run_summary_path = artifact_logs_root(self.paths.root) / "fusion-runtime" / "run-summaries.jsonl"
         summary = {
             "timestamp": self._utc_now(),
             "event_type": "runtime.run.summary",
@@ -5055,7 +5056,7 @@ class BrainOrchestrator:
         memory_store: dict[str, object],
         step_results: list[dict[str, Any]],
     ) -> None:
-        runtime_store_path = self.paths.root / ".logs" / "fusion-runtime" / "runtime-memory-store.json"
+        runtime_store_path = artifact_logs_root(self.paths.root) / "fusion-runtime" / "runtime-memory-store.json"
         runtime_store_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             current = json.loads(runtime_store_path.read_text(encoding="utf-8"))
@@ -5126,7 +5127,7 @@ class BrainOrchestrator:
         semantic_retrieval: object,
         plan_hierarchy: dict[str, Any] | None = None,
     ) -> None:
-        log_dir = self.paths.root / ".logs" / "fusion-runtime"
+        log_dir = artifact_logs_root(self.paths.root) / "fusion-runtime"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         transcript_entry = {

@@ -29,12 +29,13 @@ from brain.runtime.control.program_closure import (  # noqa: E402
 from brain.runtime.control.run_registry import RunRegistry, RunStatus  # noqa: E402
 from brain.runtime.observability.observability_reader import ObservabilityReader  # noqa: E402
 from brain.runtime.observability.run_reader import read_operational_governance, read_resolution_summary  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ProgramClosureTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-program-closure"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-program-closure"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"closure-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -74,7 +75,7 @@ class ProgramClosureTest(unittest.TestCase):
 
     def test_legacy_run_readable_and_snapshot_coherent(self) -> None:
         with self.temp_workspace() as root:
-            control_dir = root / ".logs" / "fusion-runtime" / "control"
+            control_dir = artifact_logs_root(root) / "fusion-runtime" / "control"
             control_dir.mkdir(parents=True, exist_ok=True)
             legacy = {
                 "runs": {
@@ -111,7 +112,7 @@ class ProgramClosureTest(unittest.TestCase):
 
     def test_observability_operational_governance_field(self) -> None:
         with self.temp_workspace() as root:
-            control_dir = root / ".logs" / "fusion-runtime" / "control"
+            control_dir = artifact_logs_root(root) / "fusion-runtime" / "control"
             control_dir.mkdir(parents=True, exist_ok=True)
             (control_dir / "run_registry.json").write_text(
                 json.dumps({"runs": {}}, ensure_ascii=False, indent=2),

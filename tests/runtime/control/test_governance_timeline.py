@@ -5,6 +5,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -29,7 +30,7 @@ from brain.runtime.observability.run_reader import (  # noqa: E402
 class GovernanceTimelineTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-governance-timeline"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-governance-timeline"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"timeline-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -155,7 +156,7 @@ class GovernanceTimelineTest(unittest.TestCase):
 
     def test_legacy_record_without_timeline_is_readable(self) -> None:
         with self.temp_workspace() as root:
-            control_dir = root / ".logs" / "fusion-runtime" / "control"
+            control_dir = artifact_logs_root(root) / "fusion-runtime" / "control"
             control_dir.mkdir(parents=True, exist_ok=True)
             legacy = {
                 "runs": {

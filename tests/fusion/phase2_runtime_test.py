@@ -26,6 +26,7 @@ from brain.runtime.patch_set_manager import apply_patch_set, build_patch_set, ro
 from brain.runtime.rust_executor_bridge import execute_action  # noqa: E402
 from brain.runtime.task_service import TaskService  # noqa: E402
 from brain.runtime.workspace_manager import WorkspaceManager  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class Phase2RuntimeTest(unittest.TestCase):
@@ -293,7 +294,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         session_id = f"phase4-semantic-{uuid4().hex[:8]}"
         self.run_main("leia package.json", session_id)
         self.run_main("analise o arquivo sobre schema validation", session_id)
-        execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        execution_audit = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-audit.jsonl"
         entries = [
             json.loads(line)
             for line in execution_audit.read_text(encoding="utf-8").splitlines()
@@ -333,8 +334,8 @@ class Phase2RuntimeTest(unittest.TestCase):
         session_id = f"phase2-audit-{uuid4().hex[:8]}"
         self.run_main("leia package.json", session_id)
 
-        runtime_transcript = PROJECT_ROOT / ".logs" / "fusion-runtime" / "runtime-transcript.jsonl"
-        execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        runtime_transcript = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "runtime-transcript.jsonl"
+        execution_audit = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-audit.jsonl"
 
         self.assertTrue(runtime_transcript.exists())
         self.assertTrue(execution_audit.exists())
@@ -406,7 +407,7 @@ class Phase2RuntimeTest(unittest.TestCase):
             self.assertEqual(len(partial_results), 1)
             self.assertTrue(partial_results[0].get("ok"))
 
-            checkpoint_dir = PROJECT_ROOT / ".logs" / "fusion-runtime" / "checkpoints"
+            checkpoint_dir = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "checkpoints"
             checkpoint_file = checkpoint_dir / f"{run_id}.json"
             self.assertTrue(checkpoint_file.exists())
             checkpoint_payload = json.loads(checkpoint_file.read_text(encoding="utf-8"))
@@ -439,7 +440,7 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_observability_records_task_and_run_ids(self) -> None:
         self.run_main("leia package.json", "phase4-observability")
-        execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        execution_audit = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-audit.jsonl"
         audit_tail = json.loads(execution_audit.read_text(encoding="utf-8").strip().splitlines()[-1])
         self.assertIn("event_type", audit_tail)
         self.assertIn("task_id", audit_tail)
@@ -589,7 +590,7 @@ class Phase2RuntimeTest(unittest.TestCase):
 
     def test_observability_includes_parallel_and_critic_events(self) -> None:
         session_id = self._run_graph_plan_parallel_read_execution_path()
-        execution_audit = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        execution_audit = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-audit.jsonl"
         entries = [
             json.loads(line)
             for line in execution_audit.read_text(encoding="utf-8").splitlines()
@@ -664,7 +665,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(all(item.get("ok") for item in results))
 
-        learning_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-learning-memory.json"
+        learning_path = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-learning-memory.json"
         self.assertTrue(learning_path.exists())
         learning_entries = json.loads(learning_path.read_text(encoding="utf-8")).get("entries", [])
         self.assertTrue(any(entry.get("run_id") == run_id for entry in learning_entries))
@@ -722,7 +723,7 @@ class Phase2RuntimeTest(unittest.TestCase):
         self.assertEqual(status.get("status"), "blocked")
         self.assertIn("operator_links", status)
 
-        run_summary = PROJECT_ROOT / ".logs" / "fusion-runtime" / "run-summaries.jsonl"
+        run_summary = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "run-summaries.jsonl"
         self.assertTrue(run_summary.exists())
         entries = [json.loads(line) for line in run_summary.read_text(encoding="utf-8").splitlines() if line.strip()]
         self.assertTrue(any(entry.get("run_id") == run_id for entry in entries))

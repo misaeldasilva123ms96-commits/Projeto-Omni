@@ -22,6 +22,7 @@ from brain.memory.memory_models import AutonomySessionStateRecord  # noqa: E402
 from brain.runtime.observability.timeline_reader import TimelineReader  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator  # noqa: E402
 from brain.runtime.orchestrator_services import GovernanceIntegrationService  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 _CLEANUP_RESULT_FIELDS = {
     "operation_id",
@@ -45,7 +46,7 @@ _CLEANUP_RESULT_FIELDS = {
 class ControlCliTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-run-control-cli"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-control-cli"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"control-cli-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

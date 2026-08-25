@@ -13,11 +13,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.learning.learning_engine import LearningEngine  # noqa: E402
 from brain.runtime.orchestrator import SAFE_FALLBACK_RESPONSE  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class LearningEngineTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.workspace = PROJECT_ROOT / ".logs" / "test-learning34" / f"lr-{uuid4().hex[:8]}"
+        self.workspace = artifact_logs_root(PROJECT_ROOT) / "test-learning34" / f"lr-{uuid4().hex[:8]}"
         self.workspace.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:
@@ -55,7 +56,7 @@ class LearningEngineTest(unittest.TestCase):
         self.assertGreater(len(rec.signals), 3)
         self.assertEqual(tr.signal_count, len(rec.signals))
         self.assertEqual(rec.assessment.outcome_class.value, "success")
-        store_path = self.workspace / ".logs" / "fusion-runtime" / "learning" / "evidence" / "runtime_turn_records.jsonl"
+        store_path = artifact_logs_root(self.workspace) / "fusion-runtime" / "learning" / "evidence" / "runtime_turn_records.jsonl"
         self.assertTrue(store_path.exists())
         lines = [json.loads(l) for l in store_path.read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertEqual(lines[-1]["record_id"], rec.record_id)

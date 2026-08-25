@@ -21,12 +21,13 @@ from brain.runtime.planning import (  # noqa: E402
     TaskPlan,
 )
 from brain.runtime.planning.planning_executor import PlanningExecutor  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class OperationalPlanningTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-planning"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-planning"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase16-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

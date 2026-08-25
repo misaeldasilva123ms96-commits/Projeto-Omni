@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -70,7 +71,7 @@ FALLBACK_TRANSPORT = NodeTransportResult(
 
 @contextmanager
 def _orchestrator():
-    base = PROJECT_ROOT / ".logs" / "test-prompt-truth"
+    base = artifact_logs_root(PROJECT_ROOT) / "test-prompt-truth"
     base.mkdir(parents=True, exist_ok=True)
     path = base / f"truth-{uuid4().hex[:8]}"
     path.mkdir(parents=True, exist_ok=True)

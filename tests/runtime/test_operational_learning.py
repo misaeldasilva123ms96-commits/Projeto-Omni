@@ -20,12 +20,13 @@ from brain.runtime.learning.learning_executor import LearningExecutor  # noqa: E
 from brain.runtime.learning.models import LearningPolicy, LearningSignal, PatternRecord  # noqa: E402
 from brain.runtime.learning.strategy_ranker import StrategyRanker  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class OperationalLearningTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-learning"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-learning"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase18-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -58,7 +59,7 @@ class OperationalLearningTest(unittest.TestCase):
             update = executor.ingest_runtime_artifacts(action=action, result=result)
 
             self.assertEqual(update["ingested_evidence"], 1)
-            evidence_file = workspace_root / ".logs" / "fusion-runtime" / "learning" / "evidence" / "execution_receipt.jsonl"
+            evidence_file = artifact_logs_root(workspace_root) / "fusion-runtime" / "learning" / "evidence" / "execution_receipt.jsonl"
             payload = json.loads(evidence_file.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(payload["source_type"], "execution_receipt")
             self.assertTrue(payload["success"])
@@ -80,7 +81,7 @@ class OperationalLearningTest(unittest.TestCase):
             update = executor.ingest_runtime_artifacts(action=action, result=result)
 
             self.assertEqual(update["ingested_evidence"], 1)
-            evidence_file = workspace_root / ".logs" / "fusion-runtime" / "learning" / "evidence" / "repair_receipt.jsonl"
+            evidence_file = artifact_logs_root(workspace_root) / "fusion-runtime" / "learning" / "evidence" / "repair_receipt.jsonl"
             payload = json.loads(evidence_file.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(payload["source_type"], "repair_receipt")
             self.assertTrue(payload["repair_promoted"])
@@ -99,7 +100,7 @@ class OperationalLearningTest(unittest.TestCase):
             )
 
             self.assertEqual(update["ingested_evidence"], 1)
-            evidence_file = workspace_root / ".logs" / "fusion-runtime" / "learning" / "evidence" / "continuation_decision.jsonl"
+            evidence_file = artifact_logs_root(workspace_root) / "fusion-runtime" / "learning" / "evidence" / "continuation_decision.jsonl"
             payload = json.loads(evidence_file.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(payload["continuation_decision_type"], "retry_step")
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
 from ._reader_utils import read_tail_jsonl
 from .models import GovernanceVerdictSnapshot, SpecialistDecisionSnapshot, TraceSnapshot
 
@@ -10,7 +12,7 @@ from .models import GovernanceVerdictSnapshot, SpecialistDecisionSnapshot, Trace
 class SpecialistReader:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.path = root / ".logs" / "fusion-runtime" / "specialists" / "coordination_log.jsonl"
+        self.path = artifact_logs_root(root) / "fusion-runtime" / "specialists" / "coordination_log.jsonl"
 
     def read_latest_trace(self) -> TraceSnapshot | None:
         traces = self.read_recent_traces(limit=1)

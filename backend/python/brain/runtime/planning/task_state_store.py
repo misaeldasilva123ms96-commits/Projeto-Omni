@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from brain.runtime.artifact_paths import artifact_logs_root
 from pathlib import Path
 
 from brain.runtime.observability._reader_utils import read_tail_jsonl
@@ -14,7 +15,7 @@ CHECKPOINT_TAIL_SCAN_LIMIT = 64
 
 class TaskStateStore:
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "planning"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "planning"
         self.plans_dir = self.base_dir / "plans"
         self.checkpoints_dir = self.base_dir / "checkpoints"
         self.summaries_dir = self.base_dir / "summaries"

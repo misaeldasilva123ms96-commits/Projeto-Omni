@@ -22,12 +22,13 @@ from brain.runtime.orchestrator_services import (  # noqa: E402
     RunLifecycleService,
 )
 from brain.runtime.orchestrator_services.execution_dispatch_service import ExecutionDispatchService  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class OrchestratorDecompositionTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-orchestrator-decomposition"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-orchestrator-decomposition"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"decomp-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

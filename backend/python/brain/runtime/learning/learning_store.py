@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.observability._reader_utils import read_tail_jsonl
+from brain.runtime.artifact_paths import artifact_logs_root
 
 from .models import LearningEvidence, LearningSignal, LearningSignalType, LearningSnapshot, PatternRecord
 from .redaction import redact_sensitive_payload
@@ -16,7 +17,7 @@ JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
 
 class LearningStore:
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "learning"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "learning"
         self.evidence_dir = self.base_dir / "evidence"
         self.patterns_dir = self.base_dir / "patterns"
         self.signals_dir = self.base_dir / "signals"
@@ -108,7 +109,7 @@ class ControlledLearningStore:
     """Phase 10 append-only store for safe learning records and advisory signals."""
 
     def __init__(self, root: Path, *, max_records: int = 200) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "learning" / "controlled"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "learning" / "controlled"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.records_path = self.base_dir / "learning_records.jsonl"
         self.signals_path = self.base_dir / "improvement_signals.jsonl"

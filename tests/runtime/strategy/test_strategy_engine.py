@@ -12,11 +12,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.language import normalize_input_to_oil_request  # noqa: E402
 from brain.runtime.strategy.strategy_engine import StrategyEngine  # noqa: E402
 from brain.runtime.strategy.strategy_rules import conservative_fallback_strategy  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class StrategyEngineTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = PROJECT_ROOT / ".logs" / "test-strategy35" / f"s-{uuid4().hex[:8]}"
+        self.root = artifact_logs_root(PROJECT_ROOT) / "test-strategy35" / f"s-{uuid4().hex[:8]}"
         self.root.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:

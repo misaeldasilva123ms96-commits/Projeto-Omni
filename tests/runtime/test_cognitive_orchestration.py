@@ -17,12 +17,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.orchestration import OrchestrationExecutor  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
 from brain.runtime.planning.planning_executor import PlanningExecutor  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class CognitiveOrchestrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-orchestration"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-orchestration"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase19-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -200,8 +201,8 @@ class CognitiveOrchestrationTest(unittest.TestCase):
             )
 
             plan_key = "runtime"
-            context_path = workspace_root / ".logs" / "fusion-runtime" / "orchestration" / "context" / f"{plan_key}.jsonl"
-            decision_path = workspace_root / ".logs" / "fusion-runtime" / "orchestration" / "decisions" / f"{plan_key}.jsonl"
+            context_path = artifact_logs_root(workspace_root) / "fusion-runtime" / "orchestration" / "context" / f"{plan_key}.jsonl"
+            decision_path = artifact_logs_root(workspace_root) / "fusion-runtime" / "orchestration" / "decisions" / f"{plan_key}.jsonl"
             self.assertTrue(context_path.exists())
             self.assertTrue(decision_path.exists())
             decision_payload = json.loads(decision_path.read_text(encoding="utf-8").splitlines()[-1])

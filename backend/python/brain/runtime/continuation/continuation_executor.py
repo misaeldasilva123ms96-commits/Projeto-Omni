@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.goals import ConstraintRegistry, GoalEvaluator, GoalStore
+from brain.runtime.artifact_paths import artifact_logs_root
 from brain.runtime.memory import MemoryFacade
 from brain.runtime.planning import TaskPlan, TaskPlanStatus
 from brain.runtime.planning.checkpoint_manager import CheckpointManager
@@ -61,7 +62,7 @@ class ContinuationExecutor:
             checkpoints=self.checkpoints,
             summary_builder=self.summary_builder,
         )
-        self.base_dir = root / ".logs" / "fusion-runtime" / "continuation"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "continuation"
         self.decisions_dir = self.base_dir / "decisions"
         self.evaluations_dir = self.base_dir / "evaluations"
         self.decisions_dir.mkdir(parents=True, exist_ok=True)

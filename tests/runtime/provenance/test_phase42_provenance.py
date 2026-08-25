@@ -14,11 +14,12 @@ from brain.runtime.experience.experience_builder import build_experience_record 
 from brain.runtime.feedback.feedback_models import combine_feedback  # noqa: E402
 from brain.runtime.policy.performance_store import PerformanceStore  # noqa: E402
 from brain.runtime.provenance.provenance_parser import parse_execution_provenance  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class Phase42ProvenanceTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = PROJECT_ROOT / ".logs" / "test-phase42" / f"p42-{uuid4().hex[:10]}"
+        self.root = artifact_logs_root(PROJECT_ROOT) / "test-phase42" / f"p42-{uuid4().hex[:10]}"
         self.root.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:

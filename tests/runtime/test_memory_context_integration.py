@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class MemoryContextIntegrationTest(unittest.TestCase):
@@ -31,7 +32,7 @@ class MemoryContextIntegrationTest(unittest.TestCase):
         self.assertIsInstance(response, str)
         self.assertTrue(response.strip())
 
-        audit_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        audit_path = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-audit.jsonl"
         lines = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
         budget_events = [
@@ -76,9 +77,9 @@ class MemoryContextIntegrationTest(unittest.TestCase):
         ]
         self.assertTrue(evidence_events)
 
-        working_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "working-memory.json"
-        decision_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "decision-memory.json"
-        evidence_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "evidence-memory.json"
+        working_path = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "working-memory.json"
+        decision_path = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "decision-memory.json"
+        evidence_path = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "evidence-memory.json"
         self.assertTrue(working_path.exists())
         self.assertTrue(decision_path.exists())
         self.assertTrue(evidence_path.exists())

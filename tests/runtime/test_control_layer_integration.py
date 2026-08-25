@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ControlLayerIntegrationTest(unittest.TestCase):
@@ -32,7 +33,7 @@ class ControlLayerIntegrationTest(unittest.TestCase):
         self.assertTrue(response.strip())
         self.assertIn("Execucao bloqueada pela camada de controle", response)
 
-        audit_path = PROJECT_ROOT / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+        audit_path = artifact_logs_root(PROJECT_ROOT) / "fusion-runtime" / "execution-audit.jsonl"
         self.assertTrue(audit_path.exists())
         lines = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         matching = [

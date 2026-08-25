@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
 HEALTH_SCHEMA_VERSION = 1
 DEFAULT_HEALTH_TTL_MS = 5 * 60 * 1000
 DEFAULT_CIRCUIT_FAILURE_THRESHOLD = 3
@@ -59,7 +61,7 @@ def _cache_root() -> Path:
     configured = str(os.environ.get("OMNI_PROVIDER_HEALTH_CACHE_DIR", "") or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return Path(__file__).resolve().parents[3] / ".logs" / "provider-health"
+    return artifact_logs_root(Path(__file__).resolve().parents[3]) / "provider-health"
 
 
 def _cache_path(user_id: str, provider_id: str) -> Path:

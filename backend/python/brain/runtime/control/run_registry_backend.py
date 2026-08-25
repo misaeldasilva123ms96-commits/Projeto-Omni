@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from ...persistence import atomic_write_json, file_lock
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +59,7 @@ class FileSystemRunRegistryBackend:
     __slots__ = ("_control_dir", "_path")
 
     def __init__(self, root: Path) -> None:
-        self._control_dir = root / ".logs" / "fusion-runtime" / "control"
+        self._control_dir = artifact_logs_root(root) / "fusion-runtime" / "control"
         self._control_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._control_dir / "run_registry.json"
 

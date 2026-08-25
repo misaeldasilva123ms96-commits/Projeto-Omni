@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from brain.runtime.memory.working.models import WorkingMemoryState
+from brain.runtime.artifact_paths import artifact_logs_root
 
 from ._reader_utils import read_json_resilient
 from .models import TimelineEvent
@@ -11,7 +12,7 @@ from .models import TimelineEvent
 class TimelineReader:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.path = root / ".logs" / "fusion-runtime" / "memory" / "working_memory.json"
+        self.path = artifact_logs_root(root) / "fusion-runtime" / "memory" / "working_memory.json"
 
     def read_state(self) -> WorkingMemoryState | None:
         payload = read_json_resilient(self.path)

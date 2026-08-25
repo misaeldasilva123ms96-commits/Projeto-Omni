@@ -6,12 +6,13 @@ from brain.runtime.goals.models import Goal
 
 from ._reader_utils import read_json_resilient
 from .models import GoalCriterionSnapshot, GoalSnapshot, SubGoalSnapshot
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GoalReader:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.path = root / ".logs" / "fusion-runtime" / "goals" / "goal_store.json"
+        self.path = artifact_logs_root(root) / "fusion-runtime" / "goals" / "goal_store.json"
 
     def read_active_goal(self, *, progress_score: float | None = None) -> GoalSnapshot | None:
         goals = self._load_goals()
