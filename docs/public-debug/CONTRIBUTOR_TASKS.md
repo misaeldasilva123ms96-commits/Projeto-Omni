@@ -10,7 +10,7 @@ Goal:
 Useful starting points:
 - `backend/python/brain/runtime/orchestrator.py`
 - `backend/python/brain/runtime/observability/`
-- `docs/audits/brain-runtime-flow-map.md`
+- `docs/audit/brain-runtime-flow-map.md`
 
 ### 2. Cross-runtime contract debugging
 

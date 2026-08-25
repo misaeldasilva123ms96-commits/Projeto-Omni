@@ -126,7 +126,7 @@ to code, tests, and workflow evidence independently.
 
 See [`docs/audit/KNOWN_LIMITATIONS.md`](../audit/KNOWN_LIMITATIONS.md) for the
 active limitations and
-[`docs/audits/2026-08-01-current-state-reconciliation.md`](../audits/2026-08-01-current-state-reconciliation.md)
+[`docs/audit/2026-08-01-current-state-reconciliation.md`](../audit/2026-08-01-current-state-reconciliation.md)
 for evidence and validation scope.
 
 ## Documentation authority

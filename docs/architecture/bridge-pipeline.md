@@ -4,6 +4,16 @@ This document maps the real Omni execution pipeline:
 
 Rust → Python → Node/Bun → Python → Rust → Frontend
 
+## Transport modes (Rust → Python)
+
+| Mode | Selection | Behavior |
+| --- | --- | --- |
+| `subprocess` (default) | `OMNI_PYTHON_MODE=subprocess` | Rust spawns `backend/python/main.py` per request; payload via stdin, response via stdout. |
+| `service` | `OMNI_PYTHON_MODE=service` | Rust calls the persistent `brain_service.py` HTTP process (`OMNI_PYTHON_SERVICE_HOST/PORT`, default `127.0.0.1:7010`) with optional bounded retries and circuit breaker; falls back to subprocess when configured (`OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS=true`). |
+
+Local development convenience: `npm run start:brain-service` starts the Python service;
+`npm run start:node-service` starts the Node QueryEngine service (`127.0.0.1:7020`).
+
 ## Pipeline map
 
 1. Rust HTTP entry

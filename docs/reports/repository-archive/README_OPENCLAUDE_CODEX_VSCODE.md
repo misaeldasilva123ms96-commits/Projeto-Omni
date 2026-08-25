@@ -87,7 +87,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-openclaude-vscode-ext
 ## Estrutura criada
 
 - `.env.openclaude.example`: exemplo seguro de variaveis de ambiente
-- `config/examples/claude-settings.example.json`: template de roteamento de agentes
+- `configs/examples/claude-settings.example.json`: template de roteamento de agentes
 - `scripts/openclaude-common.ps1`: funcoes compartilhadas para launcher e validacao
 - `scripts/start-openclaude-openai.ps1`: inicia OpenClaude com OpenAI-compatible
 - `scripts/start-openclaude-codex.ps1`: inicia OpenClaude com credenciais do Codex
@@ -179,13 +179,13 @@ Ou no VS Code:
 
 O template seguro esta em:
 
-- `config/examples/claude-settings.example.json`
+- `configs/examples/claude-settings.example.json`
 
 Copie manualmente para o local privado:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path $HOME\.claude | Out-Null
-Copy-Item .\config\examples\claude-settings.example.json $HOME\.claude\settings.json
+Copy-Item .\configs\examples\claude-settings.example.json $HOME\.claude\settings.json
 ```
 
 Depois substitua os placeholders da chave antes de usar.
@@ -366,7 +366,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-openclaude-vscode-ext
 
 ### Revisar roteamento
 
-- ajuste `config/examples/claude-settings.example.json`
+- ajuste `configs/examples/claude-settings.example.json`
 - copie novamente para `~/.claude/settings.json`
 - nunca commite o arquivo real
 
