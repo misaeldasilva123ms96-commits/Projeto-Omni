@@ -1,4 +1,4 @@
-use std::{path::Path as StdPath, process::Stdio, time::Duration};
+use std::{path::Path as StdPath, time::Duration};
 
 use axum::{
     extract::{Extension, Path, State},
@@ -6,8 +6,8 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use tokio::{process::Command, time::timeout};
 
+use crate::python_bridge::{run_python, PythonInvocation, StdinMode};
 use crate::{observability_auth::AuthenticatedSubject, AppError, AppState};
 
 const CONTROL_TIMEOUT_MS: u64 = 30_000;
@@ -171,47 +171,55 @@ async fn call_control_cli(
     payload_key: &str,
 ) -> Result<Value, AppError> {
     let cli_timeout_ms = state.python_timeout_ms.min(CONTROL_TIMEOUT_MS);
-    let mut command = Command::new(&state.python_bin);
-    command
-        .current_dir(&state.python_root)
-        .arg("-m")
-        .arg("brain.runtime.control.cli")
-        .arg("--root")
-        .arg(state.project_root.display().to_string())
-        .arg(command_name)
-        .args(extra_args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        // Do not merge the parent process PYTHONPATH: a polluted or cross-platform
-        // value breaks `python -m brain.runtime.control.cli` in tests and CI (500).
-        .env("PYTHONPATH", control_cli_pythonpath(&state.python_root))
-        .kill_on_drop(true);
+    let mut args = vec![
+        "-m".to_string(),
+        "brain.runtime.control.cli".to_string(),
+        "--root".to_string(),
+        state.project_root.display().to_string(),
+        command_name.to_string(),
+    ];
+    args.extend(extra_args.iter().cloned());
 
-    let output = match timeout(Duration::from_millis(cli_timeout_ms), command.output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => {
-            return Err(AppError::python_process(
-                "control_cli_spawn_failed",
-                format!("failed to spawn control CLI: {error}"),
-                None,
-            ));
-        }
-        Err(_) => {
-            return Err(AppError::python_process(
-                "control_cli_timeout",
-                format!("control CLI timed out after {cli_timeout_ms} ms"),
-                None,
-            ));
+    let invocation = PythonInvocation::new(
+        &state.python_bin,
+        args.into_iter().map(Into::into).collect(),
+    )
+    .current_dir(&state.python_root)
+    .stdin_mode(StdinMode::Inherit)
+    // Do not merge the parent process PYTHONPATH: a polluted or cross-platform
+    // value breaks `python -m brain.runtime.control.cli` in tests and CI (500).
+    .env("PYTHONPATH", control_cli_pythonpath(&state.python_root))
+    .timeout(Some(Duration::from_millis(cli_timeout_ms)));
+
+    let output = match run_python(invocation).await {
+        Ok(output) => output,
+        Err(error) => {
+            return Err(match error {
+                crate::python_bridge::BridgeSpawnFailure::Timeout => AppError::python_process(
+                    "control_cli_timeout",
+                    format!("control CLI timed out after {cli_timeout_ms} ms"),
+                    None,
+                ),
+                crate::python_bridge::BridgeSpawnFailure::Spawn(err)
+                | crate::python_bridge::BridgeSpawnFailure::Wait(err)
+                | crate::python_bridge::BridgeSpawnFailure::StdinWrite(err) => {
+                    AppError::python_process(
+                        "control_cli_spawn_failed",
+                        format!("failed to spawn control CLI: {err}"),
+                        None,
+                    )
+                }
+            });
         }
     };
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !output.status.success() {
+    let stderr = output.stderr_lossy_trimmed();
+    if !output.success {
         return Err(AppError::python_process(
             "control_cli_failed",
             format!(
                 "control CLI exited with status {}",
-                output.status.code().unwrap_or(-1)
+                output.exit_code.unwrap_or(-1)
             ),
             if stderr.is_empty() {
                 None
@@ -221,7 +229,7 @@ async fn call_control_cli(
         ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = output.stdout_lossy_trimmed();
     if stdout.is_empty() {
         return Ok(graceful_error(
             payload_key,
