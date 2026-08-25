@@ -8,6 +8,7 @@ from typing import Any
 
 from brain.env import read_env
 from brain.runtime.learning.redaction import redact_sensitive_payload, redact_sensitive_text
+from brain.runtime.node_failure_taxonomy import classify_node_failure_outcome
 from brain.runtime.node_path_policy import (
     RESERVED_NODE_ENV_KEYS,
     NodePathPolicy,
@@ -188,50 +189,19 @@ def classify_node_subprocess_failure(
     exception: Exception | None = None,
     timed_out: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    details = {
-        "runner_path": diagnostics["runner_path"],
-        "adapter_path": diagnostics["adapter_path"],
-        "fusion_brain_path": diagnostics["fusion_brain_path"],
-        "cwd": diagnostics["cwd"],
-        "command_preview": diagnostics["command_preview"],
-        "node_bin": diagnostics["node_bin"],
-        "node_resolved": diagnostics["node_resolved"],
-        "returncode": returncode,
-        "stdout": truncate_text(stdout),
-        "stderr": truncate_text(stderr),
-        "timed_out": timed_out,
-        "exception": redact_sensitive_text(repr(exception)) if exception else "",
-        "typescript_direct_execution_detected": diagnostics["typescript_direct_execution_detected"],
-        "typescript_candidates_exist": diagnostics["typescript_candidates_exist"],
-        "compiled_runner_artifact_exists": diagnostics["compiled_runner_artifact_exists"],
-        "missing_paths": diagnostics["missing_paths"],
-        "env_preview": diagnostics["env_preview"],
-    }
-    combined = f"{stdout}\n{stderr}".lower()
+    classification, details = classify_node_failure_outcome(
+        diagnostics=diagnostics,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        exception=exception,
+        timed_out=timed_out,
+    )
+    details["stdout"] = truncate_text(stdout)
+    details["stderr"] = truncate_text(stderr)
+    details["exception"] = redact_sensitive_text(repr(exception)) if exception else ""
     details = redact_sensitive_payload(details)
-
-    if not diagnostics["node_resolved"]:
-        return "node_not_found", details
-    if not diagnostics["runner_exists"]:
-        return "runner_not_found", details
-    if not diagnostics["cwd_exists"]:
-        return "cwd_not_found", details
-    if diagnostics["missing_paths"]:
-        return "module_resolution_error", details
-    if timed_out:
-        return "timeout", details
-    if exception is not None:
-        return "subprocess_exception", details
-    if not stdout.strip() and not stderr.strip() and returncode == 0:
-        return "empty_stdout", details
-    if "err_module_not_found" in combined or "cannot find module" in combined or "module not found" in combined:
-        return "module_resolution_error", details
-    if "unknown file extension \".ts\"" in combined or "cannot use import statement outside a module" in combined:
-        details["typescript_direct_execution_detected"] = True
-        return "module_resolution_error", details
-    if returncode not in (None, 0):
-        return "node_subprocess_failed", details
-    return "invalid_json", details
+    return classification, details
 
 
 def compact_history_for_node(history: object, limit: int = 6) -> list[dict[str, Any]]:

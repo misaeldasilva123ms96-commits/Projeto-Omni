@@ -7,6 +7,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from brain.runtime.node_failure_taxonomy import (
+    TRANSPORT_REASON_BY_CLASSIFICATION,
+    classify_node_failure_outcome,
+)
 from brain.runtime.node_path_policy import (
     NodePathPolicyError,
     ValidatedNodeExecutionPlan,
@@ -136,49 +140,15 @@ def classify_node_subprocess_failure(
     exception: Exception | None = None,
     timed_out: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    details = {
-        "runner_path": diagnostics["runner_path"],
-        "adapter_path": diagnostics["adapter_path"],
-        "fusion_brain_path": diagnostics["fusion_brain_path"],
-        "cwd": diagnostics["cwd"],
-        "command_preview": diagnostics["command_preview"],
-        "node_bin": diagnostics["node_bin"],
-        "node_resolved": diagnostics["node_resolved"],
-        "returncode": returncode,
-        "stdout": truncate_node_text(stdout),
-        "stderr": truncate_node_text(stderr),
-        "timed_out": timed_out,
-        "exception": repr(exception) if exception else "",
-        "typescript_direct_execution_detected": diagnostics["typescript_direct_execution_detected"],
-        "typescript_candidates_exist": diagnostics["typescript_candidates_exist"],
-        "compiled_runner_artifact_exists": diagnostics["compiled_runner_artifact_exists"],
-        "missing_paths": diagnostics["missing_paths"],
-        "env_preview": diagnostics["env_preview"],
-    }
-    combined = f"{stdout}\n{stderr}".lower()
-
-    if not diagnostics["node_resolved"]:
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if not diagnostics["runner_exists"]:
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if not diagnostics["cwd_exists"]:
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if diagnostics["missing_paths"]:
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if timed_out:
-        return NODE_BRIDGE_TIMEOUT, details
-    if exception is not None:
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if not stdout.strip() and not stderr.strip() and returncode == 0:
-        return NODE_BRIDGE_EMPTY_STDOUT, details
-    if "err_module_not_found" in combined or "cannot find module" in combined or "module not found" in combined:
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if "unknown file extension \".ts\"" in combined or "cannot use import statement outside a module" in combined:
-        details["typescript_direct_execution_detected"] = True
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    if returncode not in (None, 0):
-        return NODE_BRIDGE_NONZERO_EXIT, details
-    return NODE_BRIDGE_INVALID_JSON, details
+    classification, details = classify_node_failure_outcome(
+        diagnostics=diagnostics,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        exception=exception,
+        timed_out=timed_out,
+    )
+    return TRANSPORT_REASON_BY_CLASSIFICATION[classification], details
 
 
 def run_node_subprocess(
