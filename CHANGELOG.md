@@ -7,6 +7,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+#### Refactoring Cycle: Runtime Truth Preserved, Structure Improved
+- **Python orchestrator decomposition (Phase 2):** extracted `orchestrator_services/action_execution_service.py` (~1.086 lines) and `orchestrator_services/execution_lane_service.py` (~897 lines) from `brain/runtime/orchestrator.py` (7.373 → ~5.540 lines). Bodies moved verbatim with `self._orch` delegation; per-method AST/text verification against the pre-refactor source.
+- **Node failure taxonomy unified (Phase 1.1):** new `runtime/node_failure_taxonomy.py` owns the canonical subprocess classification tree; `node_runner.py` keeps redacted semantic codes (`timeout`, `module_resolution_error`, ...) while `node_transport.py` maps to transport codes (`NODE_BRIDGE_*`) — vocabularies can no longer drift.
+- **Rust python bridge unified (Phase 1.4):** new `backend/rust/src/python_bridge.rs`; chat subprocess, runner smoke, settings CLI, observability CLI, and run-control CLI now share one spawn/timeout/capture implementation.
+- **Rust tests relocated (Phase 3a):** inline `#[cfg(test)] mod tests` (~2.060 lines) moved from `main.rs` to `src/main_tests.rs`; `main.rs` reduced to production code.
+
+### Added
+
+- **Service-mode developer loop (Phase 4):** `npm run start:brain-service` / `npm run start:node-service`; `OMNI_PYTHON_MODE=service` documented in `.env.example` and `docs/architecture/bridge-pipeline.md` (subprocess remains default and automatic fallback).
+
+### Changed (housekeeping)
+
+- Consolidated root `config/` into `configs/examples/`.
+- Consolidated `docs/audits/` into `docs/audit/` (references updated; historical audit records untouched).
+
 ### Added
 
 #### Frontend Cockpit Audit — All 19 Phases (PRs #294, #295)

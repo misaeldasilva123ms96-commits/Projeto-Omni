@@ -10,6 +10,7 @@
     "runner:node": "node js-runner/queryEngineRunner.js",
     "runner:bun": "bun js-runner/queryEngineRunner.js",
     "start:node-service": "node js-runner/queryEngineService.js",
+    "start:brain-service": "python backend/python/brain_service.py",
     "health": "node scripts/js-runtime-launcher.mjs js-runner/healthcheck.js",
     "health:node": "node js-runner/healthcheck.js",
     "health:bun": "bun js-runner/healthcheck.js",
