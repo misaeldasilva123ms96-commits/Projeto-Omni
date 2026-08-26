@@ -6,19 +6,9 @@
 //! shell interpretation. Callers keep ownership of error mapping, health
 //! updates, fallback envelopes, and payload parsing.
 
-use std::{
-    ffi::OsString,
-    io::Error,
-    path::Path,
-    process::Stdio,
-    time::Duration,
-};
+use std::{ffi::OsString, io::Error, path::Path, process::Stdio, time::Duration};
 
-use tokio::{
-    io::AsyncWriteExt,
-    process::Command,
-    time,
-};
+use tokio::{io::AsyncWriteExt, process::Command, time};
 use tracing::warn;
 
 /// stdin wiring for the child process.

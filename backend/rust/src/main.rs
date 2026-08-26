@@ -1,7 +1,7 @@
 mod client_identity;
-mod models;
 mod error;
 mod historical_audit_capability;
+mod models;
 mod observability;
 mod observability_auth;
 mod protected_historical_audit;
@@ -36,6 +36,7 @@ use client_identity::{
     ClientIdentitySource, TrustedProxyConfig, DEFAULT_TRUST_PROXY_MAX_HOPS, MAX_TRUST_PROXY_HOPS,
 };
 use error::AppError;
+pub(crate) use models::*;
 #[cfg(test)]
 use observability_auth::ProcessLocalObservabilityStreamTicketStore;
 use observability_auth::{
@@ -44,7 +45,6 @@ use observability_auth::{
     ObservabilityStreamTicketStore, SupabaseAuthConfig,
 };
 use python_bridge::{run_python, BridgeSpawnFailure, PythonInvocation, StderrMode, StdinMode};
-pub(crate) use models::*;
 use runtime::Session;
 use serde_json::{json, Map, Value};
 use tokio::{

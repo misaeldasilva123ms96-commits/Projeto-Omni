@@ -421,4 +421,3 @@ pub(crate) struct PublicStrategySummaryV1 {
     pub(crate) create_plan_weight: Option<f64>,
     pub(crate) timestamp_ms: u64,
 }
-
