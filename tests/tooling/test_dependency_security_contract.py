@@ -43,7 +43,7 @@ def test_root_lock_excludes_unpatched_cloudflare_dependency_chain() -> None:
             fast_uri_versions.append(tuple(int(part) for part in version.split(".")))
 
     assert fast_uri_versions
-    assert all(version >= (3, 1, 4) for version in fast_uri_versions)
+    assert all(version >= (3, 1, 5) for version in fast_uri_versions)
 
 
 def test_security_workflow_uses_node_24_15_and_keeps_cloudflare_suspended() -> None:
