@@ -25,6 +25,9 @@ from .run_identity import run_id_lookup_keys, validate_run_id_for_new_write
 from .run_registry_backend import FileSystemRunRegistryBackend, RunRegistryBackend
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -349,7 +352,7 @@ class RunRegistry:
                 self.base_dir = backend.control_dir
                 self.path = backend.registry_path
             else:
-                self.base_dir = root / ".logs" / "fusion-runtime" / "control"
+                self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "control"
                 self.path = self.base_dir / "run_registry.json"
         if self._backend.exists():
             self.reload_from_disk()

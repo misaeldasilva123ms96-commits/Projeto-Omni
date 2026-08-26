@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.control import RunRecord, RunRegistry, RunStatus  # noqa: E402
 from brain.runtime.observability.cli import main as observability_cli_main  # noqa: E402
 from brain.runtime.observability.run_reader import read_active_runs, read_run  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 def _register_process(workspace: str, index: int) -> None:
@@ -28,7 +29,7 @@ def _register_process(workspace: str, index: int) -> None:
 class RunRegistryTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-run-control"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-control"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"run-registry-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

@@ -7,12 +7,13 @@ from uuid import uuid4
 
 from brain.env import read_env
 from .models import WorkingMemoryEvent, WorkingMemoryState, utc_now_iso
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class WorkingMemory:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.base_dir = root / ".logs" / "fusion-runtime" / "memory"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "memory"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / "working_memory.json"
         self._lock = threading.RLock()

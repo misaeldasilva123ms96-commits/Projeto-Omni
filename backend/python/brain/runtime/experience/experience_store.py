@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.experience.experience_models import ExperienceRecord
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
@@ -50,7 +51,7 @@ class ExperienceStore:
     """Append-only canonical experience records (Phase 41.1)."""
 
     def __init__(self, root: Path) -> None:
-        self._path = root / ".logs" / "fusion-runtime" / "experience" / "experience_records.jsonl"
+        self._path = artifact_logs_root(root) / "fusion-runtime" / "experience" / "experience_records.jsonl"
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     @property

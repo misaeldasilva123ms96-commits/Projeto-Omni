@@ -21,12 +21,13 @@ from brain.runtime.control.governance_read_model import (  # noqa: E402
 from brain.runtime.control.governance_taxonomy import GovernanceReason  # noqa: E402
 from brain.runtime.control.run_registry import RunRecord, RunRegistry, RunStatus  # noqa: E402
 from brain.runtime.observability.run_reader import read_operational_governance  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GovernanceReadModelTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-governance-read"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-governance-read"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"read-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -159,7 +160,7 @@ class GovernanceReadModelTest(unittest.TestCase):
 
     def test_operational_snapshot_and_read_helper_legacy_json(self) -> None:
         with self.temp_workspace() as root:
-            control_dir = root / ".logs" / "fusion-runtime" / "control"
+            control_dir = artifact_logs_root(root) / "fusion-runtime" / "control"
             control_dir.mkdir(parents=True, exist_ok=True)
             legacy = {
                 "runs": {

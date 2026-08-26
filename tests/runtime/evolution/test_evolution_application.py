@@ -4,7 +4,7 @@ import shutil
 import sys
 import unittest
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -13,12 +13,21 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 from brain.runtime.evolution import EvolutionService  # noqa: E402
 from brain.runtime.observability.observability_reader import ObservabilityReader  # noqa: E402
 from brain.runtime.observability.run_reader import read_evolution_summary  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
+def _artifact_target(root: Path, target_path: str) -> Path:
+    """Resolve a '.logs/...' target through the canonical artifact store."""
+    parts = PurePosixPath(target_path.replace("\\", "/")).parts
+    if parts[:1] == (".logs",):
+        parts = parts[1:]
+    return artifact_logs_root(root) / Path(*parts)
 
 
 class EvolutionApplicationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-evolution-application"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-evolution-application"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"evolution-application-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -59,7 +68,7 @@ class EvolutionApplicationTest(unittest.TestCase):
             attempt = service.apply_proposal_patch(proposal_id=proposal_id)
             self.assertEqual(attempt["status"], "applied")
             self.assertTrue(attempt["rollback_available"])
-            content = (root / target_path).read_text(encoding="utf-8")
+            content = _artifact_target(root, target_path).read_text(encoding="utf-8")
             self.assertIn("governed", content)
 
     def test_ineligible_proposal_is_blocked_cleanly(self) -> None:
@@ -93,8 +102,8 @@ class EvolutionApplicationTest(unittest.TestCase):
     def test_application_history_append_only_and_latest_application(self) -> None:
         with self.temp_workspace() as root:
             target_path = ".logs/fusion-runtime/evolution/sandbox/history.txt"
-            (root / target_path).parent.mkdir(parents=True, exist_ok=True)
-            (root / target_path).write_text("original", encoding="utf-8")
+            _artifact_target(root, target_path).parent.mkdir(parents=True, exist_ok=True)
+            _artifact_target(root, target_path).write_text("original", encoding="utf-8")
             service, proposal_id = self._create_approved_valid_proposal(
                 root,
                 patch_payload={
@@ -128,7 +137,7 @@ class EvolutionApplicationTest(unittest.TestCase):
     def test_failed_postcheck_rolls_back(self) -> None:
         with self.temp_workspace() as root:
             target_path = ".logs/fusion-runtime/evolution/sandbox/postcheck.txt"
-            target_file = root / target_path
+            target_file = _artifact_target(root, target_path)
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text("before", encoding="utf-8")
             service, proposal_id = self._create_approved_valid_proposal(
@@ -148,7 +157,7 @@ class EvolutionApplicationTest(unittest.TestCase):
     def test_explicit_rollback_is_recorded(self) -> None:
         with self.temp_workspace() as root:
             target_path = ".logs/fusion-runtime/evolution/sandbox/rollback.txt"
-            target_file = root / target_path
+            target_file = _artifact_target(root, target_path)
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text("before", encoding="utf-8")
             service, proposal_id = self._create_approved_valid_proposal(

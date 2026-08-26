@@ -10,6 +10,7 @@ from hashlib import sha1
 from pathlib import Path
 
 from .models import Episode
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 _OPEN_CONNECTIONS: dict[int, sqlite3.Connection] = {}
@@ -20,7 +21,7 @@ class EpisodicStore:
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.db_dir = root / ".logs" / "fusion-runtime" / "memory" / "db"
+        self.db_dir = artifact_logs_root(root) / "fusion-runtime" / "memory" / "db"
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False

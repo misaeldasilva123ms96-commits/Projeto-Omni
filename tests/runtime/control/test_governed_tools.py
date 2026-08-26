@@ -30,6 +30,7 @@ from brain.runtime.control.governed_tools import (  # noqa: E402
     sync_governed_tools_from_trusted_executor_surface,
 )
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths, TRUSTED_EXECUTION_KNOWN_TOOLS  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GovernedToolsTest(unittest.TestCase):
@@ -39,7 +40,7 @@ class GovernedToolsTest(unittest.TestCase):
 
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-governed-tools"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-governed-tools"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"gov-tools-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

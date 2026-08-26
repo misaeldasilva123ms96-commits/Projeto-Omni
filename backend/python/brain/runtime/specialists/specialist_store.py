@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 
 from brain.runtime.observability._reader_utils import read_tail_jsonl
+from brain.runtime.artifact_paths import artifact_logs_root
 
 from .models import CoordinationTrace
 
@@ -16,7 +17,7 @@ class SpecialistStore:
     CANONICAL_LOG_NAME = "coordination_log.jsonl"
 
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "specialists"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "specialists"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / self.CANONICAL_LOG_NAME
         self._lock = threading.RLock()

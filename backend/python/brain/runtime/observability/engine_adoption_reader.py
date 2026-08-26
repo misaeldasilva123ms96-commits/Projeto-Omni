@@ -6,10 +6,11 @@ from typing import Any
 from brain.runtime.engine_adoption_store import KNOWN_FALLBACK_REASONS, default_engine_adoption_payload
 
 from ._reader_utils import read_json_resilient
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 def read_engine_adoption(root: Path) -> dict[str, Any]:
-    path = root / ".logs" / "fusion-runtime" / "engine_adoption.json"
+    path = artifact_logs_root(root) / "fusion-runtime" / "engine_adoption.json"
     payload = read_json_resilient(path)
     normalized = _normalize_engine_adoption(payload)
     counters = normalized["engine_counters"]

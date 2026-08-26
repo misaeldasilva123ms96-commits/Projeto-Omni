@@ -22,6 +22,7 @@ from brain.runtime.language import normalize_input_to_oil_request  # noqa: E402
 from brain.runtime.policy.performance_store import PerformanceStore  # noqa: E402
 from brain.runtime.policy.policy_router import PolicyRouter  # noqa: E402
 from brain.runtime.strategy.strategy_engine import StrategyEngine  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 def _minimal_learning_row(session_id: str, outcome: str, rid: str) -> dict:
@@ -38,7 +39,7 @@ def _minimal_learning_row(session_id: str, outcome: str, rid: str) -> dict:
 
 class Phase41LearningLoopTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = PROJECT_ROOT / ".logs" / "test-phase41" / f"p41-{uuid4().hex[:10]}"
+        self.root = artifact_logs_root(PROJECT_ROOT) / "test-phase41" / f"p41-{uuid4().hex[:10]}"
         self.root.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:

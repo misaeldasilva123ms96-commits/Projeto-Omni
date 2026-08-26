@@ -18,6 +18,7 @@ from common import write_jsonl  # noqa: E402
 from dataset_enrichment import enrich_curated_example, enrich_public_record  # noqa: E402
 from dataset_quality import evaluate_dataset_records, find_duplicate_groups, quality_score  # noqa: E402
 from feedback_loop import build_feedback_examples_from_runtime_logs, export_feedback_examples  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class OmniTrainingDatasetEvolutionTest(unittest.TestCase):
@@ -86,7 +87,7 @@ class OmniTrainingDatasetEvolutionTest(unittest.TestCase):
     def test_feedback_loop_builds_examples_from_runtime_logs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            log_path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+            log_path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
             write_jsonl(
                 log_path,
                 [

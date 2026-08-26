@@ -19,6 +19,7 @@ from brain.runtime.memory import MemoryFacade  # noqa: E402
 from brain.runtime.planning.planning_executor import PlanningExecutor  # noqa: E402
 from brain.runtime.planning.progress_tracker import ProgressTracker  # noqa: E402
 from brain.runtime.simulation import RouteSimulation, RouteType, SimulationBasis, SimulationResult, SimulationStore  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class StubSimulator:
@@ -37,7 +38,7 @@ class StubContextBuilder:
 class SimulationIntegrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-simulation"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-simulation"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"integration-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import shutil
@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / 'backend' / 'python'))
@@ -25,7 +26,7 @@ from brain.runtime.observability.memory_reader import MemoryReader  # noqa: E402
 class MemoryReaderTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / '.logs' / 'test-observability'
+        base = artifact_logs_root(PROJECT_ROOT) / 'test-observability'
         base.mkdir(parents=True, exist_ok=True)
         path = base / f'memory-reader-{uuid4().hex[:8]}'
         path.mkdir(parents=True, exist_ok=True)
@@ -36,7 +37,7 @@ class MemoryReaderTest(unittest.TestCase):
 
     def test_memory_reader_opens_sqlite_in_readonly_mode(self) -> None:
         with self.temp_workspace() as workspace_root:
-            db_dir = workspace_root / '.logs' / 'fusion-runtime' / 'memory' / 'db'
+            db_dir = artifact_logs_root(workspace_root) / 'fusion-runtime' / 'memory' / 'db'
             db_dir.mkdir(parents=True, exist_ok=True)
             sqlite3.connect(db_dir / 'episodic.db').close()
             with patch('brain.runtime.observability._reader_utils.sqlite3.connect') as connect:

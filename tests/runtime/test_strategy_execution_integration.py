@@ -18,12 +18,13 @@ from brain.runtime.observability.runtime_lane_classifier import (  # noqa: E402
     LANE_TRUE_ACTION_EXECUTION,
 )
 from brain.runtime.node_transport import NodeTransportResult  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class StrategyExecutionIntegrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-strategy-execution"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-strategy-execution"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"exec-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

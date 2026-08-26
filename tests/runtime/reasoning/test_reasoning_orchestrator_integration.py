@@ -14,12 +14,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-reasoning-integration"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-reasoning-integration"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"reasoning-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -47,7 +48,7 @@ class ReasoningOrchestratorIntegrationTest(unittest.TestCase):
                 response = orchestrator.run("Analise a arquitetura e proponha próximos passos.")
                 self.assertEqual(response, "Resposta de memória.")
 
-                audit_path = orchestrator.paths.root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+                audit_path = artifact_logs_root(orchestrator.paths.root) / "fusion-runtime" / "execution-audit.jsonl"
                 self.assertTrue(audit_path.exists())
                 lines = [
                     item

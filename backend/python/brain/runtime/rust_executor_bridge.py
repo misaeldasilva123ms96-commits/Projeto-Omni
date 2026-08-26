@@ -11,6 +11,7 @@ from typing import Any
 
 from brain.env import read_env
 from brain.runtime.learning.redaction import redact_sensitive_text
+from brain.runtime.artifact_paths import artifact_logs_root
 
 MAX_BRIDGE_DIAGNOSTIC_CHARS = 1200
 
@@ -68,7 +69,7 @@ def _cargo_target_dir(project_root: Path) -> Path:
     if temp_root:
         base = Path(temp_root) / "omni-runtime" / "cargo-target"
     else:
-        base = project_root / ".logs" / "fusion-runtime" / "cargo-target"
+        base = artifact_logs_root(project_root) / "fusion-runtime" / "cargo-target"
     base.mkdir(parents=True, exist_ok=True)
     return base
 

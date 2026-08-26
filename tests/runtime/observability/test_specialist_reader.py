@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import shutil
@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / 'backend' / 'python'))
@@ -18,7 +19,7 @@ from brain.runtime.observability.specialist_reader import SpecialistReader  # no
 class SpecialistReaderTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / '.logs' / 'test-observability'
+        base = artifact_logs_root(PROJECT_ROOT) / 'test-observability'
         base.mkdir(parents=True, exist_ok=True)
         path = base / f'specialist-reader-{uuid4().hex[:8]}'
         path.mkdir(parents=True, exist_ok=True)
@@ -29,7 +30,7 @@ class SpecialistReaderTest(unittest.TestCase):
 
     def test_specialist_reader_tolerates_invalid_jsonl_lines(self) -> None:
         with self.temp_workspace() as workspace_root:
-            log_dir = workspace_root / '.logs' / 'fusion-runtime' / 'specialists'
+            log_dir = artifact_logs_root(workspace_root) / 'fusion-runtime' / 'specialists'
             log_dir.mkdir(parents=True, exist_ok=True)
             path = log_dir / 'coordination_log.jsonl'
             path.write_text(
@@ -47,7 +48,7 @@ class SpecialistReaderTest(unittest.TestCase):
 
     def test_specialist_reader_reads_recent_traces_without_read_text(self) -> None:
         with self.temp_workspace() as workspace_root:
-            log_dir = workspace_root / '.logs' / 'fusion-runtime' / 'specialists'
+            log_dir = artifact_logs_root(workspace_root) / 'fusion-runtime' / 'specialists'
             log_dir.mkdir(parents=True, exist_ok=True)
             path = log_dir / 'coordination_log.jsonl'
             path.write_text('\n'.join(json.dumps({'trace_id': f'trace-{index}', 'decisions': [], 'governance_verdicts': [], 'final_outcome': 'ok', 'started_at': 't'}) for index in range(20)), encoding='utf-8')

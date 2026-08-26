@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
 from ._reader_utils import read_tail_jsonl
 from .models import RouteSnapshot, SimulationSnapshot
 
@@ -10,7 +12,7 @@ from .models import RouteSnapshot, SimulationSnapshot
 class SimulationReader:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.path = root / ".logs" / "fusion-runtime" / "simulation" / "simulation_log.jsonl"
+        self.path = artifact_logs_root(root) / "fusion-runtime" / "simulation" / "simulation_log.jsonl"
 
     def read_latest_simulation(self, *, goal_id: str | None = None) -> SimulationSnapshot | None:
         simulations = self.read_recent_simulations(limit=10, goal_id=goal_id)

@@ -7,18 +7,19 @@ from typing import Any
 
 from ._reader_utils import open_sqlite_readonly, read_json_resilient, read_tail_jsonl
 from .models import EpisodeSnapshot, ProceduralPatternSnapshot, SemanticFactSnapshot
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class MemoryReader:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.memory_dir = root / ".logs" / "fusion-runtime" / "memory"
+        self.memory_dir = artifact_logs_root(root) / "fusion-runtime" / "memory"
         self.db_dir = self.memory_dir / "db"
         self.episodic_path = self.db_dir / "episodic.db"
         self.semantic_path = self.db_dir / "semantic.db"
         self.procedural_path = self.memory_dir / "procedural_patterns.json"
-        self.learning_signals_dir = root / ".logs" / "fusion-runtime" / "learning" / "signals"
-        self.evolution_proposals_path = root / ".logs" / "fusion-runtime" / "evolution" / "proposals" / "proposals.jsonl"
+        self.learning_signals_dir = artifact_logs_root(root) / "fusion-runtime" / "learning" / "signals"
+        self.evolution_proposals_path = artifact_logs_root(root) / "fusion-runtime" / "evolution" / "proposals" / "proposals.jsonl"
 
     def read_recent_episodes(self, *, goal_id: str | None = None, limit: int = 8) -> list[EpisodeSnapshot]:
         query = (

@@ -14,6 +14,9 @@ KNOWN_FALLBACK_REASONS = (
 )
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 def default_engine_adoption_payload(*, session_id: str = "") -> dict[str, Any]:
     return {
         "scope": "session",
@@ -29,7 +32,7 @@ def default_engine_adoption_payload(*, session_id: str = "") -> dict[str, Any]:
 class EngineAdoptionStore:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.base_dir = root / ".logs" / "fusion-runtime"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / "engine_adoption.json"
         self._lock = threading.RLock()

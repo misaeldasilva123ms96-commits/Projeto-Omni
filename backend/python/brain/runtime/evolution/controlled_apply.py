@@ -18,11 +18,14 @@ _DEFAULT_TUNING: dict[str, Any] = {
 }
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class Phase39TuningStore:
     """Bounded, reversible tuning persisted under governed runtime logs (not arbitrary code)."""
 
     def __init__(self, root: Path) -> None:
-        self.path = root / ".logs" / "fusion-runtime" / "evolution" / "phase39_tuning.json"
+        self.path = artifact_logs_root(root) / "fusion-runtime" / "evolution" / "phase39_tuning.json"
 
     def read(self) -> dict[str, Any]:
         try:

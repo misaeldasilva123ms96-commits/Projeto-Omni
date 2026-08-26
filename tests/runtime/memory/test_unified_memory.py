@@ -19,6 +19,7 @@ from brain.runtime.language import normalize_input_to_oil_request  # noqa: E402
 from brain.runtime.memory import MemoryFacade, UnifiedMemoryLayer  # noqa: E402
 from brain.runtime.memory.semantic.models import SemanticFact, utc_now_iso  # noqa: E402
 from brain.runtime.transcript_store import TranscriptStore  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class _StubRunRegistry:
@@ -44,7 +45,7 @@ class _StubRunRegistry:
 class UnifiedMemoryLayerTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-unified-memory"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-unified-memory"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"unified-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -60,7 +61,7 @@ class UnifiedMemoryLayerTest(unittest.TestCase):
                 transcript.append_turn("sess-32", "Analise runtime policy", "Ok.")
                 transcript.append_turn("sess-32", "Precisamos validar governanca", "Certo.")
 
-                working = WorkingMemoryStore(workspace_root / ".logs" / "fusion-runtime" / "working-memory.json")
+                working = WorkingMemoryStore(artifact_logs_root(workspace_root) / "fusion-runtime" / "working-memory.json")
                 working.update_session(
                     "sess-32",
                     {
@@ -70,7 +71,7 @@ class UnifiedMemoryLayerTest(unittest.TestCase):
                     },
                 )
 
-                decision = DecisionMemoryStore(workspace_root / ".logs" / "fusion-runtime" / "decision-memory.json")
+                decision = DecisionMemoryStore(artifact_logs_root(workspace_root) / "fusion-runtime" / "decision-memory.json")
                 decision.record_decision(
                     session_id="sess-32",
                     task_id="task-32",
@@ -81,7 +82,7 @@ class UnifiedMemoryLayerTest(unittest.TestCase):
                     reason="governance-sensitive flow",
                     metadata={},
                 )
-                evidence = EvidenceMemoryStore(workspace_root / ".logs" / "fusion-runtime" / "evidence-memory.json")
+                evidence = EvidenceMemoryStore(artifact_logs_root(workspace_root) / "fusion-runtime" / "evidence-memory.json")
                 evidence.record_evidence(
                     session_id="sess-32",
                     task_id="task-32",
@@ -139,9 +140,9 @@ class UnifiedMemoryLayerTest(unittest.TestCase):
     def test_unified_memory_empty_state_is_safe(self) -> None:
         with self.temp_workspace() as workspace_root:
             transcript = TranscriptStore(workspace_root / "backend" / "python" / "transcripts")
-            working = WorkingMemoryStore(workspace_root / ".logs" / "fusion-runtime" / "working-memory.json")
-            decision = DecisionMemoryStore(workspace_root / ".logs" / "fusion-runtime" / "decision-memory.json")
-            evidence = EvidenceMemoryStore(workspace_root / ".logs" / "fusion-runtime" / "evidence-memory.json")
+            working = WorkingMemoryStore(artifact_logs_root(workspace_root) / "fusion-runtime" / "working-memory.json")
+            decision = DecisionMemoryStore(artifact_logs_root(workspace_root) / "fusion-runtime" / "decision-memory.json")
+            evidence = EvidenceMemoryStore(artifact_logs_root(workspace_root) / "fusion-runtime" / "evidence-memory.json")
             facade = MemoryFacade(workspace_root)
             self.addCleanup(facade.close)
             layer = UnifiedMemoryLayer(

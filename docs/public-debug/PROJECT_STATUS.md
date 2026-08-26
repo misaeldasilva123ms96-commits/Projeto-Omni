@@ -37,8 +37,8 @@ Omni benefits from contributors who can help with:
 - `docs/architecture/runtime-flow.md`
 - `docs/public-debug/REPRODUCTION.md`
 - `docs/public-debug/CONTRIBUTOR_TASKS.md`
-- `docs/audits/brain-runtime-flow-map.md`
-- `docs/audits/brain-remediation-plan.md`
+- `docs/audit/brain-runtime-flow-map.md`
+- `docs/audit/brain-remediation-plan.md`
 
 ## Contribution posture
 

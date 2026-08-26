@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.control import RunRegistry
+from brain.runtime.artifact_paths import artifact_logs_root
 from brain.runtime.control.run_identity import normalize_run_id
 from brain.runtime.evolution import EvolutionService
 from brain.runtime.evolution.evolution_program_closure import (
@@ -128,7 +129,7 @@ def read_evolution_proposal(root: Path, proposal_id: str) -> dict[str, Any] | No
 
 
 def read_recent_reasoning_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -158,7 +159,7 @@ def read_latest_reasoning_trace(root: Path) -> dict[str, Any] | None:
 
 
 def read_recent_memory_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -189,7 +190,7 @@ def read_latest_memory_intelligence_trace(root: Path) -> dict[str, Any] | None:
 
 
 def read_recent_planning_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -220,7 +221,7 @@ def read_latest_planning_intelligence_trace(root: Path) -> dict[str, Any] | None
 
 
 def read_recent_learning_intelligence_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -251,7 +252,7 @@ def read_latest_learning_intelligence_trace(root: Path) -> dict[str, Any] | None
 
 
 def read_recent_strategy_adaptation_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -285,7 +286,7 @@ def read_latest_strategy_adaptation_trace(root: Path) -> dict[str, Any] | None:
 
 
 def read_recent_performance_optimization_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -316,7 +317,7 @@ def read_latest_performance_optimization_trace(root: Path) -> dict[str, Any] | N
 
 
 def read_recent_multi_agent_coordination_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -347,7 +348,7 @@ def read_latest_multi_agent_coordination_trace(root: Path) -> dict[str, Any] | N
 
 
 def read_recent_task_decomposition_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -379,7 +380,7 @@ def read_latest_task_decomposition_trace(root: Path) -> dict[str, Any] | None:
 
 
 def read_recent_controlled_self_evolution_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []
@@ -408,7 +409,7 @@ def read_latest_controlled_self_evolution_trace(root: Path) -> dict[str, Any] | 
 
 
 def read_recent_self_improving_system_traces(root: Path, *, limit: int = 10) -> list[dict[str, Any]]:
-    path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
     scan_limit = _audit_tail_scan_limit(limit)
     payloads = read_tail_jsonl(path, limit=scan_limit)
     traces: list[dict[str, Any]] = []

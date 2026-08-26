@@ -39,7 +39,7 @@ to deployment-specific `OMNI_TRUSTED_PROXY_CIDRS`; `Forwarded` and
 startup, malformed chains fall back to the peer, and a full active bucket map
 rejects new identities without evicting active clients. Commit-bound local and
 remote evidence is recorded in
-[`docs/audits/2026-08-02-trusted-proxy-rate-limit-hardening.md`](../audits/2026-08-02-trusted-proxy-rate-limit-hardening.md).
+[`docs/audit/2026-08-02-trusted-proxy-rate-limit-hardening.md`](2026-08-02-trusted-proxy-rate-limit-hardening.md).
 
 This does not make the limiter distributed or the deployment production-ready.
 It remains process-local, resets on restart, and requires edge/platform
@@ -65,7 +65,7 @@ The final correction adds a built-in-only bootstrap before either JavaScript
 entrypoint loads `pathPolicy.js` and validates `fusionBrain.js` before any
 adapter import. Earlier implementation evidence did not cover those two gaps.
 Commit-bound evidence is recorded in
-[`docs/audits/2026-08-02-node-runner-path-containment.md`](../audits/2026-08-02-node-runner-path-containment.md).
+[`docs/audit/2026-08-02-node-runner-path-containment.md`](2026-08-02-node-runner-path-containment.md).
 
 This remains application-level validation, not an OS sandbox. Node/Bun may be
 installed outside the project. A privileged local actor and filesystem-write
@@ -87,7 +87,7 @@ preserved Runtime Truth and request boundaries, enforced its effective container
 hardening, passed fail-closed diagnostic-publication and synthetic-secret
 leakage checks, verified final cleanup, and exited normally through the tested
 SIGTERM path. The commit-bound details are recorded in
-[`docs/audits/2026-08-02-docker-runtime-smoke.md`](../audits/2026-08-02-docker-runtime-smoke.md).
+[`docs/audit/2026-08-02-docker-runtime-smoke.md`](2026-08-02-docker-runtime-smoke.md).
 
 The target deployment environment remains unverified. Target deployment Docker image build still needs daemon-backed validation. A production container profile
 remains nonexistent or unverified. Hostile traffic, multi-instance

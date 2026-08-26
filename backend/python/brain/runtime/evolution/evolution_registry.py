@@ -8,11 +8,14 @@ from typing import Any
 from .evolution_models import EvolutionProposalRecord, EvolutionProposalStatus
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class EvolutionRegistry:
     """Minimal filesystem registry for governed evolution proposals."""
 
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "evolution"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "evolution"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / "evolution_registry.json"
         self._lock = threading.RLock()

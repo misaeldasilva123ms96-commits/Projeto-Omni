@@ -187,6 +187,14 @@ cd frontend
 npm run dev
 ```
 
+Optional faster dev loop (persistent service processes instead of per-request subprocesses):
+
+```bash
+npm run start:brain-service   # Python brain HTTP service (127.0.0.1:7010)
+npm run start:node-service    # Node QueryEngine HTTP service (127.0.0.1:7020)
+# then set OMNI_PYTHON_MODE=service in .env; subprocess remains the automatic fallback.
+```
+
 Default local frontend:
 
 ```txt

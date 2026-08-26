@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.evolution.controlled_evolution_models import GovernedProposal
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 def _lerp_value(baseline: float, target: float, t: float) -> float:
@@ -84,7 +85,7 @@ class ImprovementRolloutStore:
     """Persists one active rollout cycle (bounded, auditable)."""
 
     def __init__(self, root: Path) -> None:
-        self.path = root / ".logs" / "fusion-runtime" / "improvement" / "phase40_rollout.json"
+        self.path = artifact_logs_root(root) / "fusion-runtime" / "improvement" / "phase40_rollout.json"
 
     def read(self) -> dict[str, Any]:
         try:

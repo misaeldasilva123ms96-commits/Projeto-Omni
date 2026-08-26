@@ -12,11 +12,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class LearningLoopTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.workspace = Path(tempfile.mkdtemp(prefix="omni-phase10-", dir=str(PROJECT_ROOT / ".logs")))
+        self.workspace = Path(tempfile.mkdtemp(prefix="omni-phase10-", dir=str(artifact_logs_root(PROJECT_ROOT))))
         self._old_base_dir = os.environ.get("BASE_DIR")
         self._old_python_base_dir = os.environ.get("PYTHON_BASE_DIR")
         os.environ["BASE_DIR"] = str(self.workspace)

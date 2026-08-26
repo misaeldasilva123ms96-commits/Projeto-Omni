@@ -28,6 +28,7 @@ from brain.runtime.control import (  # noqa: E402
 )
 from brain.runtime.control.cli import main as control_cli_main  # noqa: E402
 from brain.runtime.observability.observability_reader import ObservabilityReader  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GovernanceTaxonomyTest(unittest.TestCase):
@@ -57,7 +58,7 @@ class GovernanceTaxonomyTest(unittest.TestCase):
     def test_run_registry_resolution_includes_governance(self) -> None:
         @contextmanager
         def temp_workspace():
-            base = PROJECT_ROOT / ".logs" / "test-governance-taxonomy"
+            base = artifact_logs_root(PROJECT_ROOT) / "test-governance-taxonomy"
             base.mkdir(parents=True, exist_ok=True)
             path = base / f"gov-{uuid4().hex[:8]}"
             path.mkdir(parents=True, exist_ok=True)
@@ -98,7 +99,7 @@ class GovernanceTaxonomyTest(unittest.TestCase):
     def test_resolution_summary_governance_block(self) -> None:
         @contextmanager
         def temp_workspace():
-            base = PROJECT_ROOT / ".logs" / "test-governance-summary"
+            base = artifact_logs_root(PROJECT_ROOT) / "test-governance-summary"
             base.mkdir(parents=True, exist_ok=True)
             path = base / f"gsum-{uuid4().hex[:8]}"
             path.mkdir(parents=True, exist_ok=True)
@@ -126,7 +127,7 @@ class GovernanceTaxonomyTest(unittest.TestCase):
     def test_observability_policy_block_uses_governance(self) -> None:
         @contextmanager
         def temp_workspace():
-            base = PROJECT_ROOT / ".logs" / "test-obs-gov"
+            base = artifact_logs_root(PROJECT_ROOT) / "test-obs-gov"
             base.mkdir(parents=True, exist_ok=True)
             path = base / f"obs-{uuid4().hex[:8]}"
             path.mkdir(parents=True, exist_ok=True)
@@ -153,7 +154,7 @@ class GovernanceTaxonomyTest(unittest.TestCase):
     def test_cli_show_includes_governance(self) -> None:
         @contextmanager
         def temp_workspace():
-            base = PROJECT_ROOT / ".logs" / "test-cli-gov"
+            base = artifact_logs_root(PROJECT_ROOT) / "test-cli-gov"
             base.mkdir(parents=True, exist_ok=True)
             path = base / f"cli-{uuid4().hex[:8]}"
             path.mkdir(parents=True, exist_ok=True)

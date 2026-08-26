@@ -17,13 +17,14 @@ for candidate in (LIB_DIR, SCRIPTS_DIR):
 from common import write_jsonl  # noqa: E402
 from execution_examples import build_execution_examples_from_runtime_logs  # noqa: E402
 from evaluate_execution import main as evaluate_execution_main  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ExecutionDatasetFeaturesTest(unittest.TestCase):
     def test_build_execution_examples_from_runtime_logs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            log_path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+            log_path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
             write_jsonl(
                 log_path,
                 [

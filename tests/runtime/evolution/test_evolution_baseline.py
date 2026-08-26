@@ -19,12 +19,13 @@ from brain.runtime.evolution import (  # noqa: E402
 )
 from brain.runtime.observability.observability_reader import ObservabilityReader  # noqa: E402
 from brain.runtime.observability.run_reader import read_evolution_proposal, read_evolution_summary  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class EvolutionBaselineTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-evolution-baseline"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-evolution-baseline"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"evolution-baseline-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

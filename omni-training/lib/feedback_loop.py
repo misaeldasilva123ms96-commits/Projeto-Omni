@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from common import read_jsonl, write_jsonl
+from common import runtime_audit_log_path, read_jsonl, write_jsonl
 from dataset_enrichment import enrich_curated_example
 
 
 def _runtime_log_path(project_root: Path) -> Path:
-    return project_root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    return runtime_audit_log_path(project_root)
 
 
 def build_feedback_examples_from_runtime_logs(project_root: Path, *, limit: int = 25) -> list[dict[str, Any]]:

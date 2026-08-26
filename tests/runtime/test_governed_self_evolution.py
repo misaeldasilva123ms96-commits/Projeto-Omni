@@ -16,12 +16,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.evolution import EvolutionExecutor  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GovernedSelfEvolutionTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-evolution"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-evolution"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase20-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -180,7 +181,7 @@ class GovernedSelfEvolutionTest(unittest.TestCase):
                 }
             )
 
-            base = workspace_root / ".logs" / "fusion-runtime" / "evolution"
+            base = artifact_logs_root(workspace_root) / "fusion-runtime" / "evolution"
             self.assertTrue((base / "opportunities" / "opportunities.jsonl").exists())
             self.assertTrue((base / "proposals" / "proposals.jsonl").exists())
             self.assertTrue((base / "governance" / "governance.jsonl").exists())

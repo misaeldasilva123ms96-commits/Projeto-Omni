@@ -1,4 +1,4 @@
-use std::{convert::Infallible, process::Stdio, time::Duration};
+use std::{convert::Infallible, time::Duration};
 
 use async_stream::stream;
 use axum::{
@@ -8,12 +8,10 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::{
-    process::Command,
-    time::{interval, timeout, MissedTickBehavior},
-};
+use tokio::time::{interval, MissedTickBehavior};
 use tracing::warn;
 
+use crate::python_bridge::{run_python, PythonInvocation, StdinMode};
 use crate::AppState;
 
 const OBSERVABILITY_TIMEOUT_MS: u64 = 2_500;
@@ -82,43 +80,35 @@ async fn call_observability_cli(
     payload_key: &str,
 ) -> Value {
     let cli_timeout_ms = state.python_timeout_ms.min(OBSERVABILITY_TIMEOUT_MS);
-    let mut command = Command::new(&state.python_bin);
-    command
-        .current_dir(&state.python_root)
-        .arg("-m")
-        .arg("brain.runtime.observability.cli")
-        .arg("--root")
-        .arg(state.project_root.display().to_string())
-        .arg(command_name)
-        .args(extra_args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    let mut args: Vec<std::ffi::OsString> = vec![
+        "-m".into(),
+        "brain.runtime.observability.cli".into(),
+        "--root".into(),
+        state.project_root.display().to_string().into(),
+        command_name.into(),
+    ];
+    args.extend(extra_args.iter().map(|arg| arg.as_str().into()));
 
-    let output = match timeout(Duration::from_millis(cli_timeout_ms), command.output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => {
-            return graceful_error(
-                payload_key,
-                format!("failed to spawn observability reader: {error}"),
-            );
-        }
-        Err(_) => {
-            return graceful_error(
-                payload_key,
-                format!("observability reader timed out after {cli_timeout_ms} ms"),
-            );
+    let invocation = PythonInvocation::new(&state.python_bin, args)
+        .current_dir(&state.python_root)
+        .stdin_mode(StdinMode::Inherit)
+        .timeout(Some(Duration::from_millis(cli_timeout_ms)));
+
+    let output = match run_python(invocation).await {
+        Ok(output) => output,
+        Err(error) => {
+            return graceful_error(payload_key, spawn_failure_message(&error, cli_timeout_ms));
         }
     };
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !output.status.success() {
+    let stderr = output.stderr_lossy_trimmed();
+    if !output.success {
         return graceful_error(
             payload_key,
             if stderr.is_empty() {
                 format!(
                     "observability reader exited with status {}",
-                    output.status.code().unwrap_or(-1)
+                    output.exit_code.unwrap_or(-1)
                 )
             } else {
                 stderr
@@ -130,7 +120,7 @@ async fn call_observability_cli(
         warn!(python_stderr = %stderr, "observability reader produced stderr");
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = output.stdout_lossy_trimmed();
     if stdout.is_empty() {
         return graceful_error(
             payload_key,
@@ -141,6 +131,22 @@ async fn call_observability_cli(
     match serde_json::from_str::<Value>(&stdout) {
         Ok(value) => value,
         Err(error) => graceful_error(payload_key, format!("invalid observability JSON: {error}")),
+    }
+}
+
+fn spawn_failure_message(
+    error: &crate::python_bridge::BridgeSpawnFailure,
+    cli_timeout_ms: u64,
+) -> String {
+    match error {
+        crate::python_bridge::BridgeSpawnFailure::Timeout => {
+            format!("observability reader timed out after {cli_timeout_ms} ms")
+        }
+        crate::python_bridge::BridgeSpawnFailure::Spawn(err)
+        | crate::python_bridge::BridgeSpawnFailure::Wait(err)
+        | crate::python_bridge::BridgeSpawnFailure::StdinWrite(err) => {
+            format!("failed to spawn observability reader: {err}")
+        }
     }
 }
 

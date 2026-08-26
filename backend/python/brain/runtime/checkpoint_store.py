@@ -11,9 +11,12 @@ from ..persistence import atomic_write_json, file_lock
 LOGGER = logging.getLogger(__name__)
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class CheckpointStore:
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "checkpoints"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "checkpoints"
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, run_id: str) -> Path:

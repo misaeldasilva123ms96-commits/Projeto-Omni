@@ -6,9 +6,12 @@ from pathlib import Path
 from .models import OrchestrationContext, OrchestrationDecision, OrchestrationResult
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class OrchestrationStore:
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "orchestration"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "orchestration"
         self.context_dir = self.base_dir / "context"
         self.decisions_dir = self.base_dir / "decisions"
         self.routes_dir = self.base_dir / "routes"

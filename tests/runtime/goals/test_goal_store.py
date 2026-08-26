@@ -13,12 +13,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.goals import GoalFactory, GoalStatus, GoalStore  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class GoalStoreTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-goals-store"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-goals-store"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase21-store-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -62,7 +63,7 @@ class GoalStoreTest(unittest.TestCase):
 
             active_goals = store.get_active_goals()
             self.assertGreaterEqual(len(active_goals), 8)
-            self.assertTrue((workspace_root / ".logs" / "fusion-runtime" / "goals" / "goal_store.json").exists())
+            self.assertTrue((artifact_logs_root(workspace_root) / "fusion-runtime" / "goals" / "goal_store.json").exists())
 
 
 if __name__ == "__main__":

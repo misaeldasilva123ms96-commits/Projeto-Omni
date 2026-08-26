@@ -20,6 +20,7 @@ from ambiguity_examples import build_ambiguity_examples_from_runtime_logs, expor
 from common import read_json, write_jsonl  # noqa: E402
 from dataset_weighting import apply_dataset_weights, derive_weight_fields  # noqa: E402
 from evaluate_decisions import main as evaluate_decisions_main  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class DecisionDatasetFeaturesTest(unittest.TestCase):
@@ -45,7 +46,7 @@ class DecisionDatasetFeaturesTest(unittest.TestCase):
     def test_ambiguity_examples_are_generated_from_runtime_logs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            log_path = root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+            log_path = artifact_logs_root(root) / "fusion-runtime" / "execution-audit.jsonl"
             write_jsonl(
                 log_path,
                 [

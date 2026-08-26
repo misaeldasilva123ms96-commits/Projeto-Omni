@@ -77,7 +77,7 @@ def validate() -> tuple[dict[str, object], list[str]]:
             continue
         if DYNAMIC_PREFIX.search(text):
             approved_rust_negative = (
-                relative == "backend/rust/src/main.rs"
+                relative in {"backend/rust/src/main.rs", "backend/rust/src/main_tests.rs"}
                 and '["OMIN", "I_ALLOWED_ORIGINS"]' in text
             )
             if not approved_rust_negative and relative not in NEGATIVE_TEST_FILES:

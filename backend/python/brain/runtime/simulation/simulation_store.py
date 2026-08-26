@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from brain.runtime.observability._reader_utils import read_tail_jsonl
+from brain.runtime.artifact_paths import artifact_logs_root
 
 from .models import SimulationResult
 
@@ -14,7 +15,7 @@ JSONL_TAIL_MAX_BYTES = 2 * 1024 * 1024
 class SimulationStore:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.base_dir = root / ".logs" / "fusion-runtime" / "simulation"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "simulation"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.base_dir / "simulation_log.jsonl"
 

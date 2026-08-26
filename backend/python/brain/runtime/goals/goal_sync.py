@@ -7,9 +7,12 @@ from pathlib import Path
 from .models import Goal
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class GoalSync:
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "goals"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "goals"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.export_path = self.base_dir / "goal_sync_export.jsonl"
 

@@ -24,6 +24,7 @@ from brain.runtime.control.run_identity import (  # noqa: E402
     validate_run_id_for_operator_cli,
 )
 from brain.runtime.observability.run_reader import read_run  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class RunIdentityTest(unittest.TestCase):
@@ -92,12 +93,12 @@ class RunIdentityTest(unittest.TestCase):
             )
 
     def test_legacy_registry_disk_key_still_readable(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-run-identity-legacy"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-identity-legacy"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"legacy-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
         try:
-            ctrl = path / ".logs" / "fusion-runtime" / "control"
+            ctrl = artifact_logs_root(path) / "fusion-runtime" / "control"
             ctrl.mkdir(parents=True, exist_ok=True)
             reg_path = ctrl / "run_registry.json"
             payload = {
@@ -136,7 +137,7 @@ class RunIdentityTest(unittest.TestCase):
             shutil.rmtree(path, ignore_errors=True)
 
     def test_control_cli_rejects_invalid_operator_run_id(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-run-identity-cli"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-identity-cli"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"cli-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

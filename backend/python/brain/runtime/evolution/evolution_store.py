@@ -6,9 +6,12 @@ from pathlib import Path
 from .models import EvolutionOpportunity, EvolutionProposal, GovernanceDecision, ValidationPlan
 
 
+from brain.runtime.artifact_paths import artifact_logs_root
+
+
 class EvolutionStore:
     def __init__(self, root: Path) -> None:
-        self.base_dir = root / ".logs" / "fusion-runtime" / "evolution"
+        self.base_dir = artifact_logs_root(root) / "fusion-runtime" / "evolution"
         self.opportunities_dir = self.base_dir / "opportunities"
         self.proposals_dir = self.base_dir / "proposals"
         self.validations_dir = self.base_dir / "validations"

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from brain.runtime.policy.performance_models import PerformanceBucket
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 def _row_ep(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -48,7 +49,7 @@ class PerformanceStore:
     """Bounded JSON aggregate for provider/tool/strategy outcomes (Phase 41.3)."""
 
     def __init__(self, root: Path) -> None:
-        self._path = root / ".logs" / "fusion-runtime" / "policy" / "performance_state.json"
+        self._path = artifact_logs_root(root) / "fusion-runtime" / "policy" / "performance_state.json"
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def _load(self) -> dict[str, Any]:

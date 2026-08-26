@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from brain.runtime.patch_generator import apply_patch, review_patch_risk, rollback_patch
+from brain.runtime.artifact_paths import artifact_logs_root
 
 from .models import FailureEvidence, RepairProposal, RepairValidationResult, SelfRepairPolicy
 
@@ -156,7 +157,7 @@ class RepairValidator:
         if candidate_content is None:
             file_to_load = target_path
             return self._execute_import_probe(workspace_root=workspace_root, file_to_load=file_to_load)
-        temp_root = workspace_root / ".logs" / "self-repair-validation"
+        temp_root = artifact_logs_root(workspace_root) / "self-repair-validation"
         temp_root.mkdir(parents=True, exist_ok=True)
         temp_dir = temp_root / f"import-{uuid4().hex[:8]}"
         temp_dir.mkdir(parents=True, exist_ok=True)

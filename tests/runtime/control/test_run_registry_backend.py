@@ -6,6 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 from uuid import uuid4
+from brain.runtime.artifact_paths import artifact_logs_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -21,7 +22,7 @@ from brain.runtime.control import (  # noqa: E402
 
 class FileSystemRunRegistryBackendTest(unittest.TestCase):
     def setUp(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-run-registry-backend"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-registry-backend"
         base.mkdir(parents=True, exist_ok=True)
         self._workspace = base / f"ws-{uuid4().hex[:8]}"
         self._workspace.mkdir(parents=True, exist_ok=True)
@@ -54,7 +55,7 @@ class FileSystemRunRegistryBackendTest(unittest.TestCase):
 
 class InMemoryRunRegistryBackendTest(unittest.TestCase):
     def test_registry_with_memory_backend_round_trip(self) -> None:
-        root = PROJECT_ROOT / ".logs" / "test-run-registry-mem"
+        root = artifact_logs_root(PROJECT_ROOT) / "test-run-registry-mem"
         root.mkdir(parents=True, exist_ok=True)
         mem = InMemoryRunRegistryBackend()
         reg = RunRegistry(root, backend=mem)
@@ -78,7 +79,7 @@ class InMemoryRunRegistryBackendTest(unittest.TestCase):
 
 class RunRegistryDefaultBackendTest(unittest.TestCase):
     def setUp(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-run-registry-default"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-registry-default"
         base.mkdir(parents=True, exist_ok=True)
         self._workspace = base / f"ws-{uuid4().hex[:8]}"
         self._workspace.mkdir(parents=True, exist_ok=True)
@@ -89,13 +90,13 @@ class RunRegistryDefaultBackendTest(unittest.TestCase):
     def test_default_backend_matches_filesystem_layout(self) -> None:
         reg = RunRegistry(self._workspace)
         self.assertEqual(reg.persistence_backend.metadata().backend_id, "filesystem")
-        expected = self._workspace / ".logs" / "fusion-runtime" / "control" / "run_registry.json"
+        expected = artifact_logs_root(self._workspace) / "fusion-runtime" / "control" / "run_registry.json"
         self.assertEqual(reg.path.resolve(), expected.resolve())
 
 
 class LegacyJsonLoadTest(unittest.TestCase):
     def setUp(self) -> None:
-        base = PROJECT_ROOT / ".logs" / "test-run-registry-legacy"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-run-registry-legacy"
         base.mkdir(parents=True, exist_ok=True)
         self._workspace = base / f"ws-{uuid4().hex[:8]}"
         self._workspace.mkdir(parents=True, exist_ok=True)
@@ -104,7 +105,7 @@ class LegacyJsonLoadTest(unittest.TestCase):
         shutil.rmtree(self._workspace, ignore_errors=True)
 
     def test_manual_disk_json_loads_via_default_registry(self) -> None:
-        ctrl = self._workspace / ".logs" / "fusion-runtime" / "control"
+        ctrl = artifact_logs_root(self._workspace) / "fusion-runtime" / "control"
         ctrl.mkdir(parents=True, exist_ok=True)
         path = ctrl / "run_registry.json"
         payload = {

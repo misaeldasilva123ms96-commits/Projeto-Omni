@@ -22,6 +22,7 @@ from brain.runtime.learning import (  # noqa: E402
     LoRAInferenceEngine,
 )
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class DecisionRankingTest(unittest.TestCase):
@@ -34,7 +35,7 @@ class DecisionRankingTest(unittest.TestCase):
 
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-phase3-ranking"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-phase3-ranking"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase3-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

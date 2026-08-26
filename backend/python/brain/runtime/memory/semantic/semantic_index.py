@@ -12,6 +12,7 @@ from pathlib import Path
 
 from brain.env import read_env
 from .models import SemanticFact
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 _OPEN_CONNECTIONS: dict[int, sqlite3.Connection] = {}
@@ -22,7 +23,7 @@ class SemanticIndex:
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.db_dir = root / ".logs" / "fusion-runtime" / "memory" / "db"
+        self.db_dir = artifact_logs_root(root) / "fusion-runtime" / "memory" / "db"
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False

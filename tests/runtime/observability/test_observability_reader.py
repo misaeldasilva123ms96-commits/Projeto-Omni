@@ -22,12 +22,13 @@ from brain.runtime.simulation.models import RouteSimulation, RouteType, Simulati
 from brain.runtime.simulation.simulation_store import SimulationStore  # noqa: E402
 from brain.runtime.specialists.models import CoordinationTrace  # noqa: E402
 from brain.runtime.specialists.specialist_store import SpecialistStore  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ObservabilityReaderTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / '.logs' / 'test-observability'
+        base = artifact_logs_root(PROJECT_ROOT) / 'test-observability'
         base.mkdir(parents=True, exist_ok=True)
         path = base / f'observability-reader-{uuid4().hex[:8]}'
         path.mkdir(parents=True, exist_ok=True)
@@ -49,7 +50,7 @@ class ObservabilityReaderTest(unittest.TestCase):
                 facade.set_active_goal(session_id='sess-obs', goal_id=goal.goal_id, active_plan_id='plan-obs', goal_context=GoalContext.from_goal(goal))
                 facade.record_event(event_type='continuation', description='Runtime seguindo.', outcome='retry', progress_score=0.5, metadata={'goal_type': 'execution', 'recommended_route': 'retry', 'decision_type': 'retry'})
                 facade.close_goal_episode(outcome='retry', description='Episode persisted.', event_type='continuation')
-                engine_adoption_path = workspace_root / '.logs' / 'fusion-runtime'
+                engine_adoption_path = artifact_logs_root(workspace_root) / 'fusion-runtime'
                 engine_adoption_path.mkdir(parents=True, exist_ok=True)
                 (engine_adoption_path / 'engine_adoption.json').write_text(
                     json.dumps(
@@ -71,7 +72,7 @@ class ObservabilityReaderTest(unittest.TestCase):
                     ),
                     encoding='utf-8',
                 )
-                control_path = workspace_root / '.logs' / 'fusion-runtime' / 'control'
+                control_path = artifact_logs_root(workspace_root) / 'fusion-runtime' / 'control'
                 control_path.mkdir(parents=True, exist_ok=True)
                 (control_path / 'run_registry.json').write_text(
                     json.dumps(
@@ -95,7 +96,7 @@ class ObservabilityReaderTest(unittest.TestCase):
                     ),
                     encoding='utf-8',
                 )
-                (workspace_root / '.logs' / 'fusion-runtime' / 'execution-audit.jsonl').write_text(
+                (artifact_logs_root(workspace_root) / 'fusion-runtime' / 'execution-audit.jsonl').write_text(
                     '\n'.join(
                         [
                             json.dumps(

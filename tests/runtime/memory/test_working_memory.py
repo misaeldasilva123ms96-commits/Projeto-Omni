@@ -13,12 +13,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.memory.working import WorkingMemory  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class WorkingMemoryTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-memory"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-memory"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"working-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
@@ -39,7 +40,7 @@ class WorkingMemoryTest(unittest.TestCase):
                 evidence_ids=["receipt-1"],
             )
 
-            payload = json.loads((workspace_root / ".logs" / "fusion-runtime" / "memory" / "working_memory.json").read_text(encoding="utf-8"))
+            payload = json.loads((artifact_logs_root(workspace_root) / "fusion-runtime" / "memory" / "working_memory.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["session_id"], "sess-1")
             self.assertEqual(payload["goal_id"], "goal-1")
             self.assertEqual(len(payload["recent_events"]), 1)

@@ -15,12 +15,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.memory.episodic import Episode  # noqa: E402
 from brain.runtime.memory.semantic import FactConsolidator, SemanticFact, SemanticIndex  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class SemanticIndexTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-memory"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-memory"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"semantic-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)

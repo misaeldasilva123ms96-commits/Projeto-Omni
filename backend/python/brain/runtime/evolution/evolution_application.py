@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
 
 from .models import utc_now_iso
+
+
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class EvolutionApplicationStatus(str, Enum):
@@ -100,11 +103,17 @@ class EvolutionApplicationAttempt:
 
 
 def _sandbox_root(root: Path) -> Path:
-    return root / ".logs" / "fusion-runtime" / "evolution" / "sandbox"
+    return artifact_logs_root(root) / "fusion-runtime" / "evolution" / "sandbox"
 
 
 def _resolve_target_path(*, root: Path, target_path: str) -> Path:
-    candidate = (root / str(target_path or "")).resolve()
+    raw = str(target_path or "").strip().replace("\\", "/")
+    parts = PurePosixPath(raw).parts
+    # ".logs/..." targets are artifact-store-relative: resolve through the same
+    # canonical store root used by writers, honoring OMNI_LOG_ROOT redirection.
+    if parts[:1] == (".logs",):
+        parts = parts[1:]
+    candidate = (artifact_logs_root(root) / Path(*parts)).resolve() if parts else (root / raw).resolve()
     sandbox_root = _sandbox_root(root).resolve()
     try:
         candidate.relative_to(sandbox_root)

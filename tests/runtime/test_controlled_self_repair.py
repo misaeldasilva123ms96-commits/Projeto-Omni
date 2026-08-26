@@ -30,12 +30,13 @@ from brain.runtime.self_repair import (  # noqa: E402
 )
 from brain.runtime.self_repair.repair_executor import SelfRepairExecutor  # noqa: E402
 from brain.runtime.self_repair.repair_scope import RepairScopeEnforcer  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root
 
 
 class ControlledSelfRepairTest(unittest.TestCase):
     @contextmanager
     def temp_workspace(self):
-        base = PROJECT_ROOT / ".logs" / "test-self-repair"
+        base = artifact_logs_root(PROJECT_ROOT) / "test-self-repair"
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"phase15-{uuid4().hex[:8]}"
         path.mkdir(parents=True, exist_ok=True)
