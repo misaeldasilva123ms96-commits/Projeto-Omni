@@ -1,10 +1,31 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+
+def runtime_logs_root(project_root: Path) -> Path:
+    """Resolve the artifact store root, honoring OMNI_LOG_ROOT redirection.
+
+    Mirrors brain.runtime.artifact_paths.artifact_logs_root (including the
+    sha1-tagged per-root scoping) so training readers stay consistent with
+    runtime writers under test isolation. Keep both in sync.
+    """
+    override = os.environ.get("OMNI_LOG_ROOT")
+    if not override:
+        return project_root / ".logs"
+    resolved = str(Path(project_root).resolve())
+    tag = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:12]
+    return Path(override) / f"root-{tag}"
+
+
+def runtime_audit_log_path(project_root: Path) -> Path:
+    return runtime_logs_root(project_root) / "fusion-runtime" / "execution-audit.jsonl"
 
 
 def utc_now_iso() -> str:

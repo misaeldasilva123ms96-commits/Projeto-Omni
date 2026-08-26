@@ -8,9 +8,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::{
-    time::{interval, MissedTickBehavior},
-};
+use tokio::time::{interval, MissedTickBehavior};
 use tracing::warn;
 
 use crate::python_bridge::{run_python, PythonInvocation, StdinMode};

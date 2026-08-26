@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from common import read_jsonl, write_jsonl
+from common import runtime_audit_log_path, read_jsonl, write_jsonl
 from dataset_weighting import derive_weight_fields
 
 
 def build_execution_examples_from_runtime_logs(project_root: Path, *, limit: int = 50) -> list[dict[str, Any]]:
-    log_path = project_root / ".logs" / "fusion-runtime" / "execution-audit.jsonl"
+    log_path = runtime_audit_log_path(project_root)
     records = read_jsonl(log_path)
     examples: list[dict[str, Any]] = []
     for index, record in enumerate(reversed(records), start=1):
