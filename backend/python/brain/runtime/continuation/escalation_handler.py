@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
+from cryptography.fernet import Fernet
 from brain.runtime.planning import TaskPlan, TaskPlanStatus
 from brain.runtime.artifact_paths import artifact_logs_root
 from brain.runtime.planning.checkpoint_manager import CheckpointManager
@@ -22,6 +24,10 @@ class EscalationHandler:
         self.store = store
         self.checkpoints = checkpoints
         self.summary_builder = summary_builder
+        key = os.environ.get("BRAIN_ESCALATION_LOG_FERNET_KEY")
+        if not key:
+            raise ValueError("BRAIN_ESCALATION_LOG_FERNET_KEY must be set for escalation payload encryption.")
+        self._fernet = Fernet(key.encode("utf-8"))
         self.escalations_dir = artifact_logs_root(root) / "fusion-runtime" / "continuation" / "escalations"
         self.escalations_dir.mkdir(parents=True, exist_ok=True)
 
@@ -48,7 +54,12 @@ class EscalationHandler:
         )
         self.store.save_summary(self.summary_builder.build(plan))
         path = self.escalations_dir / f"{plan.plan_id}.jsonl"
+        encrypted_payload = self._fernet.encrypt(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("utf-8")
+        record = {
+            "encoding": "fernet",
+            "ciphertext": encrypted_payload,
+        }
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False))
+            handle.write(json.dumps(record, ensure_ascii=False))
             handle.write("\n")
         return plan
