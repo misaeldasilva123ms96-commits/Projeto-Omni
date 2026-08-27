@@ -35,6 +35,9 @@ _DANGEROUS_KEY_FRAGMENTS = (
     "tool_raw_result",
     "memory_raw",
     "memory_content",
+    "legacy_ungoverned_trusted",
+    "strict_mode",
+    "governed",
 )
 
 _SAFE_IDENTIFIER_KEYS = {
