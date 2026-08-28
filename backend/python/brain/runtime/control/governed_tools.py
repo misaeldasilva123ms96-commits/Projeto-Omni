@@ -206,16 +206,22 @@ def evaluate_tool_governance(
             category=meta.category,
             extensions=dict(meta.extensions),
         )
-    if strict:
+    if strict or not in_trusted:
         return ToolGovernanceAudit(
             allowed=False,
             governed=False,
             legacy_ungoverned_trusted=legacy,
-            strict_mode=True,
+            strict_mode=strict,
             tool_name=name,
             policy_name=None,
             category=None,
-            extensions={"note": "strict_mode_requires_governed_declaration"},
+            extensions={
+                "note": (
+                    "strict_mode_requires_governed_declaration"
+                    if strict
+                    else "unknown_tool_denied_by_default"
+                )
+            },
         )
     return ToolGovernanceAudit(
         allowed=True,

@@ -21,8 +21,10 @@ class ToolRegistryExtensionsTest(unittest.TestCase):
     def test_unknown_tool_uses_conservative_defaults(self) -> None:
         metadata = get_tool_metadata("unknown_tool_xyz")
         self.assertEqual(metadata.name, "unknown_tool_xyz")
-        self.assertEqual(metadata.risk_level, "medium")
-        self.assertTrue(metadata.safe_fallback_available)
+        self.assertEqual(metadata.risk_level, "high")
+        self.assertTrue(metadata.requires_network)
+        self.assertTrue(metadata.requires_auth)
+        self.assertFalse(metadata.safe_fallback_available)
 
     def test_capability_registry_is_enriched_additively(self) -> None:
         registry = CapabilityRegistry()

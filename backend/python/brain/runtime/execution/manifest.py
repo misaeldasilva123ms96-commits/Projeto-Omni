@@ -4,7 +4,7 @@ import hashlib
 from typing import Any
 
 from brain.runtime.execution.manifest_models import ExecutionManifest, ManifestBuildResult, ManifestStep
-from brain.runtime.tooling.tool_registry_extensions import get_tool_metadata
+from brain.runtime.tooling.tool_registry_extensions import get_tool_metadata, is_tool_metadata_registered
 
 
 def _normalize_output_mode(requested_output: str | None) -> str:
@@ -41,8 +41,10 @@ def build_execution_manifest(
                 description=f"classify intent={getattr(routing_decision, 'intent', getattr(oil_request, 'intent', 'unknown'))}",
             )
         ]
-        if getattr(routing_decision, "requires_tools", False) and selected_tools:
-            for index, tool in enumerate(selected_tools, start=2):
+        registered_tools = [tool for tool in selected_tools if is_tool_metadata_registered(tool)]
+        denied_unknown_tools = [tool for tool in selected_tools if not is_tool_metadata_registered(tool)]
+        if getattr(routing_decision, "requires_tools", False) and registered_tools:
+            for index, tool in enumerate(registered_tools, start=2):
                 tool_meta = get_tool_metadata(tool)
                 steps.append(
                     ManifestStep(
@@ -75,6 +77,8 @@ def build_execution_manifest(
         if selected_tools:
             observability_tags.extend([f"tool:{tool}" for tool in selected_tools])
         safety_notes = []
+        if denied_unknown_tools:
+            safety_notes.extend(f"unknown_tool_denied:{tool}" for tool in denied_unknown_tools)
         if str(getattr(routing_decision, "risk_level", "")).strip() in {"high", "critical"}:
             safety_notes.append("high_risk_request")
         if getattr(routing_decision, "requires_node_runtime", False):
@@ -109,6 +113,8 @@ def build_execution_manifest(
                 "confidence": float(getattr(routing_decision, "confidence", 0.0) or 0.0),
                 "preferred_capability_path": getattr(routing_decision, "preferred_capability_path", ""),
                 "manifest_driven_execution": True,
+                "authorized_selected_tools": registered_tools,
+                "denied_unknown_tools": denied_unknown_tools,
             },
         )
         return ManifestBuildResult(

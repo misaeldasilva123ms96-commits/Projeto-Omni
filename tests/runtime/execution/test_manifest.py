@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -36,6 +37,27 @@ class ExecutionManifestTest(unittest.TestCase):
         self.assertEqual(manifest["selected_tools"], ["test_runner"])
         self.assertTrue(manifest["step_plan"])
         self.assertIn("summary_rationale", manifest)
+
+    def test_unknown_tool_is_recorded_but_not_authorized(self) -> None:
+        router = CapabilityRouter()
+        routing = replace(router.classify_task("execute uma ferramenta"), requires_tools=True)
+        oil_request = normalize_input_to_oil_request(
+            "execute uma ferramenta",
+            session_id="manifest-unknown-test",
+            run_id="",
+            metadata={"source_component": "test"},
+        )
+        result = build_execution_manifest(
+            oil_request=oil_request,
+            routing_decision=routing,
+            selected_tools=["model_invented_tool"],
+        )
+        manifest = result.manifest.as_dict()
+        self.assertEqual(manifest["selected_tools"], ["model_invented_tool"])
+        self.assertEqual(manifest["metadata"]["authorized_selected_tools"], [])
+        self.assertEqual(manifest["metadata"]["denied_unknown_tools"], ["model_invented_tool"])
+        self.assertIn("unknown_tool_denied:model_invented_tool", manifest["safety_notes"])
+        self.assertNotIn("use tool model_invented_tool", [step["description"] for step in manifest["step_plan"]])
 
 
 if __name__ == "__main__":

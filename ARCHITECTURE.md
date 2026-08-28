@@ -121,3 +121,4 @@ For a simpler introduction, see:
 - [docs/architecture/tool-runtime.md](docs/architecture/tool-runtime.md)
 - [docs/architecture/cognitive-decision-model.md](docs/architecture/cognitive-decision-model.md)
 - [docs/architecture/learning-loop.md](docs/architecture/learning-loop.md)
+- [docs/architecture/external-api-gateway.md](docs/architecture/external-api-gateway.md)

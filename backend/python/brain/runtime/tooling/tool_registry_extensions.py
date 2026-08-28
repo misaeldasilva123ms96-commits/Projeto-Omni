@@ -181,6 +181,11 @@ def get_tool_metadata(name: str) -> ToolMetadata:
     return _TOOL_METADATA.get(key, conservative_tool_metadata(key))
 
 
+def is_tool_metadata_registered(name: str) -> bool:
+    """Return whether a tool has an explicit runtime metadata declaration."""
+    return str(name or "").strip() in _TOOL_METADATA
+
+
 def get_capability_metadata(capability_id: str) -> ToolMetadata:
     key = str(capability_id or "").strip()
     if not key:
