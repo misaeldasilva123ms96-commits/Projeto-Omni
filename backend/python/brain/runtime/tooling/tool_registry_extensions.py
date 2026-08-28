@@ -7,6 +7,19 @@ from brain.runtime.tooling.tool_metadata import ToolMetadata, conservative_tool_
 
 
 _TOOL_METADATA: dict[str, ToolMetadata] = {
+    "weather_forecast": ToolMetadata(
+        name="weather_forecast",
+        category="external/weather",
+        description="retrieves governed weather data from the Open-Meteo pilot",
+        input_schema_hint="{'latitude': float, 'longitude': float, 'forecast_days': int}",
+        risk_level="low",
+        estimated_cost="free/non-commercial-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
     "read_file": ToolMetadata(
         name="read_file",
         category="filesystem",

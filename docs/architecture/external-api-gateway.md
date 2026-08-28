@@ -22,7 +22,7 @@ External API Registry
  ↓
 External API Policy
  ↓
-[Future External API Gateway]
+External API Gateway
  ↓
 Internet
 ```
@@ -41,9 +41,36 @@ Literal localhost, loopback, private, link-local, reserved, unspecified, and
 multicast IP targets are denied. Redirect behavior and response limits are part
 of each declaration for the future gateway to enforce.
 
-These checks are not complete SSRF protection. The future HTTP transport must
-resolve DNS itself, validate every resolved IP before connecting, pin or
-revalidate the destination across redirects, and defend against DNS rebinding.
+The Phase 2 transport resolves A/AAAA records itself and denies the request if
+any returned address is not globally routable. It connects to one address from
+that validated set without a second DNS lookup. The logical hostname is retained
+for the HTTP `Host` header, TLS SNI, hostname verification, and certificate
+validation. TLS verification cannot be disabled through the Gateway API.
+
+Requests contain `api_id + governed path + structured query`; callers cannot
+supply an absolute URL. Provider definitions control the scheme, host, method,
+timeout, streaming response limit, redirect mode, retry count, cache TTL, and
+local rate limit. Open-Meteo denies every redirect. The transport never follows
+`Location`, so cross-host redirects and HTTPS-to-HTTP downgrades cannot execute.
+
+## Transport controls
+
+- Timeouts apply to connect and response I/O and return `request_timeout`.
+- Responses are read in bounded chunks and aborted immediately above the
+  provider's byte ceiling.
+- JSON decoding happens only after the bounded read; malformed JSON is rejected.
+- GET may retry connection failures, timeouts, 429, 502, 503, and 504, with at
+  most the registry's small attempt count and injected/testable backoff.
+- Validation, policy denials, redirects, ordinary 4xx, and schema failures do
+  not retry.
+- The in-memory TTL cache has bounded capacity and a deterministic request key.
+  Headers, credentials, and cookies never enter the key or cached value.
+- A thread-safe, per-process token window limits provider calls. Open-Meteo is
+  capped at 30 provider requests per minute per process, far below its published
+  free-tier ceiling. Cache hits do not consume provider quota.
+
+The controls are process-local. Horizontal deployments need a separately
+reviewed distributed quota design before commercial production.
 
 ## Trust and provenance
 
@@ -59,8 +86,59 @@ headers, cookies, tokens, and sensitive payloads must never enter provenance,
 observability records, prompts, or model context. Secrets must remain inside the
 future gateway's credential boundary.
 
-## Phase 1 status
+## Open-Meteo pilot
 
-No external API is registered or active. HTTP transport, retries, provider
-routing, DNS/IP post-resolution validation, credential injection, caching, and
-real provider integrations are deferred to later reviewed phases.
+`weather_forecast` is an explicitly registered and governed external read. It
+accepts only latitude (`-90..90`), longitude (`-180..180`), and 1–7 forecast
+days. The adapter always calls `GET /v1/forecast` with a fixed set of current
+and daily variables and `timezone=auto`; it cannot accept arbitrary provider
+fields or hosts. Provider JSON is type-checked and reduced to location,
+timezone, current conditions, daily forecast, provider, and provenance.
+
+Both gates default off and must be true:
+
+```text
+OMNI_EXTERNAL_API_ENABLED=false
+OMNI_EXTERNAL_OPEN_METEO_ENABLED=false
+```
+
+The registry entry must also be enabled and policy-approved. There is no city
+lookup or geocoding in Phase 2.
+
+The free endpoint is classified solely as a development/evaluation,
+non-commercial pilot. Open-Meteo requires attribution and publishes its free
+data under CC BY 4.0 conditions. Commercial production requires a new licensing
+and provider-plan review. Provenance retains a short `Weather data by
+Open-Meteo.com` attribution.
+
+## Observability and privacy
+
+The Gateway emits `external_api.request_started`, `policy_denied`, `cache_hit`,
+`request_succeeded`, `request_failed`, and `rate_limited`. Payloads contain only
+bounded API ID, method, outcome, cache state, or reason. URLs, query strings,
+headers, and coordinates are omitted. General execution receipts replace weather
+coordinates with `coordinates=redacted`; coordinates remain only in the
+governed request and requested normalized result.
+
+Runtime Truth marks actual executions with source `external_api`, provider
+`open_meteo`, tool `weather_forecast`, and cache state.
+
+## Threat model and remaining boundaries
+
+Mitigated in Phase 2: model-selected hosts, literal and post-DNS SSRF, mixed
+public/private DNS answers, DNS rebinding between validation and connect,
+invalid TLS, automatic redirects, unbounded downloads, infinite retries,
+unbounded cache growth, and ungoverned provider volume.
+
+Residual risks include provider compromise, malicious-but-valid public DNS
+destinations after an approved domain is compromised, per-process rather than
+distributed quotas, process-local cache, and coarse coordinate privacy in the
+requested result. Proxy support, secret injection, custom certificate stores,
+and SAME_HOST redirects are intentionally absent.
+
+## Phase 2 status
+
+Open-Meteo is the only registered provider and remains disabled unless both
+feature gates are explicitly enabled. The main test suite uses fake DNS and
+transport boundaries and never requires internet access. Live smoke testing is
+opt-in only through `OMNI_EXTERNAL_LIVE_TESTS=1`.

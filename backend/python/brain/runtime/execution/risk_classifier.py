@@ -27,6 +27,7 @@ HIGH_RISK_TOOLS = {
 }
 CRITICAL_TOOLS = {"shell_command", "git_commit", "package_manager"}
 EXTERNAL_IMPACT_SUBSYSTEMS = {"deployment", "external_api", "payments", "network_mutation"}
+GOVERNED_EXTERNAL_READ_TOOLS = {"weather_forecast"}
 
 
 class DeterministicRiskClassifier:
@@ -35,7 +36,11 @@ class DeterministicRiskClassifier:
         action_type = str(intent.action_type or "").strip().lower()
         subsystem = str(intent.target_subsystem or "").strip().lower()
         summary = intent.input_payload_summary if isinstance(intent.input_payload_summary, dict) else {}
-        tool_arguments = summary.get("tool_arguments", {}) if isinstance(summary.get("tool_arguments", {}), dict) else {}
+        tool_arguments = (
+            summary.get("tool_arguments", {})
+            if isinstance(summary.get("tool_arguments", {}), dict)
+            else {}
+        )
         subcommand = str(tool_arguments.get("subcommand", "")).strip().lower()
 
         if capability in CRITICAL_TOOLS or action_type in {"delete", "destroy", "deploy", "publish"}:
@@ -50,6 +55,16 @@ class DeterministicRiskClassifier:
                 level=RiskLevel.CRITICAL,
                 reason_code="package_mutation",
                 rationale="Package mutations can alter runtime dependencies and are treated as critical.",
+            )
+
+        if capability in GOVERNED_EXTERNAL_READ_TOOLS and subsystem == "external_api":
+            return RiskClassification(
+                level=RiskLevel.LOW,
+                reason_code="governed_external_read",
+                rationale=(
+                    "The registered external read remains bounded by provider gates, policy, "
+                    "and gateway controls."
+                ),
             )
 
         if subsystem in EXTERNAL_IMPACT_SUBSYSTEMS:

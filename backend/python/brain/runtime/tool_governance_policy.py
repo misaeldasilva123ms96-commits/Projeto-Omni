@@ -23,6 +23,7 @@ SHELL = {
     "autonomous_debug_loop",
 }
 NETWORK = {"curl", "fetch", "web_request", "network_request"}
+EXTERNAL_READ = {"weather_forecast"}
 GIT_SENSITIVE = {"git_commit", "git_push", "git_branch_mutation"}
 
 
@@ -44,6 +45,8 @@ def classify_tool_category(tool_name: str) -> str:
         return "shell"
     if tool in NETWORK:
         return "network"
+    if tool in EXTERNAL_READ:
+        return "external_read"
     if tool in GIT_SENSITIVE:
         return "git_sensitive"
     if tool.startswith("git_") and tool not in {"git_status", "git_diff"}:
@@ -105,7 +108,15 @@ def evaluate_tool_governance(action: dict[str, Any] | None) -> dict[str, Any]:
         or arguments.get("workspace_root")
     )
 
-    if is_public_demo_mode() and category in {"shell", "write", "destructive", "network", "git_sensitive"}:
+    public_demo_blocked_categories = {
+        "shell",
+        "write",
+        "destructive",
+        "network",
+        "external_read",
+        "git_sensitive",
+    }
+    if is_public_demo_mode() and category in public_demo_blocked_categories:
         return _decision(False, category, "public_demo_mode", approval_required=False, public_demo_blocked=True)
     if category == "read_safe":
         return _decision(True, category, "read_safe_allowed")
@@ -125,6 +136,8 @@ def evaluate_tool_governance(action: dict[str, Any] | None) -> dict[str, Any]:
         return _decision(True, category, "shell_delegated_to_shell_policy")
     if category == "network":
         return _decision(False, category, "network_tool_requires_governance", approval_required=True)
+    if category == "external_read":
+        return _decision(True, category, "external_read_delegated_to_gateway")
     if category == "git_sensitive":
         if approval_state != "approved":
             return _decision(False, category, "git_sensitive_requires_approval", approval_required=True)

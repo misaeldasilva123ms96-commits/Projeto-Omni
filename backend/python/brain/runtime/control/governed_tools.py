@@ -266,3 +266,13 @@ def _declare_read_file_governed() -> None:
 @governed_tool(tool_name="write_file", policy_name="trusted_write", category="filesystem")
 def _declare_write_file_governed() -> None:
     return None
+
+
+@governed_tool(
+    tool_name="weather_forecast",
+    policy_name="governed_external_weather",
+    category="external/weather",
+    api_id="open_meteo",
+)
+def _declare_weather_forecast_governed() -> None:
+    return None

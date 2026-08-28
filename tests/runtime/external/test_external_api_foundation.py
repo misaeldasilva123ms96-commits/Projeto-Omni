@@ -11,14 +11,19 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
-from brain.runtime.external.config import EXTERNAL_API_ENABLED_ENV, external_api_enabled  # noqa: E402
+from brain.runtime.external.config import (
+    EXTERNAL_API_ENABLED_ENV,
+    external_api_enabled,
+)  # noqa: E402
 from brain.runtime.external.models import AuthenticationType, ExternalAPIDefinition  # noqa: E402
 from brain.runtime.external.policy import ExternalAPIPolicy, ExternalAPIPolicyError  # noqa: E402
 from brain.runtime.external.provenance import ExternalResponseProvenance  # noqa: E402
 from brain.runtime.external.registry import ExternalAPIRegistry  # noqa: E402
 
 
-def safe_definition(*, api_id: str = "fixture_api", enabled: bool = True, **overrides: object) -> ExternalAPIDefinition:
+def safe_definition(
+    *, api_id: str = "fixture_api", enabled: bool = True, **overrides: object
+) -> ExternalAPIDefinition:
     values = {
         "api_id": api_id,
         "name": "Fixture API",
@@ -26,6 +31,7 @@ def safe_definition(*, api_id: str = "fixture_api", enabled: bool = True, **over
         "base_url": "https://api.example.com/v1",
         "allowed_hosts": frozenset({"api.example.com"}),
         "allowed_methods": frozenset({"GET"}),
+        "allowed_paths": frozenset({"/", "/v1", "/v1/items"}),
         "enabled": enabled,
         "provenance": "test_fixture",
     }
@@ -70,7 +76,10 @@ class ExternalAPIPolicyTest(unittest.TestCase):
 
     def test_only_registered_safe_fixture_is_accepted(self) -> None:
         decision = self.policy.evaluate(
-            api_id="fixture_api", endpoint="https://api.example.com/v1/items", method="GET", feature_enabled=True
+            api_id="fixture_api",
+            endpoint="https://api.example.com/v1/items",
+            method="GET",
+            feature_enabled=True,
         )
         self.assertTrue(decision.allowed)
 
@@ -96,13 +105,19 @@ class ExternalAPIPolicyTest(unittest.TestCase):
     def test_method_disabled_and_unknown_api_are_rejected(self) -> None:
         self.assertEqual(
             self.policy.evaluate(
-                api_id="fixture_api", endpoint="https://api.example.com", method="POST", feature_enabled=True
+                api_id="fixture_api",
+                endpoint="https://api.example.com",
+                method="POST",
+                feature_enabled=True,
             ).reason,
             "method_not_allowed",
         )
         self.assertEqual(
             self.policy.evaluate(
-                api_id="missing", endpoint="https://api.example.com", method="GET", feature_enabled=True
+                api_id="missing",
+                endpoint="https://api.example.com",
+                method="GET",
+                feature_enabled=True,
             ).reason,
             "unknown_api",
         )
@@ -111,14 +126,22 @@ class ExternalAPIPolicyTest(unittest.TestCase):
         registry = ExternalAPIRegistry()
         registry.register(safe_definition(enabled=False))
         decision = ExternalAPIPolicy(registry).evaluate(
-            api_id="fixture_api", endpoint="https://api.example.com", method="GET", feature_enabled=True
+            api_id="fixture_api",
+            endpoint="https://api.example.com",
+            method="GET",
+            feature_enabled=True,
         )
         self.assertEqual(decision.reason, "api_disabled")
 
 
 class ExternalAPIFeatureGateTest(unittest.TestCase):
     def test_gate_defaults_off_and_only_explicit_truthy_values_enable(self) -> None:
-        for value, expected in ((None, False), ("false", False), ("invalid", False), ("true", True)):
+        for value, expected in (
+            (None, False),
+            ("false", False),
+            ("invalid", False),
+            ("true", True),
+        ):
             with self.subTest(value=value), patch.dict(os.environ, {}, clear=False):
                 os.environ.pop(EXTERNAL_API_ENABLED_ENV, None)
                 if value is not None:

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Mapping
 
 _API_ID = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 
@@ -44,6 +45,7 @@ class ExternalAPIDefinition:
     base_url: str
     allowed_hosts: frozenset[str]
     allowed_methods: frozenset[str]
+    allowed_paths: frozenset[str]
     auth_type: AuthenticationType = AuthenticationType.NONE
     requires_network: bool = True
     risk_level: RiskLevel = RiskLevel.MEDIUM
@@ -53,6 +55,9 @@ class ExternalAPIDefinition:
     max_response_bytes: int = 1_000_000
     redirect_policy: RedirectPolicy = RedirectPolicy.DENY
     cache_ttl_seconds: int | None = None
+    max_attempts: int = 2
+    rate_limit_requests: int = 30
+    rate_limit_window_seconds: float = 60.0
     enabled: bool = False
     provenance: str = "maintainer_reviewed"
 
@@ -69,11 +74,50 @@ class ExternalAPIDefinition:
             raise ValueError("api_id must be a stable lowercase identifier")
         if not self.name.strip() or not self.description.strip() or not self.base_url.strip():
             raise ValueError("name, description, and base_url are required")
-        if not self.allowed_hosts or not self.allowed_methods:
-            raise ValueError("allowed_hosts and allowed_methods must not be empty")
-        if any(not isinstance(item, str) or not item.strip() for item in self.allowed_hosts | self.allowed_methods):
-            raise ValueError("allowed hosts and methods must be non-empty strings")
+        if not self.allowed_hosts or not self.allowed_methods or not self.allowed_paths:
+            raise ValueError("allowed hosts, methods, and paths must not be empty")
+        if any(
+            not isinstance(item, str) or not item.strip()
+            for item in self.allowed_hosts | self.allowed_methods | self.allowed_paths
+        ):
+            raise ValueError("allowed hosts, methods, and paths must be non-empty strings")
+        if any(not path.startswith("/") or path.startswith("//") for path in self.allowed_paths):
+            raise ValueError("allowed paths must be absolute-path references")
         if self.timeout_seconds <= 0 or self.max_response_bytes <= 0:
             raise ValueError("timeout and response limit must be positive")
         if self.cache_ttl_seconds is not None and self.cache_ttl_seconds < 0:
             raise ValueError("cache TTL must be non-negative")
+        if not 1 <= self.max_attempts <= 3:
+            raise ValueError("max_attempts must be between 1 and 3")
+        if self.rate_limit_requests <= 0 or self.rate_limit_window_seconds <= 0:
+            raise ValueError("rate limit values must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalAPIRequest:
+    api_id: str
+    method: str
+    path: str
+    query: Mapping[str, str | int | float | tuple[str, ...]] = field(default_factory=dict)
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.api_id.strip() or not self.method.strip():
+            raise ValueError("api_id and method are required")
+        if not self.path.startswith("/") or self.path.startswith("//") or "://" in self.path:
+            raise ValueError("path must be an absolute-path reference without a host")
+        allowed_headers = {"accept", "user-agent"}
+        if any(str(name).strip().lower() not in allowed_headers for name in self.headers):
+            raise ValueError("request contains a non-allowlisted header")
+        if any(
+            "\r" in str(value) or "\n" in str(value) or "\x00" in str(value)
+            for value in self.headers.values()
+        ):
+            raise ValueError("request contains an unsafe header value")
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalAPIResponse:
+    status_code: int
+    data: object
+    provenance: Mapping[str, object]

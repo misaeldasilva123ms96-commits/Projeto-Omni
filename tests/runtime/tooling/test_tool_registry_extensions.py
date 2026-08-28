@@ -18,6 +18,14 @@ class ToolRegistryExtensionsTest(unittest.TestCase):
         self.assertEqual(metadata.risk_level, "low")
         self.assertTrue(metadata.safe_fallback_available)
 
+    def test_weather_tool_metadata_requires_network_without_auth(self) -> None:
+        metadata = get_tool_metadata("weather_forecast")
+        self.assertEqual(metadata.category, "external/weather")
+        self.assertEqual(metadata.risk_level, "low")
+        self.assertTrue(metadata.requires_network)
+        self.assertFalse(metadata.requires_auth)
+        self.assertEqual(metadata.estimated_cost, "free/non-commercial-pilot")
+
     def test_unknown_tool_uses_conservative_defaults(self) -> None:
         metadata = get_tool_metadata("unknown_tool_xyz")
         self.assertEqual(metadata.name, "unknown_tool_xyz")

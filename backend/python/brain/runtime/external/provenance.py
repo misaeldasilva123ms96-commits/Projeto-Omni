@@ -17,6 +17,7 @@ class ExternalResponseProvenance:
     cached: bool
     freshness: str
     request_id: str
+    attribution: str = ""
 
     def as_dict(self) -> dict[str, object]:
         payload = asdict(self)
