@@ -57,6 +57,7 @@ def _bounded_walk(document: object) -> tuple[ReferenceAudit, Counter[str], set[s
         "refreshUrl": "oauth_refresh_url",
         "deviceAuthorizationUrl": "oauth_device_authorization_url",
         "openIdConnectUrl": "openid_connect_url",
+        "oauth2MetadataUrl": "oauth2_metadata_url",
     }
     while stack:
         value, depth = stack.pop()
@@ -81,6 +82,8 @@ def _bounded_walk(document: object) -> tuple[ReferenceAudit, Counter[str], set[s
                         raise SchemaIntakeError("schema_complexity_limit_exceeded")
                 if key in resource_keys and isinstance(child, str):
                     resources[resource_keys[key]] += 1
+                    if key == "oauth2MetadataUrl":
+                        signals.add("oauth2_metadata_resource_present")
                 if key == "externalDocs" and isinstance(child, dict) and child.get("url"):
                     resources["external_docs"] += 1
                 if key == "callbacks" and isinstance(child, dict):
@@ -166,9 +169,34 @@ def _content_types(mapping: object) -> tuple[str, ...]:
     )
 
 
+def _analyze_operation_security(
+    operation: dict[str, object], version: str
+) -> tuple[bool, str, int, bool, set[str]]:
+    if "security" not in operation:
+        return False, "inherits_global", 0, False, set()
+    declaration = operation["security"]
+    if not isinstance(declaration, list) or any(
+        not isinstance(requirement, dict) for requirement in declaration
+    ):
+        return True, "invalid", 0, False, {"invalid_operation_security_declaration"}
+    if not declaration:
+        return True, "explicit_empty", 0, False, {"operation_explicitly_disables_security"}
+    anonymous = any(not requirement for requirement in declaration)
+    if anonymous and version != "2.0":
+        return (
+            True,
+            "explicit_optional_anonymous",
+            len(declaration),
+            True,
+            {"operation_anonymous_access_option_declared"},
+        )
+    signals = {"ambiguous_empty_security_requirement"} if anonymous else set()
+    return True, "explicit_requirements", len(declaration), anonymous, signals
+
+
 def _operations(
     document: dict[str, object], version: str
-) -> tuple[int, Counter[str], tuple[OperationSummary, ...], bool, set[str], int]:
+) -> tuple[int, Counter[str], tuple[OperationSummary, ...], bool, set[str]]:
     paths = document.get("paths")
     if not isinstance(paths, dict):
         paths = {}
@@ -177,7 +205,7 @@ def _operations(
     methods = _METHODS_V2 if version == "2.0" else _METHODS_V3
     if version.startswith("3.2."):
         methods = methods | {"query"}
-    count = callbacks = 0
+    count = 0
     details: list[OperationSummary] = []
     method_counts: Counter[str] = Counter()
     signals: set[str] = set()
@@ -242,10 +270,10 @@ def _operations(
                 produces = raw_operation.get("produces", document.get("produces", []))
                 if isinstance(produces, list):
                     response_types.update(sanitize_text(item, 200) for item in produces)
-            raw_callbacks = raw_operation.get("callbacks")
-            if isinstance(raw_callbacks, dict):
-                callbacks += len(raw_callbacks)
-                signals.add("callback_surface_present")
+            security_override, security_mode, security_count, anonymous, security_signals = (
+                _analyze_operation_security(raw_operation, version)
+            )
+            signals.update(security_signals)
             if len(details) < MAX_OPERATION_DETAILS:
                 details.append(
                     OperationSummary(
@@ -257,11 +285,14 @@ def _operations(
                         locations,
                         request_types,
                         tuple(sorted(response_types)),
-                        "security" in raw_operation,
+                        security_override,
+                        security_mode,
+                        security_count,
+                        anonymous,
                         mutating,
                     )
                 )
-    return count, method_counts, tuple(details), count > len(details), signals, callbacks
+    return count, method_counts, tuple(details), count > len(details), signals
 
 
 def _contains_binary(value: object) -> bool:
@@ -344,8 +375,8 @@ def analyze_openapi_schema(
             raise SchemaIntakeError("schema_complexity_limit_exceeded")
         references, resources, walk_signals = _bounded_walk(document)
         servers = _servers(document, version)
-        operation_count, method_counts, operations, truncated, operation_signals, callbacks = (
-            _operations(document, version)
+        operation_count, method_counts, operations, truncated, operation_signals = _operations(
+            document, version
         )
         security, security_signals = _security(document, version)
         webhooks = document.get("webhooks") if isinstance(document.get("webhooks"), dict) else {}
@@ -360,6 +391,8 @@ def analyze_openapi_schema(
     issues: set[str] = set()
     blockers: set[str] = set()
     signals = walk_signals | operation_signals | security_signals
+    if "invalid_operation_security_declaration" in signals:
+        issues.add("invalid_operation_security_declaration")
     if candidate.openapi_version and candidate.openapi_version != version:
         issues.add("catalog_schema_version_mismatch")
         blockers.add("catalog_schema_version_mismatch")
@@ -373,6 +406,7 @@ def analyze_openapi_schema(
     if webhooks:
         signals.add("webhook_surface_present")
         blockers.add("webhooks_present")
+    callbacks = resources["callbacks"]
     if callbacks:
         blockers.add("callbacks_present")
     if security:
@@ -385,6 +419,10 @@ def analyze_openapi_schema(
             "unknown_security_scheme",
             "multiple_server_authorities",
             "file_upload_surface_present",
+            "operation_explicitly_disables_security",
+            "operation_anonymous_access_option_declared",
+            "ambiguous_empty_security_requirement",
+            "invalid_operation_security_declaration",
         }
     )
     info = document.get("info") if isinstance(document.get("info"), dict) else {}

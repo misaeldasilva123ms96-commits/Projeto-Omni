@@ -245,6 +245,32 @@ class CandidateAuthorityTest(unittest.TestCase):
 
 
 class SchemaNetworkTest(unittest.TestCase):
+    def test_oas32_auth_metadata_is_never_resolved_or_fetched(self) -> None:
+        document = {
+            "openapi": "3.2.0",
+            "info": {"title": "Metadata", "version": "1"},
+            "paths": {},
+            "components": {
+                "securitySchemes": {
+                    "oauth": {
+                        "type": "oauth2",
+                        "oauth2MetadataUrl": "https://evil.example/.well-known/oauth",
+                        "flows": {},
+                    }
+                }
+            },
+        }
+        resolver = FakeResolver()
+        transport = FakeTransport(document)
+        with patch.dict(os.environ, ALL_GATES, clear=True):
+            proposal = SchemaIntakeClient(resolver=resolver, transport=transport).intake(
+                candidate(openapi_version="3.2.0")
+            )
+        self.assertEqual(resolver.hosts, ["api.apis.guru"])
+        self.assertEqual(len(transport.calls), 1)
+        self.assertNotIn("evil.example", resolver.hosts)
+        self.assertEqual(dict(proposal.external_resource_counts)["oauth2_metadata_url"], 1)
+
     def test_each_gate_denies_before_dns_and_all_on_fetches_exactly_once(self) -> None:
         keys = tuple(ALL_GATES)
         for missing in keys:
@@ -319,6 +345,105 @@ class SchemaNetworkTest(unittest.TestCase):
 
 
 class StructuralAnalyzerTest(unittest.TestCase):
+    def test_operation_security_semantics_are_preserved_across_versions(self) -> None:
+        cases = (
+            ("absent", None, "inherits_global", 0, False, None),
+            (
+                "empty",
+                [],
+                "explicit_empty",
+                0,
+                False,
+                "operation_explicitly_disables_security",
+            ),
+            ("requirements", [{"apiKey": []}], "explicit_requirements", 1, False, None),
+            (
+                "anonymous",
+                [{}, {"oauth": ["read"]}],
+                "explicit_optional_anonymous",
+                2,
+                True,
+                "operation_anonymous_access_option_declared",
+            ),
+            (
+                "invalid",
+                "bad",
+                "invalid",
+                0,
+                False,
+                "invalid_operation_security_declaration",
+            ),
+        )
+        for version in ("3.0.4", "3.1.2", "3.2.0"):
+            for name, declaration, mode, count, anonymous, signal in cases:
+                operation = {"responses": {"200": {}}}
+                if name != "absent":
+                    operation["security"] = declaration
+                document = {
+                    "openapi": version,
+                    "info": {"title": "Security", "version": "1"},
+                    "security": [{"root": []}],
+                    "paths": {"/security": {"get": operation}},
+                }
+                with self.subTest(version=version, case=name):
+                    proposal = analyze_openapi_schema(candidate(openapi_version=version), document)
+                    summary = proposal.operations[0]
+                    self.assertEqual(summary.security_override_present, name != "absent")
+                    self.assertEqual(summary.security_mode, mode)
+                    self.assertEqual(summary.security_requirement_count, count)
+                    self.assertEqual(summary.anonymous_security_option_present, anonymous)
+                    if signal:
+                        self.assertIn(signal, proposal.risk_signals)
+                        self.assertIn(signal, proposal.review_blockers)
+                    if name == "invalid":
+                        self.assertIn(signal, proposal.issues)
+
+    def test_swagger2_empty_override_and_ambiguous_empty_requirement(self) -> None:
+        document = dict(OAS2)
+        document["security"] = [{"basicAuth": []}]
+        document["paths"] = {
+            "/open": {"get": {"security": [], "responses": {"200": {}}}},
+            "/ambiguous": {"get": {"security": [{}], "responses": {"200": {}}}},
+        }
+        proposal = analyze_openapi_schema(
+            candidate(service=None, version="1", openapi_version="2.0", filename="swagger.json"),
+            document,
+        )
+        summaries = {item.path: item for item in proposal.operations}
+        self.assertEqual(summaries["/open"].security_mode, "explicit_empty")
+        self.assertEqual(summaries["/ambiguous"].security_mode, "explicit_requirements")
+        self.assertTrue(summaries["/ambiguous"].anonymous_security_option_present)
+        self.assertIn("operation_explicitly_disables_security", proposal.review_blockers)
+        self.assertIn("ambiguous_empty_security_requirement", proposal.risk_signals)
+        self.assertIn("ambiguous_empty_security_requirement", proposal.review_blockers)
+
+    def test_oas32_oauth_metadata_and_component_callbacks_are_audited_only(self) -> None:
+        document = {
+            "openapi": "3.2.0",
+            "info": {"title": "OAS32 audit", "version": "1"},
+            "paths": {},
+            "components": {
+                "securitySchemes": {
+                    "oauth": {
+                        "type": "oauth2",
+                        "oauth2MetadataUrl": (
+                            "https://evil.example/.well-known/oauth-authorization-server"
+                        ),
+                        "flows": {},
+                    }
+                },
+                "callbacks": {"completed": {"{$request.body#/url}": {}}},
+            },
+        }
+        proposal = analyze_openapi_schema(candidate(openapi_version="3.2.0"), document)
+        resources = dict(proposal.external_resource_counts)
+        self.assertEqual(resources["oauth2_metadata_url"], 1)
+        self.assertEqual(resources["callbacks"], 1)
+        self.assertEqual(proposal.callback_count, 1)
+        self.assertIn("oauth2_metadata_resource_present", proposal.risk_signals)
+        self.assertIn("callback_surface_present", proposal.risk_signals)
+        self.assertIn("callbacks_present", proposal.review_blockers)
+
     def test_oas31_audits_without_promoting_or_fetching_resources(self) -> None:
         proposal = analyze_openapi_schema(candidate(), OAS3)
         self.assertEqual(proposal.detected_openapi_version, "3.1.2")

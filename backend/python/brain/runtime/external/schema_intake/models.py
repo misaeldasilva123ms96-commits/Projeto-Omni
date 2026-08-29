@@ -46,6 +46,9 @@ class OperationSummary:
     request_content_types: tuple[str, ...]
     response_content_types: tuple[str, ...]
     security_override_present: bool
+    security_mode: str
+    security_requirement_count: int
+    anonymous_security_option_present: bool
     mutating_signal: bool
 
 
