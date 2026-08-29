@@ -95,6 +95,7 @@ from brain.runtime.execution import (
     StrategyExecutionRequest,
     TrustedExecutor,
     build_execution_manifest,
+    resolve_tool_output_binding,
 )
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
@@ -591,6 +592,23 @@ class BrainOrchestrator:
             run_id=run_id or None,
             metadata={"expected_fields": expected_fields},
         )
+
+    @staticmethod
+    def _redact_external_action(action: dict[str, Any]) -> dict[str, Any]:
+        redacted = dict(action)
+        selected_tool = str(action.get("selected_tool", "") or "").strip()
+        arguments = dict(action.get("tool_arguments", {}) or {})
+        if selected_tool == "weather_forecast":
+            redacted["tool_arguments"] = {
+                "coordinates": "redacted",
+                "forecast_days": arguments.get("forecast_days"),
+            }
+        elif selected_tool == "geocode_place":
+            redacted["tool_arguments"] = {
+                "place_query": "redacted",
+                "country_code_supplied": bool(arguments.get("country_code")),
+            }
+        return redacted
 
     def _emit_cognitive_runtime_inspection(
         self,
@@ -4363,6 +4381,49 @@ class BrainOrchestrator:
         current_action["run_id"] = run_id
         if operational_plan is not None and getattr(operational_plan, "goal_id", None):
             current_action["goal_id"] = operational_plan.goal_id
+        binding_resolution = resolve_tool_output_binding(current_action, step_results)
+        if current_action.get("argument_binding") is not None:
+            binding_payload = dict(binding_resolution.provenance)
+            self._append_runtime_event(
+                event_type="runtime.tool_binding.started",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={key: value for key, value in binding_payload.items() if key != "resolved"},
+            )
+            if binding_resolution.error:
+                event_type = (
+                    "runtime.tool_binding.failed"
+                    if binding_resolution.error in {"binding_source_invalid", "dependency_failed"}
+                    else "runtime.tool_binding.denied"
+                )
+                binding_payload["reason"] = binding_resolution.error
+                self._append_runtime_event(
+                    event_type=event_type,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    payload=binding_payload,
+                )
+                return {
+                    "ok": False,
+                    "selected_tool": current_action.get("selected_tool"),
+                    "action": self._redact_external_action(current_action),
+                    "binding": binding_payload,
+                    "error_payload": {
+                        "kind": binding_resolution.error,
+                        "message": "Tool output binding was denied.",
+                    },
+                    "correction_events": [],
+                }
+            current_action = binding_resolution.action or current_action
+            self._append_runtime_event(
+                event_type="runtime.tool_binding.succeeded",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=dict(binding_resolution.provenance),
+            )
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
         selected_tool = str(current_action.get("selected_tool", "") or "").strip()
         action_started_monotonic = time.monotonic()
@@ -4419,13 +4480,11 @@ class BrainOrchestrator:
         latest_summary = self.planning_executor.store.load_summary(operational_plan.plan_id) if operational_plan else None
         goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
         planning_signals = [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_planning(actions=[current_action])]
-        orchestration_action = current_action
-        if supports_external_tool(selected_tool):
-            orchestration_action = dict(current_action)
-            orchestration_action["tool_arguments"] = {
-                "coordinates": "redacted",
-                "forecast_days": dict(current_action.get("tool_arguments", {}) or {}).get("forecast_days"),
-            }
+        orchestration_action = (
+            self._redact_external_action(current_action)
+            if supports_external_tool(selected_tool)
+            else current_action
+        )
         pre_execution_orchestration = self.orchestration_executor.orchestrate(
             session_id=session_id,
             task_id=task_id,
@@ -4606,7 +4665,13 @@ class BrainOrchestrator:
         result["selected_tool"] = current_action.get("selected_tool")
         result["selected_agent"] = current_action.get("selected_agent")
         result["milestone_id"] = self.milestone_tracker.extract_milestone_id(current_action)
-        result["action"] = current_action
+        result["action"] = (
+            self._redact_external_action(current_action)
+            if supports_external_tool(selected_tool)
+            else current_action
+        )
+        if current_action.get("binding_provenance"):
+            result["binding"] = dict(current_action["binding_provenance"])
         result["evaluation"] = correction_events[-1] if correction_events else {
             "decision": "stop_failed",
             "reason_code": "missing_result",

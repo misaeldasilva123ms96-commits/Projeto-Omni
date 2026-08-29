@@ -49,3 +49,8 @@ Attribution retained in provenance:
 ```text
 Geocoding by Nominatim; data © OpenStreetMap contributors, ODbL 1.0
 ```
+
+When used by the typed geocode-to-weather flow, only a unique candidate's
+validated latitude and longitude cross the internal binding boundary. The model
+does not copy coordinates, ambiguous candidates are never auto-selected, and the
+binding does not cause retries or bypass this provider's cache, quota, or gates.

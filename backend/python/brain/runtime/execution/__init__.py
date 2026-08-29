@@ -10,6 +10,7 @@ from .models import (
     VerificationResult,
 )
 from .manifest import build_execution_manifest
+from .bindings import ToolBindingType, ToolOutputBinding, resolve_tool_output_binding
 from .manifest_models import ExecutionManifest, ManifestBuildResult, ManifestStep
 from .response_synthesis import synthesize_strategy_response
 from .strategy_dispatcher import StrategyDispatcher
@@ -43,5 +44,8 @@ __all__ = [
     "TrustedExecutor",
     "VerificationResult",
     "build_execution_manifest",
+    "ToolBindingType",
+    "ToolOutputBinding",
+    "resolve_tool_output_binding",
     "synthesize_strategy_response",
 ]

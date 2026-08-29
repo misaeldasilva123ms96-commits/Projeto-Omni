@@ -184,3 +184,12 @@ Nominatim/OpenStreetMap attribution.
 The usage policy, Search API, and OpenStreetMap attribution guidance were reviewed
 on 2026-08-29. Operational constraints and source links are recorded in
 `docs/integrations/nominatim.md`.
+
+## Typed geocode-to-weather composition
+
+Phase 4 adds a runtime binding layer above provider adapters. A unique normalized
+Nominatim candidate may supply only finite latitude and longitude to a subsequent
+Open-Meteo action identified by step ID. The binding does not alter Gateway
+requests, cache keys, provider rate limits, retries, gates, provenance, or the
+normalized weather schema. Ambiguous or failed geocoding prevents weather
+transport. See `docs/architecture/tool-output-bindings.md`.

@@ -46,11 +46,20 @@ def build_execution_manifest(
         if getattr(routing_decision, "requires_tools", False) and registered_tools:
             for index, tool in enumerate(registered_tools, start=2):
                 tool_meta = get_tool_metadata(tool)
+                is_bound_weather = (
+                    tool == "weather_forecast"
+                    and index > 2
+                    and registered_tools[index - 3] == "geocode_place"
+                )
                 steps.append(
                     ManifestStep(
                         step_id=f"s{index}",
                         kind="tool",
                         description=f"use tool {tool_meta.name} ({tool_meta.category})",
+                        depends_on=[f"s{index - 1}"] if is_bound_weather else [],
+                        binding=(
+                            "geocode_unique_candidate_to_weather" if is_bound_weather else ""
+                        ),
                     )
                 )
         elif getattr(routing_decision, "requires_node_runtime", False):

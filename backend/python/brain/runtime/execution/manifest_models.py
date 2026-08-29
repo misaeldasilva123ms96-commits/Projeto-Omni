@@ -9,6 +9,8 @@ class ManifestStep:
     step_id: str
     kind: str
     description: str
+    depends_on: list[str] = field(default_factory=list)
+    binding: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
