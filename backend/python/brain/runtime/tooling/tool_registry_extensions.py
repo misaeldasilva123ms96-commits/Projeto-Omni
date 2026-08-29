@@ -6,6 +6,19 @@ from brain.runtime.engineering_tools import ENGINEERING_TOOLS
 from brain.runtime.tooling.tool_metadata import ToolMetadata, conservative_tool_metadata
 
 _TOOL_METADATA: dict[str, ToolMetadata] = {
+    "url_reputation_check": ToolMetadata(
+        name="url_reputation_check",
+        category="external/security",
+        description="advisory exact-URL lookup through the governed URLhaus pilot",
+        input_schema_hint="{'url': str}",
+        risk_level="medium",
+        estimated_cost="community/fair-use-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=True,
+        safe_fallback_available=True,
+    ),
     "currency_convert": ToolMetadata(
         name="currency_convert",
         category="external/currency",

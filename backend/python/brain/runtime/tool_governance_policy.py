@@ -23,7 +23,10 @@ SHELL = {
     "autonomous_debug_loop",
 }
 NETWORK = {"curl", "fetch", "web_request", "network_request"}
-EXTERNAL_READ = {"currency_convert", "dictionary_lookup", "geocode_place", "weather_forecast"}
+EXTERNAL_READ = {
+    "currency_convert", "dictionary_lookup", "geocode_place", "url_reputation_check",
+    "weather_forecast",
+}
 GIT_SENSITIVE = {"git_commit", "git_push", "git_branch_mutation"}
 
 

@@ -72,6 +72,7 @@ def build_external_api_registry() -> ExternalAPIRegistry:
     registry.register(nominatim_definition())
     registry.register(frankfurter_definition())
     registry.register(free_dictionary_definition())
+    registry.register(urlhaus_definition())
     return registry
 
 
@@ -119,4 +120,33 @@ def free_dictionary_definition() -> ExternalAPIDefinition:
         rate_limit_window_seconds=60.0,
         enabled=True,
         provenance="Definitions by Free Dictionary API; community pilot without SLA",
+    )
+
+
+def urlhaus_definition() -> ExternalAPIDefinition:
+    return ExternalAPIDefinition(
+        api_id="urlhaus",
+        name="URLhaus",
+        description="Read-only community malware URL reputation pilot",
+        base_url="https://urlhaus-api.abuse.ch",
+        allowed_hosts=frozenset({"urlhaus-api.abuse.ch"}),
+        allowed_methods=frozenset({"POST"}),
+        allowed_paths=frozenset({"/v1/url/"}),
+        auth_type=AuthenticationType.API_KEY,
+        credential_id="urlhaus_auth_key",
+        auth_header_name="Auth-Key",
+        allowed_form_fields=frozenset({"url"}),
+        risk_level=RiskLevel.MEDIUM,
+        estimated_cost="community/fair-use-pilot",
+        latency_class=LatencyClass.VARIABLE,
+        timeout_seconds=8.0,
+        max_response_bytes=256_000,
+        max_request_body_bytes=4096,
+        redirect_policy=RedirectPolicy.DENY,
+        cache_ttl_seconds=1800,
+        max_attempts=1,
+        rate_limit_requests=10,
+        rate_limit_window_seconds=60.0,
+        enabled=True,
+        provenance="URLhaus by abuse.ch/Spamhaus; community fair-use pilot",
     )

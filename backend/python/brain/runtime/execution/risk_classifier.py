@@ -30,6 +30,7 @@ GOVERNED_EXTERNAL_READ_TOOLS = {
     "currency_convert",
     "dictionary_lookup",
     "geocode_place",
+    "url_reputation_check",
     "weather_forecast",
 }
 
@@ -66,6 +67,16 @@ class DeterministicRiskClassifier:
                 level=RiskLevel.CRITICAL,
                 reason_code="package_mutation",
                 rationale="Package mutations can alter runtime dependencies and are treated as critical.",
+            )
+
+        if capability == "url_reputation_check" and subsystem == "external_api":
+            return RiskClassification(
+                level=RiskLevel.MEDIUM,
+                reason_code="privacy_sensitive_external_security_read",
+                rationale=(
+                    "The read sends a user URL indicator to third-party threat intelligence "
+                    "and may influence a security decision."
+                ),
             )
 
         if capability in GOVERNED_EXTERNAL_READ_TOOLS and subsystem == "external_api":

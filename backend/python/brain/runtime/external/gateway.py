@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+import hashlib
 import ipaddress
 import json
 import socket
@@ -17,6 +18,7 @@ from typing import Callable, Mapping, Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from brain.runtime.external.config import external_api_enabled
+from brain.runtime.external.credentials import CredentialResolver, EnvironmentCredentialResolver
 from brain.runtime.external.models import ExternalAPIRequest, ExternalAPIResponse, RedirectPolicy
 from brain.runtime.external.policy import ExternalAPIPolicy
 from brain.runtime.external.provenance import ExternalResponseProvenance
@@ -59,6 +61,7 @@ class Transport(Protocol):
         headers: Mapping[str, str],
         timeout_seconds: float,
         max_response_bytes: int,
+        body: bytes = b"",
     ) -> TransportResponse: ...
 
 
@@ -144,6 +147,7 @@ class PinnedHTTPSTransport:
         headers: Mapping[str, str],
         timeout_seconds: float,
         max_response_bytes: int,
+        body: bytes = b"",
     ) -> TransportResponse:
         context = self._context_factory()
         if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
@@ -160,7 +164,7 @@ class PinnedHTTPSTransport:
             connection.putheader("Host", logical_host if port == 443 else f"{logical_host}:{port}")
             for name, value in headers.items():
                 connection.putheader(name, value)
-            connection.endheaders()
+            connection.endheaders(body or None)
             response = connection.getresponse()
             body = _read_limited(response, max_response_bytes)
             return TransportResponse(
@@ -247,6 +251,7 @@ class ExternalAPIGateway:
         rate_limiter: LocalRateLimiter | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         event_sink: EventSink | None = None,
+        credential_resolver: CredentialResolver | None = None,
     ) -> None:
         self.registry = registry
         self.policy = ExternalAPIPolicy(registry)
@@ -256,6 +261,7 @@ class ExternalAPIGateway:
         self.rate_limiter = rate_limiter if rate_limiter is not None else LocalRateLimiter()
         self.sleeper = sleeper
         self.event_sink = event_sink
+        self.credential_resolver = credential_resolver or EnvironmentCredentialResolver()
 
     def _emit(self, event: str, payload: dict[str, object], sink: EventSink | None) -> None:
         try:
@@ -267,7 +273,9 @@ class ExternalAPIGateway:
     @staticmethod
     def _cache_key(request: ExternalAPIRequest) -> str:
         query = urlencode(sorted((str(key), str(value)) for key, value in request.query.items()))
-        return f"{request.api_id}|{request.method.upper()}|{request.path}|{query}"
+        form = urlencode(sorted(request.form_fields.items())).encode("utf-8")
+        form_digest = hashlib.sha256(form).hexdigest() if form else ""
+        return f"{request.api_id}|{request.method.upper()}|{request.path}|{query}|{form_digest}"
 
     def execute(
         self,
@@ -303,6 +311,25 @@ class ExternalAPIGateway:
                 event_sink,
             )
             raise ExternalGatewayError(reason)
+        if set(request.form_fields) - set(definition.allowed_form_fields):
+            raise ExternalGatewayError("form_field_not_allowed")
+        body = urlencode(request.form_fields).encode("utf-8") if request.form_fields else b""
+        if len(body) > definition.max_request_body_bytes:
+            raise ExternalGatewayError("request_body_too_large")
+        credential = None
+        if definition.auth_type.value != "none":
+            try:
+                credential = self.credential_resolver.resolve(definition.credential_id or "")
+            except ValueError as exc:
+                code = str(exc)
+                self._emit(
+                    "external_api.request_failed",
+                    {"api_id": request.api_id, "reason": code, "auth_required": True},
+                    event_sink,
+                )
+                raise ExternalGatewayError(code) from None
+            if credential.header_name.lower() != str(definition.auth_header_name).lower():
+                raise ExternalGatewayError("credential_invalid")
         key = self._cache_key(request)
         cached = self.cache.get(key) if definition.cache_ttl_seconds else None
         if cached is not None:
@@ -314,6 +341,11 @@ class ExternalAPIGateway:
         port = base.port or 443
         headers = {"Accept": "application/json", "User-Agent": "Omni-External-API/1"}
         headers.update(request.headers)
+        if body:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            headers["Content-Length"] = str(len(body))
+        if credential is not None:
+            headers[credential.header_name] = credential.secret
         self._emit(
             "external_api.request_started",
             {"api_id": request.api_id, "method": request.method.upper()},
@@ -341,6 +373,7 @@ class ExternalAPIGateway:
                     method=request.method.upper(),
                     target=target,
                     headers=headers,
+                    body=body,
                     timeout_seconds=definition.timeout_seconds,
                     max_response_bytes=definition.max_response_bytes,
                 )
@@ -352,6 +385,10 @@ class ExternalAPIGateway:
                     raise ExternalGatewayError("redirect_policy_not_implemented")
                 if transport_response.status_code in self._TRANSIENT_STATUSES:
                     raise ExternalGatewayError("transient_http_status", retryable=True)
+                if credential is not None and transport_response.status_code in {401, 403}:
+                    raise ExternalGatewayError(
+                        "provider_auth_failed", status_code=transport_response.status_code
+                    )
                 if transport_response.status_code >= 400:
                     raise ExternalGatewayError(
                         "provider_http_error", status_code=transport_response.status_code

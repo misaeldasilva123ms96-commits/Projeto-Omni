@@ -310,3 +310,13 @@ def _declare_currency_convert_governed() -> None:
 )
 def _declare_dictionary_lookup_governed() -> None:
     return None
+
+
+@governed_tool(
+    tool_name="url_reputation_check",
+    policy_name="governed_external_security",
+    category="external/security",
+    api_id="urlhaus",
+)
+def _declare_url_reputation_check_governed() -> None:
+    return None

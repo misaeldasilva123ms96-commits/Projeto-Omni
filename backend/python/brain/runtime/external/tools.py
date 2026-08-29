@@ -25,9 +25,20 @@ from brain.runtime.external.adapters.free_dictionary import (
     DictionaryLookupInput,
     lookup_dictionary,
 )
+from brain.runtime.external.adapters.urlhaus import (
+    URL_REPUTATION_TOOL_NAME,
+    URLReputationInput,
+    check_url_reputation,
+)
 
 EXTERNAL_TOOLS = frozenset(
-    {WEATHER_TOOL_NAME, GEOCODE_TOOL_NAME, CURRENCY_TOOL_NAME, DICTIONARY_TOOL_NAME}
+    {
+        WEATHER_TOOL_NAME,
+        GEOCODE_TOOL_NAME,
+        CURRENCY_TOOL_NAME,
+        DICTIONARY_TOOL_NAME,
+        URL_REPUTATION_TOOL_NAME,
+    }
 )
 
 
@@ -77,13 +88,22 @@ def execute_external_action(
                 event_sink=event_sink,
             )
             provider = "frankfurter"
-        else:
+        elif tool == DICTIONARY_TOOL_NAME:
             result = lookup_dictionary(
                 DictionaryLookupInput(word=arguments.get("word")),
                 gateway=gateway,
                 event_sink=event_sink,
             )
             provider = "free_dictionary"
+        else:
+            if set(arguments) != {"url"}:
+                raise ValueError("invalid_tool_arguments")
+            result = check_url_reputation(
+                URLReputationInput(url=arguments.get("url")),
+                gateway=gateway,
+                event_sink=event_sink,
+            )
+            provider = "urlhaus"
     except (ValueError, ExternalGatewayError) as exc:
         code = str(exc)
         return {
@@ -96,6 +116,7 @@ def execute_external_action(
                     GEOCODE_TOOL_NAME: "Location data unavailable.",
                     CURRENCY_TOOL_NAME: "Currency conversion unavailable.",
                     DICTIONARY_TOOL_NAME: "Definition unavailable.",
+                    URL_REPUTATION_TOOL_NAME: "URL reputation unavailable.",
                 }[tool],
             },
         }

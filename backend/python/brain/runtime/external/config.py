@@ -9,6 +9,7 @@ OPEN_METEO_ENABLED_ENV = "OMNI_EXTERNAL_OPEN_METEO_ENABLED"
 OSM_GEOCODER_ENABLED_ENV = "OMNI_EXTERNAL_NOMINATIM_ENABLED"
 FRANKFURTER_ENABLED_ENV = "OMNI_EXTERNAL_FRANKFURTER_ENABLED"
 FREE_DICTIONARY_ENABLED_ENV = "OMNI_EXTERNAL_FREE_DICTIONARY_ENABLED"
+URLHAUS_ENABLED_ENV = "OMNI_EXTERNAL_URLHAUS_ENABLED"
 
 
 def external_api_enabled() -> bool:
@@ -32,15 +33,21 @@ def free_dictionary_enabled() -> bool:
     return read_env_bool(FREE_DICTIONARY_ENABLED_ENV, False)
 
 
+def urlhaus_enabled() -> bool:
+    return read_env_bool(URLHAUS_ENABLED_ENV, False)
+
+
 __all__ = [
     "EXTERNAL_API_ENABLED_ENV",
     "FRANKFURTER_ENABLED_ENV",
     "FREE_DICTIONARY_ENABLED_ENV",
+    "URLHAUS_ENABLED_ENV",
     "OPEN_METEO_ENABLED_ENV",
     "OSM_GEOCODER_ENABLED_ENV",
     "external_api_enabled",
     "frankfurter_enabled",
     "free_dictionary_enabled",
+    "urlhaus_enabled",
     "nominatim_enabled",
     "open_meteo_enabled",
 ]

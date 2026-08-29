@@ -73,6 +73,10 @@ class ExternalAPIDefinition:
     rate_limit_window_seconds: float = 60.0
     enabled: bool = False
     provenance: str = "maintainer_reviewed"
+    credential_id: str | None = None
+    auth_header_name: str | None = None
+    allowed_form_fields: frozenset[str] = field(default_factory=frozenset)
+    max_request_body_bytes: int = 4096
 
     def __post_init__(self) -> None:
         if not isinstance(self.auth_type, AuthenticationType):
@@ -108,6 +112,16 @@ class ExternalAPIDefinition:
             raise ValueError("max_attempts must be between 1 and 3")
         if self.rate_limit_requests <= 0 or self.rate_limit_window_seconds <= 0:
             raise ValueError("rate limit values must be positive")
+        if self.auth_type is AuthenticationType.API_KEY and not (
+            self.credential_id and self.auth_header_name
+        ):
+            raise ValueError("API key providers require a credential ID and header")
+        if self.auth_type is AuthenticationType.NONE and (
+            self.credential_id or self.auth_header_name
+        ):
+            raise ValueError("unauthenticated providers cannot declare credentials")
+        if self.max_request_body_bytes <= 0:
+            raise ValueError("request body limit must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +131,7 @@ class ExternalAPIRequest:
     path: str
     query: Mapping[str, str | int | float | tuple[str, ...]] = field(default_factory=dict)
     headers: Mapping[str, str] = field(default_factory=dict)
+    form_fields: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.api_id.strip() or not self.method.strip():
@@ -131,6 +146,10 @@ class ExternalAPIRequest:
             for value in self.headers.values()
         ):
             raise ValueError("request contains an unsafe header value")
+        if any(not isinstance(key, str) or not key for key in self.form_fields):
+            raise ValueError("form field names must be non-empty strings")
+        if any(not isinstance(value, str) for value in self.form_fields.values()):
+            raise ValueError("form field values must be strings")
 
 
 @dataclass(frozen=True, slots=True)

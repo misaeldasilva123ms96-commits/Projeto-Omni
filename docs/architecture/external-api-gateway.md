@@ -201,3 +201,13 @@ Frankfurter retains an exact fixed path. Free Dictionary adds only the
 `FREE_DICTIONARY_ENGLISH_WORD` closed template; there is no prefix, glob, caller
 regex, wildcard, or general URL-template authority. The adapter validates one
 segment before encoding and policy independently checks the constructed path.
+
+## Phase 6: authenticated form lookup
+
+Authenticated definitions select a closed server-side credential ID. The gateway
+resolves and validates it after policy/gates but before cache, then injects the
+trusted header only for transport. Typed form fields are provider-allowlisted,
+bounded, encoded internally, and represented in cache identity only by SHA-256
+digest. Credentials are never part of cache identity. URLhaus is the sole POST/form
+provider and retains pinned DNS, logical-host SNI, certificate verification,
+response bounds, redirect denial, and one-attempt semantics.

@@ -620,6 +620,13 @@ class BrainOrchestrator:
                 "dictionary_word": "redacted",
                 "word_length": len(word) if isinstance(word, str) else 0,
             }
+        elif selected_tool == "url_reputation_check":
+            url = arguments.get("url")
+            redacted["tool_arguments"] = {
+                "url_indicator": "redacted",
+                "url_supplied": isinstance(url, str) and bool(url),
+                "url_length": len(url) if isinstance(url, str) else 0,
+            }
         return redacted
 
     def _emit_cognitive_runtime_inspection(
