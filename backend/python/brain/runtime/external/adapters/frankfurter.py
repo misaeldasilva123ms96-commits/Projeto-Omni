@@ -65,6 +65,7 @@ def _result(
     rate: Decimal,
     rate_date: str,
     provenance: dict[str, object],
+    provider: str = "Frankfurter",
 ) -> CurrencyConvertResult:
     converted = (amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
     return CurrencyConvertResult(
@@ -74,7 +75,7 @@ def _result(
         _decimal_text(rate),
         _decimal_text(converted),
         rate_date,
-        "Frankfurter",
+        provider,
         provenance,
     )
 
@@ -88,7 +89,16 @@ def convert_currency(
     event_sink: EventSink | None = None,
 ) -> CurrencyConvertResult:
     amount, base, quote = value.normalized()
+    effective_provider_enabled = (
+        frankfurter_enabled() if provider_enabled is None else provider_enabled
+    )
     if base == quote:
+        gateway.require_feature_gates(
+            api_id=FRANKFURTER_API_ID,
+            global_enabled=global_enabled,
+            provider_enabled=effective_provider_enabled,
+            event_sink=event_sink,
+        )
         return _result(
             amount,
             base,
@@ -96,10 +106,12 @@ def convert_currency(
             Decimal(1),
             "local",
             {
-                "api_id": FRANKFURTER_API_ID,
+                "source_type": "local_compute",
+                "provider": "local",
                 "cached": False,
                 "freshness": "local_identity",
             },
+            provider="local",
         )
     response = gateway.execute(
         ExternalAPIRequest(
@@ -109,7 +121,7 @@ def convert_currency(
             query={"base": base, "quotes": quote},
         ),
         global_enabled=global_enabled,
-        provider_enabled=frankfurter_enabled() if provider_enabled is None else provider_enabled,
+        provider_enabled=effective_provider_enabled,
         event_sink=event_sink,
     )
     rows = response.data

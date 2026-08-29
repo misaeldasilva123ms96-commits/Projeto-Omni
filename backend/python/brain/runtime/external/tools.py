@@ -104,8 +104,14 @@ def execute_external_action(
         "selected_tool": tool,
         "result_payload": result.as_dict(),
         "runtime_truth": {
-            "source": "external_api",
-            "provider": provider,
+            "source": (
+                "local_computation"
+                if result.provenance.get("source_type") == "local_compute"
+                else "external_api"
+            ),
+            "provider": (
+                "local" if result.provenance.get("source_type") == "local_compute" else provider
+            ),
             "tool": tool,
             "cached": bool(result.provenance.get("cached")),
         },

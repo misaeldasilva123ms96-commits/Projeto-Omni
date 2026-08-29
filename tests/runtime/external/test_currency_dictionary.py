@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +22,7 @@ from brain.runtime.external.adapters.free_dictionary import (  # noqa: E402
 )
 from brain.runtime.external.gateway import (  # noqa: E402
     ExternalAPIGateway,
+    ExternalGatewayError,
     LocalRateLimiter,
     TTLResponseCache,
     TransportResponse,
@@ -63,8 +66,106 @@ def test_currency_decimal_fixed_request_cache_and_identity():
     assert (
         "base=USD" in transport.calls[0]["target"] and "quotes=BRL" in transport.calls[0]["target"]
     )
-    identity = convert_currency(CurrencyConvertInput(Decimal("2.50"), "EUR", "EUR"), gateway=gw)
-    assert identity.converted_amount == "2.50" and len(transport.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("global_enabled", "provider_enabled", "error"),
+    [(False, True, "external_api_disabled"), (True, False, "provider_disabled")],
+)
+def test_same_currency_explicit_gates_deny_without_transport(
+    global_enabled, provider_enabled, error
+):
+    gw, transport = gateway([])
+    with pytest.raises(ExternalGatewayError, match=error):
+        convert_currency(
+            CurrencyConvertInput("2.50", "EUR", "EUR"),
+            gateway=gw,
+            global_enabled=global_enabled,
+            provider_enabled=provider_enabled,
+        )
+    assert transport.calls == []
+    assert gw.resolver.calls == 0
+
+
+def test_same_currency_default_gates_deny_without_transport():
+    gw, transport = gateway([])
+    with patch.dict(
+        os.environ,
+        {
+            "OMNI_EXTERNAL_API_ENABLED": "false",
+            "OMNI_EXTERNAL_FRANKFURTER_ENABLED": "false",
+        },
+    ):
+        with pytest.raises(ExternalGatewayError, match="external_api_disabled"):
+            convert_currency(CurrencyConvertInput("2.50", "EUR", "EUR"), gateway=gw)
+    assert transport.calls == []
+    assert gw.resolver.calls == 0
+
+
+def test_same_currency_enabled_is_local_and_runtime_truthful():
+    gw, transport = gateway([])
+    with patch.dict(
+        os.environ,
+        {
+            "OMNI_EXTERNAL_API_ENABLED": "true",
+            "OMNI_EXTERNAL_FRANKFURTER_ENABLED": "true",
+        },
+    ):
+        outcome = execute_external_action(
+            action={
+                "selected_tool": "currency_convert",
+                "tool_arguments": {
+                    "amount": Decimal("2.50"),
+                    "from_currency": "EUR",
+                    "to_currency": "EUR",
+                },
+            },
+            gateway=gw,
+        )
+    assert outcome["ok"] is True
+    assert outcome["result_payload"]["rate"] == "1"
+    assert outcome["result_payload"]["converted_amount"] == "2.50"
+    assert outcome["result_payload"]["provider"] != "Frankfurter"
+    assert outcome["result_payload"]["provenance"] == {
+        "source_type": "local_compute",
+        "provider": "local",
+        "cached": False,
+        "freshness": "local_identity",
+    }
+    assert outcome["runtime_truth"] == {
+        "source": "local_computation",
+        "provider": "local",
+        "tool": "currency_convert",
+        "cached": False,
+    }
+    assert transport.calls == []
+    assert gw.resolver.calls == 0
+
+
+def test_cross_currency_runtime_truth_remains_external():
+    gw, transport = gateway([{"date": "2026-08-29", "base": "USD", "quote": "BRL", "rate": "5.1"}])
+    with patch.dict(
+        os.environ,
+        {
+            "OMNI_EXTERNAL_API_ENABLED": "true",
+            "OMNI_EXTERNAL_FRANKFURTER_ENABLED": "true",
+        },
+    ):
+        outcome = execute_external_action(
+            action={
+                "selected_tool": "currency_convert",
+                "tool_arguments": {
+                    "amount": "10",
+                    "from_currency": "USD",
+                    "to_currency": "BRL",
+                },
+            },
+            gateway=gw,
+        )
+    assert outcome["ok"] is True
+    assert outcome["runtime_truth"]["source"] == "external_api"
+    assert outcome["runtime_truth"]["provider"] == "frankfurter"
+    assert len(transport.calls) == 1
 
 
 @pytest.mark.parametrize("amount", [0, -1, float("nan"), float("inf"), "NaN", "1000000000001"])

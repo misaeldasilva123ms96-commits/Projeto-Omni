@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Callable, Mapping, Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
+from brain.runtime.external.config import external_api_enabled
 from brain.runtime.external.models import ExternalAPIRequest, ExternalAPIResponse, RedirectPolicy
 from brain.runtime.external.policy import ExternalAPIPolicy
 from brain.runtime.external.provenance import ExternalResponseProvenance
@@ -402,3 +403,23 @@ class ExternalAPIGateway:
             attribution=definition.provenance,
         ).as_dict()
         return ExternalAPIResponse(status_code=200, data=data, provenance=provenance)
+
+    def require_feature_gates(
+        self,
+        *,
+        api_id: str,
+        global_enabled: bool | None,
+        provider_enabled: bool,
+        event_sink: EventSink | None = None,
+    ) -> None:
+        """Apply canonical tool gates before a local shortcut can bypass transport."""
+        effective_global = external_api_enabled() if global_enabled is None else global_enabled
+        reason = "external_api_disabled" if not effective_global else "provider_disabled"
+        if effective_global and provider_enabled:
+            return
+        self._emit(
+            "external_api.policy_denied",
+            {"api_id": api_id, "reason": reason},
+            event_sink,
+        )
+        raise ExternalGatewayError(reason)
