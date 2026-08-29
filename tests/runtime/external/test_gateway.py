@@ -332,13 +332,39 @@ class RetryCacheRateAndGateTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "rate_limit_exceeded")
         self.assertEqual(len(transport.calls), 1)
 
-    def test_retry_counts_as_one_logical_rate_limited_request(self) -> None:
+    def test_each_retry_consumes_rate_limit_quota(self) -> None:
+        transport = FakeTransport(
+            [ExternalGatewayError("connection_failed", retryable=True), FakeTransport.success()]
+        )
+        with self.assertRaises(ExternalGatewayError) as caught:
+            gateway_for(
+                api=definition(rate_limit_requests=1, max_attempts=2), transport=transport
+            ).execute(REQUEST, global_enabled=True, provider_enabled=True)
+        self.assertEqual(caught.exception.code, "rate_limit_exceeded")
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_retry_succeeds_when_transport_attempt_quota_is_sufficient(self) -> None:
         transport = FakeTransport(
             [ExternalGatewayError("connection_failed", retryable=True), FakeTransport.success()]
         )
         gateway_for(
-            api=definition(rate_limit_requests=1, max_attempts=2), transport=transport
+            api=definition(rate_limit_requests=2, max_attempts=2), transport=transport
         ).execute(REQUEST, global_enabled=True, provider_enabled=True)
+        self.assertEqual(len(transport.calls), 2)
+
+    def test_cache_hit_does_not_consume_transport_attempt_quota(self) -> None:
+        transport = FakeTransport([FakeTransport.success(), FakeTransport.success()])
+        gateway = gateway_for(
+            api=definition(cache_ttl_seconds=10, rate_limit_requests=2), transport=transport
+        )
+        gateway.execute(REQUEST, global_enabled=True, provider_enabled=True)
+        cached = gateway.execute(REQUEST, global_enabled=True, provider_enabled=True)
+        gateway.execute(
+            ExternalAPIRequest("fixture_api", "GET", "/other"),
+            global_enabled=True,
+            provider_enabled=True,
+        )
+        self.assertTrue(cached.provenance["cached"])
         self.assertEqual(len(transport.calls), 2)
 
     def test_observability_never_emits_query_or_coordinates(self) -> None:

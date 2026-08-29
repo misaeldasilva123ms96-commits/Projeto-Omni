@@ -62,6 +62,8 @@ class FakeTransport:
     def request(self, **kwargs: object) -> TransportResponse:
         self.calls.append(kwargs)
         value = self.responses.pop(0)
+        if isinstance(value, BaseException):
+            raise value
         body = json.dumps(value).encode("utf-8")
         return TransportResponse(200, {}, body, "93.184.216.34")
 
@@ -260,6 +262,45 @@ class NetworkAndIsolationTest(unittest.TestCase):
         self.assertFalse(hasattr(candidate, "register"))
         self.assertFalse(hasattr(candidate, "execute"))
         self.assertFalse(hasattr(candidate, "to_external_api_definition"))
+
+    def test_discovery_source_attempt_and_rate_contracts(self) -> None:
+        definitions = {item.api_id: item for item in build_discovery_source_registry().list()}
+        guru = definitions[APIS_GURU_ID]
+        public = definitions[PUBLIC_APIS_ID]
+        self.assertEqual((guru.rate_limit_requests, guru.rate_limit_window_seconds), (2, 60))
+        self.assertEqual(guru.max_attempts, 2)
+        self.assertEqual((public.rate_limit_requests, public.rate_limit_window_seconds), (1, 60))
+        self.assertEqual(public.max_attempts, 1)
+
+    def test_apis_guru_retries_once_with_two_attempt_quota(self) -> None:
+        gateway, _, transport = self.gateway(
+            [ExternalGatewayError("connection_failed", retryable=True), APIS_GURU_FIXTURE]
+        )
+        environment = {
+            "OMNI_EXTERNAL_API_ENABLED": "1",
+            "OMNI_EXTERNAL_DISCOVERY_ENABLED": "1",
+            "OMNI_EXTERNAL_APIS_GURU_DISCOVERY_ENABLED": "1",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            self.assertGreater(len(DiscoveryClient(gateway).load("apis-guru")), 0)
+        self.assertEqual(len(transport.calls), 2)
+
+    def test_public_apis_transient_failure_has_no_automatic_retry(self) -> None:
+        gateway, _, transport = self.gateway(
+            [ExternalGatewayError("connection_failed", retryable=True)]
+        )
+        environment = {
+            "OMNI_EXTERNAL_API_ENABLED": "1",
+            "OMNI_EXTERNAL_DISCOVERY_ENABLED": "1",
+            "OMNI_EXTERNAL_PUBLIC_APIS_DISCOVERY_ENABLED": "1",
+        }
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            self.assertRaises(ExternalGatewayError) as caught,
+        ):
+            DiscoveryClient(gateway).load("public-apis")
+        self.assertEqual(caught.exception.code, "connection_failed")
+        self.assertEqual(len(transport.calls), 1)
 
 
 if __name__ == "__main__":

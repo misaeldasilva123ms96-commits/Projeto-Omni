@@ -39,7 +39,7 @@ def public_apis_definition() -> ExternalAPIDefinition:
         max_response_bytes=4 * 1024 * 1024,
         redirect_policy=RedirectPolicy.DENY,
         cache_ttl_seconds=86_400,
-        max_attempts=2,
+        max_attempts=1,
         rate_limit_requests=1,
         rate_limit_window_seconds=60,
         enabled=True,

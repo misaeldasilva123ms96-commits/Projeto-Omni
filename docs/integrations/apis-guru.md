@@ -3,6 +3,8 @@
 The official REST API (v2.2.x documentation reviewed 2026-08-29) is the recommended interface for
 the community-driven public OpenAPI directory. Omni uses only `GET /v2/list.json` on
 `api.apis.guru`; it does not use raw Git repository content.
+The source permits 2 outbound transport attempts per minute/process and at most 2 attempts per
+load; each attempt consumes quota.
 
 Only each API record's preferred version becomes a Phase 7 candidate. A future schema locator is
 retained only when it is credential-free HTTPS on `api.apis.guru`, begins `/v2/specs/`, ends

@@ -16,8 +16,10 @@ endpoint and no agent/planner/manifest tool surface for discovery.
 
 Network loading fails closed unless all three gates are true: `OMNI_EXTERNAL_API_ENABLED`,
 `OMNI_EXTERNAL_DISCOVERY_ENABLED`, and the selected source gate. Both catalogs cache independently
-for 24 hours. APIs.guru is limited to 2 requests/minute/process and public-apis to 1. Redirects are
-denied. Search and dossier generation are entirely local after loading.
+for 24 hours. Each real outbound transport attempt consumes local provider quota; cache hits do
+not. APIs.guru allows 2 requests/minute/process and up to 2 attempts. Public-apis allows 1
+request/minute/process and exactly 1 attempt. Redirects are denied. Search and dossier generation
+are entirely local after loading.
 
 The only authorized requests are `GET https://api.apis.guru/v2/list.json` and `GET
 https://api.github.com/repos/public-apis/public-apis/contents/README.md?ref=master`. Catalog
