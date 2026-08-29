@@ -58,3 +58,7 @@ does not claim tool execution or cognitive runtime truth.
 `scripts/external_api_discovery.py` accepts only `--source`, `--query`, `--category`, `--limit`, and
 `--format`. It prints bounded review dossiers to stdout and has no install, register, execute, host,
 URL, repository, branch, or file-writing option.
+
+Phase 8 may select an exact APIs.guru candidate for a separately gated, exact-path schema intake.
+That produces only a manual-review proposal; it does not promote the discovery candidate or alter
+the discovery or execution registries. See `external-api-schema-intake.md`.

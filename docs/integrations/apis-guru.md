@@ -13,6 +13,11 @@ the current field is absent). `swaggerUrl` is the historical field name for the 
 document URL. A locator is retained only for the closed `swagger.json` / `openapi.json` filename
 set under the official authority; this does not authorize or perform a schema fetch.
 
+Phase 8 can fetch one selected mirrored JSON schema only after five opt-in gates and independent
+candidate identity/authority/path validation. The candidate-scoped registry authorizes that exact
+path only. All references, servers, external documentation, OAuth/OpenID URLs, callbacks, and
+webhooks found in the document remain non-network metadata and require human review.
+
 Only each API record's preferred version becomes a Phase 7 candidate. A future schema locator is
 retained only when it is credential-free HTTPS on `api.apis.guru`, begins `/v2/specs/`, ends
 `/swagger.json`, and has no fragment. No spec, origin, external documentation, registration URL,

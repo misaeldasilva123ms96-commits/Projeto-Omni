@@ -13,6 +13,8 @@ URLHAUS_ENABLED_ENV = "OMNI_EXTERNAL_URLHAUS_ENABLED"
 EXTERNAL_DISCOVERY_ENABLED_ENV = "OMNI_EXTERNAL_DISCOVERY_ENABLED"
 APIS_GURU_DISCOVERY_ENABLED_ENV = "OMNI_EXTERNAL_APIS_GURU_DISCOVERY_ENABLED"
 PUBLIC_APIS_DISCOVERY_ENABLED_ENV = "OMNI_EXTERNAL_PUBLIC_APIS_DISCOVERY_ENABLED"
+EXTERNAL_SCHEMA_INTAKE_ENABLED_ENV = "OMNI_EXTERNAL_SCHEMA_INTAKE_ENABLED"
+APIS_GURU_SCHEMA_INTAKE_ENABLED_ENV = "OMNI_EXTERNAL_APIS_GURU_SCHEMA_INTAKE_ENABLED"
 
 
 def external_api_enabled() -> bool:
@@ -52,11 +54,21 @@ def public_apis_discovery_enabled() -> bool:
     return read_env_bool(PUBLIC_APIS_DISCOVERY_ENABLED_ENV, False)
 
 
+def external_schema_intake_enabled() -> bool:
+    return read_env_bool(EXTERNAL_SCHEMA_INTAKE_ENABLED_ENV, False)
+
+
+def apis_guru_schema_intake_enabled() -> bool:
+    return read_env_bool(APIS_GURU_SCHEMA_INTAKE_ENABLED_ENV, False)
+
+
 __all__ = [
     "EXTERNAL_API_ENABLED_ENV",
     "EXTERNAL_DISCOVERY_ENABLED_ENV",
     "APIS_GURU_DISCOVERY_ENABLED_ENV",
     "PUBLIC_APIS_DISCOVERY_ENABLED_ENV",
+    "EXTERNAL_SCHEMA_INTAKE_ENABLED_ENV",
+    "APIS_GURU_SCHEMA_INTAKE_ENABLED_ENV",
     "FRANKFURTER_ENABLED_ENV",
     "FREE_DICTIONARY_ENABLED_ENV",
     "URLHAUS_ENABLED_ENV",
@@ -66,6 +78,8 @@ __all__ = [
     "external_discovery_enabled",
     "apis_guru_discovery_enabled",
     "public_apis_discovery_enabled",
+    "external_schema_intake_enabled",
+    "apis_guru_schema_intake_enabled",
     "frankfurter_enabled",
     "free_dictionary_enabled",
     "urlhaus_enabled",
