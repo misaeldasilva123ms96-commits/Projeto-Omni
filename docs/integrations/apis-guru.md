@@ -6,6 +6,13 @@ the community-driven public OpenAPI directory. Omni uses only `GET /v2/list.json
 The source permits 2 outbound transport attempts per minute/process and at most 2 attempts per
 load; each attempt consumes quota.
 
+The current `ApiVersion` contract exposes `openapiVer`, `swaggerUrl`, and `externalDocs` at the
+version level. Omni preserves `openapiVer` exactly as an unverified catalog hint and reads the
+version-level documentation URL (with a defensive legacy `info.externalDocs` fallback only when
+the current field is absent). `swaggerUrl` is the historical field name for the JSON OpenAPI
+document URL. A locator is retained only for the closed `swagger.json` / `openapi.json` filename
+set under the official authority; this does not authorize or perform a schema fetch.
+
 Only each API record's preferred version becomes a Phase 7 candidate. A future schema locator is
 retained only when it is credential-free HTTPS on `api.apis.guru`, begins `/v2/specs/`, ends
 `/swagger.json`, and has no fragment. No spec, origin, external documentation, registration URL,

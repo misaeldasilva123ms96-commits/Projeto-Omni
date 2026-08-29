@@ -7,7 +7,7 @@ import binascii
 import re
 import unicodedata
 from datetime import UTC, datetime
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from brain.runtime.external.gateway import ExternalGatewayError
 from brain.runtime.external.discovery.models import (
@@ -42,16 +42,28 @@ def _display_url(value: object) -> str | None:
 
 
 def _schema_locator(value: object) -> str | None:
+    if not isinstance(value, str) or any(char in value for char in ("\\", "\x00", "\r", "\n")):
+        return None
     url = sanitize_text(value, 2_048)
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    path = unquote(parsed.path)
+    segments = path.split("/")
     if (
         parsed.scheme == "https"
         and parsed.hostname == "api.apis.guru"
         and parsed.username is None
         and parsed.password is None
+        and port in {None, 443}
+        and not parsed.query
         and not parsed.fragment
-        and parsed.path.startswith("/v2/specs/")
-        and parsed.path.endswith("/swagger.json")
+        and path.startswith("/v2/specs/")
+        and "//" not in path
+        and not any(segment in {".", ".."} for segment in segments)
+        and segments[-1] in {"swagger.json", "openapi.json"}
     ):
         return url
     return None
@@ -83,7 +95,15 @@ def parse_apis_guru(
         provider, _, service = catalog_id.partition(":")
         raw_locator = version.get("swaggerUrl")
         locator = _schema_locator(raw_locator)
-        issues = () if locator or not raw_locator else ("invalid_schema_locator",)
+        issues: list[str] = []
+        if raw_locator and not locator:
+            issues.append("invalid_schema_locator")
+        openapi_version = sanitize_text(version.get("openapiVer"), 255) or None
+        if openapi_version is None:
+            issues.append("missing_openapi_version")
+        external_docs = version.get("externalDocs")
+        if "externalDocs" not in version:
+            external_docs = info.get("externalDocs")
         categories = info.get("x-apisguru-categories", ())
         if not isinstance(categories, list):
             categories = ()
@@ -99,18 +119,18 @@ def parse_apis_guru(
                 provider=sanitize_text(provider, 255) or None,
                 service=sanitize_text(service, 255) or None,
                 documentation_url=(
-                    _display_url(info.get("externalDocs", {}).get("url"))
-                    if isinstance(info.get("externalDocs"), dict)
+                    _display_url(external_docs.get("url"))
+                    if isinstance(external_docs, dict)
                     else None
                 ),
                 schema_available=locator is not None,
                 schema_locator=locator,
                 preferred_version=preferred,
-                openapi_version=sanitize_text(version.get("swagger"), 255) or None,
+                openapi_version=openapi_version,
                 source_added_at=sanitize_text(version.get("added"), 255) or None,
                 source_updated_at=sanitize_text(version.get("updated"), 255) or None,
                 discovered_at=now,
-                issues=issues,
+                issues=tuple(issues),
                 source_provenance=provenance,
             )
         )
