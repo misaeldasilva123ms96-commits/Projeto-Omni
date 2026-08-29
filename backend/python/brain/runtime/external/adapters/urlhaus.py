@@ -32,30 +32,39 @@ class URLReputationInput:
         host = str(parsed.hostname or "").lower().rstrip(".")
         if not host:
             raise ValueError("invalid_url")
-        if host == "localhost" or host.endswith((".localhost", ".local")) or "." not in host:
-            raise ValueError("internal_url_not_allowed")
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
             address = None
-        if address is not None and not address.is_global:
-            raise ValueError("internal_url_not_allowed")
-        try:
-            normalized_host = host.encode("idna").decode("ascii")
-        except UnicodeError:
-            raise ValueError("invalid_url") from None
+        if address is not None:
+            if not address.is_global:
+                raise ValueError("internal_url_not_allowed")
+            normalized_host = address.compressed
+            netloc_host = (
+                f"[{normalized_host}]"
+                if isinstance(address, ipaddress.IPv6Address)
+                else normalized_host
+            )
+        else:
+            if host == "localhost" or host.endswith((".localhost", ".local")) or "." not in host:
+                raise ValueError("internal_url_not_allowed")
+            try:
+                normalized_host = host.encode("idna").decode("ascii")
+            except UnicodeError:
+                raise ValueError("invalid_url") from None
+            netloc_host = normalized_host
         try:
             port = parsed.port
         except ValueError:
             raise ValueError("invalid_url") from None
         if port is not None and not 1 <= port <= 65535:
             raise ValueError("invalid_url")
-        netloc = normalized_host
+        netloc = netloc_host
         if port and not (
             (parsed.scheme.lower() == "http" and port == 80)
             or (parsed.scheme.lower() == "https" and port == 443)
         ):
-            netloc = f"{normalized_host}:{port}"
+            netloc = f"{netloc_host}:{port}"
         return urlunsplit((parsed.scheme.lower(), netloc, parsed.path or "/", parsed.query, ""))
 
 

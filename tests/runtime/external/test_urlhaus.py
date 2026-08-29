@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -49,12 +50,22 @@ class FakeCredentialResolver:
         return self.outcome
 
 
+class TrackingResolver(FakeResolver):
+    def __init__(self):
+        super().__init__()
+        self.hosts = []
+
+    def resolve(self, host, port):
+        self.hosts.append(host)
+        return super().resolve(host, port)
+
+
 def gateway(payload, *, credential=None, status=200):
     clock = FakeClock()
     transport = FakeTransport(
         [TransportResponse(status, {}, json.dumps(payload).encode(), "93.184.216.34")]
     )
-    resolver = FakeResolver()
+    resolver = TrackingResolver()
     credentials = credential or FakeCredentialResolver()
     return (
         ExternalAPIGateway(
@@ -98,6 +109,74 @@ def test_fragment_is_stripped_but_query_preserved():
     assert URLReputationInput("HTTPS://Example.COM:443/a?token=x#private").normalized() == (
         "https://example.com/a?token=x"
     )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "https://[2606:4700:4700::1111]/path",
+            "https://[2606:4700:4700::1111]/path",
+        ),
+        (
+            "https://[2606:4700:4700:0:0:0:0:1111]/path",
+            "https://[2606:4700:4700::1111]/path",
+        ),
+        (
+            "https://[2606:4700:4700::1111]:443/path",
+            "https://[2606:4700:4700::1111]/path",
+        ),
+        (
+            "http://[2606:4700:4700::1111]:80/path",
+            "http://[2606:4700:4700::1111]/path",
+        ),
+        (
+            "https://[2606:4700:4700::1111]:8443/path",
+            "https://[2606:4700:4700::1111]:8443/path",
+        ),
+        (
+            "https://[2606:4700:4700::1111]/x?a=1#secret",
+            "https://[2606:4700:4700::1111]/x?a=1",
+        ),
+        ("https://8.8.8.8/path", "https://8.8.8.8/path"),
+        ("HTTPS://Example.COM:443/a", "https://example.com/a"),
+    ],
+)
+def test_host_type_normalization(value, expected):
+    assert URLReputationInput(value).normalized() == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://[::1]/",
+        "http://[fd00::1]/",
+        "http://[fe80::1]/",
+        "http://127.0.0.1/",
+        "http://10.0.0.1/",
+        "http://172.16.0.1/",
+        "http://192.168.0.1/",
+        "http://169.254.0.1/",
+    ],
+)
+def test_non_global_ip_literals_remain_denied(value):
+    with pytest.raises(ValueError, match="internal_url_not_allowed"):
+        URLReputationInput(value).normalized()
+
+
+def test_public_ipv6_form_round_trip_never_resolves_target():
+    gw, transport, resolver, _ = gateway({"query_status": "no_results"})
+    result = check_url_reputation(
+        URLReputationInput("https://[2606:4700:4700::1111]/x?a=1#secret"),
+        gateway=gw,
+        global_enabled=True,
+        provider_enabled=True,
+    )
+    decoded = parse_qs(transport.calls[0]["body"].decode("ascii"))
+    assert decoded == {"url": ["https://[2606:4700:4700::1111]/x?a=1"]}
+    assert result.status == "not_listed"
+    assert resolver.hosts == ["urlhaus-api.abuse.ch"]
+    assert len(transport.calls) == 1
 
 
 @pytest.mark.parametrize(
