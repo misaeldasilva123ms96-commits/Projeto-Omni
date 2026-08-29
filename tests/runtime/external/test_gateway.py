@@ -332,6 +332,15 @@ class RetryCacheRateAndGateTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "rate_limit_exceeded")
         self.assertEqual(len(transport.calls), 1)
 
+    def test_retry_counts_as_one_logical_rate_limited_request(self) -> None:
+        transport = FakeTransport(
+            [ExternalGatewayError("connection_failed", retryable=True), FakeTransport.success()]
+        )
+        gateway_for(
+            api=definition(rate_limit_requests=1, max_attempts=2), transport=transport
+        ).execute(REQUEST, global_enabled=True, provider_enabled=True)
+        self.assertEqual(len(transport.calls), 2)
+
     def test_observability_never_emits_query_or_coordinates(self) -> None:
         events: list[tuple[str, dict[str, object]]] = []
         gateway_for(events=events).execute(REQUEST, global_enabled=True, provider_enabled=True)

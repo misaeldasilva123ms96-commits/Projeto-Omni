@@ -351,16 +351,16 @@ class ExternalAPIGateway:
             {"api_id": request.api_id, "method": request.method.upper()},
             event_sink,
         )
+        if not self.rate_limiter.allow(
+            request.api_id,
+            limit=definition.rate_limit_requests,
+            window_seconds=definition.rate_limit_window_seconds,
+        ):
+            self._emit("external_api.rate_limited", {"api_id": request.api_id}, event_sink)
+            raise ExternalGatewayError("rate_limit_exceeded")
         last_error: ExternalGatewayError | None = None
         for attempt in range(1, definition.max_attempts + 1):
             try:
-                if not self.rate_limiter.allow(
-                    request.api_id,
-                    limit=definition.rate_limit_requests,
-                    window_seconds=definition.rate_limit_window_seconds,
-                ):
-                    self._emit("external_api.rate_limited", {"api_id": request.api_id}, event_sink)
-                    raise ExternalGatewayError("rate_limit_exceeded")
                 validated = validate_resolved_addresses(self.resolver.resolve(host, port))
                 pinned_ip = validated[0]
                 target = request.path + (
