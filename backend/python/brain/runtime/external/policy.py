@@ -91,6 +91,9 @@ class ExternalAPIPolicy:
             _validate_url(endpoint, definition.allowed_hosts)
         except ExternalAPIPolicyError as exc:
             return ExternalAPIPolicyDecision(False, str(exc))
-        if urlsplit(endpoint).path not in definition.allowed_paths:
+        path = urlsplit(endpoint).path
+        if path not in definition.allowed_paths and not any(
+            template.matches(path) for template in definition.allowed_path_templates
+        ):
             return ExternalAPIPolicyDecision(False, "path_not_allowed")
         return ExternalAPIPolicyDecision(True, "allowed")

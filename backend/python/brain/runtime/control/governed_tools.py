@@ -12,7 +12,11 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
-from brain.runtime.control.governance_taxonomy import GovernanceReason, GovernanceSeverity, GovernanceSource
+from brain.runtime.control.governance_taxonomy import (
+    GovernanceReason,
+    GovernanceSeverity,
+    GovernanceSource,
+)
 from brain.env import read_env_bool
 
 STRICT_GOVERNED_TOOLS_ENV = "OMNI_GOVERNED_TOOLS_STRICT"
@@ -285,4 +289,24 @@ def _declare_weather_forecast_governed() -> None:
     api_id="nominatim",
 )
 def _declare_geocode_place_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="currency_convert",
+    policy_name="governed_external_currency",
+    category="external/currency",
+    api_id="frankfurter",
+)
+def _declare_currency_convert_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="dictionary_lookup",
+    policy_name="governed_external_dictionary",
+    category="external/dictionary",
+    api_id="free_dictionary",
+)
+def _declare_dictionary_lookup_governed() -> None:
     return None

@@ -8,6 +8,7 @@ from brain.runtime.external.models import (
     LatencyClass,
     RedirectPolicy,
     RiskLevel,
+    SafePathTemplate,
 )
 from brain.runtime.external.registry import ExternalAPIRegistry
 
@@ -69,4 +70,53 @@ def build_external_api_registry() -> ExternalAPIRegistry:
     registry = ExternalAPIRegistry()
     registry.register(open_meteo_definition())
     registry.register(nominatim_definition())
+    registry.register(frankfurter_definition())
+    registry.register(free_dictionary_definition())
     return registry
+
+
+def frankfurter_definition() -> ExternalAPIDefinition:
+    return ExternalAPIDefinition(
+        api_id="frankfurter",
+        name="Frankfurter",
+        description="Informational currency rates v2",
+        base_url="https://api.frankfurter.dev",
+        allowed_hosts=frozenset({"api.frankfurter.dev"}),
+        allowed_methods=frozenset({"GET"}),
+        allowed_paths=frozenset({"/v2/rates"}),
+        risk_level=RiskLevel.LOW,
+        estimated_cost="free/public",
+        timeout_seconds=8.0,
+        max_response_bytes=64_000,
+        redirect_policy=RedirectPolicy.DENY,
+        cache_ttl_seconds=1800,
+        max_attempts=2,
+        rate_limit_requests=30,
+        rate_limit_window_seconds=60.0,
+        enabled=True,
+        provenance="Rates by Frankfurter; informational and may blend underlying sources",
+    )
+
+
+def free_dictionary_definition() -> ExternalAPIDefinition:
+    return ExternalAPIDefinition(
+        api_id="free_dictionary",
+        name="Free Dictionary API",
+        description="Community/experimental English dictionary pilot",
+        base_url="https://api.dictionaryapi.dev",
+        allowed_hosts=frozenset({"api.dictionaryapi.dev"}),
+        allowed_methods=frozenset({"GET"}),
+        allowed_paths=frozenset(),
+        allowed_path_templates=frozenset({SafePathTemplate.FREE_DICTIONARY_ENGLISH_WORD}),
+        risk_level=RiskLevel.LOW,
+        estimated_cost="free/community-pilot",
+        timeout_seconds=8.0,
+        max_response_bytes=256_000,
+        redirect_policy=RedirectPolicy.DENY,
+        cache_ttl_seconds=604800,
+        max_attempts=1,
+        rate_limit_requests=10,
+        rate_limit_window_seconds=60.0,
+        enabled=True,
+        provenance="Definitions by Free Dictionary API; community pilot without SLA",
+    )

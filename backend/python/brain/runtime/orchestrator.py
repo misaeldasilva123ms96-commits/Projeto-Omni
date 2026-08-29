@@ -608,6 +608,18 @@ class BrainOrchestrator:
                 "place_query": "redacted",
                 "country_code_supplied": bool(arguments.get("country_code")),
             }
+        elif selected_tool == "currency_convert":
+            redacted["tool_arguments"] = {
+                "from_currency": arguments.get("from_currency"),
+                "to_currency": arguments.get("to_currency"),
+                "amount_supplied": "amount" in arguments,
+            }
+        elif selected_tool == "dictionary_lookup":
+            word = arguments.get("word")
+            redacted["tool_arguments"] = {
+                "dictionary_word": "redacted",
+                "word_length": len(word) if isinstance(word, str) else 0,
+            }
         return redacted
 
     def _emit_cognitive_runtime_inspection(

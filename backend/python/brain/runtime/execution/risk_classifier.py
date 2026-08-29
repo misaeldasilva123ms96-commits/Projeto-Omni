@@ -4,7 +4,6 @@ from typing import Any
 
 from .models import ExecutionIntent, RiskClassification, RiskLevel
 
-
 READ_ONLY_TOOLS = {
     "read_file",
     "filesystem_read",
@@ -27,7 +26,12 @@ HIGH_RISK_TOOLS = {
 }
 CRITICAL_TOOLS = {"shell_command", "git_commit", "package_manager"}
 EXTERNAL_IMPACT_SUBSYSTEMS = {"deployment", "external_api", "payments", "network_mutation"}
-GOVERNED_EXTERNAL_READ_TOOLS = {"geocode_place", "weather_forecast"}
+GOVERNED_EXTERNAL_READ_TOOLS = {
+    "currency_convert",
+    "dictionary_lookup",
+    "geocode_place",
+    "weather_forecast",
+}
 
 
 class DeterministicRiskClassifier:
@@ -35,7 +39,9 @@ class DeterministicRiskClassifier:
         capability = str(intent.capability or "").strip().lower()
         action_type = str(intent.action_type or "").strip().lower()
         subsystem = str(intent.target_subsystem or "").strip().lower()
-        summary = intent.input_payload_summary if isinstance(intent.input_payload_summary, dict) else {}
+        summary = (
+            intent.input_payload_summary if isinstance(intent.input_payload_summary, dict) else {}
+        )
         tool_arguments = (
             summary.get("tool_arguments", {})
             if isinstance(summary.get("tool_arguments", {}), dict)
@@ -43,7 +49,12 @@ class DeterministicRiskClassifier:
         )
         subcommand = str(tool_arguments.get("subcommand", "")).strip().lower()
 
-        if capability in CRITICAL_TOOLS or action_type in {"delete", "destroy", "deploy", "publish"}:
+        if capability in CRITICAL_TOOLS or action_type in {
+            "delete",
+            "destroy",
+            "deploy",
+            "publish",
+        }:
             return RiskClassification(
                 level=RiskLevel.CRITICAL,
                 reason_code="critical_tool_or_action",

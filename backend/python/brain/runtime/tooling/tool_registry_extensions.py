@@ -5,8 +5,33 @@ from typing import Iterable
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS
 from brain.runtime.tooling.tool_metadata import ToolMetadata, conservative_tool_metadata
 
-
 _TOOL_METADATA: dict[str, ToolMetadata] = {
+    "currency_convert": ToolMetadata(
+        name="currency_convert",
+        category="external/currency",
+        description="converts currency using a governed informational Frankfurter v2 rate",
+        input_schema_hint="{'amount': str | int | Decimal, 'from_currency': str, 'to_currency': str}",
+        risk_level="low",
+        estimated_cost="free/public",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
+    "dictionary_lookup": ToolMetadata(
+        name="dictionary_lookup",
+        category="external/dictionary",
+        description="looks up a bounded English definition through a community pilot",
+        input_schema_hint="{'word': str}",
+        risk_level="low",
+        estimated_cost="free/community-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
     "geocode_place": ToolMetadata(
         name="geocode_place",
         category="external/geocoding",

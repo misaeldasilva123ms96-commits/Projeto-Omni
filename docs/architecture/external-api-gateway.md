@@ -193,3 +193,11 @@ Open-Meteo action identified by step ID. The binding does not alter Gateway
 requests, cache keys, provider rate limits, retries, gates, provenance, or the
 normalized weather schema. Ambiguous or failed geocoding prevents weather
 transport. See `docs/architecture/tool-output-bindings.md`.
+# Phase 5: currency, dictionary, and closed safe paths
+
+Frankfurter v2 and Free Dictionary share the existing gateway, DNS pinning, TLS,
+redirect denial, byte limits, cache, rate limiter, observability, and provenance.
+Frankfurter retains an exact fixed path. Free Dictionary adds only the
+`FREE_DICTIONARY_ENGLISH_WORD` closed template; there is no prefix, glob, caller
+regex, wildcard, or general URL-template authority. The adapter validates one
+segment before encoding and policy independently checks the constructed path.

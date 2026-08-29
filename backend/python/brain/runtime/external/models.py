@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Mapping
 
 _API_ID = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
+_DICTIONARY_PATH = re.compile(r"^/api/v2/entries/en/[A-Za-z]+(?:['-][A-Za-z]+)*$")
 
 
 class AuthenticationType(StrEnum):
@@ -37,6 +38,17 @@ class LatencyClass(StrEnum):
     VARIABLE = "variable"
 
 
+class SafePathTemplate(StrEnum):
+    """Closed, maintainer-owned path authorities; never caller-defined patterns."""
+
+    FREE_DICTIONARY_ENGLISH_WORD = "free_dictionary_english_word"
+
+    def matches(self, path: str) -> bool:
+        if self is SafePathTemplate.FREE_DICTIONARY_ENGLISH_WORD:
+            return _DICTIONARY_PATH.fullmatch(path) is not None
+        return False
+
+
 @dataclass(frozen=True, slots=True)
 class ExternalAPIDefinition:
     api_id: str
@@ -46,6 +58,7 @@ class ExternalAPIDefinition:
     allowed_hosts: frozenset[str]
     allowed_methods: frozenset[str]
     allowed_paths: frozenset[str]
+    allowed_path_templates: frozenset[SafePathTemplate] = field(default_factory=frozenset)
     auth_type: AuthenticationType = AuthenticationType.NONE
     requires_network: bool = True
     risk_level: RiskLevel = RiskLevel.MEDIUM
@@ -74,7 +87,11 @@ class ExternalAPIDefinition:
             raise ValueError("api_id must be a stable lowercase identifier")
         if not self.name.strip() or not self.description.strip() or not self.base_url.strip():
             raise ValueError("name, description, and base_url are required")
-        if not self.allowed_hosts or not self.allowed_methods or not self.allowed_paths:
+        if (
+            not self.allowed_hosts
+            or not self.allowed_methods
+            or not (self.allowed_paths or self.allowed_path_templates)
+        ):
             raise ValueError("allowed hosts, methods, and paths must not be empty")
         if any(
             not isinstance(item, str) or not item.strip()

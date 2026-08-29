@@ -25,10 +25,13 @@ Clock = Callable[[], float]
 
 
 class ExternalGatewayError(RuntimeError):
-    def __init__(self, code: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self, code: str, *, retryable: bool = False, status_code: int | None = None
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        self.status_code = status_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,7 +352,9 @@ class ExternalAPIGateway:
                 if transport_response.status_code in self._TRANSIENT_STATUSES:
                     raise ExternalGatewayError("transient_http_status", retryable=True)
                 if transport_response.status_code >= 400:
-                    raise ExternalGatewayError("provider_http_error")
+                    raise ExternalGatewayError(
+                        "provider_http_error", status_code=transport_response.status_code
+                    )
                 if len(transport_response.body) > definition.max_response_bytes:
                     raise ExternalGatewayError("response_too_large")
                 try:
