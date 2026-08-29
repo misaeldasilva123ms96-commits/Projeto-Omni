@@ -276,3 +276,13 @@ def _declare_write_file_governed() -> None:
 )
 def _declare_weather_forecast_governed() -> None:
     return None
+
+
+@governed_tool(
+    tool_name="geocode_place",
+    policy_name="governed_external_geocoding",
+    category="external/geocoding",
+    api_id="nominatim",
+)
+def _declare_geocode_place_governed() -> None:
+    return None

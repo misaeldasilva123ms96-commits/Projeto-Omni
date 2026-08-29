@@ -533,10 +533,15 @@ class BrainOrchestrator:
         selected_tool = str(action.get("selected_tool", "")).strip()
         tool_arguments = dict(action.get("tool_arguments", {}) or {})
         intent_arguments = tool_arguments
-        if supports_external_tool(selected_tool):
+        if selected_tool == "weather_forecast":
             intent_arguments = {
                 "coordinates": "redacted",
                 "forecast_days": tool_arguments.get("forecast_days"),
+            }
+        elif selected_tool == "geocode_place":
+            intent_arguments = {
+                "place_query": "redacted",
+                "country_code_supplied": bool(tool_arguments.get("country_code")),
             }
         description = str(
             action.get("description")

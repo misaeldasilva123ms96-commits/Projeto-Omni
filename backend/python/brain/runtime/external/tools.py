@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from brain.runtime.external.adapters.nominatim import (
+    GEOCODE_TOOL_NAME,
+    GeocodePlaceInput,
+    get_geocode_place,
+)
 from brain.runtime.external.adapters.open_meteo import (
     WEATHER_TOOL_NAME,
     WeatherForecastInput,
@@ -11,7 +16,7 @@ from brain.runtime.external.adapters.open_meteo import (
 )
 from brain.runtime.external.gateway import EventSink, ExternalAPIGateway, ExternalGatewayError
 
-EXTERNAL_TOOLS = frozenset({WEATHER_TOOL_NAME})
+EXTERNAL_TOOLS = frozenset({WEATHER_TOOL_NAME, GEOCODE_TOOL_NAME})
 
 
 def supports_external_tool(tool_name: str) -> bool:
@@ -25,7 +30,7 @@ def execute_external_action(
     event_sink: EventSink | None = None,
 ) -> dict[str, Any]:
     tool = str(action.get("selected_tool", "") or "").strip()
-    if tool != WEATHER_TOOL_NAME:
+    if tool not in EXTERNAL_TOOLS:
         return {
             "ok": False,
             "selected_tool": tool,
@@ -33,12 +38,22 @@ def execute_external_action(
         }
     arguments = dict(action.get("tool_arguments", {}) or {})
     try:
-        value = WeatherForecastInput(
-            latitude=arguments.get("latitude"),
-            longitude=arguments.get("longitude"),
-            forecast_days=arguments.get("forecast_days", 3),
-        )
-        result = get_weather_forecast(value, gateway=gateway, event_sink=event_sink)
+        if tool == WEATHER_TOOL_NAME:
+            value = WeatherForecastInput(
+                latitude=arguments.get("latitude"),
+                longitude=arguments.get("longitude"),
+                forecast_days=arguments.get("forecast_days", 3),
+            )
+            result = get_weather_forecast(value, gateway=gateway, event_sink=event_sink)
+            provider = "open_meteo"
+        else:
+            geocode_value = GeocodePlaceInput(
+                place_name=arguments.get("place_name"),
+                state_or_region=arguments.get("state_or_region"),
+                country_code=arguments.get("country_code"),
+            )
+            result = get_geocode_place(geocode_value, gateway=gateway, event_sink=event_sink)
+            provider = "nominatim"
     except (ValueError, ExternalGatewayError) as exc:
         code = str(exc)
         return {
@@ -46,7 +61,11 @@ def execute_external_action(
             "selected_tool": tool,
             "error_payload": {
                 "kind": code,
-                "message": "Weather data unavailable.",
+                "message": (
+                    "Weather data unavailable."
+                    if tool == WEATHER_TOOL_NAME
+                    else "Location data unavailable."
+                ),
             },
         }
     return {
@@ -55,8 +74,8 @@ def execute_external_action(
         "result_payload": result.as_dict(),
         "runtime_truth": {
             "source": "external_api",
-            "provider": "open_meteo",
-            "tool": WEATHER_TOOL_NAME,
+            "provider": provider,
+            "tool": tool,
             "cached": bool(result.provenance.get("cached")),
         },
     }

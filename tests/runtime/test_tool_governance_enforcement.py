@@ -147,18 +147,22 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
         self.assertEqual(decision["category"], "network")
         self.assertEqual(decision["error_public_code"], "TOOL_APPROVAL_REQUIRED")
 
-    def test_registered_external_weather_delegates_to_gateway_and_public_demo_blocks(self) -> None:
-        decision = evaluate_tool_governance(
-            {"selected_tool": "weather_forecast", "tool_arguments": {}}
-        )
-        self.assertTrue(decision["allowed"])
-        self.assertEqual(decision["category"], "external_read")
-        with patch.dict(os.environ, clean_env(OMNI_PUBLIC_DEMO_MODE="true"), clear=False):
-            blocked = evaluate_tool_governance(
-                {"selected_tool": "weather_forecast", "tool_arguments": {}}
-            )
-        self.assertFalse(blocked["allowed"])
-        self.assertTrue(blocked["public_demo_blocked"])
+    def test_registered_external_reads_delegate_to_gateway_and_public_demo_blocks(self) -> None:
+        for tool in ("weather_forecast", "geocode_place"):
+            with self.subTest(tool=tool):
+                decision = evaluate_tool_governance(
+                    {"selected_tool": tool, "tool_arguments": {}}
+                )
+                self.assertTrue(decision["allowed"])
+                self.assertEqual(decision["category"], "external_read")
+                with patch.dict(
+                    os.environ, clean_env(OMNI_PUBLIC_DEMO_MODE="true"), clear=False
+                ):
+                    blocked = evaluate_tool_governance(
+                        {"selected_tool": tool, "tool_arguments": {}}
+                    )
+                self.assertFalse(blocked["allowed"])
+                self.assertTrue(blocked["public_demo_blocked"])
 
     def test_governance_block_is_public_safe(self) -> None:
         result = execute_engineering_action(

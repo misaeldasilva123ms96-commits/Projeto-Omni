@@ -26,6 +26,15 @@ class ToolRegistryExtensionsTest(unittest.TestCase):
         self.assertFalse(metadata.requires_auth)
         self.assertEqual(metadata.estimated_cost, "free/non-commercial-pilot")
 
+    def test_geocoding_tool_metadata_is_explicit_and_conservative(self) -> None:
+        metadata = get_tool_metadata("geocode_place")
+        self.assertEqual(metadata.category, "external/geocoding")
+        self.assertEqual(metadata.risk_level, "low")
+        self.assertTrue(metadata.requires_network)
+        self.assertFalse(metadata.requires_auth)
+        self.assertEqual(metadata.estimated_cost, "free/public-pilot")
+        self.assertFalse(metadata.deterministic)
+
     def test_unknown_tool_uses_conservative_defaults(self) -> None:
         metadata = get_tool_metadata("unknown_tool_xyz")
         self.assertEqual(metadata.name, "unknown_tool_xyz")

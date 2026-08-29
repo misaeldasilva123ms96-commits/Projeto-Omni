@@ -7,6 +7,19 @@ from brain.runtime.tooling.tool_metadata import ToolMetadata, conservative_tool_
 
 
 _TOOL_METADATA: dict[str, ToolMetadata] = {
+    "geocode_place": ToolMetadata(
+        name="geocode_place",
+        category="external/geocoding",
+        description="resolves governed settlement names through the Nominatim pilot",
+        input_schema_hint="{'place_name': str, 'state_or_region': str | None, 'country_code': str | None}",
+        risk_level="low",
+        estimated_cost="free/public-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
     "weather_forecast": ToolMetadata(
         name="weather_forecast",
         category="external/weather",

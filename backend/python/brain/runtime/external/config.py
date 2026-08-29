@@ -6,6 +6,7 @@ from brain.env import read_env_bool
 
 EXTERNAL_API_ENABLED_ENV = "OMNI_EXTERNAL_API_ENABLED"
 OPEN_METEO_ENABLED_ENV = "OMNI_EXTERNAL_OPEN_METEO_ENABLED"
+OSM_GEOCODER_ENABLED_ENV = "OMNI_EXTERNAL_NOMINATIM_ENABLED"
 
 
 def external_api_enabled() -> bool:
@@ -17,9 +18,15 @@ def open_meteo_enabled() -> bool:
     return read_env_bool(OPEN_METEO_ENABLED_ENV, False)
 
 
+def nominatim_enabled() -> bool:
+    return read_env_bool(OSM_GEOCODER_ENABLED_ENV, False)
+
+
 __all__ = [
     "EXTERNAL_API_ENABLED_ENV",
     "OPEN_METEO_ENABLED_ENV",
+    "OSM_GEOCODER_ENABLED_ENV",
     "external_api_enabled",
+    "nominatim_enabled",
     "open_meteo_enabled",
 ]

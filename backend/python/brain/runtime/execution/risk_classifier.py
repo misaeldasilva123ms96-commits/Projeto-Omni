@@ -27,7 +27,7 @@ HIGH_RISK_TOOLS = {
 }
 CRITICAL_TOOLS = {"shell_command", "git_commit", "package_manager"}
 EXTERNAL_IMPACT_SUBSYSTEMS = {"deployment", "external_api", "payments", "network_mutation"}
-GOVERNED_EXTERNAL_READ_TOOLS = {"weather_forecast"}
+GOVERNED_EXTERNAL_READ_TOOLS = {"geocode_place", "weather_forecast"}
 
 
 class DeterministicRiskClassifier:

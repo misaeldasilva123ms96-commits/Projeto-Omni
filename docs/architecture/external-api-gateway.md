@@ -142,3 +142,45 @@ Open-Meteo is the only registered provider and remains disabled unless both
 feature gates are explicitly enabled. The main test suite uses fake DNS and
 transport boundaries and never requires internet access. Live smoke testing is
 opt-in only through `OMNI_EXTERNAL_LIVE_TESTS=1`.
+
+## Nominatim settlement-geocoding pilot
+
+Phase 3 adds `geocode_place` through the same registry, policy, DNS validation,
+pinned TLS transport, response limits, cache, rate limiter, provenance, and
+governed execution path. The only registered Nominatim endpoint is HTTPS
+`nominatim.openstreetmap.org/search`, GET only, with redirects denied. The tool
+accepts a bounded place/municipality name, optional state or region, and an
+optional ISO 3166-1 alpha-2 country code. It cannot select provider parameters,
+hosts, residential-address fields, reverse lookup, autocomplete, or POI search.
+
+The public instance is an opt-in development/evaluation pilot, not a generic
+geocoding backend for unrestricted Omni traffic. Both gates default off:
+
+```text
+OMNI_EXTERNAL_API_ENABLED=false
+OMNI_EXTERNAL_NOMINATIM_ENABLED=false
+```
+
+The adapter sends an identifiable, project-specific User-Agent, requests only
+`jsonv2`, address details, at most three settlement candidates, and fixed
+languages. It makes one attempt, enforces a local window of one request per 1.1
+seconds, and caches normalized-equivalent searches for 24 hours. Cache and rate
+state are per process, so the public pilot is unsuitable for horizontal
+multi-instance production.
+
+Provider results are schema-checked, bounded to three candidates, and reduced to
+display name, coordinates, country code, category, type, importance, and optional
+region. One result is marked `unique`; multiple results are preserved as
+`ambiguous` rather than silently choosing the first. No coordinates are invented.
+The runtime does not currently expose typed output binding from one tool into the
+arguments of another, so geocode-to-weather composition remains deferred instead
+of parsing model text or creating a bypass.
+
+General events omit the raw place query, full coordinates, request headers, and
+User-Agent. The execution intent records only a redacted place query and whether
+a country filter was supplied. Provenance strips query strings and retains short
+Nominatim/OpenStreetMap attribution.
+
+The usage policy, Search API, and OpenStreetMap attribution guidance were reviewed
+on 2026-08-29. Operational constraints and source links are recorded in
+`docs/integrations/nominatim.md`.
