@@ -36,6 +36,13 @@ from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E4
 
 from test_gateway import FakeClock, FakeResolver, FakeTransport  # noqa: E402
 
+NOMINATIM_READY_ENV = {
+    "OMNI_EXTERNAL_NOMINATIM_PUBLIC_API_COMPLIANCE_ACK": "true",
+    "OMNI_EXTERNAL_NOMINATIM_SINGLE_INSTANCE_ACK": "true",
+    "OMNI_PYTHON_MODE": "service",
+    "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS": "false",
+}
+
 
 def candidate(**overrides: object) -> dict[str, object]:
     value: dict[str, object] = {
@@ -79,6 +86,7 @@ def gateway(
     )
 
 
+@patch.dict(os.environ, NOMINATIM_READY_ENV)
 class NominatimComplianceTest(unittest.TestCase):
     def test_provider_invariants_are_fail_safe(self) -> None:
         definition = nominatim_definition()
@@ -139,6 +147,93 @@ class NominatimComplianceTest(unittest.TestCase):
             feature_enabled=True,
         )
         self.assertFalse(wrong_host.allowed)
+
+    def test_operational_compliance_guard_denies_before_dns_and_transport(self) -> None:
+        cases = (
+            {"OMNI_PYTHON_MODE": "subprocess"},
+            {"OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS": "true"},
+            {"OMNI_EXTERNAL_NOMINATIM_PUBLIC_API_COMPLIANCE_ACK": "false"},
+            {"OMNI_EXTERNAL_NOMINATIM_SINGLE_INSTANCE_ACK": "false"},
+            {"OMNI_PYTHON_MODE": "invalid"},
+        )
+        for environment in cases:
+            resolver = FakeResolver()
+            transport = FakeTransport()
+            api_gateway = ExternalAPIGateway(
+                registry=build_external_api_registry(),
+                resolver=resolver,
+                transport=transport,
+            )
+            with (
+                self.subTest(environment=environment),
+                patch.dict(os.environ, environment),
+                self.assertRaises(ExternalGatewayError) as caught,
+            ):
+                get_geocode_place(
+                    GeocodePlaceInput("Goiânia"),
+                    gateway=api_gateway,
+                    global_enabled=True,
+                    provider_enabled=True,
+                )
+            self.assertEqual(caught.exception.code, "provider_compliance_guard_failed")
+            self.assertEqual(str(caught.exception), "provider_compliance_guard_failed")
+            self.assertEqual(resolver.calls, 0)
+            self.assertEqual(transport.calls, [])
+
+    def test_operational_compliance_guard_allows_fake_transport(self) -> None:
+        resolver = FakeResolver()
+        transport = FakeTransport([FakeTransport.success([candidate()])])
+        api_gateway = ExternalAPIGateway(
+            registry=build_external_api_registry(), resolver=resolver, transport=transport
+        )
+        result = get_geocode_place(
+            GeocodePlaceInput("Goiânia"),
+            gateway=api_gateway,
+            global_enabled=True,
+            provider_enabled=True,
+        )
+        self.assertEqual(result.provider, "Nominatim / OpenStreetMap")
+        self.assertEqual(resolver.calls, 1)
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_missing_or_invalid_operational_values_deny_before_network(self) -> None:
+        environments = (
+            {},
+            {
+                "OMNI_EXTERNAL_NOMINATIM_PUBLIC_API_COMPLIANCE_ACK": "invalid",
+                "OMNI_EXTERNAL_NOMINATIM_SINGLE_INSTANCE_ACK": "true",
+                "OMNI_PYTHON_MODE": "service",
+                "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS": "false",
+            },
+            {
+                "OMNI_EXTERNAL_NOMINATIM_PUBLIC_API_COMPLIANCE_ACK": "true",
+                "OMNI_EXTERNAL_NOMINATIM_SINGLE_INSTANCE_ACK": "true",
+                "OMNI_PYTHON_MODE": "service",
+                "OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS": "invalid",
+            },
+        )
+        for environment in environments:
+            resolver = FakeResolver()
+            transport = FakeTransport()
+            api_gateway = ExternalAPIGateway(
+                registry=build_external_api_registry(),
+                resolver=resolver,
+                transport=transport,
+            )
+            with (
+                self.subTest(environment=environment),
+                patch.dict(os.environ, environment, clear=True),
+                self.assertRaises(ExternalGatewayError) as caught,
+            ):
+                get_geocode_place(
+                    GeocodePlaceInput("Goiânia"),
+                    gateway=api_gateway,
+                    global_enabled=True,
+                    provider_enabled=True,
+                )
+            self.assertEqual(caught.exception.code, "provider_compliance_guard_failed")
+            self.assertEqual(resolver.calls, 0)
+            self.assertEqual(transport.calls, [])
 
 
 class NominatimInputAndNormalizationTest(unittest.TestCase):
@@ -203,6 +298,7 @@ class NominatimInputAndNormalizationTest(unittest.TestCase):
             self.assertEqual(caught.exception.code, expected)
 
 
+@patch.dict(os.environ, NOMINATIM_READY_ENV)
 class NominatimGatewayIntegrationTest(unittest.TestCase):
     def test_malformed_json_is_rejected_without_retry(self) -> None:
         transport = FakeTransport([TransportResponse(200, {}, b"not-json", "93.184.216.34")])

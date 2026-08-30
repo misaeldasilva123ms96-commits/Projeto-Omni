@@ -257,6 +257,74 @@ class TLSRedirectAndLimitTest(unittest.TestCase):
 
 
 class RetryCacheRateAndGateTest(unittest.TestCase):
+    def test_cache_identity_is_opaque_canonical_and_wire_aligned(self) -> None:
+        scalar = ExternalAPIRequest(
+            "fixture_api", "GET", "/data", query={"value": "('a', 'b')", "z": "last"}
+        )
+        repeated = ExternalAPIRequest(
+            "fixture_api", "GET", "/data", query={"z": "last", "value": ("a", "b")}
+        )
+        reordered = ExternalAPIRequest(
+            "fixture_api", "GET", "/data", query={"z": "last", "value": "('a', 'b')"}
+        )
+        scalar_key = ExternalAPIGateway._cache_key(scalar)
+        self.assertEqual(scalar_key, ExternalAPIGateway._cache_key(reordered))
+        self.assertNotEqual(scalar_key, ExternalAPIGateway._cache_key(repeated))
+        self.assertRegex(scalar_key, r"^external-api-cache:v2:[0-9a-f]{64}$")
+        self.assertNotIn("('a', 'b')", scalar_key)
+        self.assertNotIn("last", scalar_key)
+        for changed in (
+            ExternalAPIRequest("fixture_api", "GET", "/other", query=scalar.query),
+            ExternalAPIRequest("fixture_api", "POST", "/data", query=scalar.query),
+            ExternalAPIRequest("other_api", "GET", "/data", query=scalar.query),
+        ):
+            self.assertNotEqual(scalar_key, ExternalAPIGateway._cache_key(changed))
+
+    def test_cache_identity_binds_form_semantics_without_raw_or_credentials(self) -> None:
+        first = ExternalAPIRequest(
+            "fixture_api", "POST", "/data", form_fields={"url": "https://bad.example/a"}
+        )
+        reordered = ExternalAPIRequest(
+            "fixture_api", "POST", "/data", form_fields={"url": "https://bad.example/a"}
+        )
+        changed = ExternalAPIRequest(
+            "fixture_api", "POST", "/data", form_fields={"url": "https://bad.example/b"}
+        )
+        first_key = ExternalAPIGateway._cache_key(first)
+        self.assertEqual(first_key, ExternalAPIGateway._cache_key(reordered))
+        self.assertNotEqual(first_key, ExternalAPIGateway._cache_key(changed))
+        self.assertNotIn("bad.example", first_key)
+        self.assertNotIn("Auth-Key", first_key)
+
+    def test_wire_equivalent_mapping_order_hits_same_opaque_cache_entry(self) -> None:
+        transport = FakeTransport([FakeTransport.success()])
+        gateway = gateway_for(api=definition(cache_ttl_seconds=10), transport=transport)
+        first = ExternalAPIRequest(
+            "fixture_api",
+            "GET",
+            "/data",
+            query={"longitude": -49.2532691, "latitude": -16.680882},
+        )
+        second = ExternalAPIRequest(
+            "fixture_api",
+            "GET",
+            "/data",
+            query={"latitude": -16.680882, "longitude": -49.2532691},
+        )
+        gateway.execute(first, global_enabled=True, provider_enabled=True)
+        cached = gateway.execute(second, global_enabled=True, provider_enabled=True)
+        self.assertTrue(cached.provenance["cached"])
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(
+            transport.calls[0]["target"],
+            "/data?latitude=-16.680882&longitude=-49.2532691",
+        )
+        stored_keys = tuple(gateway.cache._entries)  # noqa: SLF001 - security boundary assertion
+        self.assertEqual(len(stored_keys), 1)
+        self.assertRegex(stored_keys[0], r"^external-api-cache:v2:[0-9a-f]{64}$")
+        self.assertNotIn("latitude", stored_keys[0])
+        self.assertNotIn("-49.2532691", stored_keys[0])
+
     def test_transient_retries_are_bounded_and_400_is_not_retried(self) -> None:
         transient = FakeTransport(
             [ExternalGatewayError("connection_failed", retryable=True), FakeTransport.success()]

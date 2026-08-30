@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import socket
 import sys
 import unittest
 from dataclasses import replace
@@ -225,11 +226,25 @@ class CandidateAuthorityTest(unittest.TestCase):
                 ),
                 "schema_locator_invalid",
             ),
+            *(
+                (
+                    replace(
+                        original,
+                        schema_locator=original.schema_locator.replace("/service/", f"/{encoded}/"),
+                    ),
+                    "schema_locator_invalid",
+                )
+                for encoded in ("%252e%252e", "%252f", "%255c", "%252E%252e")
+            ),
         )
-        for value, code in cases:
-            with self.subTest(code=code), self.assertRaises(SchemaIntakeError) as caught:
-                build_schema_intake_registry(value)
-            self.assertEqual(str(caught.exception), code)
+        with (
+            patch.object(socket, "getaddrinfo", side_effect=AssertionError("DNS called")),
+            patch.object(socket, "create_connection", side_effect=AssertionError("HTTP called")),
+        ):
+            for value, code in cases:
+                with self.subTest(code=code), self.assertRaises(SchemaIntakeError) as caught:
+                    build_schema_intake_registry(value)
+                self.assertEqual(str(caught.exception), code)
 
     def test_promoted_candidate_authority_is_rejected(self) -> None:
         value = candidate()

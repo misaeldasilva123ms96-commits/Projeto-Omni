@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import sys
 import unittest
 from pathlib import Path
@@ -189,13 +190,23 @@ class ParserAndModelTest(unittest.TestCase):
             "https://api.apis.guru/v2/specs/foo/\x00swagger.json",
             "https://api.apis.guru/v2/specs/foo/\rswagger.json",
             "https://api.apis.guru/v2/specs/foo/\nswagger.json",
+            "https://api.apis.guru/v2/specs/%252e%252e/1/swagger.json",
+            "https://api.apis.guru/v2/specs/foo%252fbar/1/swagger.json",
+            "https://api.apis.guru/v2/specs/foo%255cbar/1/swagger.json",
+            "https://api.apis.guru/v2/specs/%252E%252e/1/swagger.json",
+            "https://api.apis.guru/v2/specs/foo%2Fbar/1/swagger.json",
+            "https://api.apis.guru/v2/specs/foo%5Cbar/1/swagger.json",
         )
         for locator in accepted:
             with self.subTest(accepted=locator):
                 self.assertEqual(_schema_locator(locator), locator)
-        for locator in denied:
-            with self.subTest(denied=locator):
-                self.assertIsNone(_schema_locator(locator))
+        with (
+            patch.object(socket, "getaddrinfo", side_effect=AssertionError("DNS called")),
+            patch.object(socket, "create_connection", side_effect=AssertionError("HTTP called")),
+        ):
+            for locator in denied:
+                with self.subTest(denied=locator):
+                    self.assertIsNone(_schema_locator(locator))
 
     def test_openapi_locator_and_external_docs_remain_metadata_only(self) -> None:
         fixture = {

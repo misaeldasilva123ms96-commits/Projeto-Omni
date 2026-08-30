@@ -22,8 +22,8 @@ material, residential addresses, or person-associated coordinates.
   requires OpenStreetMap attribution and notice that data is available under the
   Open Database Licence.
 
-The provider declaration is intentionally more conservative than the public
-ceiling: one request per 1.1 seconds per process, one attempt, a 24-hour cache,
+The provider declaration uses a process-local safety throttle of one request per
+1.1 seconds, one attempt, a 24-hour cache,
 at most three candidates, and only one request thread initiated per governed tool
 execution. Repeated normalized queries are served from cache without transport.
 
@@ -37,12 +37,27 @@ It contains no personal email, token, key, session ID, or user data.
 
 ## Production limitation
 
-Cache and rate limiting are local to one process. The public Nominatim pilot is
-therefore not suitable for horizontally scaled or unrestricted production use.
+Cache and rate limiting are local to one Python process/instance. They are not a
+distributed limiter or proof of application-wide compliance. The public pilot
+also requires explicit compliance and single-instance operator acknowledgements,
+`OMNI_PYTHON_MODE=service`, and
+`OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS=false`. Missing or invalid values
+fail closed before cache, DNS, or transport. Omni cannot technically prove that
+other replicas or workers do not exist; the maintainer assumes that operational
+responsibility when enabling the pilot. These acknowledgements prevent accidental
+activation but do not prove compliance or topology.
+
+The public Nominatim pilot is therefore not suitable for horizontally scaled or
+unrestricted production use.
 Before production or increased traffic, replace it with a reviewed self-hosted
 Nominatim deployment, a suitable commercial provider, or another provider behind
 the same External API Gateway. Policy can change without notice and must be
 reviewed again before deployment.
+
+The public service must not be used for autocomplete, systematic/bulk queries,
+or as a generic geocoding/search service. Repeated queries should be served from
+cache. Use in an LLM-assisted development context requires deliberate maintainer
+review, and the public policy or availability may change or be withdrawn.
 
 Attribution retained in provenance:
 

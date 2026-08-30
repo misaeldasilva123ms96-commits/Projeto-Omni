@@ -220,6 +220,8 @@ class TTLResponseCache:
 
 
 class LocalRateLimiter:
+    """Thread-safe transport-attempt throttle scoped to this Python instance."""
+
     def __init__(self, *, clock: Clock = time.monotonic) -> None:
         self._clock = clock
         self._requests: dict[str, deque[float]] = {}
@@ -236,6 +238,16 @@ class LocalRateLimiter:
                 return False
             bucket.append(now)
             return True
+
+
+def _canonical_query(query: Mapping[str, object]) -> str:
+    """Return the deterministic doseq wire representation used by transport."""
+    return urlencode(sorted(query.items(), key=lambda item: str(item[0])), doseq=True)
+
+
+def _canonical_form(form_fields: Mapping[str, str]) -> str:
+    """Return the deterministic form wire representation used by transport."""
+    return urlencode(sorted(form_fields.items(), key=lambda item: item[0]))
 
 
 class ExternalAPIGateway:
@@ -272,10 +284,19 @@ class ExternalAPIGateway:
 
     @staticmethod
     def _cache_key(request: ExternalAPIRequest) -> str:
-        query = urlencode(sorted((str(key), str(value)) for key, value in request.query.items()))
-        form = urlencode(sorted(request.form_fields.items())).encode("utf-8")
-        form_digest = hashlib.sha256(form).hexdigest() if form else ""
-        return f"{request.api_id}|{request.method.upper()}|{request.path}|{query}|{form_digest}"
+        payload = json.dumps(
+            {
+                "api_id": request.api_id,
+                "method": request.method.upper(),
+                "path": request.path,
+                "query": _canonical_query(request.query),
+                "form": _canonical_form(request.form_fields),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return f"external-api-cache:v2:{hashlib.sha256(payload).hexdigest()}"
 
     def execute(
         self,
@@ -294,9 +315,8 @@ class ExternalAPIGateway:
             )
             raise ExternalGatewayError("unknown_api")
         base = urlsplit(definition.base_url)
-        endpoint = urlunsplit(
-            (base.scheme, base.netloc, request.path, urlencode(request.query, doseq=True), "")
-        )
+        canonical_query = _canonical_query(request.query)
+        endpoint = urlunsplit((base.scheme, base.netloc, request.path, canonical_query, ""))
         decision = self.policy.evaluate(
             api_id=request.api_id,
             endpoint=endpoint,
@@ -313,7 +333,8 @@ class ExternalAPIGateway:
             raise ExternalGatewayError(reason)
         if set(request.form_fields) - set(definition.allowed_form_fields):
             raise ExternalGatewayError("form_field_not_allowed")
-        body = urlencode(request.form_fields).encode("utf-8") if request.form_fields else b""
+        canonical_form = _canonical_form(request.form_fields)
+        body = canonical_form.encode("utf-8") if canonical_form else b""
         if len(body) > definition.max_request_body_bytes:
             raise ExternalGatewayError("request_body_too_large")
         credential = None
@@ -363,9 +384,7 @@ class ExternalAPIGateway:
                     raise ExternalGatewayError("rate_limit_exceeded")
                 validated = validate_resolved_addresses(self.resolver.resolve(host, port))
                 pinned_ip = validated[0]
-                target = request.path + (
-                    f"?{urlencode(request.query, doseq=True)}" if request.query else ""
-                )
+                target = request.path + (f"?{canonical_query}" if canonical_query else "")
                 transport_response = self.transport.request(
                     logical_host=host,
                     pinned_ip=pinned_ip,

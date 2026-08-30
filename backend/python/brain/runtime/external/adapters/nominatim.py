@@ -7,7 +7,10 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 
-from brain.runtime.external.config import nominatim_enabled
+from brain.runtime.external.config import (
+    nominatim_enabled,
+    nominatim_operational_guard_satisfied,
+)
 from brain.runtime.external.gateway import EventSink, ExternalAPIGateway, ExternalGatewayError
 from brain.runtime.external.models import ExternalAPIRequest
 
@@ -207,10 +210,26 @@ def get_geocode_place(
     provider_enabled: bool | None = None,
     event_sink: EventSink | None = None,
 ) -> GeocodePlaceResult:
+    effective_provider_enabled = (
+        nominatim_enabled() if provider_enabled is None else provider_enabled
+    )
+    gateway.require_feature_gates(
+        api_id=OSM_GEOCODER_API_ID,
+        global_enabled=global_enabled,
+        provider_enabled=effective_provider_enabled,
+        event_sink=event_sink,
+    )
+    if not nominatim_operational_guard_satisfied():
+        _emit(
+            event_sink,
+            "external_api.policy_denied",
+            {"api_id": OSM_GEOCODER_API_ID, "reason": "provider_compliance_guard_failed"},
+        )
+        raise ExternalGatewayError("provider_compliance_guard_failed")
     response = gateway.execute(
         build_nominatim_request(value),
         global_enabled=global_enabled,
-        provider_enabled=nominatim_enabled() if provider_enabled is None else provider_enabled,
+        provider_enabled=effective_provider_enabled,
         event_sink=event_sink,
     )
     try:

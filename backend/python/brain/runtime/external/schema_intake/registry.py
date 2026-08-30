@@ -41,7 +41,7 @@ def validate_schema_candidate(candidate: DiscoveryCandidate) -> str:
     parsed = urlsplit(candidate.schema_locator)
     raw_path = parsed.path
     lowered = raw_path.casefold()
-    if any(token in lowered for token in ("%2f", "%5c", "%2e")):
+    if any(token in lowered for token in ("%2e", "%2f", "%5c", "%252e", "%252f", "%255c")):
         raise SchemaIntakeError("schema_locator_invalid")
     parts = unquote(raw_path).split("/")
     expected = ["", "v2", "specs", candidate.provider]

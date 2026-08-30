@@ -63,14 +63,20 @@ local rate limit. Open-Meteo denies every redirect. The transport never follows
   most the registry's small attempt count and injected/testable backoff.
 - Validation, policy denials, redirects, ordinary 4xx, and schema failures do
   not retry.
-- The in-memory TTL cache has bounded capacity and a deterministic request key.
-  Headers, credentials, and cookies never enter the key or cached value.
-- A thread-safe, per-process token window limits provider calls. Open-Meteo is
-  capped at 30 provider requests per minute per process, far below its published
-  free-tier ceiling. Cache hits do not consume provider quota.
+- The in-memory TTL cache has bounded capacity and an opaque versioned SHA-256
+  request identity derived from the same canonical query/form semantics sent to
+  transport. Raw coordinates, places, indicators, form values, headers,
+  credentials, and cookies do not appear in cache keys. SHA-256 is identity
+  pseudonymization here, not encryption or a guarantee of anonymization.
+- A thread-safe, per-process token window throttles transport attempts. Open-Meteo
+  is configured for 30 attempts per 60 seconds per Python instance. Cache hits do
+  not consume a transport-attempt slot.
 
-The controls are process-local. Horizontal deployments need a separately
-reviewed distributed quota design before commercial production.
+Transport-attempt throttling, a process-local limiter, and provider/application/
+account-wide quota compliance are distinct concepts. The first counts outbound
+attempts; the second describes the memory scope of the current implementation;
+the third is an operational property that this process cannot prove. Horizontal
+deployments need a separately reviewed distributed quota design before production.
 
 ## Trust and provenance
 
@@ -160,6 +166,20 @@ geocoding backend for unrestricted Omni traffic. Both gates default off:
 OMNI_EXTERNAL_API_ENABLED=false
 OMNI_EXTERNAL_NOMINATIM_ENABLED=false
 ```
+
+Public-instance execution additionally requires both server-owned operator
+acknowledgements, long-lived Python service mode, and subprocess fallback disabled:
+
+```text
+OMNI_EXTERNAL_NOMINATIM_PUBLIC_API_COMPLIANCE_ACK=true
+OMNI_EXTERNAL_NOMINATIM_SINGLE_INSTANCE_ACK=true
+OMNI_PYTHON_MODE=service
+OMNI_PYTHON_SERVICE_FALLBACK_TO_SUBPROCESS=false
+```
+
+This guard runs before cache, DNS, and transport. It prevents accidental pilot
+activation; it does not prove that only one worker or replica exists and is not a
+distributed quota mechanism.
 
 The adapter sends an identifiable, project-specific User-Agent, requests only
 `jsonv2`, address details, at most three settlement candidates, and fixed

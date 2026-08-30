@@ -20,6 +20,7 @@ MAX_CATALOG_ENTRIES = 5_000
 MAX_VERSIONS = 100
 MAX_PUBLIC_APIS_BYTES = 2 * 1024 * 1024
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_AMBIGUOUS_PATH_ENCODINGS = ("%2e", "%2f", "%5c", "%252e", "%252f", "%255c")
 
 
 def sanitize_text(value: object, limit: int) -> str:
@@ -50,7 +51,10 @@ def _schema_locator(value: object) -> str | None:
         port = parsed.port
     except ValueError:
         return None
-    path = unquote(parsed.path)
+    raw_path = parsed.path
+    if any(token in raw_path.casefold() for token in _AMBIGUOUS_PATH_ENCODINGS):
+        return None
+    path = unquote(raw_path)
     segments = path.split("/")
     if (
         parsed.scheme == "https"
@@ -61,6 +65,7 @@ def _schema_locator(value: object) -> str | None:
         and not parsed.query
         and not parsed.fragment
         and path.startswith("/v2/specs/")
+        and "//" not in raw_path
         and "//" not in path
         and not any(segment in {".", ".."} for segment in segments)
         and segments[-1] in {"swagger.json", "openapi.json"}
