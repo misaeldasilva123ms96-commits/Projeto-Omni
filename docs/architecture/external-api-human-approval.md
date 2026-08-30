@@ -72,6 +72,15 @@ promotion.
 | ProviderDesignProposal | false | false | false | false | false |
 | HumanApprovalManifest | true | false | false | false | false |
 | NonExecutableProviderScaffold | false | false | false | false | false |
+| StaticProviderImplementationPlan | false | false | false | false | false |
+
+The next offline boundary is the
+[`StaticProviderImplementationPlan v1`](external-api-static-implementation-plan.md).
+It fully revalidates proposal v2, approval v1, and scaffold v2 before comparing the
+approved design surface with a fingerprinted description of current runtime
+capabilities. The resulting plan grants no source-code, provider-definition,
+credential, feature-gate, registration, network, tool, or runtime-activation
+authority.
 
 ## Threat model
 
