@@ -95,6 +95,7 @@ def load_implementation_plan(value: object) -> StaticProviderImplementationPlan:
     raw = _mapping(value)
     _exact(raw, StaticProviderImplementationPlan)
     bool_names = (
+        "global_security_present",
         "required_initial_enabled_state",
         "source_code_generation_authorized",
         "execution_authorized",
@@ -121,11 +122,14 @@ def load_implementation_plan(value: object) -> StaticProviderImplementationPlan:
         "candidate_id",
         "canonical_schema_sha256",
         "proposal_snapshot_sha256",
+        "operation_security_binding_precision",
         "required_redirect_policy",
         "non_get_retry_assumption",
         "plan_state",
     )
     if any(not isinstance(raw[name], str) for name in scalar_strings):
+        raise ImplementationPlanError("implementation_plan_schema_error")
+    if type(raw["global_security_requirement_count"]) is not int:
         raise ImplementationPlanError("implementation_plan_schema_error")
     server_raw = _mapping(raw["server"])
     _exact(server_raw, ServerPlan)
@@ -174,12 +178,18 @@ def _security_scheme(value: object) -> SecuritySchemePlan:
     for name in ("location", "http_scheme"):
         if raw[name] is not None and not isinstance(raw[name], str):
             raise ImplementationPlanError("implementation_plan_schema_error")
+    if not isinstance(raw["runtime_status"], str):
+        raise ImplementationPlanError("implementation_plan_schema_error")
     return SecuritySchemePlan(
         raw["name"],
         raw["scheme_type"],
         raw["location"],
         raw["http_scheme"],
         _strings(raw["oauth_flows"]),
+        raw["runtime_status"],
+        _strings(raw["compatibility_issues"]),
+        _strings(raw["required_runtime_extensions"]),
+        _strings(raw["required_maintainer_decisions"]),
     )
 
 
@@ -195,10 +205,14 @@ def write_implementation_plan_artifacts(
         "# STATIC IMPLEMENTATION PLAN — NON-EXECUTABLE\n\n"
         "This artifact describes implementation requirements only.\n"
         "It does not create or authorize provider code, credentials,\n"
-        "network access, tools, registration, or runtime activation.\n"
+        "network access, tools, registration, or runtime activation.\n\n"
+        "Declared provider security schemes are compatibility metadata only.\n"
+        "Approved-operation authentication requirements are analyzed separately;\n"
+        "proposal v2 does not preserve exact operation-to-scheme bindings.\n"
     )
     rows = [
         "# Runtime compatibility\n",
+        "## Approved operation authentication requirements\n",
         "| Operation | Method | Effective Path | Path Status | Request Status | "
         "Response Status | Auth Status | Runtime Extensions | Maintainer Decisions |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -217,6 +231,33 @@ def write_implementation_plan_artifacts(
                     item.auth_status,
                     ", ".join(item.required_runtime_extensions),
                     ", ".join(item.required_maintainer_decisions),
+                )
+            )
+            + " |"
+        )
+    rows.extend(
+        (
+            "",
+            "## Declared provider security schemes",
+            "",
+            "Declared schemes are provider-level metadata and are not attributed to operations.",
+            "",
+            "| Scheme | Type | Location | Runtime Capability | Issues | Extensions | Decisions |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        )
+    )
+    for scheme in plan.security_schemes:
+        rows.append(
+            "| "
+            + " | ".join(
+                (
+                    scheme.name,
+                    scheme.scheme_type,
+                    scheme.location or "",
+                    scheme.runtime_status,
+                    ", ".join(scheme.compatibility_issues),
+                    ", ".join(scheme.required_runtime_extensions),
+                    ", ".join(scheme.required_maintainer_decisions),
                 )
             )
             + " |"

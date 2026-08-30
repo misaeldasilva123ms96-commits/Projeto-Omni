@@ -33,7 +33,7 @@ from .models import (
     StaticProviderImplementationPlan,
 )
 
-STATIC_PROVIDER_IMPLEMENTATION_PLAN_FORMAT_VERSION = "static-provider-implementation-plan-v1"
+STATIC_PROVIDER_IMPLEMENTATION_PLAN_FORMAT_VERSION = "static-provider-implementation-plan-v2"
 _STATUS_PRIORITY = {
     "compatible": 0,
     "potentially_compatible": 1,
@@ -156,42 +156,72 @@ def _response_status(operation: OperationSummary) -> tuple[str, set[str], set[st
     return "unsupported_current_runtime", {"non_json_response_unsupported"}, set()
 
 
-def _auth_status(proposal: ProviderDesignProposal) -> tuple[str, set[str], set[str], set[str]]:
-    if not proposal.security_schemes:
-        return "potentially_compatible", set(), set(), set()
-    statuses: list[str] = []
+def _declared_security_scheme_plan(scheme) -> SecuritySchemePlan:
     issues: set[str] = set()
     extensions: set[str] = set()
     decisions: set[str] = set()
-    for scheme in proposal.security_schemes:
-        kind = scheme.scheme_type
-        http = (scheme.http_scheme or "").lower()
-        location = (scheme.location or "").lower()
-        if kind == "apiKey" and location == "header":
-            statuses.append("potentially_compatible")
-            decisions.add("credential_design_required")
-        elif kind == "apiKey" and location == "query":
-            statuses.append("runtime_extension_required")
-            extensions.add("query_api_key_authentication")
-        elif kind == "apiKey" and location == "cookie":
-            statuses.append("unsupported_current_runtime")
-            issues.add("cookie_api_key_unsupported")
-        elif kind in {"oauth2", "openIdConnect"}:
-            statuses.append("runtime_extension_required")
-            extensions.add("oauth_authentication_runtime")
-        elif kind == "mutualTLS":
-            statuses.append("unsupported_current_runtime")
-            issues.add("mutual_tls_unsupported")
-        elif kind == "basic" or (kind == "http" and http == "basic"):
-            statuses.append("runtime_extension_required")
-            extensions.add("basic_authentication_runtime")
-        elif kind == "http" and http == "bearer":
-            statuses.append("maintainer_decision_required")
-            decisions.add("bearer_authentication_design_required")
-        else:
-            statuses.append("unsupported_current_runtime")
-            issues.add("unknown_authentication_scheme")
-    return _max_status(*statuses), issues, extensions, decisions
+    kind = scheme.scheme_type
+    http = (scheme.http_scheme or "").lower()
+    location = (scheme.location or "").lower()
+    if kind == "apiKey" and location == "header":
+        status = "potentially_compatible"
+        decisions.add("credential_design_required")
+    elif kind == "apiKey" and location == "query":
+        status = "runtime_extension_required"
+        extensions.add("query_api_key_authentication")
+    elif kind == "apiKey" and location == "cookie":
+        status = "unsupported_current_runtime"
+        issues.add("cookie_api_key_unsupported")
+    elif kind in {"oauth2", "openIdConnect"}:
+        status = "runtime_extension_required"
+        extensions.add("oauth_authentication_runtime")
+    elif kind == "mutualTLS":
+        status = "unsupported_current_runtime"
+        issues.add("mutual_tls_unsupported")
+    elif kind == "basic" or (kind == "http" and http == "basic"):
+        status = "runtime_extension_required"
+        extensions.add("basic_authentication_runtime")
+    elif kind == "http" and http == "bearer":
+        status = "maintainer_decision_required"
+        decisions.add("bearer_authentication_design_required")
+    else:
+        status = "unsupported_current_runtime"
+        issues.add("unknown_authentication_scheme")
+    return SecuritySchemePlan(
+        scheme.name,
+        kind,
+        scheme.location,
+        scheme.http_scheme,
+        scheme.oauth_flows,
+        status,
+        tuple(sorted(issues)),
+        tuple(sorted(extensions)),
+        tuple(sorted(decisions)),
+    )
+
+
+def _analyze_operation_auth_requirement(
+    operation, proposal: ProviderDesignProposal
+) -> tuple[str, set[str], set[str], set[str]]:
+    decisions: set[str] = set()
+    mode = operation.security_mode
+    if mode == "invalid":
+        raise ApprovalError("operation_security_contract_invalid")
+    if mode == "inherits_global":
+        if proposal.global_security_present:
+            decisions.add("global_security_scheme_binding_unresolved")
+            return "maintainer_decision_required", set(), set(), decisions
+        decisions.add("no_authentication_requirement_declared_revalidation_required")
+        return "potentially_compatible", set(), set(), decisions
+    if mode == "explicit_requirements":
+        decisions.add("operation_security_scheme_binding_unresolved")
+        return "maintainer_decision_required", set(), set(), decisions
+    if mode in {"explicit_empty", "explicit_optional_anonymous"} or (
+        operation.anonymous_security_option_present
+    ):
+        decisions.add("authentication_semantics_revalidation_required")
+        return "maintainer_decision_required", set(), set(), decisions
+    raise ApprovalError("operation_security_contract_invalid")
 
 
 def _operation_plan(
@@ -205,20 +235,16 @@ def _operation_plan(
     decisions: set[str] = set()
     request_status, req_issues, req_ext, req_decisions = _request_analysis(operation)
     response_status, response_issues, response_decisions = _response_status(operation)
-    auth_status, auth_issues, auth_ext, auth_decisions = _auth_status(proposal)
+    auth_status, auth_issues, auth_ext, auth_decisions = _analyze_operation_auth_requirement(
+        approved, proposal
+    )
     issues.update(req_issues | response_issues | auth_issues)
     extensions.update(req_ext | auth_ext)
     decisions.update(req_decisions | response_decisions | auth_decisions)
     if dynamic:
         decisions.add("dynamic_path_template_design_required")
-    if "file_upload_surface_present" in proposal.risk_signals:
-        request_status = _max_status(request_status, "unsupported_current_runtime")
-        issues.add("multipart_or_file_upload_unsupported")
     if approved.mutating_signal:
         decisions.add("mutation_policy_design_required")
-    if approved.security_mode == "explicit_empty" or approved.anonymous_security_option_present:
-        decisions.add("authentication_semantics_revalidation_required")
-        auth_status = _max_status(auth_status, "maintainer_decision_required")
     return OperationRuntimeCompatibility(
         approved.operation_key,
         approved.method,
@@ -316,7 +342,17 @@ def build_static_provider_implementation_plan(
     )
     gaps = set(_BASE_GAPS)
     if proposal.security_schemes:
-        gaps.add("credential_design_required")
+        gaps.add("declared_security_scheme_review_required")
+    if any(
+        item.security_mode
+        in {"explicit_requirements", "explicit_empty", "explicit_optional_anonymous"}
+        or item.anonymous_security_option_present
+        or (item.security_mode == "inherits_global" and proposal.global_security_present)
+        for item in scaffold.operations
+    ):
+        gaps.add("operation_authentication_policy_required")
+    if "file_upload_surface_present" in proposal.risk_signals:
+        gaps.add("file_upload_operation_attribution_unresolved")
     excluded = []
     if proposal.callback_count:
         excluded.append("callbacks_implementation_scope_excluded")
@@ -338,14 +374,12 @@ def build_static_provider_implementation_plan(
         proposal.candidate_id,
         proposal.canonical_schema_sha256,
         approval.proposal_snapshot_sha256,
+        proposal.global_security_present,
+        proposal.global_security_requirement_count,
+        "scheme_identity_not_preserved_by_proposal_v2",
         server,
         _field_plans(server, operations),
-        tuple(
-            SecuritySchemePlan(
-                item.name, item.scheme_type, item.location, item.http_scheme, item.oauth_flows
-            )
-            for item in proposal.security_schemes
-        ),
+        tuple(_declared_security_scheme_plan(item) for item in proposal.security_schemes),
         operations,
         tuple(scaffold.risk_signals),
         tuple(scaffold.review_blockers),

@@ -4,7 +4,7 @@ Phase 10 adds an offline design-analysis boundary. It consumes only a verified
 `ProviderDesignProposal v2`, `HumanApprovalManifest v1`, and
 `NonExecutableProviderScaffold v2`, fully revalidates that chain, fingerprints the
 current runtime capability contract, and emits a content-bound
-`StaticProviderImplementationPlan v1`.
+`StaticProviderImplementationPlan v2`.
 
 An implementation plan is not implementation. It does not generate source code,
 instantiate `ExternalAPIDefinition`, create credentials or feature gates, register
@@ -35,10 +35,25 @@ changes require a profile-version bump and freshly generated plans.
   remain unsupported for generated plans.
 - Generated plans require redirect denial and describe automatic retry capability
   only for GET. They make no retry assumption for other methods.
-- Header API keys are only potentially compatible and still require credential
-  design. Query API keys, Basic, OAuth, and OpenID require runtime extensions;
-  bearer requires maintainer design and runtime review; cookie API keys and mutual
-  TLS are unsupported by the current runtime.
+- Declared security-scheme compatibility is provider-level metadata. Header API
+  keys are potentially compatible, query API keys, Basic, OAuth, and OpenID require
+  runtime extensions, bearer requires maintainer design, and cookie API keys and
+  mutual TLS are unsupported if a maintainer eventually selects those schemes.
+
+Operation authentication compatibility is derived only from preserved operation and
+root security semantics. Proposal v2 does not preserve exact scheme names, AND/OR
+requirements, or scopes bound to an operation. An operation inheriting absent global
+security is therefore only potentially compatible and requires revalidation. An
+operation inheriting present global security or declaring explicit requirements
+requires a maintainer decision because the scheme binding is unresolved. Explicitly
+empty and optional-anonymous declarations also require semantic revalidation. A
+future implementation phase must explicitly reconfirm the selected operation's
+authentication strategy; it cannot select authentication from `auth_status` alone.
+
+Likewise, `file_upload_surface_present` is proposal-level evidence. It creates an
+attribution gap but does not make every approved operation unsupported. Only local,
+unambiguous multipart evidence makes that operation unsupported; other media such as
+`application/octet-stream` require an extension without inventing file semantics.
 
 Base paths and operation paths are joined without decoding or traversal
 normalization. Query, fragment, backslash, traversal segments, and ambiguous double
@@ -78,5 +93,12 @@ Discovery
   -> ProviderDesignProposal v2 (all execution authority false)
   -> HumanApprovalManifest v1 (scaffold generation only)
   -> NonExecutableProviderScaffold v2 (all execution authority false)
-  -> StaticProviderImplementationPlan v1 (all code/execution authority false)
+  -> StaticProviderImplementationPlan v2 (all code/execution authority false)
 ```
+
+## Attribution threats
+
+The v2 analysis fails closed against global security-scheme over-attribution, unused
+security-scheme poisoning, operation security-binding ambiguity, global file-upload
+signal over-attribution, and false incompatibility propagation. Uncertainty becomes
+an explicit plan gap or maintainer decision, never an inferred operation binding.

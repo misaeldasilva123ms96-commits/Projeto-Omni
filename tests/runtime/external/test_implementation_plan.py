@@ -61,11 +61,12 @@ def test_plan_is_content_bound_inert_and_strictly_round_trips(tmp_path: Path) ->
         "runtime-compatibility.md",
     }
     assert {item.suffix for item in tmp_path.iterdir()} <= {".json", ".md"}
-    assert (
-        (tmp_path / "README.md")
-        .read_text(encoding="utf-8")
-        .startswith("# STATIC IMPLEMENTATION PLAN — NON-EXECUTABLE")
-    )
+    readme = (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert readme.startswith("# STATIC IMPLEMENTATION PLAN — NON-EXECUTABLE")
+    assert "security schemes are compatibility metadata only" in readme
+    compatibility = (tmp_path / "runtime-compatibility.md").read_text(encoding="utf-8")
+    assert "## Approved operation authentication requirements" in compatibility
+    assert "## Declared provider security schemes" in compatibility
     loaded = load_implementation_plan(
         json.loads((tmp_path / "provider-implementation-plan.json").read_text(encoding="utf-8"))
     )
@@ -140,6 +141,21 @@ def test_strict_loader_rejects_unknown_fields_coercion_and_old_scaffold() -> Non
     raw["unknown"] = True
     with pytest.raises(ImplementationPlanError, match="implementation_plan_schema_error"):
         load_implementation_plan(raw)
+    raw = json.loads(json.dumps(plan.as_dict()))
+    raw["global_security_present"] = 0
+    with pytest.raises(ImplementationPlanError, match="implementation_plan_schema_error"):
+        load_implementation_plan(raw)
+    raw = json.loads(json.dumps(plan.as_dict()))
+    raw["security_schemes"][0]["required_runtime_extensions"] = "oauth"
+    with pytest.raises(ImplementationPlanError, match="implementation_plan_schema_error"):
+        load_implementation_plan(raw)
+    with pytest.raises(ImplementationPlanError, match="unsupported_implementation_plan_format"):
+        verify_implementation_plan(
+            replace(
+                plan,
+                implementation_plan_format_version="static-provider-implementation-plan-v1",
+            )
+        )
     raw = json.loads(json.dumps(plan.as_dict()))
     raw["compatibility_summary"]["compatible_operations"] = True
     with pytest.raises(ImplementationPlanError, match="implementation_plan_schema_error"):

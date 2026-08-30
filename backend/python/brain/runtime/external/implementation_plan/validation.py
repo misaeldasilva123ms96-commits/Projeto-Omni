@@ -26,6 +26,17 @@ class ImplementationPlanError(ApprovalError):
     """Stable failure code for the non-executable implementation-plan boundary."""
 
 
+_COMPATIBILITY_STATUSES = frozenset(
+    {
+        "compatible",
+        "potentially_compatible",
+        "maintainer_decision_required",
+        "runtime_extension_required",
+        "unsupported_current_runtime",
+    }
+)
+
+
 def verify_implementation_plan(plan: StaticProviderImplementationPlan) -> None:
     if (
         plan.implementation_plan_format_version
@@ -51,6 +62,22 @@ def verify_implementation_plan(plan: StaticProviderImplementationPlan) -> None:
         or plan.required_initial_enabled_state is not False
         or plan.required_redirect_policy != "deny"
         or plan.non_get_retry_assumption != "none"
+        or type(plan.global_security_present) is not bool
+        or type(plan.global_security_requirement_count) is not int
+        or plan.global_security_requirement_count < 0
+        or plan.operation_security_binding_precision
+        != "scheme_identity_not_preserved_by_proposal_v2"
+        or any(item.runtime_status not in _COMPATIBILITY_STATUSES for item in plan.security_schemes)
+        or any(
+            status not in _COMPATIBILITY_STATUSES
+            for item in plan.operation_compatibility
+            for status in (
+                item.path_status,
+                item.request_status,
+                item.response_status,
+                item.auth_status,
+            )
+        )
         or any(getattr(plan, name, None) is not False for name in authority_names)
         or plan.runtime_capability_profile_sha256 != expected_profile_hash
         or plan.implementation_plan_id != build_implementation_plan_id(plan)

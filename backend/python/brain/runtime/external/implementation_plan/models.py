@@ -52,6 +52,10 @@ class SecuritySchemePlan:
     location: str | None
     http_scheme: str | None
     oauth_flows: tuple[str, ...]
+    runtime_status: str
+    compatibility_issues: tuple[str, ...]
+    required_runtime_extensions: tuple[str, ...]
+    required_maintainer_decisions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +113,9 @@ class StaticProviderImplementationPlan:
     candidate_id: str
     canonical_schema_sha256: str
     proposal_snapshot_sha256: str
+    global_security_present: bool
+    global_security_requirement_count: int
+    operation_security_binding_precision: str
     server: ServerPlan
     provider_definition_fields: tuple[ExternalAPIDefinitionFieldPlan, ...]
     security_schemes: tuple[SecuritySchemePlan, ...]
