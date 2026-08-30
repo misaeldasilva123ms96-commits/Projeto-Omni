@@ -16,6 +16,7 @@ from brain.runtime.external.approval.scaffold import (
     NON_EXECUTABLE_SCAFFOLD_FORMAT_VERSION,
     create_non_executable_scaffold,
     verify_scaffold,
+    verify_scaffold_against_approval_and_proposal,
     write_scaffold_artifacts,
 )
 from brain.runtime.external.approval.serialization import (
@@ -45,6 +46,7 @@ __all__ = [
     "verify_approval_against_proposal",
     "verify_approval_manifest",
     "verify_scaffold",
+    "verify_scaffold_against_approval_and_proposal",
     "write_json",
     "write_scaffold_artifacts",
 ]

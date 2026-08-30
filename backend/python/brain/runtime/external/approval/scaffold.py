@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import asdict, replace
 from pathlib import Path
 
-from brain.runtime.external.approval.manifest import verify_approval_against_proposal
+from brain.runtime.external.approval.manifest import (
+    canonical_json_bytes,
+    verify_approval_against_proposal,
+)
 from brain.runtime.external.approval.models import (
     HumanApprovalManifest,
     NonExecutableProviderScaffold,
@@ -14,7 +18,7 @@ from brain.runtime.external.approval.serialization import atomic_write, write_js
 from brain.runtime.external.approval.validation import ApprovalError
 from brain.runtime.external.schema_intake.models import ProviderDesignProposal
 
-NON_EXECUTABLE_SCAFFOLD_FORMAT_VERSION = "non-executable-provider-scaffold-v1"
+NON_EXECUTABLE_SCAFFOLD_FORMAT_VERSION = "non-executable-provider-scaffold-v2"
 _BASE_TODOS = (
     "review provider terms",
     "confirm official provider documentation",
@@ -31,8 +35,10 @@ _BASE_TODOS = (
 )
 
 
-def build_scaffold_id(approval_id: str, scaffold_format_version: str) -> str:
-    return hashlib.sha256(f"{approval_id}\x00{scaffold_format_version}".encode()).hexdigest()
+def build_scaffold_id(scaffold: NonExecutableProviderScaffold) -> str:
+    payload = asdict(scaffold)
+    payload.pop("scaffold_id")
+    return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
 
 def _todos(manifest: HumanApprovalManifest, proposal: ProviderDesignProposal) -> tuple[str, ...]:
@@ -54,13 +60,12 @@ def _todos(manifest: HumanApprovalManifest, proposal: ProviderDesignProposal) ->
     return tuple(values)
 
 
-def create_non_executable_scaffold(
+def _build_scaffold(
     manifest: HumanApprovalManifest, proposal: ProviderDesignProposal
 ) -> NonExecutableProviderScaffold:
-    verify_approval_against_proposal(manifest, proposal)
     version = NON_EXECUTABLE_SCAFFOLD_FORMAT_VERSION
-    return NonExecutableProviderScaffold(
-        build_scaffold_id(manifest.approval_id, version),
+    scaffold = NonExecutableProviderScaffold(
+        "",
         version,
         manifest.approval_id,
         manifest.proposal_id,
@@ -75,6 +80,14 @@ def create_non_executable_scaffold(
         tuple(proposal.review_blockers),
         _todos(manifest, proposal),
     )
+    return replace(scaffold, scaffold_id=build_scaffold_id(scaffold))
+
+
+def create_non_executable_scaffold(
+    manifest: HumanApprovalManifest, proposal: ProviderDesignProposal
+) -> NonExecutableProviderScaffold:
+    verify_approval_against_proposal(manifest, proposal)
+    return _build_scaffold(manifest, proposal)
 
 
 def verify_scaffold(scaffold: NonExecutableProviderScaffold) -> None:
@@ -90,10 +103,20 @@ def verify_scaffold(scaffold: NonExecutableProviderScaffold) -> None:
         "executable_code_generation_authorized": False,
     }
     if any(getattr(scaffold, name, None) != value for name, value in invariants.items()) or (
-        scaffold.scaffold_id
-        != build_scaffold_id(scaffold.approval_id, scaffold.scaffold_format_version)
+        scaffold.scaffold_id != build_scaffold_id(scaffold)
     ):
         raise ApprovalError("scaffold_integrity_error")
+
+
+def verify_scaffold_against_approval_and_proposal(
+    scaffold: NonExecutableProviderScaffold,
+    manifest: HumanApprovalManifest,
+    proposal: ProviderDesignProposal,
+) -> None:
+    verify_scaffold(scaffold)
+    verify_approval_against_proposal(manifest, proposal)
+    if scaffold != _build_scaffold(manifest, proposal):
+        raise ApprovalError("scaffold_stale")
 
 
 def write_scaffold_artifacts(
@@ -108,6 +131,7 @@ def write_scaffold_artifacts(
         "# NON-EXECUTABLE REVIEW SCAFFOLD\n\n"
         "This artifact does not authorize or implement network execution, provider registration, "
         "credentials, tools, or runtime activation.\n\n"
+        f"Scaffold format: `{scaffold.scaffold_format_version}`\n\n"
         f"Scaffold ID: `{scaffold.scaffold_id}`\n"
     ).encode("utf-8")
     try:

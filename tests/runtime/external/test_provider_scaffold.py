@@ -22,8 +22,10 @@ from brain.runtime.external.approval import (  # noqa: E402
     create_non_executable_scaffold,
     load_scaffold,
     verify_scaffold,
+    verify_scaffold_against_approval_and_proposal,
     write_scaffold_artifacts,
 )
+from brain.runtime.external.approval.scaffold import build_scaffold_id  # noqa: E402
 from brain.runtime.external.discovery.sources import build_discovery_source_registry  # noqa: E402
 from brain.runtime.external.providers import build_external_api_registry  # noqa: E402
 from brain.runtime.external.tools import EXTERNAL_TOOLS  # noqa: E402
@@ -84,9 +86,121 @@ def test_stale_approval_creates_no_files(tmp_path: Path) -> None:
 
 def test_scaffold_authority_tampering_is_rejected() -> None:
     scaffold = create_non_executable_scaffold(approved(), proposal())
-    raw = scaffold.as_dict()
+    raw = json.loads(json.dumps(scaffold.as_dict()))
     raw["network_authority"] = True
     with pytest.raises(ApprovalError, match="scaffold_integrity_error"):
+        load_scaffold(raw)
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        lambda item: replace(item, server=replace(item.server, hostname="evil.example")),
+        lambda item: replace(
+            item,
+            operations=(replace(item.operations[0], path="/admin"),),
+        ),
+        lambda item: replace(item, risk_signals=item.risk_signals + ("tampered",)),
+        lambda item: replace(item, review_blockers=item.review_blockers + ("tampered",)),
+        lambda item: replace(item, implementation_todos=item.implementation_todos + ("tampered",)),
+    ),
+)
+def test_scaffold_content_tampering_invalidates_original_id(change) -> None:
+    scaffold = create_non_executable_scaffold(approved(), proposal())
+    tampered = change(scaffold)
+    with pytest.raises(ApprovalError, match="scaffold_integrity_error"):
+        verify_scaffold(tampered)
+    assert tampered.scaffold_id == scaffold.scaffold_id
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        lambda item: replace(item, server=replace(item.server, hostname="other.example")),
+        lambda item: replace(item, operations=(replace(item.operations[0], path="/other"),)),
+        lambda item: replace(item, risk_signals=item.risk_signals + ("different",)),
+        lambda item: replace(item, review_blockers=item.review_blockers + ("different",)),
+        lambda item: replace(item, implementation_todos=item.implementation_todos + ("different",)),
+    ),
+)
+def test_different_scaffold_content_produces_different_id(change) -> None:
+    scaffold = create_non_executable_scaffold(approved(), proposal())
+    changed = change(replace(scaffold, scaffold_id=""))
+    changed = replace(changed, scaffold_id=build_scaffold_id(changed))
+    assert changed.scaffold_id != scaffold.scaffold_id
+
+
+def test_rehashed_tampering_is_stale_against_original_approval_and_proposal() -> None:
+    value = proposal()
+    manifest = approved(value)
+    scaffold = create_non_executable_scaffold(manifest, value)
+    tampered = replace(
+        scaffold,
+        scaffold_id="",
+        server=replace(scaffold.server, hostname="evil.example"),
+    )
+    tampered = replace(tampered, scaffold_id=build_scaffold_id(tampered))
+    verify_scaffold(tampered)
+    assert tampered.scaffold_id != scaffold.scaffold_id
+    with pytest.raises(ApprovalError, match="scaffold_stale"):
+        verify_scaffold_against_approval_and_proposal(tampered, manifest, value)
+
+
+def test_scaffold_nested_loader_is_strict_and_checks_server_source() -> None:
+    raw = json.loads(json.dumps(create_non_executable_scaffold(approved(), proposal()).as_dict()))
+    for field in ("extra",):
+        changed = json.loads(json.dumps(raw))
+        changed["server"][field] = True
+        with pytest.raises(ApprovalError, match="scaffold_unknown_field"):
+            load_scaffold(changed)
+    changed = json.loads(json.dumps(raw))
+    del changed["server"]["base_path"]
+    with pytest.raises(ApprovalError, match="scaffold_missing_field"):
+        load_scaffold(changed)
+    changed = json.loads(json.dumps(raw))
+    changed["server"]["source"] = "caller_supplied"
+    with pytest.raises(ApprovalError, match="scaffold_integrity_error"):
+        load_scaffold(changed)
+    changed = json.loads(json.dumps(raw))
+    changed["operations"][0]["extra"] = True
+    with pytest.raises(ApprovalError, match="scaffold_unknown_field"):
+        load_scaffold(changed)
+
+
+@pytest.mark.parametrize(
+    ("target", "field", "value"),
+    (
+        ("server", "hostname", 123),
+        ("server", "scheme", True),
+        ("server", "port", False),
+        ("operation", "method", 123),
+        ("operation", "path", False),
+        ("operation", "security_requirement_count", True),
+        ("operation", "mutating_signal", 0),
+    ),
+)
+def test_scaffold_nested_security_types_are_strict(target: str, field: str, value) -> None:
+    raw = json.loads(json.dumps(create_non_executable_scaffold(approved(), proposal()).as_dict()))
+    owner = raw["server"] if target == "server" else raw["operations"][0]
+    owner[field] = value
+    with pytest.raises(ApprovalError, match="scaffold_schema_error"):
+        load_scaffold(raw)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "operations",
+        "declared_security_scheme_types",
+        "risk_signals",
+        "review_blockers",
+        "implementation_todos",
+    ),
+)
+def test_scaffold_array_fields_reject_string_containers(field: str) -> None:
+    raw = json.loads(json.dumps(create_non_executable_scaffold(approved(), proposal()).as_dict()))
+    raw[field] = "abc"
+    with pytest.raises(ApprovalError, match="scaffold_schema_error"):
         load_scaffold(raw)
 
 

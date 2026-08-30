@@ -79,13 +79,34 @@ def test_manifest_round_trip_integrity_and_authority_tampering() -> None:
     verify_approval_manifest(loaded)
     with pytest.raises(ApprovalError, match="approval_manifest_integrity_error"):
         verify_approval_manifest(replace(manifest, reviewed_by="Attacker"))
-    raw = manifest.as_dict()
+    raw = json.loads(json.dumps(manifest.as_dict()))
     raw["execution_authorized"] = True
     with pytest.raises(ApprovalError, match="approval_manifest_integrity_error"):
         load_manifest(raw)
-    raw = manifest.as_dict()
+    raw = json.loads(json.dumps(manifest.as_dict()))
     raw["unknown"] = True
     with pytest.raises(ApprovalError, match="approval_manifest_unknown_field"):
+        load_manifest(raw)
+    raw = json.loads(json.dumps(manifest.as_dict()))
+    raw["approved_server"]["source"] = "caller_supplied"
+    with pytest.raises(ApprovalError, match="approval_manifest_integrity_error"):
+        load_manifest(raw)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "approved_operations",
+        "acknowledged_review_blockers",
+        "proposal_issues",
+        "acknowledged_mutating_operations",
+        "acknowledged_security_exceptions",
+    ),
+)
+def test_manifest_array_fields_reject_string_containers(field: str) -> None:
+    raw = json.loads(json.dumps(approve().as_dict()))
+    raw[field] = "abc"
+    with pytest.raises(ApprovalError, match="approval_manifest_schema_error"):
         load_manifest(raw)
 
 
@@ -114,7 +135,7 @@ def test_proposal_loader_is_strict_and_recomputes_identity() -> None:
     value = proposal()
     loaded = load_proposal(json.loads(json.dumps(value.as_dict())))
     assert loaded == value
-    raw = value.as_dict()
+    raw = json.loads(json.dumps(value.as_dict()))
     raw["proposal_id"] = "0" * 64
     with pytest.raises(ApprovalError, match="proposal_identity_invalid"):
         load_proposal(raw)
@@ -137,6 +158,14 @@ def test_proposal_loader_is_strict_and_recomputes_identity() -> None:
             acknowledged_review_blockers=unsupported.review_blockers,
             clock=lambda: NOW,
         )
+    raw = json.loads(json.dumps(value.as_dict()))
+    raw["review_blockers"] = "abc"
+    with pytest.raises(ApprovalError, match="proposal_schema_error"):
+        load_proposal(raw)
+    raw = json.loads(json.dumps(value.as_dict()))
+    raw["operations"][0]["path"] = 123
+    with pytest.raises(ApprovalError, match="proposal_schema_error"):
+        load_proposal(raw)
 
 
 def test_human_checklist_and_exact_blockers_are_mandatory() -> None:
@@ -230,9 +259,13 @@ def test_operation_injection_duplicates_bounds_and_security_semantics() -> None:
         "/pets#fragment",
         "/bad\\path",
         "/bad\npath",
+        "/%252e%252e/admin",
+        "/items%252fadmin",
+        "/items%255cadmin",
+        123,
     ),
 )
-def test_selected_operation_path_must_be_safe_metadata(path: str) -> None:
+def test_selected_operation_path_must_be_safe_metadata(path: object) -> None:
     operation = replace(proposal().operations[0], path=path)
     value = with_operations(proposal(), operation)
     with pytest.raises(ApprovalError, match="operation_path_invalid"):

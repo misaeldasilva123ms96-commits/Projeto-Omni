@@ -108,10 +108,14 @@ def operation_key(operation: OperationSummary) -> str:
 
 
 def _validate_path(path: str) -> None:
+    if not isinstance(path, str):
+        raise ApprovalError("operation_path_invalid")
+    lowered = path.lower()
+    if any(token in lowered for token in ("%2e", "%2f", "%5c", "%252e", "%252f", "%255c")):
+        raise ApprovalError("operation_path_invalid")
     decoded = unquote(path)
     if (
-        not isinstance(path, str)
-        or not path.startswith("/")
+        not path.startswith("/")
         or len(path) > 1_000
         or any(character in decoded for character in ("?", "#", "\r", "\n", "\x00", "\\"))
         or any(segment in {".", ".."} for segment in decoded.split("/"))

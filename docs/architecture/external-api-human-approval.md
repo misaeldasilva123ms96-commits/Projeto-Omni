@@ -8,7 +8,7 @@ Discovery
 → ProviderDesignProposal v2
 → Human Review
 → Approval Manifest v1
-→ Non-Executable Scaffold v1
+→ Non-Executable Scaffold v2
 ```
 
 Human approval authorizes only creation of a design scaffold. It does not authorize executable
@@ -34,16 +34,30 @@ acknowledged as an exact set. The reviewer selects one to twenty complete propos
 acknowledges every selected mutation and security exception, and confirms the exact hostname of
 the sole eligible declared HTTPS server.
 
-Scaffold v1 excludes unsupported/custom methods, invalid security declarations, templated or
+Scaffold v2 excludes unsupported/custom methods, invalid security declarations, templated or
 insecure servers, non-standard ports, IP literals, local/single-label names, ambiguous servers,
 callbacks, and webhooks from executable scope. No DNS lookup or HTTP request is performed.
 
 ## Integrity and future promotion
 
-The approval ID hashes canonical JSON of all approval content except the ID itself. Verification
-recomputes it, enforces authority invariants, and compares the five proposal bindings. Scaffold ID
-is deterministic over approval ID and scaffold format version. Writers emit only
-`provider-scaffold.json` and `README.md`, using fixed names and atomic replacement.
+The three identity levels have separate purposes:
+
+- `proposal_snapshot_sha256` binds an approval to the exact proposal reviewed by the human;
+- `approval_id` binds the human review decision, scope, acknowledgements, and proposal bindings;
+- `scaffold_id` binds the exact canonical content of the derived scaffold, excluding only its own
+  ID.
+
+The approval and scaffold IDs hash canonical JSON of their complete serialized content, excluding
+only their respective ID fields. Verification recomputes each hash and enforces authority
+invariants. A content-bound scaffold ID detects accidental or unrehashed tampering; it does not
+authenticate who created the scaffold. An attacker who changes and rehashes content creates a
+different artifact.
+
+`verify_scaffold_against_approval_and_proposal` therefore also verifies the approval against the
+proposal, deterministically rederives the expected scaffold, and compares the entire supplied
+artifact. This detects a rehashed scaffold that was not derived from the original approval and
+proposal. Writers emit only `provider-scaffold.json` and `README.md`, using fixed names and atomic
+replacement.
 
 A later implementation phase must rerun discovery and schema intake, recreate the proposal, and
 verify all five approval bindings before using approved design data. Any changed candidate, schema,
@@ -63,6 +77,8 @@ promotion.
 
 The boundary fails closed for tampered proposal files, stale proposals, changed schemas or proposal
 formats, missing or invented blocker acknowledgements, arbitrary host injection, server ambiguity,
-operation injection, mutation-scope escalation, anonymous-security oversight, manifest/scaffold
-authority tampering, prompt-injection text, and automatic authority promotion. Validation is
-deterministic and uses no LLM, unsafe deserializer, subprocess, network client, or runtime registry.
+operation injection, mutation-scope escalation, anonymous-security oversight, tampered scaffolds,
+rehashed tampered scaffolds, nested JSON field smuggling, discarded nested `source` fields, path
+encoding ambiguity, manifest/scaffold authority tampering, prompt-injection text, and automatic
+authority promotion. Validation is deterministic and uses no LLM, unsafe deserializer, subprocess,
+network client, or runtime registry.
