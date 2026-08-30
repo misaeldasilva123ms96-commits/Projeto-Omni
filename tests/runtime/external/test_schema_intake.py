@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
+import hashlib
 import io
+import json
 import os
 import sys
 import unittest
@@ -38,6 +39,7 @@ from brain.runtime.external.schema_intake import (  # noqa: E402
 from brain.runtime.external.schema_intake.registry import (  # noqa: E402
     SCHEMA_INTAKE_API_ID,
 )
+from brain.runtime.external.schema_intake import analyzer as schema_analyzer  # noqa: E402
 
 
 class FakeClock:
@@ -532,8 +534,52 @@ class StructuralAnalyzerTest(unittest.TestCase):
     def test_canonical_fingerprint_and_proposal_id_are_deterministic(self) -> None:
         first = analyze_openapi_schema(candidate(), OAS3)
         second = analyze_openapi_schema(candidate(), OAS3)
+        expected_schema_digest = hashlib.sha256(
+            json.dumps(OAS3, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        self.assertEqual(first.proposal_format_version, "provider-design-proposal-v2")
+        self.assertEqual(first.canonical_schema_sha256, expected_schema_digest)
         self.assertEqual(first.canonical_schema_sha256, second.canonical_schema_sha256)
         self.assertEqual(first.proposal_id, second.proposal_id)
+        self.assertEqual(
+            first.proposal_id,
+            schema_analyzer.build_proposal_id(
+                first.candidate_id,
+                first.canonical_schema_sha256,
+                first.proposal_format_version,
+            ),
+        )
+        serialized = first.as_dict()
+        for field in (
+            "proposal_format_version",
+            "proposal_id",
+            "candidate_id",
+            "canonical_schema_sha256",
+            "detected_openapi_version",
+            "review_blockers",
+        ):
+            self.assertIn(field, serialized)
+
+    def test_proposal_format_version_changes_identity_only(self) -> None:
+        candidate_identity = candidate().candidate_id
+        schema_digest = "a" * 64
+        expected_v1 = hashlib.sha256(
+            f"{candidate_identity}\x00{schema_digest}\x00provider-design-proposal-v1".encode()
+        ).hexdigest()
+        expected_v2 = hashlib.sha256(
+            f"{candidate_identity}\x00{schema_digest}\x00provider-design-proposal-v2".encode()
+        ).hexdigest()
+        actual_v1 = schema_analyzer.build_proposal_id(
+            candidate_identity, schema_digest, "provider-design-proposal-v1"
+        )
+        actual_v2 = schema_analyzer.build_proposal_id(
+            candidate_identity, schema_digest, "provider-design-proposal-v2"
+        )
+        self.assertEqual(actual_v1, expected_v1)
+        self.assertEqual(actual_v2, expected_v2)
+        self.assertNotEqual(actual_v1, actual_v2)
 
     def test_operation_details_are_bounded_without_losing_total_count(self) -> None:
         document = {

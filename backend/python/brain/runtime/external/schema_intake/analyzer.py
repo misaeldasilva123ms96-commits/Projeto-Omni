@@ -28,11 +28,18 @@ MAX_REFERENCES = 25_000
 MAX_SECURITY_SCHEMES = 200
 MAX_SERVERS = 200
 MAX_TAGS = 500
-PROPOSAL_FORMAT_VERSION = "provider-design-proposal-v1"
+PROPOSAL_FORMAT_VERSION = "provider-design-proposal-v2"
 _OAS3 = re.compile(r"^3\.(?:0|1|2)\.\d+$")
 _METHODS_V2 = frozenset({"get", "put", "post", "delete", "options", "head", "patch"})
 _METHODS_V3 = _METHODS_V2 | {"trace"}
 _MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def build_proposal_id(
+    candidate_id: str, canonical_schema_sha256: str, proposal_format_version: str
+) -> str:
+    material = f"{candidate_id}\x00{canonical_schema_sha256}\x00{proposal_format_version}".encode()
+    return hashlib.sha256(material).hexdigest()
 
 
 def _detected_version(document: dict[str, object]) -> str:
@@ -430,11 +437,10 @@ def analyze_openapi_schema(
         issues.add("schema_metadata_incomplete")
         blockers.add("schema_metadata_incomplete")
     license_info = info.get("license") if isinstance(info.get("license"), dict) else {}
-    proposal_material = (
-        f"{candidate.candidate_id}\x00{digest}\x00{PROPOSAL_FORMAT_VERSION}".encode()
-    )
+    proposal_format_version = PROPOSAL_FORMAT_VERSION
     return ProviderDesignProposal(
-        hashlib.sha256(proposal_material).hexdigest(),
+        build_proposal_id(candidate.candidate_id, digest, proposal_format_version),
+        proposal_format_version,
         candidate.candidate_id,
         candidate.source_record_id,
         digest,

@@ -37,3 +37,14 @@ privacy, cost, rate-limit, and provider-documentation review. Execution, registr
 generation, credential generation, and network authority remain false. Server declarations and
 security schemes never modify provider allowlists, credential configuration, tools, manifests, or
 execution registries.
+
+## Proposal identity versioning
+
+`ProviderDesignProposal` identity binds the candidate identity, canonical schema fingerprint, and
+proposal semantic format version. Changing the proposal interpretation contract requires a format
+version bump; it does not change the canonical schema fingerprint.
+
+Future approval artifacts MUST bind to `proposal_id`, `proposal_format_version`, `candidate_id`, and
+`canonical_schema_sha256`. A change to the schema, candidate identity, or proposal interpretation
+contract therefore requires a new approval. Phase 8 does not create or authorize approval
+artifacts.

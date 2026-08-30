@@ -55,6 +55,7 @@ class OperationSummary:
 @dataclass(frozen=True, slots=True)
 class ProviderDesignProposal:
     proposal_id: str
+    proposal_format_version: str
     candidate_id: str
     source_record_id: str
     canonical_schema_sha256: str
