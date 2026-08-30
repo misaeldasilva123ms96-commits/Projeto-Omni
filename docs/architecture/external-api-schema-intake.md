@@ -48,3 +48,8 @@ Future approval artifacts MUST bind to `proposal_id`, `proposal_format_version`,
 `canonical_schema_sha256`. A change to the schema, candidate identity, or proposal interpretation
 contract therefore requires a new approval. Phase 8 does not create or authorize approval
 artifacts.
+
+Phase 9 consumes this frozen proposal only through the separate offline human-approval boundary
+documented in [external-api-human-approval.md](external-api-human-approval.md). Approval binds the
+complete canonical proposal snapshot in addition to the proposal identity and still grants no
+provider, tool, credential, network, registration, runtime, or execution authority.
