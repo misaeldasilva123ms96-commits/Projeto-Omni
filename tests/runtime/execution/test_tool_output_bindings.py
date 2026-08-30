@@ -14,7 +14,15 @@ sys.path.insert(0, str(PROJECT_ROOT / "tests" / "runtime" / "external"))
 
 from brain.runtime.execution.bindings import resolve_tool_output_binding  # noqa: E402
 from brain.runtime.execution.manifest import build_execution_manifest  # noqa: E402
-from brain.runtime.external.config import OSM_GEOCODER_ENABLED_ENV  # noqa: E402
+from brain.runtime.external.config import (  # noqa: E402
+    EXTERNAL_API_ENABLED_ENV,
+    OPEN_METEO_ENABLED_ENV,
+    OSM_GEOCODER_ENABLED_ENV,
+    OSM_GEOCODER_PUBLIC_API_COMPLIANCE_ACK_ENV,
+    OSM_GEOCODER_SINGLE_INSTANCE_ACK_ENV,
+    PYTHON_MODE_ENV,
+    PYTHON_SERVICE_FALLBACK_ENV,
+)
 from brain.runtime.external.gateway import ExternalAPIGateway  # noqa: E402
 from brain.runtime.external.providers import build_external_api_registry  # noqa: E402
 from brain.runtime.orchestrator import BrainOrchestrator, BrainPaths  # noqa: E402
@@ -25,6 +33,21 @@ BINDING = {
     "type": "geocode_unique_candidate_to_weather",
     "source_step_id": "geocode-1",
 }
+
+
+def governed_nominatim_test_env(**overrides: str) -> dict[str, str]:
+    """Build the complete test-only environment for governed Nominatim execution."""
+    environment = {
+        EXTERNAL_API_ENABLED_ENV: "true",
+        OSM_GEOCODER_ENABLED_ENV: "true",
+        OPEN_METEO_ENABLED_ENV: "true",
+        OSM_GEOCODER_PUBLIC_API_COMPLIANCE_ACK_ENV: "true",
+        OSM_GEOCODER_SINGLE_INSTANCE_ACK_ENV: "true",
+        PYTHON_MODE_ENV: "service",
+        PYTHON_SERVICE_FALLBACK_ENV: "false",
+    }
+    environment.update(overrides)
+    return environment
 
 
 def source_result(*, latitude: object = -16.68, longitude: object = -49.25) -> dict:
@@ -263,11 +286,7 @@ class ComposedRuntimeTest(unittest.TestCase):
         orchestrator._append_runtime_event = capture  # type: ignore[method-assign]
         with patch.dict(
             os.environ,
-            {
-                "OMNI_EXTERNAL_API_ENABLED": "true",
-                OSM_GEOCODER_ENABLED_ENV: "true",
-                "OMNI_EXTERNAL_OPEN_METEO_ENABLED": "true",
-            },
+            governed_nominatim_test_env(),
         ):
             geocode = self.execute(orchestrator, self.geocode_action(), [])
             weather = self.execute(orchestrator, self.weather_action(), [geocode])
@@ -289,11 +308,7 @@ class ComposedRuntimeTest(unittest.TestCase):
         orchestrator, transport = self.orchestrator(nominatim_payload(ambiguous=True))
         with patch.dict(
             os.environ,
-            {
-                "OMNI_EXTERNAL_API_ENABLED": "true",
-                OSM_GEOCODER_ENABLED_ENV: "true",
-                "OMNI_EXTERNAL_OPEN_METEO_ENABLED": "true",
-            },
+            governed_nominatim_test_env(),
         ):
             geocode = self.execute(orchestrator, self.geocode_action(), [])
             weather = self.execute(orchestrator, self.weather_action(), [geocode])
@@ -304,11 +319,7 @@ class ComposedRuntimeTest(unittest.TestCase):
         orchestrator, transport = self.orchestrator([])
         with patch.dict(
             os.environ,
-            {
-                "OMNI_EXTERNAL_API_ENABLED": "true",
-                OSM_GEOCODER_ENABLED_ENV: "true",
-                "OMNI_EXTERNAL_OPEN_METEO_ENABLED": "true",
-            },
+            governed_nominatim_test_env(),
         ):
             geocode = self.execute(orchestrator, self.geocode_action(), [])
             weather = self.execute(orchestrator, self.weather_action(), [geocode])
@@ -323,11 +334,12 @@ class ComposedRuntimeTest(unittest.TestCase):
             orchestrator, transport = self.orchestrator(nominatim_payload())
             with patch.dict(
                 os.environ,
-                {
-                    "OMNI_EXTERNAL_API_ENABLED": global_gate,
-                    OSM_GEOCODER_ENABLED_ENV: nominatim_gate,
-                    "OMNI_EXTERNAL_OPEN_METEO_ENABLED": "true",
-                },
+                governed_nominatim_test_env(
+                    **{
+                        EXTERNAL_API_ENABLED_ENV: global_gate,
+                        OSM_GEOCODER_ENABLED_ENV: nominatim_gate,
+                    }
+                ),
             ):
                 geocode = self.execute(orchestrator, self.geocode_action(), [])
                 weather = self.execute(orchestrator, self.weather_action(), [geocode])
@@ -338,11 +350,7 @@ class ComposedRuntimeTest(unittest.TestCase):
         orchestrator, transport = self.orchestrator(nominatim_payload())
         with patch.dict(
             os.environ,
-            {
-                "OMNI_EXTERNAL_API_ENABLED": "true",
-                OSM_GEOCODER_ENABLED_ENV: "true",
-                "OMNI_EXTERNAL_OPEN_METEO_ENABLED": "false",
-            },
+            governed_nominatim_test_env(**{OPEN_METEO_ENABLED_ENV: "false"}),
         ):
             geocode = self.execute(orchestrator, self.geocode_action(), [])
             weather = self.execute(orchestrator, self.weather_action(), [geocode])
@@ -351,11 +359,7 @@ class ComposedRuntimeTest(unittest.TestCase):
 
     def test_cached_geocode_still_binds_without_extra_transport(self) -> None:
         orchestrator, transport = self.orchestrator(nominatim_payload())
-        environment = {
-            "OMNI_EXTERNAL_API_ENABLED": "true",
-            OSM_GEOCODER_ENABLED_ENV: "true",
-            "OMNI_EXTERNAL_OPEN_METEO_ENABLED": "true",
-        }
+        environment = governed_nominatim_test_env()
         with patch.dict(os.environ, environment):
             first_geocode = self.execute(orchestrator, self.geocode_action(), [])
             first_weather = self.execute(orchestrator, self.weather_action(), [first_geocode])
