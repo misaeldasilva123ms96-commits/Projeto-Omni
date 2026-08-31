@@ -4,6 +4,7 @@
 
 - Mutating tools require explicit policy and risk evaluation on the orchestrator path.
 - Governed tools strict mode is respected when enabled; engineering tools are allow-listed and audited.
+- Unknown tools and outbound external APIs are denied by default. External API execution additionally requires an explicit registry declaration, central policy approval, and `OMNI_EXTERNAL_API_ENABLED=true`.
 
 ## Evolution and improvement
 

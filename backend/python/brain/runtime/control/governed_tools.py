@@ -12,7 +12,11 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
-from brain.runtime.control.governance_taxonomy import GovernanceReason, GovernanceSeverity, GovernanceSource
+from brain.runtime.control.governance_taxonomy import (
+    GovernanceReason,
+    GovernanceSeverity,
+    GovernanceSource,
+)
 from brain.env import read_env_bool
 
 STRICT_GOVERNED_TOOLS_ENV = "OMNI_GOVERNED_TOOLS_STRICT"
@@ -206,16 +210,22 @@ def evaluate_tool_governance(
             category=meta.category,
             extensions=dict(meta.extensions),
         )
-    if strict:
+    if strict or not in_trusted:
         return ToolGovernanceAudit(
             allowed=False,
             governed=False,
             legacy_ungoverned_trusted=legacy,
-            strict_mode=True,
+            strict_mode=strict,
             tool_name=name,
             policy_name=None,
             category=None,
-            extensions={"note": "strict_mode_requires_governed_declaration"},
+            extensions={
+                "note": (
+                    "strict_mode_requires_governed_declaration"
+                    if strict
+                    else "unknown_tool_denied_by_default"
+                )
+            },
         )
     return ToolGovernanceAudit(
         allowed=True,
@@ -259,4 +269,54 @@ def _declare_read_file_governed() -> None:
 
 @governed_tool(tool_name="write_file", policy_name="trusted_write", category="filesystem")
 def _declare_write_file_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="weather_forecast",
+    policy_name="governed_external_weather",
+    category="external/weather",
+    api_id="open_meteo",
+)
+def _declare_weather_forecast_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="geocode_place",
+    policy_name="governed_external_geocoding",
+    category="external/geocoding",
+    api_id="nominatim",
+)
+def _declare_geocode_place_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="currency_convert",
+    policy_name="governed_external_currency",
+    category="external/currency",
+    api_id="frankfurter",
+)
+def _declare_currency_convert_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="dictionary_lookup",
+    policy_name="governed_external_dictionary",
+    category="external/dictionary",
+    api_id="free_dictionary",
+)
+def _declare_dictionary_lookup_governed() -> None:
+    return None
+
+
+@governed_tool(
+    tool_name="url_reputation_check",
+    policy_name="governed_external_security",
+    category="external/security",
+    api_id="urlhaus",
+)
+def _declare_url_reputation_check_governed() -> None:
     return None

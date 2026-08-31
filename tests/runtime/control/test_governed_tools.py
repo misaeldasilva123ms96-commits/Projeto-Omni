@@ -94,6 +94,16 @@ class GovernedToolsTest(unittest.TestCase):
         self.assertFalse(audit.allowed)
         self.assertFalse(audit.governed)
 
+    def test_unknown_tool_is_denied_even_outside_strict_mode(self) -> None:
+        audit = evaluate_tool_governance(
+            selected_tool="model_invented_tool",
+            trusted_known_tools=set(TRUSTED_EXECUTION_KNOWN_TOOLS),
+            strict_mode=False,
+        )
+        self.assertFalse(audit.allowed)
+        self.assertFalse(audit.governed)
+        self.assertEqual(audit.extensions["note"], "unknown_tool_denied_by_default")
+
     def test_strict_allows_empty_and_none_sentinel(self) -> None:
         reset_governed_tool_registry_for_tests()
         for name in ("", "none"):

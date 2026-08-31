@@ -18,11 +18,30 @@ class ToolRegistryExtensionsTest(unittest.TestCase):
         self.assertEqual(metadata.risk_level, "low")
         self.assertTrue(metadata.safe_fallback_available)
 
+    def test_weather_tool_metadata_requires_network_without_auth(self) -> None:
+        metadata = get_tool_metadata("weather_forecast")
+        self.assertEqual(metadata.category, "external/weather")
+        self.assertEqual(metadata.risk_level, "low")
+        self.assertTrue(metadata.requires_network)
+        self.assertFalse(metadata.requires_auth)
+        self.assertEqual(metadata.estimated_cost, "free/non-commercial-pilot")
+
+    def test_geocoding_tool_metadata_is_explicit_and_conservative(self) -> None:
+        metadata = get_tool_metadata("geocode_place")
+        self.assertEqual(metadata.category, "external/geocoding")
+        self.assertEqual(metadata.risk_level, "low")
+        self.assertTrue(metadata.requires_network)
+        self.assertFalse(metadata.requires_auth)
+        self.assertEqual(metadata.estimated_cost, "free/public-pilot")
+        self.assertFalse(metadata.deterministic)
+
     def test_unknown_tool_uses_conservative_defaults(self) -> None:
         metadata = get_tool_metadata("unknown_tool_xyz")
         self.assertEqual(metadata.name, "unknown_tool_xyz")
-        self.assertEqual(metadata.risk_level, "medium")
-        self.assertTrue(metadata.safe_fallback_available)
+        self.assertEqual(metadata.risk_level, "high")
+        self.assertTrue(metadata.requires_network)
+        self.assertTrue(metadata.requires_auth)
+        self.assertFalse(metadata.safe_fallback_available)
 
     def test_capability_registry_is_enriched_additively(self) -> None:
         registry = CapabilityRegistry()

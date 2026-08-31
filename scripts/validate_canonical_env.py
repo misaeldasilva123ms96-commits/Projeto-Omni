@@ -25,8 +25,19 @@ NEGATIVE_TEST_FILES = {
     "tests/runtime/test_secrets_config_hardening.py",
 }
 TEXT_SUFFIXES = {
-    ".example", ".js", ".json", ".md", ".mjs", ".py", ".rs", ".toml",
-    ".ts", ".tsx", ".txt", ".yaml", ".yml",
+    ".example",
+    ".js",
+    ".json",
+    ".md",
+    ".mjs",
+    ".py",
+    ".rs",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml",
 }
 
 
@@ -67,7 +78,9 @@ def validate() -> tuple[dict[str, object], list[str]]:
             if is_historical(relative):
                 historical_references[relative] = len(obsolete_names)
                 if HISTORICAL_NOTICE not in text:
-                    errors.append(f"{relative}: historical references lack the obsolete-runtime notice")
+                    errors.append(
+                        f"{relative}: historical references lack the obsolete-runtime notice"
+                    )
             elif relative in NEGATIVE_TEST_FILES:
                 negative_test_references[relative] = len(obsolete_names)
             else:
@@ -75,7 +88,8 @@ def validate() -> tuple[dict[str, object], list[str]]:
 
         if relative == "scripts/validate_canonical_env.py" or is_historical(relative):
             continue
-        if DYNAMIC_PREFIX.search(text):
+        text_without_canonical_names = re.sub(r"\bOMNI_[A-Z0-9_]+\b", "", text)
+        if DYNAMIC_PREFIX.search(text_without_canonical_names):
             approved_rust_negative = (
                 relative in {"backend/rust/src/main.rs", "backend/rust/src/main_tests.rs"}
                 and '["OMIN", "I_ALLOWED_ORIGINS"]' in text
@@ -87,8 +101,8 @@ def validate() -> tuple[dict[str, object], list[str]]:
         "schema_version": 2,
         "policy": "runtime configuration accepts OMNI_* names exclusively",
         "canonical_name_count": len(canonical_names),
-        "active_obsolete_references": 0 if not errors else sum(
-            1 for error in errors if "obsolete environment" in error
+        "active_obsolete_references": (
+            0 if not errors else sum(1 for error in errors if "obsolete environment" in error)
         ),
         "negative_test_references": negative_test_references,
         "historical_reference_files": historical_references,
@@ -98,7 +112,9 @@ def validate() -> tuple[dict[str, object], list[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="fail when canonical-only policy is violated")
+    parser.add_argument(
+        "--check", action="store_true", help="fail when canonical-only policy is violated"
+    )
     args = parser.parse_args()
     report, errors = validate()
     print(json.dumps(report, indent=2, sort_keys=True))

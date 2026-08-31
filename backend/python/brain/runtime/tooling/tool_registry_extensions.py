@@ -5,8 +5,72 @@ from typing import Iterable
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS
 from brain.runtime.tooling.tool_metadata import ToolMetadata, conservative_tool_metadata
 
-
 _TOOL_METADATA: dict[str, ToolMetadata] = {
+    "url_reputation_check": ToolMetadata(
+        name="url_reputation_check",
+        category="external/security",
+        description="advisory exact-URL lookup through the governed URLhaus pilot",
+        input_schema_hint="{'url': str}",
+        risk_level="medium",
+        estimated_cost="community/fair-use-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=True,
+        safe_fallback_available=True,
+    ),
+    "currency_convert": ToolMetadata(
+        name="currency_convert",
+        category="external/currency",
+        description="converts currency using a governed informational Frankfurter v2 rate",
+        input_schema_hint="{'amount': str | int | Decimal, 'from_currency': str, 'to_currency': str}",
+        risk_level="low",
+        estimated_cost="free/public",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
+    "dictionary_lookup": ToolMetadata(
+        name="dictionary_lookup",
+        category="external/dictionary",
+        description="looks up a bounded English definition through a community pilot",
+        input_schema_hint="{'word': str}",
+        risk_level="low",
+        estimated_cost="free/community-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
+    "geocode_place": ToolMetadata(
+        name="geocode_place",
+        category="external/geocoding",
+        description="resolves governed settlement names through the Nominatim pilot",
+        input_schema_hint="{'place_name': str, 'state_or_region': str | None, 'country_code': str | None}",
+        risk_level="low",
+        estimated_cost="free/public-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
+    "weather_forecast": ToolMetadata(
+        name="weather_forecast",
+        category="external/weather",
+        description="retrieves governed weather data from the Open-Meteo pilot",
+        input_schema_hint="{'latitude': float, 'longitude': float, 'forecast_days': int}",
+        risk_level="low",
+        estimated_cost="free/non-commercial-pilot",
+        latency_class="network/variable",
+        deterministic=False,
+        requires_network=True,
+        requires_auth=False,
+        safe_fallback_available=True,
+    ),
     "read_file": ToolMetadata(
         name="read_file",
         category="filesystem",
@@ -179,6 +243,11 @@ def get_tool_metadata(name: str) -> ToolMetadata:
     if not key:
         return conservative_tool_metadata("unknown_tool")
     return _TOOL_METADATA.get(key, conservative_tool_metadata(key))
+
+
+def is_tool_metadata_registered(name: str) -> bool:
+    """Return whether a tool has an explicit runtime metadata declaration."""
+    return str(name or "").strip() in _TOOL_METADATA
 
 
 def get_capability_metadata(capability_id: str) -> ToolMetadata:

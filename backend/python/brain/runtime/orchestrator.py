@@ -95,9 +95,13 @@ from brain.runtime.execution import (
     StrategyExecutionRequest,
     TrustedExecutor,
     build_execution_manifest,
+    resolve_tool_output_binding,
 )
 from brain.runtime.execution_state import build_execution_state
 from brain.runtime.engineering_tools import ENGINEERING_TOOLS, execute_engineering_action, supports_engineering_tool
+from brain.runtime.external.gateway import ExternalAPIGateway
+from brain.runtime.external.providers import build_external_api_registry
+from brain.runtime.external.tools import EXTERNAL_TOOLS, execute_external_action, supports_external_tool
 from brain.runtime.engine_adoption_store import EngineAdoptionStore
 from brain.runtime.evolution import EvolutionExecutor
 from brain.runtime.goals import GoalContext
@@ -233,6 +237,7 @@ TRUSTED_EXECUTION_KNOWN_TOOLS = (
     | VERIFICATION_TOOLS
     | READ_ONLY_TOOLS
     | ENGINEERING_TOOLS
+    | EXTERNAL_TOOLS
     | {
         "shell_command",
         "read_file",
@@ -358,6 +363,7 @@ class BrainOrchestrator:
             policy=self._trusted_execution_policy(),
         )
         sync_governed_tools_from_trusted_executor_surface(self.trusted_executor.available_tools)
+        self.external_api_gateway = ExternalAPIGateway(registry=build_external_api_registry())
         self.evolution_executor = EvolutionExecutor(self.paths.root)
         self.memory_facade = MemoryFacade(self.paths.root)
         self.engine_adoption_store = EngineAdoptionStore(self.paths.root)
@@ -527,6 +533,11 @@ class BrainOrchestrator:
     ) -> ExecutionIntent:
         selected_tool = str(action.get("selected_tool", "")).strip()
         tool_arguments = dict(action.get("tool_arguments", {}) or {})
+        intent_arguments = (
+            dict(self._redact_external_action(action).get("tool_arguments", {}) or {})
+            if supports_external_tool(selected_tool)
+            else tool_arguments
+        )
         description = str(
             action.get("description")
             or action.get("title")
@@ -558,17 +569,59 @@ class BrainOrchestrator:
             description=description,
             input_payload_summary={
                 "selected_tool": selected_tool,
-                "tool_arguments": tool_arguments,
+                "tool_arguments": intent_arguments,
                 "selected_agent": action.get("selected_agent"),
             },
             expected_outcome=str(action.get("expected_outcome", f"Successful completion of {selected_tool or 'runtime action'}")).strip(),
             reversible=selected_tool in READ_ONLY_TOOLS or selected_tool in VERIFICATION_TOOLS,
-            target_subsystem="engineering_tools" if supports_engineering_tool(selected_tool) else "rust_bridge",
+            target_subsystem=(
+                "engineering_tools"
+                if supports_engineering_tool(selected_tool)
+                else "external_api"
+                if supports_external_tool(selected_tool)
+                else "rust_bridge"
+            ),
             session_id=session_id or None,
             task_id=task_id or None,
             run_id=run_id or None,
             metadata={"expected_fields": expected_fields},
         )
+
+    @staticmethod
+    def _redact_external_action(action: dict[str, Any]) -> dict[str, Any]:
+        redacted = dict(action)
+        selected_tool = str(action.get("selected_tool", "") or "").strip()
+        arguments = dict(action.get("tool_arguments", {}) or {})
+        if selected_tool == "weather_forecast":
+            redacted["tool_arguments"] = {
+                "coordinates": "redacted",
+                "forecast_days": arguments.get("forecast_days"),
+            }
+        elif selected_tool == "geocode_place":
+            redacted["tool_arguments"] = {
+                "place_query": "redacted",
+                "country_code_supplied": bool(arguments.get("country_code")),
+            }
+        elif selected_tool == "currency_convert":
+            redacted["tool_arguments"] = {
+                "from_currency": arguments.get("from_currency"),
+                "to_currency": arguments.get("to_currency"),
+                "amount_supplied": "amount" in arguments,
+            }
+        elif selected_tool == "dictionary_lookup":
+            word = arguments.get("word")
+            redacted["tool_arguments"] = {
+                "dictionary_word": "redacted",
+                "word_length": len(word) if isinstance(word, str) else 0,
+            }
+        elif selected_tool == "url_reputation_check":
+            url = arguments.get("url")
+            redacted["tool_arguments"] = {
+                "url_indicator": "redacted",
+                "url_supplied": isinstance(url, str) and bool(url),
+                "url_length": len(url) if isinstance(url, str) else 0,
+            }
+        return redacted
 
     def _emit_cognitive_runtime_inspection(
         self,
@@ -4286,6 +4339,39 @@ class BrainOrchestrator:
         except Exception:
             return
 
+    def _execute_governed_tool_action(
+        self,
+        *,
+        current_action: dict[str, Any],
+        session_id: str,
+        task_id: str,
+        run_id: str,
+    ) -> dict[str, Any]:
+        selected_tool = str(current_action.get("selected_tool", "") or "").strip()
+        timeout_seconds = max(
+            1,
+            int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000),
+        )
+        if supports_engineering_tool(selected_tool):
+            return execute_engineering_action(
+                project_root=self.paths.root,
+                action=current_action,
+                timeout_seconds=timeout_seconds,
+            )
+        if supports_external_tool(selected_tool):
+            return execute_external_action(
+                action=current_action,
+                gateway=self.external_api_gateway,
+                event_sink=lambda event_type, payload: self._append_runtime_event(
+                    event_type=event_type,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    payload=payload,
+                ),
+            )
+        return execute_action(self.paths.root, current_action, timeout_seconds=timeout_seconds)
+
     def _execute_single_action_core(
         self,
         *,
@@ -4308,6 +4394,49 @@ class BrainOrchestrator:
         current_action["run_id"] = run_id
         if operational_plan is not None and getattr(operational_plan, "goal_id", None):
             current_action["goal_id"] = operational_plan.goal_id
+        binding_resolution = resolve_tool_output_binding(current_action, step_results)
+        if current_action.get("argument_binding") is not None:
+            binding_payload = dict(binding_resolution.provenance)
+            self._append_runtime_event(
+                event_type="runtime.tool_binding.started",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload={key: value for key, value in binding_payload.items() if key != "resolved"},
+            )
+            if binding_resolution.error:
+                event_type = (
+                    "runtime.tool_binding.failed"
+                    if binding_resolution.error in {"binding_source_invalid", "dependency_failed"}
+                    else "runtime.tool_binding.denied"
+                )
+                binding_payload["reason"] = binding_resolution.error
+                self._append_runtime_event(
+                    event_type=event_type,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    payload=binding_payload,
+                )
+                return {
+                    "ok": False,
+                    "selected_tool": current_action.get("selected_tool"),
+                    "action": self._redact_external_action(current_action),
+                    "binding": binding_payload,
+                    "error_payload": {
+                        "kind": binding_resolution.error,
+                        "message": "Tool output binding was denied.",
+                    },
+                    "correction_events": [],
+                }
+            current_action = binding_resolution.action or current_action
+            self._append_runtime_event(
+                event_type="runtime.tool_binding.succeeded",
+                session_id=session_id,
+                task_id=task_id,
+                run_id=run_id,
+                payload=dict(binding_resolution.provenance),
+            )
         policy_decision = dict(current_action.get("policy_decision", {}) or {})
         selected_tool = str(current_action.get("selected_tool", "") or "").strip()
         action_started_monotonic = time.monotonic()
@@ -4316,6 +4445,7 @@ class BrainOrchestrator:
             and (
                 selected_tool in self.trusted_executor.available_tools
                 or supports_engineering_tool(selected_tool)
+                or supports_external_tool(selected_tool)
             )
         )
         tool_audit = evaluate_tool_governance(
@@ -4363,11 +4493,16 @@ class BrainOrchestrator:
         latest_summary = self.planning_executor.store.load_summary(operational_plan.plan_id) if operational_plan else None
         goal_context = self.planning_executor.goal_context_for_plan(operational_plan)
         planning_signals = [signal.as_dict() for signal in self.learning_executor.advisory_signals_for_planning(actions=[current_action])]
+        orchestration_action = (
+            self._redact_external_action(current_action)
+            if supports_external_tool(selected_tool)
+            else current_action
+        )
         pre_execution_orchestration = self.orchestration_executor.orchestrate(
             session_id=session_id,
             task_id=task_id,
             run_id=run_id,
-            action=current_action,
+            action=orchestration_action,
             plan=operational_plan,
             checkpoint=latest_checkpoint,
             summary=latest_summary,
@@ -4434,16 +4569,11 @@ class BrainOrchestrator:
                 ),
                 current_mode=self.last_runtime_mode,
                 retry_count=max(0, attempt_number - 1),
-                execute_callback=lambda current_action=current_action: execute_engineering_action(
-                    project_root=self.paths.root,
-                    action=current_action,
-                    timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
-                )
-                if supports_engineering_tool(str(current_action.get("selected_tool", "")))
-                else execute_action(
-                    self.paths.root,
-                    current_action,
-                    timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+                execute_callback=lambda current_action=current_action: self._execute_governed_tool_action(
+                    current_action=current_action,
+                    session_id=session_id,
+                    task_id=task_id,
+                    run_id=run_id,
                 ),
             )
             final_result = trusted_execution.result
@@ -4487,16 +4617,11 @@ class BrainOrchestrator:
                         ),
                         current_mode=self.last_runtime_mode,
                         retry_count=max(0, attempt_number - 1),
-                        execute_callback=lambda current_action=current_action: execute_engineering_action(
-                            project_root=self.paths.root,
-                            action=current_action,
-                            timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
-                        )
-                        if supports_engineering_tool(str(current_action.get("selected_tool", "")))
-                        else execute_action(
-                            self.paths.root,
-                            current_action,
-                            timeout_seconds=max(1, int(current_action.get("timeout_ms", SUBPROCESS_TIMEOUT_SECONDS * 1000) / 1000)),
+                        execute_callback=lambda current_action=current_action: self._execute_governed_tool_action(
+                            current_action=current_action,
+                            session_id=session_id,
+                            task_id=task_id,
+                            run_id=run_id,
                         ),
                     )
                     final_result = trusted_execution.result
@@ -4553,7 +4678,13 @@ class BrainOrchestrator:
         result["selected_tool"] = current_action.get("selected_tool")
         result["selected_agent"] = current_action.get("selected_agent")
         result["milestone_id"] = self.milestone_tracker.extract_milestone_id(current_action)
-        result["action"] = current_action
+        result["action"] = (
+            self._redact_external_action(current_action)
+            if supports_external_tool(selected_tool)
+            else current_action
+        )
+        if current_action.get("binding_provenance"):
+            result["binding"] = dict(current_action["binding_provenance"])
         result["evaluation"] = correction_events[-1] if correction_events else {
             "decision": "stop_failed",
             "reason_code": "missing_result",

@@ -7,14 +7,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
 
 from brain.runtime.engineering_tools import execute_engineering_action  # noqa: E402
-from brain.runtime.observability.cognitive_runtime_inspector import build_cognitive_runtime_inspection  # noqa: E402
+from brain.runtime.observability.cognitive_runtime_inspector import (
+    build_cognitive_runtime_inspection,
+)  # noqa: E402
 from brain.runtime.tool_governance_policy import evaluate_tool_governance  # noqa: E402
-
 
 GOV_ENV_KEYS = {
     "ALLOW_SHELL",
@@ -73,7 +73,10 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
     def test_write_without_approval_is_blocked(self) -> None:
         result = execute_engineering_action(
             project_root=PROJECT_ROOT,
-            action={"selected_tool": "write_file", "tool_arguments": {"path": "tmp.txt", "content": "x"}},
+            action={
+                "selected_tool": "write_file",
+                "tool_arguments": {"path": "tmp.txt", "content": "x"},
+            },
         )
 
         self.assert_governance_blocked(result, "TOOL_APPROVAL_REQUIRED")
@@ -83,7 +86,10 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
             with self.subTest(tool=tool):
                 result = execute_engineering_action(
                     project_root=PROJECT_ROOT,
-                    action={"selected_tool": tool, "tool_arguments": {"path": "tmp.txt", "content": "x"}},
+                    action={
+                        "selected_tool": tool,
+                        "tool_arguments": {"path": "tmp.txt", "content": "x"},
+                    },
                 )
 
                 self.assert_governance_blocked(result, "TOOL_APPROVAL_REQUIRED")
@@ -98,10 +104,15 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
         self.assertEqual(result["governance_audit"]["category"], "destructive")
 
     def test_shell_blocked_in_public_demo_and_allow_shell_cannot_bypass(self) -> None:
-        with patch.dict(os.environ, clean_env(ALLOW_SHELL="true", OMNI_PUBLIC_DEMO_MODE="true"), clear=False):
+        with patch.dict(
+            os.environ, clean_env(ALLOW_SHELL="true", OMNI_PUBLIC_DEMO_MODE="true"), clear=False
+        ):
             result = execute_engineering_action(
                 project_root=PROJECT_ROOT,
-                action={"selected_tool": "shell_command", "tool_arguments": {"command": ["python", "--version"]}},
+                action={
+                    "selected_tool": "shell_command",
+                    "tool_arguments": {"command": ["python", "--version"]},
+                },
             )
 
         self.assert_governance_blocked(result, "TOOL_BLOCKED_PUBLIC_DEMO")
@@ -129,10 +140,29 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
                 self.assertTrue(decision["approval_required"])
 
     def test_network_like_tool_gated(self) -> None:
-        decision = evaluate_tool_governance({"selected_tool": "web_request", "tool_arguments": {"url": "https://example.com"}})
+        decision = evaluate_tool_governance(
+            {"selected_tool": "web_request", "tool_arguments": {"url": "https://example.com"}}
+        )
         self.assertFalse(decision["allowed"])
         self.assertEqual(decision["category"], "network")
         self.assertEqual(decision["error_public_code"], "TOOL_APPROVAL_REQUIRED")
+
+    def test_registered_external_reads_delegate_to_gateway_and_public_demo_blocks(self) -> None:
+        for tool in ("weather_forecast", "geocode_place"):
+            with self.subTest(tool=tool):
+                decision = evaluate_tool_governance(
+                    {"selected_tool": tool, "tool_arguments": {}}
+                )
+                self.assertTrue(decision["allowed"])
+                self.assertEqual(decision["category"], "external_read")
+                with patch.dict(
+                    os.environ, clean_env(OMNI_PUBLIC_DEMO_MODE="true"), clear=False
+                ):
+                    blocked = evaluate_tool_governance(
+                        {"selected_tool": tool, "tool_arguments": {}}
+                    )
+                self.assertFalse(blocked["allowed"])
+                self.assertTrue(blocked["public_demo_blocked"])
 
     def test_governance_block_is_public_safe(self) -> None:
         result = execute_engineering_action(
@@ -149,7 +179,16 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
 
         self.assert_governance_blocked(result, "TOOL_APPROVAL_REQUIRED")
         serialized = str(result).lower()
-        for forbidden in ("traceback", "stack", "env", "token", "stdout", "stderr", "rm -rf", "raw_payload"):
+        for forbidden in (
+            "traceback",
+            "stack",
+            "env",
+            "token",
+            "stdout",
+            "stderr",
+            "rm -rf",
+            "raw_payload",
+        ):
             self.assertNotIn(forbidden, serialized)
 
     def test_read_file_path_traversal_is_denied(self) -> None:
@@ -193,7 +232,10 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
     def test_read_file_workspace_file_allowed_with_scope(self) -> None:
         result = execute_engineering_action(
             project_root=PROJECT_ROOT,
-            action={"selected_tool": "read_file", "tool_arguments": {"path": "package.json", "limit": 80}},
+            action={
+                "selected_tool": "read_file",
+                "tool_arguments": {"path": "package.json", "limit": 80},
+            },
         )
 
         self.assertTrue(result["ok"])
@@ -204,7 +246,10 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
             Path(outside, "secret.txt").write_text("host-secret", encoding="utf-8")
             result = execute_engineering_action(
                 project_root=PROJECT_ROOT,
-                action={"selected_tool": "read_file", "tool_arguments": {"workspace_root": outside, "path": "secret.txt"}},
+                action={
+                    "selected_tool": "read_file",
+                    "tool_arguments": {"workspace_root": outside, "path": "secret.txt"},
+                },
             )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error_payload"]["kind"], "workspace_outside_allowed_roots")
@@ -240,7 +285,10 @@ class ToolGovernanceEnforcementTest(unittest.TestCase):
         self.assertIsInstance(result["retryable"], bool)
         self.assertTrue(result["internal_error_redacted"])
         self.assertIn("governance_audit", result)
-        self.assertIn(result["governance_audit"]["category"], {"read_sensitive", "write", "destructive", "shell"})
+        self.assertIn(
+            result["governance_audit"]["category"],
+            {"read_sensitive", "write", "destructive", "shell"},
+        )
 
 
 if __name__ == "__main__":
