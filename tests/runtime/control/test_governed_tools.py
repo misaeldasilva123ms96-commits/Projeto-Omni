@@ -79,6 +79,9 @@ class GovernedToolsTest(unittest.TestCase):
         self.assertTrue(audit.allowed)
         self.assertFalse(audit.governed)
         self.assertTrue(audit.legacy_ungoverned_trusted)
+        serialized = audit.as_dict()
+        self.assertIs(type(serialized["legacy_ungoverned_trusted"]), bool)
+        self.assertIs(serialized["legacy_ungoverned_trusted"], True)
 
     def test_strict_blocks_ungoverned_tool(self) -> None:
         reset_governed_tool_registry_for_tests()

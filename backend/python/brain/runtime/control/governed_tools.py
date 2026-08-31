@@ -54,7 +54,7 @@ class ToolGovernanceAudit:
         return {
             "allowed": self.allowed,
             "governed": self.governed,
-            "legacy_ungoverned_trusted": self.legacy_ungoverned_trusted,
+            "legacy_ungoverned_trusted": bool(self.legacy_ungoverned_trusted),
             "strict_mode": self.strict_mode,
             "tool_name": self.tool_name,
             "policy_name": self.policy_name,
