@@ -17,7 +17,10 @@ from datetime import UTC, datetime
 from typing import Callable, Mapping, Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from brain.runtime.external.config import external_api_enabled
+from brain.runtime.external.config import (
+    external_api_enabled,
+    nominatim_operational_guard_satisfied,
+)
 from brain.runtime.external.credentials import CredentialResolver, EnvironmentCredentialResolver
 from brain.runtime.external.models import ExternalAPIRequest, ExternalAPIResponse, RedirectPolicy
 from brain.runtime.external.policy import ExternalAPIPolicy
@@ -325,6 +328,14 @@ class ExternalAPIGateway:
         )
         if not decision.allowed or not provider_enabled:
             reason = decision.reason if not decision.allowed else "provider_disabled"
+            self._emit(
+                "external_api.policy_denied",
+                {"api_id": request.api_id, "reason": reason},
+                event_sink,
+            )
+            raise ExternalGatewayError(reason)
+        if request.api_id == "nominatim" and not nominatim_operational_guard_satisfied():
+            reason = "provider_compliance_guard_failed"
             self._emit(
                 "external_api.policy_denied",
                 {"api_id": request.api_id, "reason": reason},

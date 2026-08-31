@@ -12,14 +12,16 @@ from brain.runtime.external.adapters.nominatim import (  # noqa: E402
     GeocodePlaceInput,
     get_geocode_place,
 )
+from brain.runtime.external.config import nominatim_operational_guard_satisfied  # noqa: E402
 from brain.runtime.external.gateway import ExternalAPIGateway  # noqa: E402
 from brain.runtime.external.providers import build_external_api_registry  # noqa: E402
 
 
 @unittest.skipUnless(
     os.getenv("OMNI_EXTERNAL_LIVE_TESTS") == "1"
-    and os.getenv("OMNI_EXTERNAL_NOMINATIM_LIVE_TESTS") == "1",
-    "Nominatim live test requires both explicit opt-in gates",
+    and os.getenv("OMNI_EXTERNAL_NOMINATIM_LIVE_TESTS") == "1"
+    and nominatim_operational_guard_satisfied(),
+    "Nominatim live test requires live opt-in gates and the operational guard",
 )
 class NominatimLiveSmokeTest(unittest.TestCase):
     def test_one_generic_settlement_query(self) -> None:

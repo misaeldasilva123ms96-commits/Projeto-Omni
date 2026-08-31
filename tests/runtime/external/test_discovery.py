@@ -196,6 +196,7 @@ class ParserAndModelTest(unittest.TestCase):
             "https://api.apis.guru/v2/specs/%252E%252e/1/swagger.json",
             "https://api.apis.guru/v2/specs/foo%2Fbar/1/swagger.json",
             "https://api.apis.guru/v2/specs/foo%5Cbar/1/swagger.json",
+            "https://api.apis.guru/v2/specs/foo\uff3cbar/1/swagger.json",
         )
         for locator in accepted:
             with self.subTest(accepted=locator):

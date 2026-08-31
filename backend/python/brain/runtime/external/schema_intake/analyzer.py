@@ -27,6 +27,7 @@ MAX_OPERATION_DETAILS = 500
 MAX_REFERENCES = 25_000
 MAX_SECURITY_SCHEMES = 200
 MAX_SERVERS = 200
+MAX_BINARY_AUDIT_NODES = 10_000
 MAX_TAGS = 500
 PROPOSAL_FORMAT_VERSION = "provider-design-proposal-v2"
 _OAS3 = re.compile(r"^3\.(?:0|1|2)\.\d+$")
@@ -129,31 +130,40 @@ def _server(value: object) -> DeclaredServer | None:
 
 def _servers(document: dict[str, object], version: str) -> tuple[DeclaredServer, ...]:
     values: list[object] = []
+    declared_count = 0
+
+    def add_entries(entries: list[object]) -> None:
+        nonlocal declared_count
+        declared_count += len(entries)
+        if declared_count > MAX_SERVERS:
+            raise SchemaIntakeError("schema_complexity_limit_exceeded")
+        values.extend(item.get("url") for item in entries if isinstance(item, dict))
+
     if version == "2.0":
         schemes = document.get("schemes") if isinstance(document.get("schemes"), list) else []
         host = document.get("host")
         base_path = document.get("basePath") or ""
+        declared_count += len(schemes)
+        if declared_count > MAX_SERVERS:
+            raise SchemaIntakeError("schema_complexity_limit_exceeded")
         values.extend(f"{scheme}://{host}{base_path}" for scheme in schemes if host)
     else:
         root = document.get("servers") if isinstance(document.get("servers"), list) else []
-        values.extend(item.get("url") for item in root if isinstance(item, dict))
+        add_entries(root)
         paths = document.get("paths") if isinstance(document.get("paths"), dict) else {}
         for path_item in paths.values():
             if not isinstance(path_item, dict):
                 continue
             nested = path_item.get("servers") if isinstance(path_item.get("servers"), list) else []
-            values.extend(item.get("url") for item in nested if isinstance(item, dict))
+            add_entries(nested)
             for operation in path_item.values():
                 if not isinstance(operation, dict):
                     continue
                 nested = (
                     operation.get("servers") if isinstance(operation.get("servers"), list) else []
                 )
-                values.extend(item.get("url") for item in nested if isinstance(item, dict))
-    result = tuple(item for item in (_server(value) for value in values[: MAX_SERVERS + 1]) if item)
-    if len(result) > MAX_SERVERS:
-        raise SchemaIntakeError("schema_complexity_limit_exceeded")
-    return result
+                add_entries(nested)
+    return tuple(item for item in (_server(value) for value in values) if item)
 
 
 def _parameter_locations(
@@ -305,7 +315,7 @@ def _operations(
 def _contains_binary(value: object) -> bool:
     stack = [value]
     examined = 0
-    while stack and examined < 10_000:
+    while stack and examined < MAX_BINARY_AUDIT_NODES:
         item = stack.pop()
         examined += 1
         if isinstance(item, dict):
@@ -314,6 +324,8 @@ def _contains_binary(value: object) -> bool:
             stack.extend(item.values())
         elif isinstance(item, list):
             stack.extend(item)
+    if stack:
+        raise SchemaIntakeError("schema_complexity_limit_exceeded")
     return False
 
 

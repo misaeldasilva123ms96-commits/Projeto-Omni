@@ -46,6 +46,8 @@ def _schema_locator(value: object) -> str | None:
     if not isinstance(value, str) or any(char in value for char in ("\\", "\x00", "\r", "\n")):
         return None
     url = sanitize_text(value, 2_048)
+    if any(char in url for char in ("\\", "\x00", "\r", "\n")):
+        return None
     try:
         parsed = urlsplit(url)
         port = parsed.port

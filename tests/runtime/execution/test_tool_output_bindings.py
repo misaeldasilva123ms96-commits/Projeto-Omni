@@ -4,6 +4,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "tests" / "runtime" / "external"))
 
 from brain.runtime.execution.bindings import resolve_tool_output_binding  # noqa: E402
 from brain.runtime.execution.manifest import build_execution_manifest  # noqa: E402
+from brain.runtime.artifact_paths import artifact_logs_root  # noqa: E402
 from brain.runtime.external.config import (  # noqa: E402
     EXTERNAL_API_ENABLED_ENV,
     OPEN_METEO_ENABLED_ENV,
@@ -183,6 +185,75 @@ class TypedBindingResolverTest(unittest.TestCase):
         self.assertEqual(weather_step.binding, "geocode_unique_candidate_to_weather")
 
 
+class ExecutionIntentRedactionTest(unittest.TestCase):
+    def test_all_external_tool_intents_reuse_complete_redaction(self) -> None:
+        orchestrator = object.__new__(BrainOrchestrator)
+        cases = (
+            (
+                "weather_forecast",
+                {"latitude": -16.68, "longitude": -49.25, "forecast_days": 2},
+                {"coordinates": "redacted", "forecast_days": 2},
+                "-16.68",
+            ),
+            (
+                "geocode_place",
+                {"place_name": "Sensitive Place", "country_code": "br"},
+                {"place_query": "redacted", "country_code_supplied": True},
+                "Sensitive Place",
+            ),
+            (
+                "currency_convert",
+                {"amount": "100", "from_currency": "USD", "to_currency": "BRL"},
+                {"from_currency": "USD", "to_currency": "BRL", "amount_supplied": True},
+                "100",
+            ),
+            (
+                "dictionary_lookup",
+                {"word": "confidential"},
+                {"dictionary_word": "redacted", "word_length": 12},
+                "confidential",
+            ),
+            (
+                "url_reputation_check",
+                {"url": "https://example.test/private/path?token=secret"},
+                {"url_indicator": "redacted", "url_supplied": True, "url_length": 46},
+                "https://example.test/private/path?token=secret",
+            ),
+        )
+        for selected_tool, arguments, expected, raw_value in cases:
+            with self.subTest(selected_tool=selected_tool):
+                intent = orchestrator._build_execution_intent(
+                    action={
+                        "step_id": "intent-1",
+                        "selected_tool": selected_tool,
+                        "tool_arguments": arguments,
+                    },
+                    session_id="intent-session",
+                    task_id="intent-task",
+                    run_id="intent-run",
+                )
+                self.assertEqual(intent.input_payload_summary["tool_arguments"], expected)
+                self.assertNotIn(
+                    raw_value,
+                    json.dumps(intent.input_payload_summary, ensure_ascii=False),
+                )
+
+    def test_non_external_tool_intent_arguments_are_preserved(self) -> None:
+        orchestrator = object.__new__(BrainOrchestrator)
+        arguments = {"path": "README.md", "limit": 10}
+        intent = orchestrator._build_execution_intent(
+            action={
+                "step_id": "read-1",
+                "selected_tool": "read_file",
+                "tool_arguments": arguments,
+            },
+            session_id="intent-session",
+            task_id="intent-task",
+            run_id="intent-run",
+        )
+        self.assertEqual(intent.input_payload_summary["tool_arguments"], arguments)
+
+
 def nominatim_payload(*, ambiguous: bool = False) -> list[dict[str, object]]:
     first = {
         "display_name": "Goiânia, Goiás, Brasil",
@@ -220,6 +291,34 @@ def weather_payload() -> dict[str, object]:
 
 
 class ComposedRuntimeTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._runtime_temp = tempfile.TemporaryDirectory(prefix="omni-binding-test-")
+        self.runtime_workspace = Path(self._runtime_temp.name)
+        memory_root = self.runtime_workspace / "memory"
+        self._runtime_env = patch.dict(
+            os.environ,
+            {
+                "OMNI_LOG_ROOT": str(self.runtime_workspace / "logs"),
+                "OMNI_MEMORY_ROOT": str(memory_root),
+                "OMNI_MEMORY_DIR": str(memory_root),
+                "OMNI_MEMORY_JSON_PATH": str(memory_root / "memory.json"),
+                "OMNI_JSONL_MEMORY_PATH": str(memory_root / "audit.jsonl"),
+                "OMNI_SQLITE_MEMORY_PATH": str(memory_root / "memory.sqlite"),
+                "OMNI_ENABLE_SQLITE_MEMORY": "false",
+                "OMNI_TRANSCRIPTS_DIR": str(self.runtime_workspace / "transcripts"),
+                "OMNI_SESSIONS_DIR": str(self.runtime_workspace / "sessions"),
+                "OMNI_RUNTIME_SESSION_ROOT": str(self.runtime_workspace / "runtime-sessions"),
+                "OMNI_SWARM_LOG_PATH": str(self.runtime_workspace / "swarm" / "swarm.json"),
+                "OMNI_EVOLUTION_DIR": str(self.runtime_workspace / "evolution"),
+                "OMNI_ARTIFACT_ROOT": str(self.runtime_workspace / "artifacts"),
+                "OMNI_CACHE_ROOT": str(self.runtime_workspace / "cache"),
+                "OMNI_DATABASE_ROOT": str(self.runtime_workspace / "databases"),
+            },
+        )
+        self._runtime_env.start()
+        self.addCleanup(self._runtime_temp.cleanup)
+        self.addCleanup(self._runtime_env.stop)
+
     def orchestrator(self, geocode_payload: object) -> tuple[BrainOrchestrator, FakeTransport]:
         transport = FakeTransport(
             [
@@ -230,6 +329,7 @@ class ComposedRuntimeTest(unittest.TestCase):
         orchestrator = BrainOrchestrator(
             BrainPaths.from_entrypoint(PROJECT_ROOT / "backend" / "python" / "main.py")
         )
+        self.addCleanup(orchestrator.close)
         orchestrator.external_api_gateway = ExternalAPIGateway(
             registry=build_external_api_registry(),
             resolver=FakeResolver(),
@@ -237,6 +337,29 @@ class ComposedRuntimeTest(unittest.TestCase):
             sleeper=lambda _: None,
         )
         return orchestrator, transport
+
+    def test_writable_runtime_paths_are_isolated_from_project_root(self) -> None:
+        orchestrator, _ = self.orchestrator([])
+        self.assertEqual(orchestrator.paths.root, PROJECT_ROOT)
+        self.assertEqual(
+            orchestrator.paths.js_runner,
+            PROJECT_ROOT / "js-runner" / "queryEngineRunner.js",
+        )
+        writable_paths = (
+            artifact_logs_root(orchestrator.paths.root),
+            orchestrator.paths.memory_dir,
+            orchestrator.paths.memory_json,
+            orchestrator.paths.transcripts_dir,
+            orchestrator.paths.sessions_dir,
+            orchestrator.paths.swarm_log,
+            orchestrator.paths.evolution_dir,
+        )
+        for writable_path in writable_paths:
+            with self.subTest(writable_path=writable_path):
+                self.assertTrue(
+                    writable_path.resolve().is_relative_to(self.runtime_workspace.resolve())
+                )
+        self.assertEqual(os.environ["OMNI_LOG_ROOT"], str(self.runtime_workspace / "logs"))
 
     @staticmethod
     def geocode_action(step_id: str = "geocode-1") -> dict:

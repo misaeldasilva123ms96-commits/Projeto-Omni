@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import ssl
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -20,7 +22,18 @@ from brain.runtime.external.gateway import (  # noqa: E402
     _read_limited,
     validate_resolved_addresses,
 )
+from brain.runtime.external.adapters.nominatim import (  # noqa: E402
+    GeocodePlaceInput,
+    build_nominatim_request,
+)
+from brain.runtime.external.config import (  # noqa: E402
+    OSM_GEOCODER_PUBLIC_API_COMPLIANCE_ACK_ENV,
+    OSM_GEOCODER_SINGLE_INSTANCE_ACK_ENV,
+    PYTHON_MODE_ENV,
+    PYTHON_SERVICE_FALLBACK_ENV,
+)
 from brain.runtime.external.models import ExternalAPIDefinition, ExternalAPIRequest  # noqa: E402
+from brain.runtime.external.providers import nominatim_definition  # noqa: E402
 from brain.runtime.external.registry import ExternalAPIRegistry  # noqa: E402
 
 
@@ -113,6 +126,65 @@ def gateway_for(
 REQUEST = ExternalAPIRequest(
     api_id="fixture_api", method="GET", path="/data", query={"safe": "value"}
 )
+NOMINATIM_READY_ENV = {
+    OSM_GEOCODER_PUBLIC_API_COMPLIANCE_ACK_ENV: "true",
+    OSM_GEOCODER_SINGLE_INSTANCE_ACK_ENV: "true",
+    PYTHON_MODE_ENV: "service",
+    PYTHON_SERVICE_FALLBACK_ENV: "false",
+}
+
+
+class NominatimOperationalGuardTest(unittest.TestCase):
+    @staticmethod
+    def request() -> ExternalAPIRequest:
+        return build_nominatim_request(GeocodePlaceInput("Goiânia", "Goiás", "br"))
+
+    def test_direct_gateway_denies_invalid_guard_before_dns_and_transport(self) -> None:
+        resolver = FakeResolver()
+        transport = FakeTransport()
+        events: list[tuple[str, dict[str, object]]] = []
+        gateway = gateway_for(
+            api=nominatim_definition(), resolver=resolver, transport=transport, events=events
+        )
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ExternalGatewayError) as caught,
+        ):
+            gateway.execute(self.request(), global_enabled=True, provider_enabled=True)
+        self.assertEqual(caught.exception.code, "provider_compliance_guard_failed")
+        self.assertEqual(resolver.calls, 0)
+        self.assertEqual(transport.calls, [])
+        self.assertIn(
+            (
+                "external_api.policy_denied",
+                {"api_id": "nominatim", "reason": "provider_compliance_guard_failed"},
+            ),
+            events,
+        )
+
+    def test_invalid_guard_denies_before_warm_cache_hit(self) -> None:
+        resolver = FakeResolver()
+        transport = FakeTransport([FakeTransport.success([])])
+        gateway = gateway_for(api=nominatim_definition(), resolver=resolver, transport=transport)
+        with patch.dict(os.environ, NOMINATIM_READY_ENV, clear=True):
+            gateway.execute(self.request(), global_enabled=True, provider_enabled=True)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ExternalGatewayError) as caught,
+        ):
+            gateway.execute(self.request(), global_enabled=True, provider_enabled=True)
+        self.assertEqual(caught.exception.code, "provider_compliance_guard_failed")
+        self.assertEqual(resolver.calls, 1)
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_valid_guard_reaches_fake_transport(self) -> None:
+        resolver = FakeResolver()
+        transport = FakeTransport([FakeTransport.success([])])
+        gateway = gateway_for(api=nominatim_definition(), resolver=resolver, transport=transport)
+        with patch.dict(os.environ, NOMINATIM_READY_ENV, clear=True):
+            gateway.execute(self.request(), global_enabled=True, provider_enabled=True)
+        self.assertEqual(resolver.calls, 1)
+        self.assertEqual(len(transport.calls), 1)
 
 
 class DNSValidationTest(unittest.TestCase):

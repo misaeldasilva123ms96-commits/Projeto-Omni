@@ -20,6 +20,10 @@ from brain.runtime.external.adapters.free_dictionary import (  # noqa: E402
     DictionaryLookupInput,
     lookup_dictionary,
 )
+from brain.runtime.external.config import (  # noqa: E402
+    EXTERNAL_API_ENABLED_ENV,
+    FRANKFURTER_ENABLED_ENV,
+)
 from brain.runtime.external.gateway import (  # noqa: E402
     ExternalAPIGateway,
     ExternalGatewayError,
@@ -242,14 +246,22 @@ def test_policy_accepts_only_typed_dictionary_path():
 
 def test_runtime_truth_and_privacy_redaction():
     gw, _ = gateway([{"date": "2026-08-29", "base": "USD", "quote": "BRL", "rate": "5.1"}])
-    outcome = execute_external_action(
-        action={
-            "selected_tool": "currency_convert",
-            "tool_arguments": {"amount": "100", "from_currency": "USD", "to_currency": "BRL"},
-        },
-        gateway=gw,
-    )
-    # Default gates deny execution, while redaction never retains the amount.
+    with patch.dict(
+        os.environ,
+        {EXTERNAL_API_ENABLED_ENV: "false", FRANKFURTER_ENABLED_ENV: "false"},
+    ):
+        outcome = execute_external_action(
+            action={
+                "selected_tool": "currency_convert",
+                "tool_arguments": {
+                    "amount": "100",
+                    "from_currency": "USD",
+                    "to_currency": "BRL",
+                },
+            },
+            gateway=gw,
+        )
+    # Explicit gates deny execution, while redaction never retains the amount.
     assert not outcome["ok"]
     redacted = BrainOrchestrator._redact_external_action(
         {

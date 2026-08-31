@@ -546,6 +546,81 @@ class StructuralAnalyzerTest(unittest.TestCase):
             )
         self.assertEqual(str(caught.exception), "schema_complexity_limit_exceeded")
 
+    def test_declared_server_limit_is_enforced_before_filtering_at_every_scope(self) -> None:
+        allowed = {
+            "openapi": "3.1.2",
+            "servers": [{"url": "https://one.example"}, {"url": "https://two.example"}],
+            "paths": {},
+        }
+        with patch.object(schema_analyzer, "MAX_SERVERS", 2):
+            proposal = analyze_openapi_schema(candidate(), allowed)
+        self.assertEqual(len(proposal.declared_servers), 2)
+
+        over_limit_documents = (
+            {
+                "openapi": "3.1.2",
+                "servers": [None, 42, {"url": "http://unsafe.example"}],
+                "paths": {},
+            },
+            {
+                "openapi": "3.1.2",
+                "servers": [{"url": "https://root.example"}],
+                "paths": {
+                    "/items": {
+                        "servers": [{"url": "https://path.example"}],
+                        "get": {
+                            "servers": [{"url": "http://operation.example"}],
+                            "responses": {"200": {}},
+                        },
+                    }
+                },
+            },
+            {
+                "swagger": "2.0",
+                "host": "api.example.com",
+                "schemes": ["https", "http", "wss"],
+                "paths": {},
+            },
+        )
+        for document in over_limit_documents:
+            with (
+                self.subTest(document=document),
+                patch.object(schema_analyzer, "MAX_SERVERS", 2),
+                self.assertRaises(SchemaIntakeError) as caught,
+            ):
+                analyze_openapi_schema(
+                    candidate(
+                        service=None,
+                        version="1",
+                        openapi_version="2.0" if document.get("swagger") else "3.1.2",
+                        filename="swagger.json" if document.get("swagger") else "openapi.json",
+                    ),
+                    document,
+                )
+            self.assertEqual(str(caught.exception), "schema_complexity_limit_exceeded")
+
+    def test_binary_audit_fails_closed_when_traversal_is_incomplete(self) -> None:
+        clean = {
+            "openapi": "3.1.2",
+            "paths": {"/clean": {"post": {"x-audit": [None] * 50, "responses": {}}}},
+        }
+        clean_proposal = analyze_openapi_schema(candidate(), clean)
+        self.assertNotIn("file_upload_surface_present", clean_proposal.risk_signals)
+
+        large_values = [None] * 10_001
+        binary_after_boundary = [{"type": "string", "format": "binary"}, *large_values]
+        for values in (large_values, binary_after_boundary):
+            document = {
+                "openapi": "3.1.2",
+                "paths": {"/upload": {"post": {"responses": {}, "x-binary-audit": values}}},
+            }
+            with (
+                self.subTest(binary=values is binary_after_boundary),
+                self.assertRaises(SchemaIntakeError) as caught,
+            ):
+                analyze_openapi_schema(candidate(), document)
+            self.assertEqual(str(caught.exception), "schema_complexity_limit_exceeded")
+
     def test_canonical_fingerprint_and_proposal_id_are_deterministic(self) -> None:
         first = analyze_openapi_schema(candidate(), OAS3)
         second = analyze_openapi_schema(candidate(), OAS3)

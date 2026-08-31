@@ -20,8 +20,8 @@ webhooks found in the document remain non-network metadata and require human rev
 
 Only each API record's preferred version becomes a Phase 7 candidate. A future schema locator is
 retained only when it is credential-free HTTPS on `api.apis.guru`, begins `/v2/specs/`, ends
-`/swagger.json`, and has no fragment. No spec, origin, external documentation, registration URL,
-or logo is fetched. The catalog is not a trust root.
+`/swagger.json` or `/openapi.json`, and has no query or fragment. No spec, origin, external
+documentation, registration URL, or logo is fetched. The catalog is not a trust root.
 
 APIs.guru catalog/definition licensing and fair-use metadata do not grant permission to use an
 underlying API. Provider-specific terms always require human review.
