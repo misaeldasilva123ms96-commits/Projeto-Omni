@@ -70,6 +70,16 @@ jobs:
             npm audit --audit-level=high
           fi
 
+      - name: Mobile Node audit (blocking high/critical)
+        working-directory: frontend/mobile
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
+      - name: Validate mobile Capacitor configuration
+        working-directory: frontend/mobile
+        run: npx --no-install cap ls
+
       - name: Python pip-audit (blocking advisory audit)
         run: |
           python -m pip install --upgrade pip
