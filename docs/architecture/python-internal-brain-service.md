@@ -1,5 +1,8 @@
 # Python Internal Brain Service
 
+See [service request safety](../runtime/service-request-safety.md) for request-local
+session identity and the Rust bridge's delivery-aware retry and fallback policy.
+
 Status: Phase 11A implementation. The existing stdin/subprocess Python entrypoint remains supported and Rust does not use service mode yet.
 
 ## Purpose

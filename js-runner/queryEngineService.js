@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const { timingSafeEqual } = require('node:crypto');
 const {
   OMNI_ERROR_CODE,
   buildPublicError,
@@ -176,6 +177,12 @@ function readRequestBody(request) {
 }
 
 function createServer() {
+  const configuredToken = process.env.OMNI_NODE_SERVICE_TOKEN || '';
+  const token = readEnv('OMNI_NODE_SERVICE_TOKEN', '').trim();
+  if (Buffer.byteLength(token, 'utf8') < 32 || /[\r\n]/.test(configuredToken)) {
+    throw new Error('OMNI_NODE_SERVICE_TOKEN must contain at least 32 bytes without line breaks');
+  }
+  const expectedAuthorization = Buffer.from(`Bearer ${token}`, 'utf8');
   return http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
     if (request.method === 'GET' && url.pathname === '/internal/query-engine/health') {
@@ -188,6 +195,13 @@ function createServer() {
     }
     if (request.method !== 'POST' || url.pathname !== '/internal/query-engine/run') {
       writeJson(response, ...buildServiceError(OMNI_ERROR_CODE.INPUT_VALIDATION_FAILED, 404, 'not_found'));
+      return;
+    }
+
+    const authorization = Buffer.from(String(request.headers.authorization || ''), 'utf8');
+    if (authorization.length !== expectedAuthorization.length
+      || !timingSafeEqual(authorization, expectedAuthorization)) {
+      writeJson(response, ...buildServiceError(OMNI_ERROR_CODE.INPUT_VALIDATION_FAILED, 401, 'service_auth_required'));
       return;
     }
 

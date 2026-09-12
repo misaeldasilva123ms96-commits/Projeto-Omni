@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from brain.runtime.bridge_stdin import service_session_id
 
 SESSION_BYOK_ALLOWED_PROVIDERS = {
     "groq",
@@ -32,6 +33,9 @@ DEFAULT_SESSION_ID = "python-session"
 
 def session_id() -> str:
     """Prefer explicit operator `AI_SESSION_ID`, then Rust bridge `OMNI_BRIDGE_CLIENT_SESSION_ID`."""
+    request_session = service_session_id()
+    if request_session is not None:
+        return request_session
     configured = os.getenv("AI_SESSION_ID", "").strip()
     if configured:
         return configured

@@ -6,13 +6,19 @@ import hmac
 import ipaddress
 import sys
 import time
+import re
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from brain.env import read_env
 from brain.runtime.config import python_service_mode
-from brain.runtime.bridge_stdin import read_bridge_stdin_dict, resolve_entry_message
+from brain.runtime.bridge_stdin import (
+    read_bridge_stdin_dict,
+    resolve_entry_message,
+    scoped_service_session,
+)
 from brain.runtime.error_taxonomy import OmniErrorCode, build_public_error
 from brain.runtime.observability.public_runtime_payload import sanitize_public_runtime_payload
 from main import build_public_chat_payload
@@ -167,19 +173,29 @@ def handle_run_payload(payload: Any) -> tuple[int, dict[str, Any]]:
             reason="message_required",
         )
 
-    bridge = {
-        "session": {},
-        "client_context": {},
-    }
+    requested_session = payload.get("session_id")
+    if requested_session is not None and (
+        not isinstance(requested_session, str)
+        or (
+            requested_session.strip()
+            and not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", requested_session.strip())
+        )
+    ):
+        return build_service_error(
+            OmniErrorCode.INPUT_VALIDATION_FAILED,
+            status=HTTPStatus.BAD_REQUEST,
+            reason="invalid_session_id",
+        )
+    request_session = (requested_session or "").strip() or f"service-{uuid.uuid4().hex}"
+    bridge = {"client_session_id": request_session, "client_context": {}}
     if isinstance(payload.get("metadata"), dict):
         bridge["client_context"] = dict(payload.get("metadata") or {})
-    if isinstance(payload.get("session_id"), str):
-        bridge["session"]["client_session_id"] = str(payload.get("session_id") or "")
     if isinstance(payload.get("request_id"), str):
         bridge["request_id"] = str(payload.get("request_id") or "")
 
     try:
-        result = build_public_chat_payload(message, bridge)
+        with scoped_service_session(request_session):
+            result = build_public_chat_payload(message, bridge)
     except Exception:
         LOGGER.error("python_brain_service_run_failed")
         return build_service_error(

@@ -1379,12 +1379,10 @@ async fn service_mode_unavailable_and_timeout_are_public_safe() {
 }
 
 #[tokio::test]
-async fn service_retry_is_bounded_and_can_recover() {
-    let (port, handle) = mock_python_service_many(vec![
-        (500, json!({"response": "fail"})),
-        (200, json!({"response": "ok after retry"})),
-    ])
-    .await;
+async fn service_retry_is_bounded_before_request_delivery() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
     let mut state = build_service_state(port, 5_000);
     state.python_runtime.retry_attempts = 1;
     state.python_runtime.circuit_failure_threshold = 10;
@@ -1392,9 +1390,11 @@ async fn service_retry_is_bounded_and_can_recover() {
     let response = call_python(&state, "hello", None, None, None)
         .await
         .expect("retry response");
-    let requests = handle.await.expect("requests");
-    assert_eq!(requests.len(), 2);
-    assert_eq!(response.response, "ok after retry");
+    assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE);
+    assert_eq!(
+        state.python_circuit.lock().expect("circuit").failure_count,
+        2
+    );
     assert_eq!(
         state.python_circuit.lock().expect("circuit").state,
         CircuitBreakerState::Closed
@@ -1403,8 +1403,9 @@ async fn service_retry_is_bounded_and_can_recover() {
 
 #[tokio::test]
 async fn service_failure_optionally_falls_back_to_subprocess() {
-    let (port, _handle) =
-        mock_python_service_once(500, json!({"response": "service failed"})).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    drop(listener);
     let script = r#"print('{"response":"ok from subprocess","cognitive_runtime_inspection":{"runtime_mode":"FULL_COGNITIVE_RUNTIME"}}')"#;
     let mut state = build_test_state(temp_script(script, "service-fallback"), 15_000);
     state.python_runtime = PythonRuntimeConfig {
@@ -1433,6 +1434,70 @@ async fn service_failure_optionally_falls_back_to_subprocess() {
         inspection["runtime_mode"].as_str(),
         Some("FULL_COGNITIVE_RUNTIME")
     );
+}
+
+#[tokio::test]
+async fn service_delivered_requests_are_never_retried_or_replayed_by_subprocess() {
+    for (name, status, body, delay_ms) in [
+        (
+            "http-error",
+            500,
+            r#"{"response":"failed after execution"}"#,
+            0,
+        ),
+        ("invalid-json", 200, "invalid JSON", 0),
+        ("invalid-envelope", 200, "{}", 0),
+        ("timeout", 200, r#"{"response":"completed late"}"#, 250),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("first request");
+            let mut buf = [0_u8; 16_384];
+            let size = stream.read(&mut buf).await.expect("request bytes");
+            assert!(size > 0);
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            let reply = format!(
+                "HTTP/1.1 {status} OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(reply.as_bytes()).await;
+            drop(stream);
+            // A replay would queue another connection even if the first task
+            // completed after its client timed out.
+            timeout(Duration::from_millis(250), listener.accept())
+                .await
+                .is_ok()
+        });
+        let mut state = build_service_state(port, 100);
+        let script = temp_script("raise RuntimeError('subprocess must not execute')", name);
+        let sentinel = script.with_extension("executed");
+        let _ = fs::remove_file(&sentinel);
+        fs::write(&script, format!(
+            "from pathlib import Path\nPath({:?}).write_text('executed')\nprint('{{\"response\":\"replayed\"}}')",
+            sentinel.to_string_lossy()
+        )).expect("sentinel script");
+        state.python_entry = script;
+        state.python_runtime.retry_attempts = 3;
+        state.python_runtime.fallback_to_subprocess = true;
+        state.python_runtime.circuit_failure_threshold = 10;
+        let response = call_python(
+            &state,
+            "execute once",
+            None,
+            Some("same-request".into()),
+            None,
+        )
+        .await
+        .expect("safe failure response");
+        assert_eq!(response.source, "python-service", "{name}");
+        assert_eq!(response.response, PYTHON_FALLBACK_RESPONSE, "{name}");
+        assert!(!sentinel.exists(), "subprocess replay for {name}");
+        assert!(
+            !handle.await.expect("server result"),
+            "HTTP replay for {name}"
+        );
+    }
 }
 
 #[tokio::test]
