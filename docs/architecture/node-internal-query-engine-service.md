@@ -10,6 +10,14 @@ The Node internal QueryEngine service exposes the current QueryEngine runner thr
 
 This service is not a public API. It must bind to loopback or a private container network only. Do not expose it directly through Render, Cloudflare, public ingress, browser clients, or frontend code.
 
+Startup requires `OMNI_NODE_SERVICE_TOKEN` with at least 32 UTF-8 bytes and no
+line breaks. Generate a random token and supply it through the deployment's
+secret configuration. `POST /internal/query-engine/run` requires
+`Authorization: Bearer <token>`; missing or incorrect credentials return 401
+before the executor is called. Health and readiness remain unauthenticated.
+Restart the service after rotating its token. Existing internal callers must
+send this header when upgrading. The CLI runner is unaffected.
+
 Default bind:
 
 ```txt

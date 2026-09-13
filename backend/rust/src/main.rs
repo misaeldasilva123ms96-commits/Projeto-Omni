@@ -122,6 +122,13 @@ enum PythonServiceFailureKind {
 struct PythonServiceFailure {
     kind: PythonServiceFailureKind,
     circuit_state: CircuitBreakerState,
+    replay_safe: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PythonServiceTransportFailure {
+    kind: PythonServiceFailureKind,
+    replay_safe: bool,
 }
 
 pub(crate) struct ChatSecurityState {
@@ -2805,7 +2812,7 @@ fn parse_http_response(raw: &[u8]) -> Option<(u16, String)> {
 async fn post_python_service(
     state: &AppState,
     body: Vec<u8>,
-) -> Result<(u16, String), &'static str> {
+) -> Result<(u16, String), PythonServiceTransportFailure> {
     let host = state.python_runtime.service_host.as_str();
     let port = state.python_runtime.service_port;
     let service_token = read_env_string("OMNI_PYTHON_SERVICE_TOKEN", "");
@@ -2820,10 +2827,16 @@ async fn post_python_service(
         TcpStream::connect((host, port)),
     )
     .await
-    .map_err(|_| "timeout")?
-    .map_err(|_| "connect_failed")?;
+    .map_err(|_| PythonServiceTransportFailure {
+        kind: PythonServiceFailureKind::Timeout,
+        replay_safe: true,
+    })?
+    .map_err(|_| PythonServiceTransportFailure {
+        kind: PythonServiceFailureKind::ServiceFailure,
+        replay_safe: true,
+    })?;
 
-    timeout(
+    let result = timeout(
         Duration::from_millis(state.python_runtime.service_timeout_ms),
         async {
             stream
@@ -2840,8 +2853,20 @@ async fn post_python_service(
             parse_http_response(&out).ok_or("invalid_http_response")
         },
     )
-    .await
-    .map_err(|_| "timeout")?
+    .await;
+    // Once writing starts, even a timeout or malformed reply cannot establish
+    // that the service did not execute the task. Never replay that request.
+    match result {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(_)) => Err(PythonServiceTransportFailure {
+            kind: PythonServiceFailureKind::ServiceFailure,
+            replay_safe: false,
+        }),
+        Err(_) => Err(PythonServiceTransportFailure {
+            kind: PythonServiceFailureKind::Timeout,
+            replay_safe: false,
+        }),
+    }
 }
 
 fn build_python_fallback_response(
@@ -3028,6 +3053,7 @@ async fn execute_python_service_with_policy(
                 .map_err(|_| PythonServiceFailure {
                     kind: PythonServiceFailureKind::ServiceFailure,
                     circuit_state: CircuitBreakerState::Open,
+                    replay_safe: true,
                 })?;
             guard.before_call(&state.python_runtime, Instant::now())
         };
@@ -3037,39 +3063,47 @@ async fn execute_python_service_with_policy(
             return Err(PythonServiceFailure {
                 kind: PythonServiceFailureKind::ServiceFailure,
                 circuit_state,
+                replay_safe: true,
             });
         }
 
-        match post_python_service(state, body.clone()).await {
+        let failure = match post_python_service(state, body.clone()).await {
             Ok((status, response_body)) if (200..300).contains(&status) => {
                 if serde_json::from_str::<Value>(&response_body).is_err() {
                     last_failure = PythonServiceFailureKind::ServiceFailure;
                     record_python_service_failure(state, last_failure, circuit_state);
-                    continue;
+                    return Err(PythonServiceFailure {
+                        kind: last_failure,
+                        circuit_state: current_python_circuit_state(state),
+                        replay_safe: false,
+                    });
                 }
                 if let Ok(mut guard) = state.python_circuit.lock() {
                     guard.record_success();
                 }
                 return Ok((response_body, circuit_state));
             }
-            Ok(_) => {
-                last_failure = PythonServiceFailureKind::ServiceFailure;
-                record_python_service_failure(state, last_failure, circuit_state);
-            }
-            Err("timeout") => {
-                last_failure = PythonServiceFailureKind::Timeout;
-                record_python_service_failure(state, last_failure, circuit_state);
-            }
-            Err(_) => {
-                last_failure = PythonServiceFailureKind::ServiceFailure;
-                record_python_service_failure(state, last_failure, circuit_state);
-            }
+            Ok(_) => PythonServiceTransportFailure {
+                kind: PythonServiceFailureKind::ServiceFailure,
+                replay_safe: false,
+            },
+            Err(failure) => failure,
+        };
+        last_failure = failure.kind;
+        record_python_service_failure(state, last_failure, circuit_state);
+        if !failure.replay_safe {
+            return Err(PythonServiceFailure {
+                kind: last_failure,
+                circuit_state: current_python_circuit_state(state),
+                replay_safe: false,
+            });
         }
     }
 
     Err(PythonServiceFailure {
         kind: last_failure,
         circuit_state: current_python_circuit_state(state).max_state(last_state),
+        replay_safe: true,
     })
 }
 
@@ -3114,7 +3148,7 @@ async fn call_python_service(
             )
             .await;
 
-            if state.python_runtime.fallback_to_subprocess {
+            if state.python_runtime.fallback_to_subprocess && failure.replay_safe {
                 let mut fallback = call_python_subprocess(
                     state,
                     message,
@@ -3151,20 +3185,6 @@ async fn call_python_service(
         update_python_health(state, "failed", Some(code.to_string())).await;
         record_python_service_failure(state, kind, circuit_state);
         let current_state = current_python_circuit_state(state);
-        if state.python_runtime.fallback_to_subprocess {
-            let mut fallback = call_python_subprocess(
-                state,
-                message,
-                client_session_id,
-                request_id,
-                client_context,
-            )
-            .await?;
-            fallback.source = "python-service-subprocess-fallback".to_string();
-            fallback.stop_reason = Some(format!("{stop_reason}_subprocess_fallback"));
-            annotate_service_metadata(&mut fallback, true, true, current_state, code);
-            return Ok(fallback);
-        }
         let mut fallback = build_python_fallback_response(
             state,
             "python-service",

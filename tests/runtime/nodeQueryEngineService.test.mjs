@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url)
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const service = require('../../js-runner/queryEngineService.js')
 
-function request(port, method, pathname, body, contentType = 'application/json') {
+function request(port, method, pathname, body, contentType = 'application/json', token = '') {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body), 'utf8')
     const req = http.request({
@@ -20,6 +20,7 @@ function request(port, method, pathname, body, contentType = 'application/json')
       headers: payload ? {
         'content-type': contentType,
         'content-length': String(payload.length),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
       } : {},
     }, (res) => {
       const chunks = []
@@ -139,6 +140,23 @@ assert.equal(serialized(failPayload).includes('/home/render'), false)
 assert.equal(serialized(failPayload).includes('sk-proj'), false)
 assert.equal(serialized(failPayload).includes('stack'), false)
 
+delete process.env.OMNI_NODE_SERVICE_TOKEN
+assert.throws(() => service.createServer(), /OMNI_NODE_SERVICE_TOKEN/)
+process.env.OMNI_NODE_SERVICE_TOKEN = 'short'
+assert.throws(() => service.createServer(), /32/)
+const token = 'test-only-node-service-token-32-bytes'
+process.env.OMNI_NODE_SERVICE_TOKEN = `${token}\n`
+assert.throws(() => service.createServer(), /line breaks/)
+process.env.OMNI_NODE_SERVICE_TOKEN = token
+const runner = require('../../js-runner/queryEngineRunner.js')
+const originalExecute = runner.tryRunExistingQueryEngineDetailed
+const originalSanitize = runner.sanitizeForUser
+let executions = 0
+runner.tryRunExistingQueryEngineDetailed = async () => {
+  executions++
+  return { result: { response: 'authenticated request' } }
+}
+runner.sanitizeForUser = value => value
 const server = service.createServer()
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 const port = server.address().port
@@ -151,11 +169,24 @@ try {
   assert.equal(ready.status, 200)
   assert.equal(ready.body.checks.public_sanitizer, true)
 
-  const invalidType = await request(port, 'POST', '/internal/query-engine/run', { message: 'ola' }, 'text/plain')
+  for (const credential of ['', 'wrong', 'x'.repeat(token.length)]) {
+    const denied = await request(port, 'POST', '/internal/query-engine/run', { message: 'ola' }, 'application/json', credential)
+    assert.equal(denied.status, 401)
+    assert.equal(executions, 0)
+    assert.equal(serialized(denied.body).includes(token), false)
+  }
+  const allowed = await request(port, 'POST', '/internal/query-engine/run', { message: 'ola' }, 'application/json', token)
+  assert.equal(allowed.status, 200)
+  assert.equal(allowed.body.response, 'authenticated request')
+  assert.equal(executions, 1)
+  const invalidType = await request(port, 'POST', '/internal/query-engine/run', { message: 'ola' }, 'text/plain', token)
   assert.equal(invalidType.status, 415)
   assert.equal(invalidType.body.error_public_code, 'INVALID_CONTENT_TYPE')
 } finally {
   await new Promise((resolve) => server.close(resolve))
+  runner.tryRunExistingQueryEngineDetailed = originalExecute
+  runner.sanitizeForUser = originalSanitize
+  delete process.env.OMNI_NODE_SERVICE_TOKEN
 }
 
 const cli = spawnSync(

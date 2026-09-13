@@ -11,10 +11,28 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 # Guard against accidental huge payloads on stdin.
 _MAX_STDIN_BYTES = 512_000
+_service_session: ContextVar[str | None] = ContextVar("omni_service_session", default=None)
+
+
+def service_session_id() -> str | None:
+    return _service_session.get()
+
+
+@contextmanager
+def scoped_service_session(session: str) -> Iterator[None]:
+    """Keep HTTP identity local to this request, including exception paths."""
+    token = _service_session.set(session)
+    try:
+        yield
+    finally:
+        _service_session.reset(token)
 
 
 def read_bridge_stdin_dict() -> dict[str, Any]:
@@ -55,6 +73,9 @@ def apply_bridge_env(bridge: dict[str, Any]) -> None:
     `OMNI_BRIDGE_CLIENT_SESSION_ID` is optional and maps into `_session_id()` when
     `AI_SESSION_ID` is unset (see `docs/backend/python-bridge-contract.md`).
     """
+    # HTTP requests share a process. Never publish their fields into global env.
+    if service_session_id() is not None:
+        return
     cid = bridge.get("client_session_id")
     if isinstance(cid, str) and cid.strip():
         os.environ["OMNI_BRIDGE_CLIENT_SESSION_ID"] = cid.strip()[:256]

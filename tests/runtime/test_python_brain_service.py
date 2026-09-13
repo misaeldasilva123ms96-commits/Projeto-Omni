@@ -7,6 +7,8 @@ import threading
 import urllib.error
 import urllib.request
 import pytest
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +17,61 @@ PYTHON_ROOT = PROJECT_ROOT / "backend" / "python"
 sys.path.insert(0, str(PYTHON_ROOT))
 
 import brain_service  # noqa: E402
+from brain.runtime.bridge_stdin import apply_bridge_env
+from brain.runtime.session_helpers import session_id
+from brain.runtime.transcript_store import TranscriptStore
+
+
+def test_service_sessions_keep_separate_histories_during_concurrent_requests(tmp_path, monkeypatch):
+    monkeypatch.delenv("AI_SESSION_ID", raising=False)
+    monkeypatch.setenv("OMNI_BRIDGE_CLIENT_SESSION_ID", "outside-request")
+    store = TranscriptStore(tmp_path)
+    store.append_turn("session-a", "history a", "answer a")
+    store.append_turn("session-b", "history b", "answer b")
+    barrier = threading.Barrier(2)
+
+    def execute(message, bridge):
+        apply_bridge_env(bridge)
+        barrier.wait(timeout=5)
+        return {"response": store.load_recent_history(session_id())[0]["content"]}
+
+    with patch.object(brain_service, "build_public_chat_payload", side_effect=execute):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(brain_service.handle_run_payload, [
+                {"message": "read history", "session_id": "session-a"},
+                {"message": "read history", "session_id": "session-b"},
+            ]))
+    assert [payload["response"] for _, payload in results] == ["history a", "history b"]
+    assert os.environ["OMNI_BRIDGE_CLIENT_SESSION_ID"] == "outside-request"
+    assert session_id() == "outside-request"
+
+
+def test_service_anonymous_sessions_and_failed_requests_do_not_reuse_identity(monkeypatch):
+    monkeypatch.setenv("AI_SESSION_ID", "operator-default")
+    seen = []
+
+    def execute(message, bridge):
+        apply_bridge_env(bridge)
+        seen.append(session_id())
+        if message == "fail":
+            raise RuntimeError("test failure")
+        return {"response": "ok"}
+
+    with patch.object(brain_service, "build_public_chat_payload", side_effect=execute):
+        assert brain_service.handle_run_payload({"message": "fail", "session_id": "explicit"})[0] == 500
+        assert brain_service.handle_run_payload({"message": "first"})[0] == 200
+        assert brain_service.handle_run_payload({"message": "second"})[0] == 200
+    assert seen[0] == "explicit"
+    assert len(set(seen)) == 3
+    assert "operator-default" not in seen
+    assert session_id() == "operator-default"
+
+
+@pytest.mark.parametrize("value", ["../escape", "bad/id", "C:escape", "a" * 129, 123])
+def test_service_rejects_unsafe_session_ids(value):
+    with patch.object(brain_service, "build_public_chat_payload") as execute:
+        assert brain_service.handle_run_payload({"message": "hello", "session_id": value})[0] == 400
+        execute.assert_not_called()
 
 
 def _request(method: str, url: str, payload: dict | None = None, content_type: str = "application/json", token: str = "") -> tuple[int, dict]:

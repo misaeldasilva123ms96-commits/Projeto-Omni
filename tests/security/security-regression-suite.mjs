@@ -10,6 +10,16 @@ function frontendVitestEntrypoint() {
 
 const commands = [
   {
+    label: 'internal Node service authentication',
+    command: 'node',
+    args: ['tests/runtime/nodeQueryEngineService.test.mjs'],
+  },
+  {
+    label: 'Python service request identity isolation',
+    command: 'python',
+    args: ['-m', 'pytest', '-q', 'tests/runtime/test_python_brain_service.py'],
+  },
+  {
     label: 'phase-1a shell hardening',
     command: 'python',
     args: ['-m', 'pytest', '-q', 'tests/runtime/test_shell_policy_hardening.py'],
