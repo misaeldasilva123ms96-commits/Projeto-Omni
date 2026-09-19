@@ -86,3 +86,13 @@ Model names are diagnostic metadata, not secrets, but they should appear only in
 ## Local Provider Limits
 
 For Ollama and LM Studio, P5C only allows request-scoped model/key overlay. It does not accept arbitrary local URLs from the request. Local providers still require `OLLAMA_URL` or `LMSTUDIO_URL` from system configuration.
+
+## Active Credential Checks
+
+Provider Center active credential checks never follow HTTP redirects. Every 3xx
+response is rejected before a second network request is issued, including redirects
+to another path on the same host. The public result is `redirect_denied`; Location,
+credentials, provider bodies and raw exceptions are not returned or logged by the
+active-test fallback. The existing five-second transport timeout and fixed official
+HTTPS endpoints remain unchanged. This policy is local to active checks and does
+not change chat execution or Gemini authentication semantics.

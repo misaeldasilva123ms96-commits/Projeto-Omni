@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
+import urllib.error
+import urllib.request
 from typing import Any
 
 from .encrypted_credential_store import (
@@ -335,12 +337,8 @@ def _run_provider_test(provider_id: str, secret: str) -> dict[str, Any]:
             return _test_openai_compatible(provider_id, secret)
         if provider_id == "anthropic":
             return _test_anthropic(secret)
-    except Exception as exc:  # pragma: no cover — runtime hardening
-        logger.debug(
-            "Provider test failed provider=%s error=%s",
-            provider_id,
-            exc,
-        )
+    except Exception:  # pragma: no cover — runtime hardening
+        logger.debug("Provider test failed provider=%s", provider_id)
         return {
             "success": False,
             "reachable": False,
@@ -372,6 +370,8 @@ def _test_openai_compatible(
             }
         response = exc
     status = _response_status(response)
+    if 300 <= status < 400:
+        return {"success": False, "reachable": True, "error": "redirect_denied"}
     if status in {401, 403}:
         return {"success": False, "reachable": True, "error": "Invalid API key"}
     if status == 429:
@@ -412,6 +412,8 @@ def _test_anthropic(secret: str, timeout: int = 5) -> dict[str, Any]:
             }
         response = exc
     status = _response_status(response)
+    if 300 <= status < 400:
+        return {"success": False, "reachable": True, "error": "redirect_denied"}
     if status in {401, 403}:
         return {"success": False, "reachable": True, "error": "Invalid API key"}
     if status == 429:
@@ -489,11 +491,8 @@ def _safe_json(response: Any) -> Any:
 
 
 def _http_get(url: str, headers: dict[str, str], timeout: int = 5) -> Any:
-    import urllib.error
-    import urllib.request
-
     req = urllib.request.Request(url=url, headers=headers, method="GET")
-    return urllib.request.urlopen(req, timeout=timeout)
+    return _open_without_redirects(req, timeout)
 
 
 def _http_post(
@@ -503,8 +502,6 @@ def _http_post(
     timeout: int = 5,
 ) -> Any:
     import json
-    import urllib.error
-    import urllib.request
 
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
@@ -513,4 +510,23 @@ def _http_post(
         headers=headers,
         method="POST",
     )
-    return urllib.request.urlopen(req, timeout=timeout)
+    return _open_without_redirects(req, timeout)
+
+
+class _RejectRedirects(urllib.request.HTTPErrorProcessor):
+    """Reject every 3xx before urllib can dispatch to a redirect handler."""
+
+    def http_response(self, request: Any, response: Any) -> Any:
+        if 300 <= response.code < 400:
+            status = response.code
+            response.close()
+            # Do not retain the original URL, Location, headers or provider body.
+            raise urllib.error.HTTPError("", status, "redirect_denied", None, None)
+        return super().http_response(request, response)
+
+    https_response = http_response
+
+
+def _open_without_redirects(request: Any, timeout: int) -> Any:
+    # Local opener: do not change urllib policy for chat, telemetry or other callers.
+    return urllib.request.build_opener(_RejectRedirects()).open(request, timeout=timeout)
