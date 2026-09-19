@@ -2179,9 +2179,7 @@ fn validate_session_provider_credentials(
 /// ----- Settings API (BYOK) Handlers -----
 fn python_settings_cli_path(state: &AppState) -> PathBuf {
     state
-        .project_root
-        .join("..")
-        .join("python")
+        .python_root
         .join("config")
         .join("provider_settings_cli.py")
 }
@@ -2192,6 +2190,9 @@ async fn run_settings_cli(
     stdin_secret: Option<&str>,
 ) -> Result<Value, AppError> {
     let cli_path = python_settings_cli_path(state);
+    if !cli_path.is_file() {
+        return Err(AppError::Internal("settings CLI unavailable".into()));
+    }
 
     let mut cli_args: Vec<std::ffi::OsString> = Vec::with_capacity(args.len() + 1);
     cli_args.push(cli_path.into_os_string());
