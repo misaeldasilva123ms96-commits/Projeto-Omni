@@ -27,6 +27,14 @@ def _load_python_main_module():
 
 
 class BridgePipelineTest(unittest.TestCase):
+    def test_runner_smoke_entrypoint_does_not_load_project_credentials(self) -> None:
+        module = _load_python_main_module()
+        with patch.object(module, "_load_project_dotenv") as load_env, patch.object(module, "BrainOrchestrator") as factory:
+            factory.return_value.build_runner_smoke_diagnostic.return_value = {"status": "ok"}
+            self.assertEqual(module.build_public_runner_smoke_payload(), {"status": "ok"})
+            load_env.assert_not_called()
+            factory.return_value.close.assert_called_once()
+
     def test_public_runtime_session_id_is_truthful_and_bounded(self) -> None:
         module = _load_python_main_module()
         with patch.dict(os.environ, {"AI_SESSION_ID": "runtime-session-1"}, clear=False):

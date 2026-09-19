@@ -59,6 +59,7 @@ pub(crate) struct PythonInvocation<'a> {
     pub args: Vec<OsString>,
     pub current_dir: Option<&'a Path>,
     pub env_overrides: Vec<(String, OsString)>,
+    pub clear_env: bool,
     pub stdin_mode: StdinMode,
     pub stderr_mode: StderrMode,
     /// Payload written to the piped stdin before waiting. Requires
@@ -74,6 +75,7 @@ impl<'a> PythonInvocation<'a> {
             args,
             current_dir: None,
             env_overrides: Vec::new(),
+            clear_env: false,
             stdin_mode: StdinMode::Piped,
             stderr_mode: StderrMode::Piped,
             stdin_payload: None,
@@ -88,6 +90,11 @@ impl<'a> PythonInvocation<'a> {
 
     pub fn env(mut self, key: &str, value: impl Into<OsString>) -> Self {
         self.env_overrides.push((key.to_string(), value.into()));
+        self
+    }
+
+    pub fn env_clear(mut self) -> Self {
+        self.clear_env = true;
         self
     }
 
@@ -142,6 +149,9 @@ pub(crate) async fn run_python(
 
     if let Some(dir) = invocation.current_dir {
         command.current_dir(dir);
+    }
+    if invocation.clear_env {
+        command.env_clear();
     }
     for (key, value) in &invocation.env_overrides {
         command.env(key, value);

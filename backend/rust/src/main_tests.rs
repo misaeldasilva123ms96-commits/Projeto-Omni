@@ -11,6 +11,9 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use std::fs;
 use tower::ServiceExt;
 
+#[path = "public_diagnostics_tests.rs"]
+mod public_diagnostics_tests;
+
 #[test]
 fn provider_settings_health_signals_round_trip_without_secret_fields() {
     let raw = json!({
@@ -587,8 +590,12 @@ print(json.dumps({
 }))
 "#;
     let state = build_test_state(temp_script(script, "runner-smoke-safe"), 15_000);
+    let mut request = get_request("/api/v1/runtime/runner-smoke");
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([198, 51, 100, 10], 41000))));
     let response = chat_router(state)
-        .oneshot(get_request("/api/v1/runtime/runner-smoke"))
+        .oneshot(request)
         .await
         .expect("runner smoke route");
     assert_eq!(response.status(), StatusCode::OK);

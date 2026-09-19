@@ -330,21 +330,15 @@ export type HealthResponse = {
   runtime_session_version: number
   timestamp_ms: number
   python: {
-    configured_bin: string
-    entry: string
-    entry_exists: boolean
     observable: boolean
     last_status: string
-    last_error?: string | null
+    error_code?: 'PYTHON_ORCHESTRATOR_FAILED' | 'TIMEOUT' | null
     last_checked_ms?: number | null
   }
   node: {
-    configured_bin: string
-    entry: string
-    entry_exists: boolean
     observable: boolean
     last_status: string
-    last_error?: string | null
+    error_code?: null
     last_checked_ms?: number | null
   }
 }

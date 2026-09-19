@@ -136,7 +136,13 @@ pub(crate) struct ChatSecurityState {
     rate_limiter: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
     rate_limit_max_clients: usize,
     trusted_proxy: TrustedProxyConfig,
+    smoke_rate_limiter: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+    smoke_cache: Arc<tokio::sync::Mutex<Option<(Instant, PublicRunnerSmokeResponseV1)>>>,
 }
+
+const SMOKE_RATE_PER_MINUTE: usize = 6;
+const SMOKE_CACHE_TTL: Duration = Duration::from_secs(10);
+const SMOKE_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ChatSecurityConfig {
@@ -878,6 +884,8 @@ impl ChatSecurityState {
                 rate_limit_per_minute: read_env_usize("OMNI_RATE_LIMIT_PER_MINUTE", 30),
             },
             rate_limiter: Mutex::new(HashMap::new()),
+            smoke_rate_limiter: Mutex::new(HashMap::new()),
+            smoke_cache: Arc::new(tokio::sync::Mutex::new(None)),
             rate_limit_max_clients: max_clients,
             trusted_proxy,
         })
@@ -888,6 +896,8 @@ impl ChatSecurityState {
         Self {
             config,
             rate_limiter: Mutex::new(HashMap::new()),
+            smoke_rate_limiter: Mutex::new(HashMap::new()),
+            smoke_cache: Arc::new(tokio::sync::Mutex::new(None)),
             rate_limit_max_clients: Self::DEFAULT_MAX_CLIENTS,
             trusted_proxy: TrustedProxyConfig::direct_only(),
         }
@@ -898,9 +908,34 @@ impl ChatSecurityState {
             return true;
         }
         let limit = self.config.rate_limit_per_minute.max(1);
+        Self::check_bucket(
+            &self.rate_limiter,
+            self.rate_limit_max_clients,
+            limit,
+            client_key,
+            now,
+        )
+    }
+
+    fn check_smoke_rate_limit(&self, client_key: IpAddr, now: Instant) -> bool {
+        Self::check_bucket(
+            &self.smoke_rate_limiter,
+            self.rate_limit_max_clients.min(Self::DEFAULT_MAX_CLIENTS),
+            SMOKE_RATE_PER_MINUTE,
+            client_key,
+            now,
+        )
+    }
+
+    fn check_bucket(
+        buckets: &Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+        max_clients: usize,
+        limit: usize,
+        client_key: IpAddr,
+        now: Instant,
+    ) -> bool {
         let window = Duration::from_secs(60);
-        let mut guard = self
-            .rate_limiter
+        let mut guard = buckets
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.retain(|_, hits| {
@@ -912,7 +947,7 @@ impl ChatSecurityState {
             }
             !hits.is_empty()
         });
-        if !guard.contains_key(&client_key) && guard.len() >= self.rate_limit_max_clients {
+        if !guard.contains_key(&client_key) && guard.len() >= max_clients {
             return false;
         }
         let hits = guard.entry(client_key).or_default();
@@ -952,30 +987,35 @@ async fn build_health_snapshot(state: &AppState) -> HealthResponse {
     HealthResponse {
         status: status.to_string(),
         rust_service: "ok",
-        runtime_mode: state.runtime_mode.clone(),
+        runtime_mode: match state.runtime_mode.as_str() {
+            "live" | "mock" | "fallback" => state.runtime_mode.clone(),
+            _ => "fallback".into(),
+        },
         observability_stream_ticket_store_mode: state.observability_stream_tickets.mode().as_str(),
         runtime_session_version: state.runtime_session_version,
         timestamp_ms: unix_timestamp_ms(),
         python: DependencyHealth {
-            configured_bin: state.python_bin.clone(),
-            entry: state.python_entry.display().to_string(),
-            entry_exists: state.python_entry.exists(),
             observable: python_status.observable,
-            last_status: python_status.last_status,
-            last_error: python_status.last_error,
+            last_status: match python_status.last_status.as_str() {
+                "not_checked" | "ready" | "mock" | "timeout" => python_status.last_status.clone(),
+                "failed" | "unavailable" => "unavailable".into(),
+                _ => "degraded".into(),
+            },
+            error_code: match python_status.last_status.as_str() {
+                "timeout" => Some("TIMEOUT"),
+                "not_checked" | "ready" | "mock" if python_status.last_error.is_none() => None,
+                _ => Some("PYTHON_ORCHESTRATOR_FAILED"),
+            },
             last_checked_ms: python_status.last_checked_ms,
         },
         node: DependencyHealth {
-            configured_bin: state.node_bin.clone(),
-            entry: String::new(),
-            entry_exists: false,
             observable: node_observable,
             last_status: if node_observable {
                 "observable".to_string()
             } else {
                 "unavailable".to_string()
             },
-            last_error: None,
+            error_code: None,
             last_checked_ms: Some(unix_timestamp_ms()),
         },
     }
@@ -1025,16 +1065,24 @@ fn safe_runner_smoke_string(value: &Value, key: &str, allowed: &[&str], fallback
 
 fn safe_runner_smoke_optional_string(value: &Value, key: &str) -> Option<String> {
     let candidate = value.get(key)?.as_str()?.trim();
-    if candidate.is_empty() || candidate.len() > 120 {
-        return None;
+    match candidate {
+        "" => None,
+        "node_not_found"
+        | "runner_not_found"
+        | "cwd_not_found"
+        | "module_resolution_error"
+        | "timeout"
+        | "subprocess_exception"
+        | "empty_stdout"
+        | "node_subprocess_failed"
+        | "invalid_json"
+        | "node_runner_degraded"
+        | "NODE_BRIDGE_TIMEOUT"
+        | "NODE_BRIDGE_EMPTY_STDOUT"
+        | "NODE_BRIDGE_INVALID_JSON"
+        | "NODE_BRIDGE_NONZERO_EXIT" => Some(candidate.to_string()),
+        _ => Some("diagnostic_failed".into()),
     }
-    if !candidate
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
-    {
-        return None;
-    }
-    Some(candidate.to_string())
 }
 
 fn bool_from_json(value: &Value, key: &str) -> bool {
@@ -1060,9 +1108,18 @@ fn build_runner_smoke_fallback(status: &str, failure_class: &str) -> PublicRunne
 }
 
 fn parse_runner_smoke_response(value: &Value) -> PublicRunnerSmokeResponseV1 {
+    let status = safe_runner_smoke_string(value, "status", &["ok", "degraded", "error"], "error");
+    let failure_class = safe_runner_smoke_optional_string(value, "public_failure_class");
+    let summary = if let Some(class) = &failure_class {
+        format!("runner_smoke_{class}")
+    } else if status == "ok" {
+        "runner_smoke_ok".into()
+    } else {
+        "runner_smoke_failed".into()
+    };
     PublicRunnerSmokeResponseV1 {
         api_version: "1",
-        status: safe_runner_smoke_string(value, "status", &["ok", "degraded", "error"], "error"),
+        status,
         selected_runtime: safe_runner_smoke_string(
             value,
             "selected_runtime",
@@ -1082,14 +1139,63 @@ fn parse_runner_smoke_response(value: &Value) -> PublicRunnerSmokeResponseV1 {
         runner_exit_code: value.get("runner_exit_code").and_then(Value::as_i64),
         stdout_json_valid: bool_from_json(value, "stdout_json_valid"),
         result_degraded: bool_from_json(value, "result_degraded"),
-        public_failure_class: safe_runner_smoke_optional_string(value, "public_failure_class"),
-        public_summary: safe_runner_smoke_optional_string(value, "public_summary"),
+        public_failure_class: failure_class,
+        public_summary: Some(summary),
     }
 }
 
 async fn public_v1_runtime_runner_smoke(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
 ) -> (StatusCode, Json<PublicRunnerSmokeResponseV1>) {
+    let Some(Extension(ConnectInfo(peer))) = peer else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(build_runner_smoke_fallback("error", "identity_unavailable")),
+        );
+    };
+    let identity = state
+        .chat_security
+        .trusted_proxy
+        .resolve(peer.ip(), &headers);
+    if !state
+        .chat_security
+        .check_smoke_rate_limit(identity.effective_ip, Instant::now())
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(build_runner_smoke_fallback("degraded", "rate_limited")),
+        );
+    }
+    let Ok(mut cache) = state.chat_security.smoke_cache.clone().try_lock_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(build_runner_smoke_fallback("degraded", "busy")),
+        );
+    };
+    if let Some((completed, result)) = &*cache {
+        if completed.elapsed() < SMOKE_CACHE_TTL {
+            return (StatusCode::OK, Json(result.clone()));
+        }
+    }
+    // The worker owns the slot even if the HTTP caller disconnects. There is
+    // never a queue of waiting executions, and the whole operation is bounded.
+    let worker = tokio::spawn(async move {
+        let result = match timeout(SMOKE_TIMEOUT, execute_runner_smoke(&state)).await {
+            Ok((_, Json(result))) => result,
+            Err(_) => build_runner_smoke_fallback("error", "timeout"),
+        };
+        *cache = Some((Instant::now(), result.clone()));
+        result
+    });
+    let result = worker
+        .await
+        .unwrap_or_else(|_| build_runner_smoke_fallback("error", "diagnostic_failed"));
+    (StatusCode::OK, Json(result))
+}
+
+async fn execute_runner_smoke(state: &AppState) -> (StatusCode, Json<PublicRunnerSmokeResponseV1>) {
     if state.mock_mode {
         return (
             StatusCode::OK,
@@ -1106,13 +1212,30 @@ async fn public_v1_runtime_runner_smoke(
     }))
     .unwrap_or_else(|_| br#"{"diagnostic":"runner_smoke"}"#.to_vec());
 
-    let invocation = PythonInvocation::new(
+    let mut invocation = PythonInvocation::new(
         &state.python_bin,
         vec![state.python_entry.as_os_str().to_os_string()],
     )
+    .env_clear()
     .stderr_mode(StderrMode::Null)
     .stdin_payload(Some(body))
-    .timeout(Some(Duration::from_secs(8)));
+    .timeout(Some(SMOKE_TIMEOUT));
+    // Do not forward provider keys, service tokens, BYOK, loader hooks or HOME.
+    // Keep only OS/runtime discovery needed to execute installed Python/Node.
+    for key in [
+        "PATH",
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "LD_LIBRARY_PATH",
+    ] {
+        if let Some(value) = env::var_os(key) {
+            invocation = invocation.env(key, value);
+        }
+    }
+    invocation = invocation.env("PYTHONIOENCODING", "utf-8");
 
     let output = match run_python(invocation).await {
         Ok(output) => output,

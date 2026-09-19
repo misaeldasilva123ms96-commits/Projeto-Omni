@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { chatApiResponseToUi, parseWireChatPayload } from './adapters'
+import { chatApiResponseToUi, healthResponseToUiRuntimeStatus, parseWireChatPayload } from './adapters'
+
+it('maps public health using semantic dependency signals only', () => {
+  const status = healthResponseToUiRuntimeStatus({
+    status: 'degraded', rust_service: 'ok', runtime_mode: 'live',
+    runtime_session_version: 1, timestamp_ms: 123,
+    python: { observable: true, last_status: 'timeout', error_code: 'TIMEOUT' },
+    node: { observable: true, last_status: 'observable', error_code: null },
+  })
+  expect(status.pythonStatus).toBe('timeout')
+  expect(status.pythonObservable).toBe(true)
+  expect(status.nodeStatus).toBe('observable')
+  expect(status.overallStatus).toBe('degraded')
+})
 
 const snapshot = {
   providers: [

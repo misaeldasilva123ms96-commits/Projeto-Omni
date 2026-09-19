@@ -38,13 +38,54 @@ Provider capability and health are separate signals:
 
 Listing diagnostics reads cached metadata only. It never contacts providers. Active checks occur only through the authenticated settings test action, and stale health is never presented as current.
 
+## Public Health Endpoint
+
+`GET /health` is a shallow, public-safe snapshot. It does not start a subprocess.
+Python and Node expose `observable`, `last_status`, `error_code`, and
+`last_checked_ms`. Python states are `not_checked`, `ready`, `mock`, `timeout`,
+`unavailable`, or `degraded`; Node states remain `observable` or `unavailable`.
+Python errors are classified as `TIMEOUT` or `PYTHON_ORCHESTRATOR_FAILED`, or
+`null` when no failure is known. No arbitrary internal exception text is returned.
+
+`configured_bin`, `entry`, `entry_exists`, and `last_error` have been removed from
+the public contract. There are no filesystem paths, raw stderr/stdout, environment
+values, credentials, or process arguments. Internal dependency errors remain
+internal; clients must use the semantic status and public error code.
+
 ## Runner Smoke Endpoint
 
 ```txt
 GET /api/v1/runtime/runner-smoke
 ```
 
-Purpose: verify that production can execute the same Node runner path used by chat.
+Purpose: verify that production can execute the Node runner path used by chat,
+with a minimal diagnostic environment and no real provider credentials. This is
+not a provider availability or authentication test.
+
+Resource policy, per Rust process:
+
+- Always limited to **6 requests per 60 seconds per effective client IP**,
+  including cache hits. This is separate from chat's budget and cannot be disabled
+  by `OMNI_RATE_LIMIT_ENABLED`. It reuses the same bounded limiter implementation
+  and `OMNI_TRUST_PROXY_*` identity policy; spoofed forwarding headers do not
+  create new clients. The smoke client table is capped at 10,000 entries (or the
+  configured chat table cap if smaller), with rejection when full.
+- At most **one execution in flight**, shared by all clients. Concurrent cache
+  misses receive HTTP 503 with `busy`; they do not queue subprocesses. Missing
+  TCP identity fails closed. Exhausted client budgets receive HTTP 429.
+- One sanitized result (success or failure) is cached for **10 seconds after
+  completion**. A request after expiry can run a fresh check. Caching errors also
+  prevents amplification during an outage.
+- The end-to-end Rust diagnostic deadline stays at **8 seconds**. A disconnected
+  caller does not release the single-flight slot early: the bounded worker
+  completes and caches its result. No automatic retries are performed.
+- Python starts with a minimal OS execution environment, not the server's provider,
+  BYOK, service-token, or Supabase environment. The diagnostic entrypoint does not
+  load the repository `.env`. The existing Node diagnostic scrub remains in place.
+
+Use an edge/global limit as well when deploying multiple Rust replicas. These
+process-local limits do not constitute fleet-wide admission control or an OS
+process-tree sandbox.
 
 The endpoint runs a fixed safe prompt:
 
@@ -72,7 +113,9 @@ It returns only:
 }
 ```
 
-Allowed values are bounded labels, booleans, a numeric exit code, and closed public failure strings.
+Allowed values are bounded labels, booleans, a numeric exit code, and closed public
+failure strings. Summary text is derived from the allowed status/failure class,
+never copied from subprocess text. HTTP 503 responses also use this safe envelope.
 
 ## Redaction Contract
 
