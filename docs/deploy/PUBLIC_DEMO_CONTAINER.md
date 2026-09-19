@@ -106,7 +106,7 @@ contract
 
 ## Runtime Smoke Diagnostic
 
-`GET /api/v1/runtime/runner-smoke` is a public-safe production diagnostic for deployment mismatches. It executes the same Node runner path used by chat with a fixed safe prompt and returns only bounded metadata:
+`GET /api/v1/runtime/runner-smoke` is a public-safe production diagnostic for deployment mismatches. It executes the Node runner path with a fixed safe prompt and a credential-free diagnostic environment. It allows 6 requests/minute/client, one execution per Rust process, a 10-second result cache, and an 8-second deadline. HTTP 429 means rate-limited; HTTP 503 can mean the diagnostic is busy. See [runtime diagnostics](../runtime/diagnostics.md) for the policy and residual limits. It returns only bounded metadata:
 
 - selected runtime (`node`, `bun`, or `unknown`)
 - cwd label (`app`, `repo`, or `unknown`)

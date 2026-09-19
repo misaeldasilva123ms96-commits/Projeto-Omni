@@ -118,13 +118,9 @@ pub(crate) struct DependencyStatus {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct DependencyHealth {
-    pub(crate) configured_bin: String,
-    pub(crate) entry: String,
-    pub(crate) entry_exists: bool,
     pub(crate) observable: bool,
     pub(crate) last_status: String,
-    #[serde(default)]
-    pub(crate) last_error: Option<String>,
+    pub(crate) error_code: Option<&'static str>,
     #[serde(default)]
     pub(crate) last_checked_ms: Option<u64>,
 }
@@ -154,7 +150,7 @@ pub(crate) struct PublicStatusResponseV1 {
     pub(crate) timestamp_ms: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct PublicRunnerSmokeResponseV1 {
     pub(crate) api_version: &'static str,
     pub(crate) status: String,

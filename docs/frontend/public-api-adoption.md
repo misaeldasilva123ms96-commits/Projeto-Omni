@@ -27,7 +27,7 @@ This document tracks how the Omni frontend uses **stable public** HTTP surfaces 
 |--------|------------------|----------------|
 | `/internal/*` (runtime signals, swarm, strategy, milestones, PR summaries, etc.) | `DashboardPage`, `RuntimeStatusSection` (signals block), `StrategyStateSection`, `MilestoneStateSection`, `ExecutionSignalsSection`, `useCognitiveTelemetry` | No stable public replacement yet; richer read models and operator detail. |
 | Supabase-backed observability | `useObservabilitySnapshot`, `ObservabilitySummarySection` | Auth-gated product surface; not part of the anonymous public status contract. |
-| `GET /health` | `fetchHealth` in `frontend/src/lib/api/health.ts` (still exported) | **Retained** for callers that need full `HealthResponse` (paths, `observable`, errors). The main chat/dashboard status paths no longer depend on it for the default strip. |
+| `GET /health` | `fetchHealth` in `frontend/src/lib/api/health.ts` (still exported) | **Retained** for public-safe dependency signals (`observable`, `last_status`, classified `error_code`, timestamps). Paths and raw errors are no longer public. The main chat/dashboard status paths no longer depend on it for the default strip. |
 
 **Source labeling**
 

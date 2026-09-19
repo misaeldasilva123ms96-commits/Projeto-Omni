@@ -95,6 +95,12 @@ const commands = [
     cwd: path.join(projectRoot, 'backend', 'rust'),
   },
   {
+    label: 'public runtime diagnostics health and smoke hardening',
+    command: 'cargo',
+    args: ['test', 'public_diagnostics_tests', '--', '--nocapture'],
+    cwd: path.join(projectRoot, 'backend', 'rust'),
+  },
+  {
     label: 'phase-5 canonical environment validation',
     command: 'cargo',
     args: ['test', 'chat_security_canonical_env_works', '--', '--nocapture'],
