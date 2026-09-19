@@ -97,6 +97,29 @@ def test_phone_redaction_preserves_uuid_like_and_structured_ids() -> None:
     assert redact_sensitive_payload(structured_ids) == structured_ids
 
 
+def test_cpf_redaction_preserves_uuid_identifiers() -> None:
+    # The first UUID caused the runtime CI failure; the others exercise digit
+    # sequences across UUID groups and at the end of the identifier.
+    identifiers = [
+        "goal-aeddb3bd-9f5c-4acb-92e7-08712537920c",
+        "goal-12345678-9012-4000-8000-abcdefabcdef",
+        "goal-aeddb3bd-9f5c-4acb-92e7-c08712537920",
+        "AEDDB3BD-9F5C-4ACB-92E7-08712537920C",
+    ]
+    for identifier in identifiers:
+        assert redact_sensitive_text(identifier) == identifier
+        assert redact_sensitive_payload({"goal_id": identifier}) == {"goal_id": identifier}
+        assert redact_sensitive_text(f"{identifier} CPF=123.456.789-09") == f"{identifier} CPF=[REDACTED_CPF]"
+
+
+def test_cpf_redaction_still_masks_standalone_values_in_identifier_fields() -> None:
+    for cpf in ("12345678909", "123.456.789-09", "123456789-09"):
+        assert redact_sensitive_text(cpf) == "[REDACTED_CPF]"
+        assert redact_sensitive_text(f"CPF: ({cpf}), confirmado.") == "CPF: ([REDACTED_CPF]), confirmado."
+        assert redact_sensitive_payload({"goal_id": cpf}) == {"goal_id": "[REDACTED_CPF]"}
+        assert redact_sensitive_text(f"cpf-{cpf}-documento") == "cpf-[REDACTED_CPF]-documento"
+
+
 def test_phone_redaction_uses_possessive_quantifiers_for_uncontrolled_text() -> None:
     source = inspect.getsource(redaction_module)
     assert r"\s*\(?" not in source

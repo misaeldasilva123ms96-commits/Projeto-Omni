@@ -70,7 +70,13 @@ _BR_PHONE_RE = re.compile(
     r")"
     r"(?![A-Za-z0-9_-])"
 )
-_CPF_RE = re.compile(r"(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)")
+# Consume complete UUIDs before looking for CPF-shaped digit runs inside them.
+# Keep the CPF alternative unchanged so surrounding text cannot hide real PII.
+_UUID_OR_CPF_RE = re.compile(
+    r"(?P<uuid>(?<![0-9a-f])[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?![0-9a-f]))"
+    r"|(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)",
+    re.IGNORECASE,
+)
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(password|passphrase|token|secret|api[_-]?key|access[_-]?key|client[_-]?secret)\s*[:=]\s*([\"']?)([^\s,;}\]]+)\2"
 )
@@ -134,7 +140,7 @@ def redact_sensitive_text(value: Any) -> str:
     text = _BASIC_AUTH_RE.sub("Basic [REDACTED_TOKEN]", text)
     text = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
     text = _BR_PHONE_RE.sub("[REDACTED_PHONE]", text)
-    text = _CPF_RE.sub("[REDACTED_CPF]", text)
+    text = _UUID_OR_CPF_RE.sub(lambda match: match.group("uuid") or "[REDACTED_CPF]", text)
     text = _SECRET_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}=[REDACTED_SECRET]", text)
     text = _redact_private_keys(text)
     text = _URL_CREDENTIAL_RE.sub(r"\1[REDACTED_CREDENTIALS]@", text)
