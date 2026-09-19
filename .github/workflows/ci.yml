@@ -84,6 +84,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Setup Python for real Settings CLI integration
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install existing Python test requirements
+        run: python -m pip install -r backend/python/requirements-test.txt
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
