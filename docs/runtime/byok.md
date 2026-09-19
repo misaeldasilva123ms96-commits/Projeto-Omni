@@ -86,3 +86,13 @@ Model names are diagnostic metadata, not secrets, but they should appear only in
 ## Local Provider Limits
 
 For Ollama and LM Studio, P5C only allows request-scoped model/key overlay. It does not accept arbitrary local URLs from the request. Local providers still require `OLLAMA_URL` or `LMSTUDIO_URL` from system configuration.
+
+## Settings CLI Resolution
+
+The Rust Settings bridge resolves `config/provider_settings_cli.py` from the
+canonical Python runtime root (`AppState.python_root`), rather than from the
+process working directory or project-root parent traversal. In the demo container,
+`PYTHON_BASE_DIR=/app/backend/python` selects the CLI copied under that directory.
+A missing CLI fails closed with `settings CLI unavailable`, without exposing the
+filesystem path or searching other directories. Save, update and test operations
+continue to send secrets through stdin, never command-line arguments.

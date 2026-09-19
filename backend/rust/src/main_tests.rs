@@ -2126,3 +2126,6 @@ fn operator_redact_pr_digest_like_row_masks_path_in_message() {
     assert_eq!(out["message"], "[PATH_REDACTED]");
     assert_eq!(out["pr_summary"]["title"], "ok");
 }
+
+#[path = "settings_cli_tests.rs"]
+mod settings_cli_tests;
