@@ -95,6 +95,8 @@ class GoalConstraintIntegrationTest(unittest.TestCase):
                 plan_kind="linear",
             )
             assert plan is not None
+            # Reproduce the UUID that was incorrectly redacted as a CPF in CI.
+            plan.goal_id = "goal-aeddb3bd-9f5c-4acb-92e7-08712537920c"
             executor = LearningExecutor(workspace_root)
             update = executor.ingest_runtime_artifacts(
                 action={"step_id": "read", "selected_tool": "filesystem_read", "goal_id": plan.goal_id},
