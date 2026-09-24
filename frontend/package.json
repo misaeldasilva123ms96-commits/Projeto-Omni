@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
-    "framer-motion": "^13.3.0",
+    "framer-motion": "^13.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
