@@ -89,6 +89,11 @@ const commands = [
     args: ['-m', 'pytest', '-q', 'tests/config/test_provider_health_redirects.py'],
   },
   {
+    label: 'Credential store v2 integrity and migration',
+    command: 'python',
+    args: ['-m', 'pytest', '-q', 'tests/config/test_encrypted_credential_store.py'],
+  },
+  {
     label: 'phase-4 secrets config hardening python',
     command: 'python',
     args: ['-m', 'pytest', '-q', 'tests/runtime/test_secrets_config_hardening.py', 'tests/config/test_secrets_manager.py'],
