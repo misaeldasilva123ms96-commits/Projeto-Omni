@@ -120,6 +120,7 @@ datasets/private/
 private-datasets/
 
 # Credentials
+credentials.enc
 secrets/
 credentials/
 *.pem

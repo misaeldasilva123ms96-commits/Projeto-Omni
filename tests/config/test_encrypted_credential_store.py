@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import stat
+import subprocess
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "python"))
@@ -71,9 +78,7 @@ class CredentialStoreTest(unittest.TestCase):
         store = self._make_store()
         saved = store.save_credential(TEST_USER, TEST_PROVIDER, TEST_SECRET)
         self.assertNotEqual(saved.encrypted_secret, TEST_SECRET.encode("utf-8"))
-        self.assertNotEqual(
-            saved.encrypted_secret.hex(), TEST_SECRET.encode("utf-8").hex()
-        )
+        self.assertNotEqual(saved.encrypted_secret.hex(), TEST_SECRET.encode("utf-8").hex())
 
     def test_nonce_unique_per_credential(self) -> None:
         store = self._make_store()
@@ -106,9 +111,7 @@ class CredentialStoreTest(unittest.TestCase):
 
         other_hex = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
         other_key = bytes.fromhex(other_hex)
-        other_store = CredentialStore(
-            store_path=str(self._store_path), encryption_key=other_key
-        )
+        other_store = CredentialStore(store_path=str(self._store_path), encryption_key=other_key)
         with self.assertRaises(TamperDetectedError):
             other_store.get_decrypted_secret(saved.credential_id)
 
@@ -373,9 +376,7 @@ class CredentialStoreTest(unittest.TestCase):
         store.save_credential(TEST_USER, "anthropic", "sk-key-2")
         store.save_credential("other-user", "openai", "sk-key-3")
 
-        filtered = store.list_credential_metadata(
-            user_id=TEST_USER, provider_id="openai"
-        )
+        filtered = store.list_credential_metadata(user_id=TEST_USER, provider_id="openai")
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0].provider_id, "openai")
         self.assertEqual(filtered[0].user_id, TEST_USER)
@@ -456,15 +457,9 @@ class CredentialStoreTest(unittest.TestCase):
         s2 = store.save_credential(TEST_USER, "anthropic", "sk-ant-1")
         s3 = store.save_credential("user-2", "openai", "sk-openai-2")
 
-        self.assertEqual(
-            store.get_decrypted_secret(s1.credential_id), "sk-openai-1"
-        )
-        self.assertEqual(
-            store.get_decrypted_secret(s2.credential_id), "sk-ant-1"
-        )
-        self.assertEqual(
-            store.get_decrypted_secret(s3.credential_id), "sk-openai-2"
-        )
+        self.assertEqual(store.get_decrypted_secret(s1.credential_id), "sk-openai-1")
+        self.assertEqual(store.get_decrypted_secret(s2.credential_id), "sk-ant-1")
+        self.assertEqual(store.get_decrypted_secret(s3.credential_id), "sk-openai-2")
 
     # ------------------------------------------------------------------
     # Obsolete env var rejection
@@ -475,6 +470,433 @@ class CredentialStoreTest(unittest.TestCase):
         os.environ["OMINI_CREDENTIAL_STORE_KEY"] = VALID_KEY_HEX
         with self.assertRaises(EncryptionKeyError):
             self._make_store()
+
+
+# Security remediation v2 regressions (all fixtures are generated in temp dirs).
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("provider_id", "anthropic"), ("user_id", "user-B"), ("credential_id", "changed-id")],
+)
+def test_v2_identity_metadata_binding(tmp_path, field, value):
+    path = tmp_path / "credentials.enc"
+    store = CredentialStore(path, VALID_KEY)
+    store.save_credential(TEST_USER, TEST_PROVIDER, TEST_SECRET)
+    data = json.loads(path.read_text())
+    data["credentials"][0][field] = value
+    path.write_text(json.dumps(data))
+    with pytest.raises(TamperDetectedError):
+        changed = CredentialStore(path, VALID_KEY)
+        changed.get_decrypted_secret(data["credentials"][0]["credential_id"])
+
+
+def test_duplicate_save_upserts_identity(tmp_path):
+    path = tmp_path / "credentials.enc"
+    store = CredentialStore(path, VALID_KEY)
+    first = store.save_credential(TEST_USER, TEST_PROVIDER, "fake-first")
+    before = first.to_dict()
+    second = store.save_credential(TEST_USER, TEST_PROVIDER, "fake-second")
+    assert len(store.list_credential_metadata()) == 1
+    assert second.credential_id == first.credential_id
+    assert second.created_at == first.created_at
+    assert second.updated_at >= before["updated_at"]
+    assert second.nonce.hex() != before["nonce"]
+    assert store.get_credential_by_provider(TEST_USER, TEST_PROVIDER, decrypt=True) == "fake-second"
+    assert (
+        CredentialStore(path, VALID_KEY).get_decrypted_secret(first.credential_id) == "fake-second"
+    )
+
+
+def legacy_fixture(path, count=3):
+    records = []
+    for number in range(count):
+        nonce = os.urandom(12)
+        records.append(
+            dict(
+                credential_id=f"id-{number}",
+                user_id=f"user-{number}",
+                provider_id="openai",
+                created_at=123.0,
+                updated_at=456.0,
+                nonce=nonce.hex(),
+                encrypted_secret=AESGCM(VALID_KEY)
+                .encrypt(nonce, f"fake-secret-{number}".encode(), None)
+                .hex(),
+            )
+        )
+    data = dict(version=1, credentials=records)
+    path.write_text(json.dumps(data))
+    return data
+
+
+def test_legacy_migration_is_complete_and_persistent(tmp_path):
+    path = tmp_path / "credentials.enc"
+    before = legacy_fixture(path)
+    store = CredentialStore(path, VALID_KEY)
+    after = json.loads(path.read_text())
+    assert after["version"] == 2
+    assert len(after["credentials"]) == 3
+    for old, new in zip(before["credentials"], after["credentials"]):
+        for field in ("credential_id", "user_id", "provider_id", "created_at", "updated_at"):
+            assert new[field] == old[field]
+        assert new["nonce"] != old["nonce"]
+        assert new["encrypted_secret"] != old["encrypted_secret"]
+    reloaded = CredentialStore(path, VALID_KEY)
+    for number in range(3):
+        assert reloaded.get_decrypted_secret(f"id-{number}") == f"fake-secret-{number}"
+        assert store.get_decrypted_secret(f"id-{number}") == f"fake-secret-{number}"
+    after["credentials"][0]["provider_id"] = "anthropic"
+    path.write_text(json.dumps(after))
+    with pytest.raises(TamperDetectedError):
+        CredentialStore(path, VALID_KEY).get_decrypted_secret("id-0")
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize(
+    "fault", ["wrong-key", "corrupt-last", "duplicate-pair", "duplicate-id", "malformed-last"]
+)
+def test_legacy_failure_preserves_original_bytes(tmp_path, fault):
+    path = tmp_path / "credentials.enc"
+    data = legacy_fixture(path)
+    key = VALID_KEY
+    last = data["credentials"][-1]
+    if fault == "wrong-key":
+        key = b"X" * 32
+    elif fault == "corrupt-last":
+        last["encrypted_secret"] = (
+            bytes([bytes.fromhex(last["encrypted_secret"])[0] ^ 1]).hex()
+            + last["encrypted_secret"][2:]
+        )
+    elif fault == "duplicate-pair":
+        last["user_id"] = data["credentials"][0]["user_id"]
+    elif fault == "duplicate-id":
+        last["credential_id"] = data["credentials"][0]["credential_id"]
+    else:
+        last["nonce"] = "not hex"
+    path.write_text(json.dumps(data))
+    before = path.read_bytes()
+    with pytest.raises(CredentialStoreError):
+        CredentialStore(path, key)
+    assert path.read_bytes() == before
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("fault", ["pair", "id"])
+def test_v2_duplicates_fail_closed(tmp_path, fault):
+    path = tmp_path / "credentials.enc"
+    store = CredentialStore(path, VALID_KEY)
+    store.save_credential("user-A", "openai", "fake-a")
+    store.save_credential("user-B", "openai", "fake-b")
+    data = json.loads(path.read_text())
+    field = "user_id" if fault == "pair" else "credential_id"
+    data["credentials"][1][field] = data["credentials"][0][field]
+    path.write_text(json.dumps(data))
+    before = path.read_bytes()
+    with pytest.raises(CredentialStoreError, match="Duplicate credential identity"):
+        CredentialStore(path, VALID_KEY)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("version", [3, 999, "invalid", "2", True, None, 2.0])
+def test_unknown_version_rejected(tmp_path, version):
+    path = tmp_path / "credentials.enc"
+    path.write_text(json.dumps(dict(version=version, credentials=[])))
+    before = path.read_bytes()
+    with pytest.raises(CredentialStoreError):
+        CredentialStore(path, VALID_KEY)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        [],
+        None,
+        12,
+        {},
+        {"version": 2},
+        {"version": 2, "credentials": {}},
+        {"version": 2, "credentials": [None]},
+    ],
+)
+def test_malformed_top_level_safe(tmp_path, malformed):
+    path = tmp_path / "credentials.enc"
+    path.write_text(json.dumps(malformed))
+    with pytest.raises(CredentialStoreError) as error:
+        CredentialStore(path, VALID_KEY)
+    assert str(path) not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("credential_id", ""),
+        ("credential_id", 1),
+        ("user_id", None),
+        ("provider_id", []),
+        ("encrypted_secret", "xyz"),
+        ("encrypted_secret", 1),
+        ("nonce", "00"),
+        ("nonce", "zz" * 12),
+        ("created_at", "secret-in-timestamp"),
+        ("created_at", True),
+        ("updated_at", -1),
+        ("updated_at", float("nan")),
+        ("updated_at", float("inf")),
+    ],
+)
+def test_malformed_record_is_controlled(tmp_path, field, value):
+    path = tmp_path / "credentials.enc"
+    data = legacy_fixture(path, 1)
+    data["credentials"][0][field] = value
+    path.write_text(json.dumps(data))
+    before = path.read_bytes()
+    with pytest.raises(CredentialStoreError) as error:
+        CredentialStore(path, VALID_KEY)
+    assert str(error.value) == "Invalid credential store record"
+    assert path.read_bytes() == before
+
+
+def test_duplicate_json_fields_rejected(tmp_path):
+    path = tmp_path / "credentials.enc"
+    path.write_text('{"version":1,"version":2,"credentials":[]}')
+    with pytest.raises(CredentialStoreError):
+        CredentialStore(path, VALID_KEY)
+
+
+@pytest.mark.parametrize("operation", ["migration", "save", "upsert", "update", "delete"])
+@pytest.mark.parametrize("fault", ["replace", "fsync"])
+def test_write_failure_preserves_original_and_memory(tmp_path, operation, fault):
+    path = tmp_path / "credentials.enc"
+    store = None
+    if operation == "migration":
+        legacy_fixture(path)
+    else:
+        store = CredentialStore(path, VALID_KEY)
+        saved = store.save_credential("user-A", "openai", "original-fake-secret")
+    before = path.read_bytes()
+    with patch(
+        f"config.encrypted_credential_store.os.{fault}",
+        side_effect=OSError("sensitive-internal-path"),
+    ):
+        with pytest.raises(CredentialStoreError) as error:
+            if operation == "migration":
+                CredentialStore(path, VALID_KEY)
+            elif operation == "save":
+                store.save_credential("user-B", "openai", "new-fake-secret")
+            elif operation == "upsert":
+                store.save_credential("user-A", "openai", "new-fake-secret")
+            elif operation == "update":
+                store.update_credential(saved.credential_id, "new-fake-secret")
+            else:
+                store.delete_credential(saved.credential_id)
+    assert str(error.value) == "Failed to save credential store"
+    assert path.read_bytes() == before
+    assert list(tmp_path.iterdir()) == [path]
+    if store:
+        assert len(store.list_credential_metadata()) == 1
+        assert store.get_decrypted_secret(saved.credential_id) == "original-fake-secret"
+        assert (
+            CredentialStore(path, VALID_KEY).get_decrypted_secret(saved.credential_id)
+            == "original-fake-secret"
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX mode bits are not Windows ACLs")
+@pytest.mark.parametrize("operation", ["new", "update", "migration", "load"])
+def test_posix_file_and_temp_modes(tmp_path, operation):
+    path = tmp_path / "credentials.enc"
+    if operation == "migration":
+        legacy_fixture(path)
+    elif operation in ("update", "load"):
+        store = CredentialStore(path, VALID_KEY)
+        saved = store.save_credential("user-A", "openai", "fake-secret")
+    if path.exists():
+        path.chmod(0o666)
+    original_replace = os.replace
+    seen = []
+
+    def inspect_replace(source, destination):
+        assert Path(source).parent == path.parent
+        assert stat.S_IMODE(Path(source).stat().st_mode) == 0o600
+        assert source != path.with_suffix(".tmp")
+        seen.append(source)
+        original_replace(source, destination)
+
+    previous_umask = os.umask(0)
+    try:
+        with patch("config.encrypted_credential_store.os.replace", side_effect=inspect_replace):
+            if operation in ("migration", "load"):
+                CredentialStore(path, VALID_KEY)
+            elif operation == "update":
+                store.update_credential(saved.credential_id, "fake-updated")
+            else:
+                CredentialStore(path, VALID_KEY).save_credential("user-A", "openai", "fake-secret")
+    finally:
+        os.umask(previous_umask)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert bool(seen) == (operation != "load")
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_controller_and_adapter_consistency(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG)
+    from config.provider_settings_controller import ProviderSettingsController
+    from config.provider_credential_adapter import ProviderCredentialAdapter
+
+    monkeypatch.setenv("OMNI_PROVIDER_HEALTH_CACHE_DIR", str(tmp_path / "health"))
+    store = CredentialStore(tmp_path / "credentials.enc", VALID_KEY)
+    controller = ProviderSettingsController(store)
+    controller.save_provider("user-A", "openai", "fake-first")
+    original = store.get_credential_by_provider("user-A", "openai")
+    controller.save_provider("user-A", "openai", "fake-second")
+    assert len(store.list_credential_metadata("user-A", "openai")) == 1
+    assert (
+        store.get_credential_by_provider("user-A", "openai").credential_id == original.credential_id
+    )
+    assert ProviderCredentialAdapter(store).load_credential("user-A", "openai") == "fake-second"
+    listed = [p for p in controller.list_providers("user-A") if p["provider"] == "openai"]
+    assert len(listed) == 1 and listed[0]["configured"]
+    controller.update_provider("user-A", "openai", "fake-third")
+    assert store.get_credential_by_provider("user-A", "openai", decrypt=True) == "fake-third"
+    controller.delete_provider("user-A", "openai")
+    assert not store.list_credential_metadata()
+    for secret in ("fake-first", "fake-second", "fake-third", VALID_KEY_HEX):
+        assert secret not in caplog.text + json.dumps(listed)
+
+
+def test_gitignore_protects_default_without_blanket_enc_rule(tmp_path):
+    # Test Git semantics in an isolated repo, including cross-OS worktree runs.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text((PROJECT_ROOT / ".gitignore").read_text())
+    result = subprocess.run(
+        ["git", "check-ignore", "-v", "--no-index", "credentials.enc", "nested/credentials.enc"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.count(":credentials.enc") == 2
+    unrelated = subprocess.run(
+        ["git", "check-ignore", "--no-index", "legitimate.enc"],
+        cwd=tmp_path,
+        capture_output=True,
+    )
+    assert unrelated.returncode == 1
+
+
+def test_v2_domain_binding_and_legacy_downgrade_rejected(tmp_path):
+    from cryptography.exceptions import InvalidTag
+
+    path = tmp_path / "credentials.enc"
+    saved = CredentialStore(path, VALID_KEY).save_credential("user-A", "openai", "fake-secret")
+    aad = json.dumps(
+        {
+            "domain": "omni-credential-store:v2",
+            "credential_id": saved.credential_id,
+            "user_id": "user-A",
+            "provider_id": "openai",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    assert AESGCM(VALID_KEY).decrypt(saved.nonce, saved.encrypted_secret, aad) == b"fake-secret"
+    with pytest.raises(InvalidTag):
+        AESGCM(VALID_KEY).decrypt(saved.nonce, saved.encrypted_secret, None)
+    data = json.loads(path.read_text())
+    data["version"] = 1
+    path.write_text(json.dumps(data))
+    before = path.read_bytes()
+    with pytest.raises(TamperDetectedError):
+        CredentialStore(path, VALID_KEY)
+    assert path.read_bytes() == before
+
+
+def test_legacy_metadata_history_cannot_be_authenticated_retroactively(tmp_path):
+    path = tmp_path / "credentials.enc"
+    data = legacy_fixture(path, 1)
+    data["credentials"][0]["user_id"] = "legacy-rebound-user"
+    path.write_text(json.dumps(data))
+    migrated = CredentialStore(path, VALID_KEY)
+    assert (
+        migrated.get_credential_by_provider("legacy-rebound-user", "openai", decrypt=True)
+        == "fake-secret-0"
+    )
+    data = json.loads(path.read_text())
+    data["credentials"][0]["user_id"] = "another-user"
+    path.write_text(json.dumps(data))
+    with pytest.raises(TamperDetectedError):
+        CredentialStore(path, VALID_KEY).get_decrypted_secret("id-0")
+
+
+def test_timestamps_are_administrative_not_identity_aad(tmp_path):
+    path = tmp_path / "credentials.enc"
+    saved = CredentialStore(path, VALID_KEY).save_credential("user-A", "openai", "fake-secret")
+    data = json.loads(path.read_text())
+    data["credentials"][0]["updated_at"] += 1
+    path.write_text(json.dumps(data))
+    assert (
+        CredentialStore(path, VALID_KEY).get_decrypted_secret(saved.credential_id) == "fake-secret"
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "credential_id",
+        "user_id",
+        "provider_id",
+        "nonce",
+        "encrypted_secret",
+        "created_at",
+        "updated_at",
+    ],
+)
+def test_missing_record_fields_fail_closed(tmp_path, field):
+    path = tmp_path / "credentials.enc"
+    data = legacy_fixture(path, 1)
+    del data["credentials"][0][field]
+    path.write_text(json.dumps(data))
+    before = path.read_bytes()
+    with pytest.raises(CredentialStoreError):
+        CredentialStore(path, VALID_KEY)
+    assert path.read_bytes() == before
+
+
+def test_real_settings_cli_uses_v2_without_exposing_stdin_secret(tmp_path):
+    path = tmp_path / "credentials.enc"
+    cli = PROJECT_ROOT / "backend/python/config/provider_settings_cli.py"
+    child_env = {
+        **os.environ,
+        KEY_ENV_VAR: VALID_KEY_HEX,
+        STORE_PATH_ENV_VAR: str(path),
+        "OMNI_PROVIDER_HEALTH_CACHE_DIR": str(tmp_path / "health"),
+    }
+    for secret in ("fake-cli-first", "fake-cli-second"):
+        result = subprocess.run(
+            [sys.executable, str(cli), "save", "user-A", "openai"],
+            input=secret,
+            text=True,
+            capture_output=True,
+            env=child_env,
+            check=True,
+        )
+        assert json.loads(result.stdout)["configured"]
+        assert secret not in result.stdout + result.stderr
+    store = CredentialStore(path, VALID_KEY)
+    assert len(store.list_credential_metadata()) == 1
+    assert store.get_credential_by_provider("user-A", "openai", decrypt=True) == "fake-cli-second"
+    result = subprocess.run(
+        [sys.executable, str(cli), "list", "user-A"],
+        text=True,
+        capture_output=True,
+        env=child_env,
+        check=True,
+    )
+    providers = json.loads(result.stdout)
+    assert len([p for p in providers if p["provider"] == "openai" and p["configured"]]) == 1
+    assert "fake-cli-" not in result.stdout + result.stderr
 
 
 if __name__ == "__main__":

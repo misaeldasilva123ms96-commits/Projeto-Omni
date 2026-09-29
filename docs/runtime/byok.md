@@ -96,3 +96,40 @@ credentials, provider bodies and raw exceptions are not returned or logged by th
 active-test fallback. The existing five-second transport timeout and fixed official
 HTTPS endpoints remain unchanged. This policy is local to active checks and does
 not change chat execution or Gemini authentication semantics.
+
+## Encrypted Credential Store v2
+
+AES-256-GCM still uses a 32-byte key. Version 2 binds `credential_id`, `user_id`
+and `provider_id` with deterministic JSON AAD (sorted keys, compact separators),
+including the domain `omni-credential-store:v2`. Timestamps are administrative
+and are not authenticated. Every encryption, update and migration generates a new
+random 12-byte nonce. Identity/ciphertext tampering is rejected on decryption.
+Unknown versions, malformed records, duplicate IDs and duplicate `(user, provider)`
+pairs fail closed on load with controlled errors.
+
+Version 1 is migrated automatically: validate the entire schema and uniqueness,
+decrypt every record using legacy AAD=None, then encrypt every record with v2 AAD
+and fresh nonces before atomically replacing the file. IDs and timestamps are
+preserved. Any validation, authentication or pre-replace write failure leaves the
+original bytes intact; duplicate legacy pairs require manual resolution, never
+an arbitrary first/last/latest choice. **V1 metadata that was tampered with before
+migration cannot be cryptographically distinguished from legitimate legacy
+metadata.** Migration binds the metadata present at migration time; it does not
+retroactively authenticate history. Keep the original key for migration.
+
+Saving an existing `(user_id, provider_id)` updates its secret, preserving its ID
+and creation timestamp. The updated timestamp does not decrease. Metadata listing
+and provider retrieval therefore select the same unique record.
+
+Writes use an exclusively created, randomly named temporary file in the destination
+directory, flush/fsync, then atomic replacement. POSIX files (temporary and final)
+have mode `0600`, independent of umask; existing v2 files are tightened on load.
+Directory fsync is attempted on POSIX; unsupported directory sync emits only a
+bounded warning after the committed replacement. Windows writes remain atomic,
+but effective access permissions depend on Windows ACLs; POSIX mode-bit guarantees
+are not claimed there. `credentials.enc` is explicitly gitignored at any depth;
+temporary files retain the existing `*.tmp` ignore rule.
+
+`OMNI_CREDENTIAL_STORE_PATH` and the relative default `credentials.enc` are
+unchanged. Choosing a durable default directory and coordinating concurrent writers
+remain follow-ups. No process locking or key rotation is introduced here.
