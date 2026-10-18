@@ -279,16 +279,18 @@ class MemoryFacadeTest(unittest.TestCase):
         facade.initialize()
         self.assertIsNone(facade.init_error)
 
+        blocked_parent = self._tmp / "not-a-directory"
+        blocked_parent.write_text("not a directory", encoding="utf-8")
         bad_facade = MemoryFacade(
             enable_sqlite=True,
-            sqlite_path=Path("\\\\invalid\\\\path\\\\test.sqlite"),
+            sqlite_path=blocked_parent / "test.sqlite",
             jsonl_path=self._audit_path,
         )
         bad_facade.initialize()
-        if bad_facade.init_error is not None:
-            self.assertNotIn("api_key", bad_facade.init_error.lower())
-            self.assertNotIn("secret", bad_facade.init_error.lower())
-            self.assertNotIn("token", bad_facade.init_error.lower())
+        self.assertIsNotNone(bad_facade.init_error)
+        self.assertNotIn("api_key", bad_facade.init_error.lower())
+        self.assertNotIn("secret", bad_facade.init_error.lower())
+        self.assertNotIn("token", bad_facade.init_error.lower())
 
     def test_no_credentials_in_logged_errors(self) -> None:
         facade = MemoryFacade(
