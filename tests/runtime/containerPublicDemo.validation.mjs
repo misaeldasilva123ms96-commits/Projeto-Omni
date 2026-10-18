@@ -55,7 +55,7 @@ for (const [key, value] of [
 assertContains(dockerfile, 'OMNI_TRUSTED_PROXY_CIDRS=""', 'Dockerfile.demo trusted proxy CIDRs');
 assertContains(compose, 'OMNI_TRUSTED_PROXY_CIDRS: ""', 'docker-compose.demo.yml trusted proxy CIDRs');
 
-assertContains(dockerfile, 'cargo build --release --bin omni-api', 'verified Rust binary build');
+assertContains(dockerfile, 'cargo build --locked --release --bin omni-api', 'verified Rust binary build');
 assertContains(dockerfile, 'COPY --from=rust-builder /build/backend/rust/target/release/omni-api', 'verified Rust binary copy');
 assertContains(dockerfile, 'npm ci --omit=dev', 'npm lockfile install');
 assertContains(dockerfile, 'USER omni', 'non-root runtime user');

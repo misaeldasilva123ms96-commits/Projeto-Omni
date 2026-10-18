@@ -1,4 +1,4 @@
-FROM rust:1.88-bookworm AS rust-builder
+FROM rust:1.89-bookworm AS rust-builder
 
 WORKDIR /build
 
@@ -7,7 +7,7 @@ COPY backend/rust/crates ./backend/rust/crates
 COPY backend/rust/src ./backend/rust/src
 
 WORKDIR /build/backend/rust
-RUN cargo build --release --bin omni-api
+RUN cargo build --locked --release --bin omni-api
 
 FROM node:24.15-bookworm-slim AS demo-runtime
 
