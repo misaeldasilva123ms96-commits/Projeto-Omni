@@ -15,7 +15,7 @@ from source_ingestion import ingest_source, load_dataset_sources
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Download a Hugging Face dataset slice into raw JSONL.")
-    parser.add_argument("--dataset-key", default="default_small", help="Key inside dataset_sources.json")
+    parser.add_argument("--dataset-key", default="default_small_instruction", help="Key inside dataset_sources.json")
     parser.add_argument("--config-path", default=str(Path(__file__).resolve().parents[1] / "configs" / "dataset_sources.json"))
     parser.add_argument("--output", default="", help="Optional output JSONL path")
     return parser.parse_args()
