@@ -33,7 +33,7 @@
     "autoprefixer": "^10.6.1",
     "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
-    "postcss": "^8.5.28",
+    "postcss": "^8.5.31",
     "@tailwindcss/postcss": "^4.3.3",
     "tailwindcss": "^4.3.2",
     "typescript": "^7.0.2",
