@@ -39,7 +39,7 @@ pip install -r omni-training/requirements.txt
 Baixar um dataset pequeno e seguro:
 
 ```bash
-python omni-training/scripts/download_dataset.py --dataset-key default_small
+python omni-training/scripts/download_dataset.py --dataset-key default_small_instruction --output omni-training/data/raw/default_small.jsonl
 ```
 
 Filtrar:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +29,20 @@ from sft_builder import build_sft_record_from_curated, build_sft_record_from_pub
 class OmniTrainingPipelineTest(unittest.TestCase):
     def setUp(self) -> None:
         self.rules = load_normalization_rules(PROJECT_ROOT / "omni-training" / "configs" / "normalization_rules.json")
+
+    def test_download_default_resolves_enabled_hf_source(self) -> None:
+        script = PROJECT_ROOT / "omni-training" / "scripts" / "download_dataset.py"
+        spec = importlib.util.spec_from_file_location("omni_download_dataset", script)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with patch.object(sys, "argv", [str(script)]):
+            args = module.parse_args()
+        sources = module.load_dataset_sources(Path(args.config_path))
+        selected = [source for source in sources if source.source_name == args.dataset_key]
+        self.assertEqual(len(selected), 1, "the default download key must exist in the source configuration")
+        self.assertTrue(selected[0].enabled)
+        self.assertEqual(selected[0].source_type, "hf")
 
     def test_filter_raw_records_discards_empty_examples(self) -> None:
         records = [

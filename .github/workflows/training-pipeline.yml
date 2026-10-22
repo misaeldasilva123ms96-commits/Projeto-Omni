@@ -28,7 +28,7 @@ jobs:
         continue-on-error: true
         run: |
           if [ -f omni-training/scripts/download_dataset.py ]; then
-            python omni-training/scripts/download_dataset.py --dataset-key default_small
+            python omni-training/scripts/download_dataset.py
           else
             echo "No dataset download script; continuing without generated data."
           fi

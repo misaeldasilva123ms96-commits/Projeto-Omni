@@ -25,7 +25,7 @@ Phase 6 adds public-demo container configuration only. Runtime behavior, provide
 
 ## Container Safety Settings
 
-- Multi-stage Rust build using `rust:1.88-bookworm`
+- Multi-stage Rust build using `rust:1.89-bookworm`
 - Verified Rust binary name from `backend/rust/Cargo.toml`: `omni-api`
 - Runtime base: `node:24-bookworm-slim`
 - Python virtualenv at `/opt/venv`
