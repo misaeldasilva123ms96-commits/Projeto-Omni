@@ -21,6 +21,7 @@ import {
 import { listProviders } from '../lib/api/settings'
 import { fetchAgents, fetchTokenUsage } from '../lib/omniData'
 import { formatCompactTokenCount } from '../lib/tokenUsage'
+import { fetchGovernedRuns, type GovernedRun } from '../features/control-center/runs'
 import { redactRuntimeDebugText } from '../lib/runtimeDebugSanitizer'
 import { useObservabilityStream } from '../hooks/useObservabilityStream'
 import { useObservabilitySnapshot } from '../hooks/useObservabilitySnapshot'
@@ -90,6 +91,8 @@ export function ControlCenterPage({ mode, onChangeMode, onChangeView, renderShel
   const [providers, setProviders] = useState<ProviderRecord[] | null>(null)
   const [providerError, setProviderError] = useState<string | null>(null)
   const [agents, setAgents] = useState<Agent[] | null>(null)
+  const [runs, setRuns] = useState<GovernedRun[] | null>(null)
+  const [runsError, setRunsError] = useState<string | null>(null)
   const [usage, setUsage] = useState<TokenUsageSummary | null>(null)
 
   // Reuse the Rust-authenticated SSE stream and existing snapshot adapter.
@@ -153,6 +156,24 @@ export function ControlCenterPage({ mode, onChangeMode, onChangeView, renderShel
     }
     refreshProviders()
     const interval = window.setInterval(refreshProviders, POLL_PROVIDERS_MS)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [apiReady, refreshKey])
+
+  useEffect(() => {
+    if (!apiReady) return
+    let cancelled = false
+    const refreshRuns = () => {
+      void fetchGovernedRuns().then((values) => {
+        if (!cancelled) {
+          setRuns(values)
+          setRunsError(null)
+        }
+      }).catch(() => {
+        if (!cancelled) setRunsError('Leitura negada ou registro de runs indisponível.')
+      })
+    }
+    refreshRuns()
+    const interval = window.setInterval(refreshRuns, POLL_PROVIDERS_MS)
     return () => { cancelled = true; window.clearInterval(interval) }
   }, [apiReady, refreshKey])
 
@@ -330,6 +351,26 @@ export function ControlCenterPage({ mode, onChangeMode, onChangeView, renderShel
           <button type="button" className="mt-3 text-sm text-cyan-300 hover:underline" onClick={() => onChangeView('provider-center')}>
             Abrir Centro de Provedores →
           </button>
+        </Panel>
+
+        <Panel title="Execuções governadas" description="Runs da API autenticada /api/control/runs, limitada por capacidade e escopo do operador. Não é heartbeat dos agentes.">
+          {runsError ? <p role="status" className="mb-3 text-xs text-amber-200">{runsError}</p> : null}
+          {runs === null ? <p className="text-sm text-slate-400">Nenhum registro disponível para exibição.</p> : runs.length === 0 ? (
+            <p className="text-sm text-slate-400">Nenhum run autorizado encontrado.</p>
+          ) : (
+            <ul className="space-y-2">
+              {runs.slice(0, 10).map((run) => (
+                <li key={run.runId} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{run.runId}</p>
+                    <p className="text-xs text-slate-400">{run.updatedAt ? new Date(run.updatedAt).toLocaleString('pt-BR') : 'Horário desconhecido'}</p>
+                  </div>
+                  <StatusBadge tone={run.status === 'failed' ? 'danger' : 'muted'}>{run.status}</StatusBadge>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-xs text-slate-500">"running" é estado persistido, não garantia de processo vivo. API somente leitura.</p>
         </Panel>
 
         <Panel title="Eventos ao vivo" description="Snapshots do backend Rust. A conexão SSE exige autenticação e pode estar indisponível.">
