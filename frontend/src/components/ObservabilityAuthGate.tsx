@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ObservabilityPage } from '../pages/ObservabilityPage'
+import { ControlCenterPage } from '../pages/ControlCenterPage'
 import { PUBLIC_APP_URL, canUseSupabase } from '../lib/env'
 import { supabase } from '../lib/supabase'
 import { useRequireAuth } from '../hooks/useRequireAuth'
@@ -18,6 +19,7 @@ type ObservabilityAuthGateProps = {
   onChangeView: (view: View) => void
   renderShell: RenderOmniShell
   view: View
+  destination?: 'observability' | 'control-center'
 }
 
 export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
@@ -30,7 +32,8 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
       parseObservabilityContext(window.location.search),
       ['request_id', 'trace_id', 'runtime_mode', 'tool'],
     )
-    const redirectTo = `${PUBLIC_APP_URL}/observability${serializeObservabilityContext(context)}`
+    const redirectPath = props.destination === 'control-center' ? '/control-center' : '/observability'
+    const redirectTo = `${PUBLIC_APP_URL}${redirectPath}${serializeObservabilityContext(context)}`
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -93,5 +96,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
     )
   }
 
-  return <ObservabilityPage {...props} />
+  return props.destination === 'control-center'
+    ? <ControlCenterPage {...props} />
+    : <ObservabilityPage {...props} />
 }
