@@ -25,6 +25,7 @@ type ObservabilityAuthGateProps = {
 export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
   const { session, loading } = useRequireAuth()
   const [authError, setAuthError] = useState<string | null>(null)
+  const panelName = props.destination === 'control-center' ? 'Omni Control Center' : 'Observability'
 
   const handleSignIn = async () => {
     setAuthError(null)
@@ -52,7 +53,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
         <section className="panel-card hero-card dashboard-hero">
           <div>
             <p className="eyebrow">Operator authentication</p>
-            <h2>Checking your Supabase session before opening observability.</h2>
+            <h2>Checking your Supabase session before opening {panelName}.</h2>
             <p className="subtitle">The panel stays hidden until operator access is confirmed.</p>
           </div>
           <div className="hero-meta">
@@ -69,9 +70,9 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
         <section className="panel-card hero-card dashboard-hero">
           <div>
             <p className="eyebrow">Operator authentication</p>
-            <h2>Observability panel requires operator access. Sign in to continue.</h2>
+            <h2>{panelName} requires operator access. Sign in to continue.</h2>
             <p className="subtitle">
-              Access to live cognitive traces and memory snapshots is restricted to authenticated operators.
+              Access to live cognitive and operational telemetry is restricted to authenticated operators.
             </p>
           </div>
           <div className="hero-meta">
