@@ -5,6 +5,7 @@ import { PUTER_DEV_ROUTE_PATH, canShowPuterDevRoute } from './puterDevRoute'
 export type View =
   | 'chat'
   | 'dashboard'
+  | 'control-center'
   | 'history'
   | 'observability'
   | 'projects'
@@ -25,6 +26,7 @@ export type RenderOmniShell = (
 export const VIEW_PATHS: Record<View, string> = {
   chat: '/',
   dashboard: '/dashboard',
+  'control-center': '/control-center',
   history: '/history',
   observability: '/observability',
   projects: '/projects',
