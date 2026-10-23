@@ -10,6 +10,7 @@ export type SidebarItem =
   | 'nova-conversa'
   | 'historico'
   | 'projetos'
+  | 'control-center'
   | 'provedores'
   | 'uso-tokens'
   | 'agentes'
@@ -97,6 +98,7 @@ export const CONVERSATION_ITEMS: NavItem[] = [
   { id: 'nova-conversa', label: 'Nova conversa', description: 'Abrir uma sessão cognitiva nova.' },
   { id: 'historico', label: 'Histórico', description: 'Revisar sessões e execuções passadas.' },
   { id: 'projetos', label: 'Projetos', description: 'Gerenciar projetos e organizar sessões.' },
+  { id: 'control-center', label: 'Control Center', description: 'Inspecionar arquitetura, runtime e telemetria operacional.' },
   { id: 'provedores', label: 'Provedores', description: 'Gerenciar provedores de IA e credenciais.' },
   { id: 'uso-tokens', label: 'Uso de Tokens', description: 'Acompanhar consumo de tokens por requisição.' },
   { id: 'agentes', label: 'Agentes', description: 'Gerenciar agentes de IA e suas configurações.' },
@@ -143,6 +145,7 @@ const sidebarPanelView: Record<SidebarItem, ConsolePanelView> = {
   'nova-conversa': 'chat',
   historico: 'history',
   projetos: 'chat',
+  'control-center': 'chat',
   provedores: 'chat',
   'uso-tokens': 'chat',
   agentes: 'chat',
