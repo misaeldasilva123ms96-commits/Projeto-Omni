@@ -5,6 +5,7 @@ export type { RenderOmniShell, View } from './routes'
 // Compatibility manifest for the existing static frontend verification script.
 export const APP_ROUTE_COMPONENTS = {
   agents: 'AgentsPage',
+  'control-center': 'ControlCenterPage',
   governance: 'GovernanceCenterPage',
   history: 'ChatPage',
   'lab-mode': 'LabModePage',

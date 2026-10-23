@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ObservabilityPage } from '../pages/ObservabilityPage'
+import { ControlCenterPage } from '../pages/ControlCenterPage'
 import { PUBLIC_APP_URL, canUseSupabase } from '../lib/env'
 import { supabase } from '../lib/supabase'
 import { useRequireAuth } from '../hooks/useRequireAuth'
@@ -18,11 +19,13 @@ type ObservabilityAuthGateProps = {
   onChangeView: (view: View) => void
   renderShell: RenderOmniShell
   view: View
+  destination?: 'observability' | 'control-center'
 }
 
 export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
   const { session, loading } = useRequireAuth()
   const [authError, setAuthError] = useState<string | null>(null)
+  const panelName = props.destination === 'control-center' ? 'Omni Control Center' : 'Observability'
 
   const handleSignIn = async () => {
     setAuthError(null)
@@ -30,7 +33,8 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
       parseObservabilityContext(window.location.search),
       ['request_id', 'trace_id', 'runtime_mode', 'tool'],
     )
-    const redirectTo = `${PUBLIC_APP_URL}/observability${serializeObservabilityContext(context)}`
+    const redirectPath = props.destination === 'control-center' ? '/control-center' : '/observability'
+    const redirectTo = `${PUBLIC_APP_URL}${redirectPath}${serializeObservabilityContext(context)}`
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -49,7 +53,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
         <section className="panel-card hero-card dashboard-hero">
           <div>
             <p className="eyebrow">Operator authentication</p>
-            <h2>Checking your Supabase session before opening observability.</h2>
+            <h2>Checking your Supabase session before opening {panelName}.</h2>
             <p className="subtitle">The panel stays hidden until operator access is confirmed.</p>
           </div>
           <div className="hero-meta">
@@ -66,9 +70,9 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
         <section className="panel-card hero-card dashboard-hero">
           <div>
             <p className="eyebrow">Operator authentication</p>
-            <h2>Observability panel requires operator access. Sign in to continue.</h2>
+            <h2>{panelName} requires operator access. Sign in to continue.</h2>
             <p className="subtitle">
-              Access to live cognitive traces and memory snapshots is restricted to authenticated operators.
+              Access to live cognitive and operational telemetry is restricted to authenticated operators.
             </p>
           </div>
           <div className="hero-meta">
@@ -93,5 +97,7 @@ export function ObservabilityAuthGate(props: ObservabilityAuthGateProps) {
     )
   }
 
-  return <ObservabilityPage {...props} />
+  return props.destination === 'control-center'
+    ? <ControlCenterPage {...props} />
+    : <ObservabilityPage {...props} />
 }

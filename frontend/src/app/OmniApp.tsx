@@ -62,6 +62,9 @@ export function OmniApp() {
 
   let page
   if (view === 'dashboard') page = <DashboardPage {...pageProps} />
+  if (view === 'control-center') {
+    page = <ObservabilityAuthGate {...pageProps} destination="control-center" />
+  }
   if (view === 'observability') {
     page = <ObservabilityAuthGate {...pageProps} />
   }

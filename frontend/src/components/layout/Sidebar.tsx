@@ -36,6 +36,8 @@ function SidebarIcon({ item }: { item: SidebarItem }) {
       return <svg aria-hidden="true" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
     case 'historico':
       return <svg aria-hidden="true" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 8v5l3 2" /><path d="M21 12a9 9 0 1 1-3-6.7" /></svg>
+    case 'control-center':
+      return <svg aria-hidden="true" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M3 10h18M10 10v11M14 15h4" /></svg>
     case 'projetos':
       return <svg aria-hidden="true" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
     case 'provedores':
@@ -83,6 +85,10 @@ function handleItemSelection(
   }
   if (item === 'historico') {
     onSelectView('history')
+    return
+  }
+  if (item === 'control-center') {
+    onSelectView('control-center')
     return
   }
   if (item === 'projetos') {
