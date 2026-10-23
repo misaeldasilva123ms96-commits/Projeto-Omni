@@ -14,6 +14,7 @@
 - Evento em tempo real por `/api/observability/stream-ticket` e `/api/observability/stream`, reaproveitando o hook de SSE com reconexão e snapshot inicial autenticado.
 - Configuração/saúde de provedores pelo `GET /api/v1/settings/providers`, lida a cada 60 segundos, sem expor credenciais e sem disparar testes automáticos.
 - Cadastro local de agentes mostrado explicitamente como **configuração do navegador**, e não como processo/worker em execução.
+- Runs governados consultados por GET /api/control/runs, com capacidade run_control:read e escopo do operador; projeção limitada sem metadata. Estado `running` registrado não é heartbeat de um agente.
 - Tokens históricos de sessões acessíveis, identificados como amostra. Não se apresenta custo financeiro sem base de preços/billing.
 - Estados vazios, indisponibilidade por fonte, timestamps de leitura, atualização manual e testes de semântica de saúde.
 
@@ -26,6 +27,7 @@
 | Observabilidade | SSE + snapshot autenticado | Stream; em geral ~2 s | Ticket efêmero, sessão autenticada |
 | Provedores | API de configurações | 60 s | Saúde só é afirmada com `health_valid=true` |
 | Agentes | `fetchAgents()` | Inicial/manual | Armazenamento local; status não é execução |
+| Runs governados | GET `/api/control/runs` | 60 s | Capability `run_control:read`, filtragem por operador; status do registro não prova liveness |
 | Tokens | `fetchTokenUsage()` | Inicial/manual | Amostra derivada de mensagens acessíveis |
 | Cobrança monetária | Não disponível | — | Mostrar "indisponível", nunca R$ fictício |
 
@@ -34,7 +36,7 @@
 1. Nenhum novo endpoint administrativo, execução remota, comando de shell, mutation ou proxy de segredos.
 2. `/control-center` exige sessão, mas endpoints Rust preservam autorização e sanitização independentes.
 3. Não confundir `rust_service`, `status=success` ou HTTP 200 com `FULL_COGNITIVE_RUNTIME`.
-4. Provedor apenas configurado não é "conectado", e cadastro de agente ativo não é worker rodando.
+4. Provedor apenas configurado não é "conectado", e cadastro de agente ativo não é worker rodando; run marcado `running` não prova heartbeat.
 5. Manter a UI operacional no escopo read-only; sem efeito colateral no polling.
 6. Distinguir leitura recente de disponibilidade real: SSE tem estado próprio e leitura HTTP tem timestamp.
 7. Os dados apresentados devem permanecer redigidos/sanitizados conforme a política do Omni.
@@ -64,6 +66,7 @@ Implementar status derivado de liveness do stream, alertas, refresh backoff, ret
 - Forçar Rust offline: painel deve mostrar ausência/erro, nunca estado online inventado.
 - Forçar SSE desconectado: snapshot inicial pode permanecer visível com origem correta; status SSE não pode ser "ao vivo".
 - Provedores: configured sem `health_valid` = sem teste válido.
+- Runs: acesso sem capability deve degradar somente este painel; garantir que metadata/resolution nunca sejam expostos.
 - Expor dados sensíveis nos payloads de teste para verificar redação.
 - Validar acessibilidade (teclado, rótulos e mobile) e tempo de refresh.
 - Verificar que `main` permanece idêntica e o PR está em draft.
