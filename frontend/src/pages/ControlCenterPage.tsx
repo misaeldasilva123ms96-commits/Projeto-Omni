@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { RenderOmniShell, View } from '../app/App'
 import type {
   Agent, ChatMode, ConversationSummary, PublicMilestonesSummaryV1,
@@ -43,7 +43,7 @@ const POLL_PROVIDERS_MS = 60_000
 function Panel({ title, description, children }: {
   title: string
   description?: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <section className="min-w-0 rounded-[22px] border border-white/10 bg-[rgba(13,17,37,0.78)] p-4 shadow-lg">
@@ -279,10 +279,10 @@ export function ControlCenterPage({ mode, onChangeMode, onChangeView, renderShel
           <div className="mt-3 flex flex-col gap-2">
             {transitions.length ? transitions.map((transition, index) => (
               <pre key={index} className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-black/25 p-2 text-xs text-slate-300">
-                {JSON.stringify(transition && typeof transition === 'object'
+                {redactRuntimeDebugText(JSON.stringify(transition && typeof transition === 'object'
                   ? Object.fromEntries(Object.entries(transition).filter(([key]) =>
                     ['runtime_mode', 'previous_mode', 'new_mode', 'timestamp', 'reason', 'run_id'].includes(key)
-                  )) : {}, null, 2)}
+                  )) : {}, null, 2))}
               </pre>
             )) : <p className="text-sm text-slate-500">Sem transições detalhadas disponíveis.</p>}
           </div>
